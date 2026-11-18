@@ -41,6 +41,36 @@ func NewQosResponse(qos *v1.Qos) QosResponse {
 	return QosResponse{Name: qos.Name, MaxResources: qos.Spec.MaxResources, MaxRuntime: qos.Spec.MaxRuntime}
 }
 
+// NormalizeQosResources trims resource fields and stores a bare memory number as Gi.
+// An empty cap is returned as nil so an update clears the resource ceiling.
+func NormalizeQosResources(cap *v1.ResourceCap) *v1.ResourceCap {
+	if cap == nil {
+		return nil
+	}
+	normalized := &v1.ResourceCap{
+		CPU:    strings.TrimSpace(cap.CPU),
+		Memory: memoryAsGi(strings.TrimSpace(cap.Memory)),
+		GPU:    strings.TrimSpace(cap.GPU),
+	}
+	if normalized.CPU == "" && normalized.Memory == "" && normalized.GPU == "" {
+		return nil
+	}
+	return normalized
+}
+
+// memoryAsGi appends Gi when memory has no unit. A value that already has a unit is unchanged.
+func memoryAsGi(value string) string {
+	if value == "" {
+		return ""
+	}
+	for _, r := range value {
+		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
+			return value
+		}
+	}
+	return value + "Gi"
+}
+
 // ValidateQosLimits rejects a resource quantity or a non-positive timeout that cannot be enforced.
 func ValidateQosLimits(cap *v1.ResourceCap, runtime map[string]int) error {
 	if cap != nil {

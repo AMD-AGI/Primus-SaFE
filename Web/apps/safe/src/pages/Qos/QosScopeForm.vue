@@ -4,7 +4,9 @@
       <el-input v-model="model.cpu" clearable placeholder="e.g. 64" />
     </el-form-item>
     <el-form-item label="Memory">
-      <el-input v-model="model.memory" clearable placeholder="e.g. 512Gi" />
+      <el-input v-model="model.memory" clearable placeholder="e.g. 512">
+        <template #append>Gi</template>
+      </el-input>
     </el-form-item>
     <el-form-item label="GPU">
       <el-input v-model="model.gpu" clearable placeholder="card count, e.g. 8" />
@@ -24,6 +26,9 @@
           />
           <span class="limit-unit">h</span>
         </div>
+        <el-text v-if="configuredScopes.length" class="limit-hint" type="info">
+          Close a scope to remove that timeout, then save.
+        </el-text>
         <el-dropdown v-if="availableScopes.length" trigger="click" @command="addScope">
           <el-button size="small" text type="primary">+ Add scope</el-button>
           <template #dropdown>
@@ -83,5 +88,8 @@ const removeScope = (scope: string) => {
 }
 .limit-unit {
   color: var(--el-text-color-secondary);
+}
+.limit-hint {
+  font-size: 12px;
 }
 </style>

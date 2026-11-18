@@ -42,6 +42,33 @@ export function emptyDraft(): ScopeDraft {
   return { cpu: '', memory: '', gpu: '', runtimeHours: {} }
 }
 
+/** memoryAmount strips a Gi suffix so the form can show the number next to the unit. */
+export function memoryAmount(value?: string): string {
+  const trimmed = value?.trim() ?? ''
+  const match = /^(\d+(?:\.\d+)?)Gi$/i.exec(trimmed)
+  return match ? match[1] : trimmed
+}
+
+/** memoryQuantity stores a bare number of Gi. A value that already has a unit is unchanged. */
+export function memoryQuantity(amount: string): string {
+  const trimmed = amount.trim()
+  if (!trimmed) return ''
+  if (/[a-zA-Z]/.test(trimmed)) return trimmed
+  return `${trimmed}Gi`
+}
+
+/** formatRuntime renders stored seconds as hours per workspace scope. */
+export function formatRuntime(runtime?: Record<string, number>): string {
+  return Object.entries(runtime ?? {})
+    .filter(([, seconds]) => seconds > 0)
+    .map(([name, seconds]) => {
+      const hours = seconds / 3600
+      const text = Number.isInteger(hours) ? String(hours) : String(Number(hours.toFixed(2)))
+      return `${name} ${text}h`
+    })
+    .join(', ')
+}
+
 /** scopeToDraft converts stored seconds into hours for the form. */
 export function scopeToDraft(scope?: QosScope): ScopeDraft {
   const runtimeHours: Record<string, number | undefined> = {}
@@ -50,7 +77,7 @@ export function scopeToDraft(scope?: QosScope): ScopeDraft {
   }
   return {
     cpu: scope?.maxResources?.cpu ?? '',
-    memory: scope?.maxResources?.memory ?? '',
+    memory: memoryAmount(scope?.maxResources?.memory),
     gpu: scope?.maxResources?.gpu ?? '',
     runtimeHours,
   }
@@ -60,7 +87,7 @@ export function scopeToDraft(scope?: QosScope): ScopeDraft {
 export function draftToScope(draft: ScopeDraft): QosScope | undefined {
   const maxResources: ResourceCap = {}
   if (draft.cpu.trim()) maxResources.cpu = draft.cpu.trim()
-  if (draft.memory.trim()) maxResources.memory = draft.memory.trim()
+  if (draft.memory.trim()) maxResources.memory = memoryQuantity(draft.memory)
   if (draft.gpu.trim()) maxResources.gpu = draft.gpu.trim()
   const maxRuntime: Record<string, number> = {}
   for (const [name, hours] of Object.entries(draft.runtimeHours)) {

@@ -233,6 +233,24 @@ const router = createRouter({
           meta: { requiresSystemAdminWrite: true },
         },
         {
+          path: '/qos/create',
+          name: 'QosCreate',
+          component: () => import('../pages/Qos/QosEdit.vue'),
+          meta: { requiresSystemAdminWrite: true },
+        },
+        {
+          path: '/qos/edit',
+          name: 'QosEdit',
+          component: () => import('../pages/Qos/QosEdit.vue'),
+          meta: { requiresSystemAdminWrite: true },
+        },
+        {
+          path: '/qos/detail',
+          name: 'QosDetail',
+          component: () => import('../pages/Qos/QosDetail.vue'),
+          meta: { requiresSystemAdminWrite: true },
+        },
+        {
           path: '/preflight',
           name: 'Diagnoser',
           component: () => import('../pages/Diagnoser/index.vue'),

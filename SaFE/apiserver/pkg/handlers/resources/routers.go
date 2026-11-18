@@ -143,7 +143,8 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 		{
 			qosGroup.GET("", h.ListQos)
 			qosGroup.GET(fmt.Sprintf("/:%s", common.Name), h.GetQos)
-			qosGroup.PUT(fmt.Sprintf("/:%s", common.Name), middleware.Audit("qos"), h.PutQos)
+			qosGroup.POST(fmt.Sprintf("/:%s", common.Name), middleware.Audit("qos"), h.CreateQos)
+			qosGroup.PUT(fmt.Sprintf("/:%s", common.Name), middleware.Audit("qos"), h.UpdateQos)
 			qosGroup.DELETE(fmt.Sprintf("/:%s", common.Name), middleware.Audit("qos"), h.DeleteQos)
 		}
 

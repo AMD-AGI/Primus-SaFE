@@ -1,13 +1,21 @@
 import request from '@/services/request'
-import type { ListQosResp, QosScope } from './type'
+import type { ListQosResp, QosItem, QosScope } from './type'
 
-/** listQos returns every default ceiling. */
+/** listQos returns every cluster ceiling. */
 export const listQos = (): Promise<ListQosResp> => request.get('/qos')
 
-/** putQos creates or replaces the ceiling named default or a cluster id. */
-export const putQos = (name: string, data: QosScope): Promise<void> =>
+/** getQos returns one cluster ceiling. */
+export const getQos = (name: string): Promise<QosItem> =>
+  request.get(`/qos/${encodeURIComponent(name)}`)
+
+/** createQos creates the ceiling for one cluster. */
+export const createQos = (name: string, data: QosScope): Promise<QosItem> =>
+  request.post(`/qos/${encodeURIComponent(name)}`, data)
+
+/** updateQos replaces the ceiling for one cluster. Omitted fields are cleared. */
+export const updateQos = (name: string, data: QosScope): Promise<QosItem> =>
   request.put(`/qos/${encodeURIComponent(name)}`, data)
 
-/** deleteQos removes one default ceiling. */
+/** deleteQos removes one cluster ceiling. */
 export const deleteQos = (name: string): Promise<void> =>
   request.delete(`/qos/${encodeURIComponent(name)}`)

@@ -33,9 +33,14 @@ func (h *Handler) GetQos(c *gin.Context) {
 	handle(c, h.getQos)
 }
 
-// PutQos creates or replaces one default ceiling. System administrators only.
-func (h *Handler) PutQos(c *gin.Context) {
-	handle(c, h.putQos)
+// CreateQos creates one cluster ceiling. System administrators only.
+func (h *Handler) CreateQos(c *gin.Context) {
+	handle(c, h.createQos)
+}
+
+// UpdateQos replaces one cluster ceiling. A timeout or resource left out of the request is cleared.
+func (h *Handler) UpdateQos(c *gin.Context) {
+	handle(c, h.updateQos)
 }
 
 // DeleteQos removes one default ceiling. System administrators only.
@@ -53,6 +58,9 @@ func (h *Handler) listQos(c *gin.Context) (interface{}, error) {
 	}
 	items := make([]view.QosResponse, 0, len(list.Items))
 	for i := range list.Items {
+		if list.Items[i].Name == v1.QosDefaultName {
+			continue
+		}
 		items = append(items, view.NewQosResponse(&list.Items[i]))
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
@@ -63,46 +71,89 @@ func (h *Handler) getQos(c *gin.Context) (interface{}, error) {
 	if err := h.requireSystemAdmin(c); err != nil {
 		return nil, err
 	}
-	qos, err := h.getQosObject(c, c.GetString(common.Name))
+	name := c.GetString(common.Name)
+	if err := rejectGlobalQos(name); err != nil {
+		return nil, err
+	}
+	qos, err := h.getQosObject(c, name)
 	if err != nil {
 		return nil, err
 	}
 	return view.NewQosResponse(qos), nil
 }
 
-func (h *Handler) putQos(c *gin.Context) (interface{}, error) {
+// rejectGlobalQos refuses the unused global object. Ceilings are stored per cluster.
+func rejectGlobalQos(name string) error {
+	if name == v1.QosDefaultName {
+		return commonerrors.NewBadRequest("a global qos is not used")
+	}
+	return nil
+}
+
+// readQosRequest checks the caller and normalizes one create or update body.
+func (h *Handler) readQosRequest(c *gin.Context) (string, *view.PutQosRequest, error) {
 	if err := h.requireSystemAdmin(c); err != nil {
-		return nil, err
+		return "", nil, err
 	}
 	req := &view.PutQosRequest{}
 	if _, err := apiutils.ParseRequestBody(c.Request, req); err != nil {
-		return nil, err
+		return "", nil, err
+	}
+	req.MaxResources = view.NormalizeQosResources(req.MaxResources)
+	if len(req.MaxRuntime) == 0 {
+		req.MaxRuntime = nil
 	}
 	if err := view.ValidateQosLimits(req.MaxResources, req.MaxRuntime); err != nil {
-		return nil, err
+		return "", nil, err
 	}
 	name := c.GetString(common.Name)
 	if name == "" {
-		return nil, commonerrors.NewBadRequest("qos name is required")
+		return "", nil, commonerrors.NewBadRequest("qos name is required")
 	}
-	qos := &v1.Qos{}
-	err := h.Get(c.Request.Context(), client.ObjectKey{Name: name}, qos)
-	if apierrors.IsNotFound(err) {
-		qos = &v1.Qos{ObjectMeta: metav1.ObjectMeta{Name: name}}
-		qos.Spec.MaxResources = req.MaxResources
-		qos.Spec.MaxRuntime = req.MaxRuntime
-		if err = h.Create(c.Request.Context(), qos); err != nil {
-			return nil, err
-		}
-		return view.NewQosResponse(qos), nil
+	if err := rejectGlobalQos(name); err != nil {
+		return "", nil, err
 	}
+	return name, req, nil
+}
+
+// applyQosSpec copies a request onto a Qos. Nil fields clear that dimension.
+func applyQosSpec(qos *v1.Qos, req *view.PutQosRequest) {
+	qos.Spec.MaxResources = req.MaxResources
+	qos.Spec.MaxRuntime = req.MaxRuntime
+}
+
+func (h *Handler) createQos(c *gin.Context) (interface{}, error) {
+	name, req, err := h.readQosRequest(c)
 	if err != nil {
 		return nil, err
 	}
-	patch := client.MergeFrom(qos.DeepCopy())
-	qos.Spec.MaxResources = req.MaxResources
-	qos.Spec.MaxRuntime = req.MaxRuntime
-	if err = h.Patch(c.Request.Context(), qos, patch); err != nil {
+	existing := &v1.Qos{}
+	err = h.Get(c.Request.Context(), client.ObjectKey{Name: name}, existing)
+	if err == nil {
+		return nil, commonerrors.NewConflict(fmt.Sprintf("qos %s already exists", name))
+	}
+	if !apierrors.IsNotFound(err) {
+		return nil, err
+	}
+	qos := &v1.Qos{ObjectMeta: metav1.ObjectMeta{Name: name}}
+	applyQosSpec(qos, req)
+	if err = h.Create(c.Request.Context(), qos); err != nil {
+		return nil, err
+	}
+	return view.NewQosResponse(qos), nil
+}
+
+func (h *Handler) updateQos(c *gin.Context) (interface{}, error) {
+	name, req, err := h.readQosRequest(c)
+	if err != nil {
+		return nil, err
+	}
+	qos, err := h.getQosObject(c, name)
+	if err != nil {
+		return nil, err
+	}
+	applyQosSpec(qos, req)
+	if err = h.Update(c.Request.Context(), qos); err != nil {
 		klog.ErrorS(err, "failed to update qos", "name", name)
 		return nil, err
 	}

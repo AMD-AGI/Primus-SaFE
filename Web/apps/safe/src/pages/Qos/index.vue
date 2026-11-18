@@ -1,106 +1,84 @@
 <template>
   <div>
     <el-text class="block textx-18 font-500" tag="b">QoS</el-text>
-    <el-text class="block mt-2" type="info">
-      Resource totals and timeouts for a cluster. Timeouts are set per workspace scope: Train, Infer,
-      Authoring, CICD, Ray, Sandbox. Personal values are set on a user.
-    </el-text>
+    <el-button type="primary" round :icon="Plus" class="m-t-4 text-black" @click="router.push('/qos/create')">
+      Create QoS
+    </el-button>
   </div>
-  <el-card class="mt-6 safe-card" shadow="never" v-loading="loading">
-    <div v-if="clusters.length" class="mb-6">
-      <el-text class="mb-2 block" type="info">Cluster</el-text>
-      <el-radio-group v-model="target">
-        <el-radio-button v-for="cluster in clusters" :key="cluster.clusterId" :value="cluster.clusterId">
-          {{ cluster.clusterId }}
-        </el-radio-button>
-      </el-radio-group>
-    </div>
-    <QosScopeForm v-if="drafts[target]" v-model="drafts[target]" />
-    <div v-if="target" class="mt-4">
-      <el-button type="primary" :loading="saving" @click="onSave">Save</el-button>
-      <el-button v-if="stored.includes(target)" :loading="saving" @click="onClear">Clear</el-button>
-    </div>
+  <el-card class="mt-6 safe-card" shadow="never">
+    <el-table
+      :data="items"
+      size="large"
+      class="m-t-2"
+      v-loading="loading"
+      :element-loading-text="$loadingText"
+    >
+      <el-table-column prop="name" label="Cluster" min-width="160">
+        <template #default="{ row }">
+          <el-link type="primary" v-route="{ path: '/qos/detail', query: { name: row.name } }">
+            {{ row.name }}
+          </el-link>
+        </template>
+      </el-table-column>
+      <el-table-column label="CPU" min-width="100">
+        <template #default="{ row }">{{ row.maxResources?.cpu || '-' }}</template>
+      </el-table-column>
+      <el-table-column label="Memory" min-width="120">
+        <template #default="{ row }">{{ row.maxResources?.memory || '-' }}</template>
+      </el-table-column>
+      <el-table-column label="GPU" min-width="100">
+        <template #default="{ row }">{{ row.maxResources?.gpu || '-' }}</template>
+      </el-table-column>
+      <el-table-column label="Timeout" min-width="240">
+        <template #default="{ row }">{{ formatRuntime(row.maxRuntime) || '-' }}</template>
+      </el-table-column>
+      <el-table-column label="Actions" width="160" fixed="right">
+        <template #default="{ row }">
+          <el-button link type="primary" @click="router.push({ path: '/qos/edit', query: { name: row.name } })">
+            Edit
+          </el-button>
+          <el-button link type="danger" @click="onDelete(row.name)">Delete</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
   </el-card>
 </template>
 
 <script lang="ts" setup>
-import { computed, onMounted, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
-import { useClusterStore } from '@/stores/cluster'
-import { deleteQos, listQos, putQos } from '@/services/qos'
-import { draftToScope, emptyDraft, scopeToDraft, type ScopeDraft } from '@/services/qos/type'
-import QosScopeForm from './QosScopeForm.vue'
+import { onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Plus } from '@element-plus/icons-vue'
+import { deleteQos, listQos } from '@/services/qos'
+import { formatRuntime, type QosItem } from '@/services/qos/type'
 
-const clusterStore = useClusterStore()
-const clusters = computed(() =>
-  clusterStore.items.filter((item) => item.clusterId && item.clusterId !== 'default'),
-)
-
+const router = useRouter()
 const loading = ref(false)
-const saving = ref(false)
-// Selected cluster. The page edits that cluster's ceiling only.
-const target = ref('')
-const stored = ref<string[]>([])
-const drafts = reactive<Record<string, ScopeDraft>>({})
+const items = ref<QosItem[]>([])
 
-/** ensureDraft creates an empty form for a cluster that has no ceiling yet. */
-const ensureDraft = (name: string) => {
-  if (!drafts[name]) drafts[name] = emptyDraft()
-}
-
-/** selectCluster keeps the chosen cluster, or selects the first one. */
-const selectCluster = () => {
-  const ids = clusters.value.map((cluster) => cluster.clusterId)
-  if (target.value && ids.includes(target.value)) return
-  target.value = ids[0] ?? ''
-}
-
-/** load copies stored cluster ceilings into the forms. */
+/** load reads every cluster ceiling. */
 const load = async () => {
   loading.value = true
   try {
     const res = await listQos()
-    for (const key of Object.keys(drafts)) delete drafts[key]
-    const ids = new Set(clusters.value.map((cluster) => cluster.clusterId))
-    stored.value = (res.items ?? []).map((item) => item.name).filter((name) => ids.has(name))
-    for (const item of res.items ?? []) {
-      if (ids.has(item.name)) drafts[item.name] = scopeToDraft(item)
-    }
-    for (const cluster of clusters.value) ensureDraft(cluster.clusterId)
-    selectCluster()
+    items.value = (res.items ?? []).filter((item) => item.name !== 'default')
   } finally {
     loading.value = false
   }
 }
 
-/** onSave writes the selected cluster ceiling. Empty fields clear that dimension. */
-const onSave = async () => {
-  if (!target.value) return
-  saving.value = true
-  try {
-    await putQos(target.value, draftToScope(drafts[target.value]) ?? {})
-    ElMessage.success('Saved')
+/** onDelete removes one cluster ceiling after confirmation. */
+const onDelete = (name: string) => {
+  ElMessageBox.confirm(`Delete QoS for ${name}? This cluster will have no limit.`, 'Delete QoS', {
+    confirmButtonText: 'Delete',
+    cancelButtonText: 'Cancel',
+    type: 'warning',
+  }).then(async () => {
+    await deleteQos(name)
+    ElMessage.success('Deleted')
     await load()
-  } finally {
-    saving.value = false
-  }
+  })
 }
 
-/** onClear removes the selected cluster ceiling. */
-const onClear = async () => {
-  if (!target.value) return
-  saving.value = true
-  try {
-    await deleteQos(target.value)
-    ElMessage.success('Cleared')
-    await load()
-  } finally {
-    saving.value = false
-  }
-}
-
-onMounted(async () => {
-  if (!clusterStore.isFetched) await clusterStore.fetchClusters()
-  await load()
-})
+onMounted(load)
 </script>
