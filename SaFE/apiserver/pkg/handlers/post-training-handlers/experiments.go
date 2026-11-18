@@ -166,16 +166,21 @@ func (h *Handler) SubmitExperiment(c *gin.Context) {
 		return
 	}
 	var diags []variantDiagnostic
+	prepared := make([]*preparedRun, 0, len(reqs))
 	for i, r := range reqs {
-		in, _, _, err := h.buildInput(c, reg, r, "preview")
+		r.VariantName = names[i]
+		p, compiled, err := h.prepareRun(c, reg, r)
 		if err != nil {
-			apiutils.AbortWithApiError(c, err)
+			apiutils.AbortWithApiError(c, variantError(names[i], err))
 			return
 		}
-		for _, d := range recipe.Compile(in).Diagnostics {
+		for _, d := range compiled {
 			if d.Level == recipe.LevelError {
 				diags = append(diags, variantDiagnostic{Variant: names[i], Diagnostic: d})
 			}
+		}
+		if p != nil {
+			prepared = append(prepared, p)
 		}
 	}
 	if len(diags) > 0 {
@@ -192,17 +197,14 @@ func (h *Handler) SubmitExperiment(c *gin.Context) {
 		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to record the experiment: "+err.Error()))
 		return
 	}
-	runIDs := make([]string, 0, len(reqs))
-	for i, r := range reqs {
-		r.ExperimentID, r.VariantName = exp.ExperimentID, names[i]
-		resp, _, err := h.submit(c, reg, r)
-		if err == nil && resp == nil {
-			err = commonerrors.NewInternalError(fmt.Sprintf("variant %s no longer compiles", names[i]))
-		}
+	runIDs := make([]string, 0, len(prepared))
+	for i, p := range prepared {
+		p.row.ExperimentID = exp.ExperimentID
+		resp, err := h.createRun(c, p)
 		if err != nil {
 			klog.ErrorS(err, "failed to submit a variant", "experiment", exp.ExperimentID, "variant", names[i])
-			apiutils.AbortWithApiError(c, commonerrors.NewInternalError(fmt.Sprintf(
-				"experiment %s: variant %s failed to submit after runs %v: %v", exp.ExperimentID, names[i], runIDs, err)))
+			h.rollBackExperiment(c, exp, prepared[:i+1])
+			apiutils.AbortWithApiError(c, variantError(names[i], err))
 			return
 		}
 		runIDs = append(runIDs, resp.RunID)
@@ -210,6 +212,30 @@ func (h *Handler) SubmitExperiment(c *gin.Context) {
 	klog.Infof("submit post training experiment %s with runs %v by user %s", exp.ExperimentID, runIDs,
 		c.GetString(common.UserName))
 	c.JSON(http.StatusOK, gin.H{"experimentId": exp.ExperimentID, "runIds": runIDs})
+}
+
+// rollBackExperiment deletes an experiment whose variants did not all start, with the runs created for it.
+func (h *Handler) rollBackExperiment(c *gin.Context, exp *dbclient.PostTrainingExperiment, created []*preparedRun) {
+	for _, p := range created {
+		if err := h.deleteRun(c, p.row, false); err != nil {
+			klog.ErrorS(err, "failed to roll back a run of an experiment", "experiment", exp.ExperimentID,
+				"run", p.row.RunID)
+		}
+	}
+	if err := h.db.SetPostTrainingExperimentDeleted(c.Request.Context(), exp.ExperimentID); err != nil {
+		klog.ErrorS(err, "failed to roll back an experiment", "experiment", exp.ExperimentID)
+	}
+}
+
+// variantError names the variant in err's message and keeps err's status.
+func variantError(variant string, err error) error {
+	var status *apierrors.StatusError
+	if errors.As(err, &status) {
+		out := *status
+		out.ErrStatus.Message = fmt.Sprintf("variant %s: %s", variant, status.ErrStatus.Message)
+		return &out
+	}
+	return commonerrors.NewInternalError(fmt.Sprintf("variant %s: %v", variant, err))
 }
 
 // experimentRuns returns the runs of an experiment without their recipes, in variant order.

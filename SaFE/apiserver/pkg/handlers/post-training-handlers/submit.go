@@ -107,9 +107,28 @@ func (h *Handler) SubmitRun(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+// preparedRun is a run whose request passed every check, with its row and workload built but not yet created.
+type preparedRun struct {
+	row      *dbclient.PostTrainingRun
+	workload *v1.Workload
+	warnings []recipe.Diagnostic
+}
+
 // submit runs the whole submission; it returns diagnostics without a response when the request does not compile.
 func (h *Handler) submit(c *gin.Context, reg *registry.Registry,
 	req *recipe.SubmitRequest) (*submitResponse, []recipe.Diagnostic, error) {
+	p, diags, err := h.prepareRun(c, reg, req)
+	if err != nil || p == nil {
+		return nil, diags, err
+	}
+	resp, err := h.createRun(c, p)
+	return resp, nil, err
+}
+
+// prepareRun checks a request, compiles it and builds its run row and workload without creating anything; it
+// returns diagnostics without a run when the request does not compile.
+func (h *Handler) prepareRun(c *gin.Context, reg *registry.Registry,
+	req *recipe.SubmitRequest) (*preparedRun, []recipe.Diagnostic, error) {
 	ctx := c.Request.Context()
 	if strings.TrimSpace(req.DisplayName) == "" {
 		return nil, nil, commonerrors.NewBadRequest("displayName is required")
@@ -156,19 +175,26 @@ func (h *Handler) submit(c *gin.Context, reg *registry.Registry,
 	if in.Dataset != nil {
 		row.DatasetName = in.Dataset.Name
 	}
-	if err := h.db.CreatePostTrainingRun(ctx, row); err != nil {
-		return nil, nil, commonerrors.NewInternalError("failed to record the run: " + err.Error())
+	return &preparedRun{row: row, workload: workload, warnings: res.Diagnostics}, nil, nil
+}
+
+// createRun records a prepared run and creates its workload; a run whose workload the cluster refuses is
+// recorded as failed.
+func (h *Handler) createRun(c *gin.Context, p *preparedRun) (*submitResponse, error) {
+	ctx := c.Request.Context()
+	if err := h.db.CreatePostTrainingRun(ctx, p.row); err != nil {
+		return nil, commonerrors.NewInternalError("failed to record the run: " + err.Error())
 	}
-	if err := h.client.Create(ctx, workload); err != nil {
-		klog.ErrorS(err, "failed to create the Post Training workload", "run", runID)
-		if uerr := h.db.UpdatePostTrainingRun(ctx, runID, map[string]interface{}{
+	if err := h.client.Create(ctx, p.workload); err != nil {
+		klog.ErrorS(err, "failed to create the Post Training workload", "run", p.row.RunID)
+		if uerr := h.db.UpdatePostTrainingRun(ctx, p.row.RunID, map[string]interface{}{
 			"status": string(v1.WorkloadFailed), "message": "failed to create the workload: " + err.Error(),
 		}); uerr != nil {
-			klog.ErrorS(uerr, "failed to mark the run failed", "run", runID)
+			klog.ErrorS(uerr, "failed to mark the run failed", "run", p.row.RunID)
 		}
-		return nil, nil, err
+		return nil, err
 	}
-	return &submitResponse{RunID: runID, WorkloadID: workload.Name, Warnings: res.Diagnostics}, nil, nil
+	return &submitResponse{RunID: p.row.RunID, WorkloadID: p.workload.Name, Warnings: p.warnings}, nil
 }
 
 // buildInput gathers what the compiler needs about the workspace, model, datasets and secrets of a request.
