@@ -277,7 +277,7 @@ func TestGetBearerToken(t *testing.T) {
 				c.Request.Header.Set("Authorization", tt.authHeader)
 			}
 
-			result := getBearerToken(c)
+			result := GetBearerToken(c)
 			assert.Equal(t, tt.expected, result)
 		})
 	}

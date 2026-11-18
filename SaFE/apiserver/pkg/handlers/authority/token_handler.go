@@ -185,7 +185,7 @@ func extractTokenAndUserType(c *gin.Context) (string, string, error) {
 	rawToken, err := c.Cookie(CookieToken)
 	userType, _ := c.Cookie(common.UserType)
 	if err != nil {
-		rawToken = getBearerToken(c)
+		rawToken = GetBearerToken(c)
 		userType = c.GetHeader("UserType")
 	}
 	if rawToken == "" {
@@ -197,16 +197,16 @@ func extractTokenAndUserType(c *gin.Context) (string, string, error) {
 // CallerBearer returns the credential to forward to the identity service.
 // It is the Authorization bearer when the request has one, otherwise the session cookie.
 func CallerBearer(c *gin.Context) string {
-	if token := getBearerToken(c); token != "" {
+	if token := GetBearerToken(c); token != "" {
 		return token
 	}
 	token, _ := c.Cookie(CookieToken)
 	return token
 }
 
-// getBearerToken extracts the Bearer token from the Authorization header.
+// GetBearerToken extracts the Bearer token from the Authorization header.
 // Returns the token string if valid, otherwise returns an empty string.
-func getBearerToken(c *gin.Context) string {
+func GetBearerToken(c *gin.Context) string {
 	authHeader := c.GetHeader("Authorization")
 	if authHeader == "" {
 		return ""

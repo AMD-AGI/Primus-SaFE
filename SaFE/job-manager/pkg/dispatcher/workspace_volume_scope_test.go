@@ -221,8 +221,7 @@ func TestWorkspaceVolumeScopesPerKind(t *testing.T) {
 			assert.Equal(t, hasVolume, expected, "volume, kind %s scopes %v", kind, scopes)
 
 			hasEnv := false
-			envs, err := buildEnvironment(workload, ws, 0)
-			assert.NilError(t, err)
+			envs := buildEnvironment(workload, ws, 0)
 			for _, env := range envs {
 				if env.(map[string]interface{})["name"] == jobutils.UserDataEnv {
 					hasEnv = true

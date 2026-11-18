@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 )
 
 // platformKeyResponse is the JSON body of GET /api/v1/apikeys/platform.
@@ -25,7 +27,7 @@ func FetchPlatformAPIKey(ctx context.Context, sessionBearer, cookieToken, userTy
 	sessionBearer = strings.TrimSpace(sessionBearer)
 	cookieToken = strings.TrimSpace(cookieToken)
 	if sessionBearer == "" && cookieToken == "" {
-		return "", badGateway("no session credential to fetch the platform API key")
+		return "", commonerrors.NewUnauthorized("no session credential to fetch the platform API key")
 	}
 	base, err := ResolveBase()
 	if err != nil {
