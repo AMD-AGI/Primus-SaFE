@@ -55,6 +55,29 @@ func TestCheckpointCleanup(t *testing.T) {
 	require.Empty(t, jobs.Items, "finished cleanup and count jobs are removed")
 }
 
+func TestACleanupStaysInTheRunDirectoryAndWaitsForExports(t *testing.T) {
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1",
+		Volumes: []v1.WorkspaceVolume{{Type: v1.PFS, MountPath: "/wekafs"}}}}
+	run := testRunRow("Succeeded", "done")
+	run.Recipe = `{"output":{"base":"` + testRunDir + `"}}`
+	run.CleanupRequest = `{"keep":"none","paths":["/wekafs/custom/models/pt-other/checkpoints"]}`
+	r, _, updates := newTestReconciler(t, run, ws)
+	reconcileRun(t, r)
+	last := (*updates)[len(*updates)-1]
+	require.Equal(t, "", last["cleanup_request"], "a path outside the run's checkpoints is never removed")
+	require.Contains(t, last["stage_history"], "outside the run's checkpoints")
+
+	export := exportJob("pt-x20-h", v1.WorkloadRunning)
+	run = testRunRow("Succeeded", "done")
+	run.Recipe = `{"output":{"base":"` + testRunDir + `"}}`
+	run.CleanupRequest = `{"keep":"none","paths":["` + testRunDir + `/checkpoints"]}`
+	r, _, _ = newTestReconciler(t, run, ws, export)
+	require.Equal(t, pendingRequeue, reconcileRun(t, r).RequeueAfter)
+	jobs := &v1.OpsJobList{}
+	require.NoError(t, r.List(context.Background(), jobs))
+	require.Empty(t, jobs.Items, "the cleanup waits for the export that reads a checkpoint")
+}
+
 func TestAFailingCheckpointCleanupBacksOffAndGivesUp(t *testing.T) {
 	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1",
 		Volumes: []v1.WorkspaceVolume{{Type: v1.PFS, MountPath: "/wekafs"}}}}
@@ -95,8 +118,10 @@ func TestAFailingCheckpointCleanupBacksOffAndGivesUp(t *testing.T) {
 	require.Contains(t, last["stage_history"], "rm: permission denied")
 
 	gone := testRunRow("Succeeded", "done")
-	gone.Workspace, gone.CleanupRequest = "ws-gone", `{"keep":"none","paths":["/wekafs/x/checkpoints/iter_0000010"]}`
+	gone.Workspace = "ws-gone"
+	gone.CleanupRequest = `{"keep":"none","paths":["` + testRunDir + `/checkpoints/iter_0000010"]}`
 	r, _, updates = newTestReconciler(t, gone)
 	reconcileRun(t, r)
 	require.Equal(t, "", (*updates)[len(*updates)-1]["cleanup_request"], "a cleanup in a deleted workspace cannot run")
+	require.Contains(t, (*updates)[len(*updates)-1]["stage_history"], "the workspace no longer exists")
 }

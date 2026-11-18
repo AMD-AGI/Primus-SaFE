@@ -11,6 +11,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
+	"regexp"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -36,6 +38,9 @@ const (
 	checkpointsCleanedEvent       = "checkpoints-cleaned"
 	checkpointsCleanupFailedEvent = "checkpoints-cleanup-failed"
 )
+
+// iterDirPattern is the name of one saved iteration in a checkpoint directory.
+var iterDirPattern = regexp.MustCompile(`^iter_\d{7}$`)
 
 // checkpointCleanup is the cleanup_request column the Post Training API writes; the controller counts the failed
 // attempts in it.
@@ -85,6 +90,15 @@ func (r *RunReconciler) reconcileCleanup(ctx context.Context, run *dbclient.Post
 	if err := json.Unmarshal([]byte(run.CleanupRequest), &plan); err != nil {
 		klog.ErrorS(err, "dropped an unreadable checkpoint cleanup", "run", run.RunID)
 		return ctrlruntime.Result{}, r.db.UpdatePostTrainingRun(ctx, run.RunID, map[string]interface{}{"cleanup_request": ""})
+	}
+	for _, dir := range plan.Paths {
+		if !cleanupPathAllowed(dir, parseRecipe(run).Output.Base) {
+			return ctrlruntime.Result{}, r.giveUpCleanup(ctx, run, plan,
+				fmt.Sprintf("%s is outside the run's checkpoints", dir))
+		}
+	}
+	if exporting, err := r.exporting(ctx, run.RunID); err != nil || exporting {
+		return ctrlruntime.Result{RequeueAfter: pendingRequeue}, err
 	}
 	ws := &v1.Workspace{}
 	if err := r.Get(ctx, client.ObjectKey{Name: run.Workspace}, ws); err != nil {
@@ -155,6 +169,37 @@ func (r *RunReconciler) reconcileCleanup(ctx context.Context, run *dbclient.Post
 		}
 	}
 	return ctrlruntime.Result{}, nil
+}
+
+// cleanupPathAllowed reports whether a cleanup path is a checkpoint directory of the run under base, or one
+// iteration in it.
+func cleanupPathAllowed(path, base string) bool {
+	if base == "" {
+		return false
+	}
+	path, base = filepath.Clean(path), filepath.Clean(base)
+	for _, sub := range []string{"checkpoints", "critic_checkpoints"} {
+		dir := filepath.Join(base, sub)
+		if path == dir || (filepath.Dir(path) == dir && iterDirPattern.MatchString(filepath.Base(path))) {
+			return true
+		}
+	}
+	return false
+}
+
+// exporting reports whether a checkpoint export of the run has not finished, as it reads a checkpoint.
+func (r *RunReconciler) exporting(ctx context.Context, runID string) (bool, error) {
+	jobs := &v1.WorkloadList{}
+	if err := r.List(ctx, jobs, client.MatchingLabels{v1.PostTrainingRunIdLabel: runID,
+		v1.PostTrainingRoleLabel: v1.PostTrainingRoleExport}); err != nil {
+		return false, err
+	}
+	for i := range jobs.Items {
+		if !jobs.Items[i].IsEnd() {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // giveUpCleanup drops a checkpoint cleanup that cannot finish: it records why in the stage history, clears the
