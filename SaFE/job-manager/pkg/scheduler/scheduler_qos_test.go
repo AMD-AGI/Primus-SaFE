@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -58,18 +59,21 @@ func TestUserQuotaCountsWorkloadsAdmittedThisPass(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
 		Spec:       v1.QosSpec{MaxResources: &v1.ResourceCap{GPU: "8"}},
 	}
-	first := qosWorkload("first", "alice", "8")
-	second := qosWorkload("second", "alice", "8")
-	cl := ctrlfake.NewClientBuilder().WithScheme(ttlScheme(t)).WithObjects(qos, first, second).Build()
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	older := qosWorkload("older", "alice", "8")
+	older.CreationTimestamp = metav1.NewTime(base)
+	later := qosWorkload("later", "alice", "8")
+	later.CreationTimestamp = metav1.NewTime(base.Add(time.Minute))
+	cl := ctrlfake.NewClientBuilder().WithScheme(ttlScheme(t)).WithObjects(qos, older, later).Build()
 	r := &SchedulerReconciler{Client: cl}
 
-	reason := r.userQuotaHold(context.Background(), second, []*v1.Workload{first})
+	reason := r.userQuotaHold(context.Background(), older, []*v1.Workload{later})
 	if !strings.HasPrefix(reason, commonqos.UserQuotaReasonPrefix) {
-		t.Fatalf("the workload admitted earlier in this pass must count, reason %q", reason)
+		t.Fatalf("a workload admitted earlier in this pass must count, reason %q", reason)
 	}
-	reason = r.userQuotaHold(context.Background(), second, []*v1.Workload{qosWorkload("bob-job", "bob", "8")})
+	reason = r.userQuotaHold(context.Background(), older, []*v1.Workload{qosWorkload("bob-job", "bob", "8")})
 	if reason != "" {
-		t.Fatalf("another user's admission does not count, reason %q", reason)
+		t.Fatalf("a later pending workload and another user's admission do not count, reason %q", reason)
 	}
 }
 
@@ -88,7 +92,91 @@ func TestUserQuotaErrorHoldsOnlyThatWorkload(t *testing.T) {
 	}
 }
 
-func TestConcurrentQuotaReserveAdmitsOne(t *testing.T) {
+func TestUserQuotaCountsOlderPendingWork(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	qos := &v1.Qos{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+		Spec:       v1.QosSpec{MaxResources: &v1.ResourceCap{GPU: "8"}},
+	}
+	older := qosWorkload("older", "alice", "8")
+	older.CreationTimestamp = metav1.NewTime(base)
+	newer := qosWorkload("newer", "alice", "8")
+	newer.CreationTimestamp = metav1.NewTime(base.Add(time.Minute))
+	newer.Spec.Priority = 100
+	cl := ctrlfake.NewClientBuilder().WithScheme(ttlScheme(t)).WithObjects(qos, older, newer).Build()
+	r := &SchedulerReconciler{Client: cl}
+	ctx := context.Background()
+
+	reason := r.userQuotaHold(ctx, newer, nil)
+	if !strings.HasPrefix(reason, commonqos.UserQuotaReasonPrefix) {
+		t.Fatalf("an older pending workload must count, reason %q", reason)
+	}
+	if reason := r.userQuotaHold(ctx, older, nil); reason != "" {
+		t.Fatalf("a newer pending workload must not block the older one, reason %q", reason)
+	}
+}
+
+func TestUserQuotaSameTimeKeepsHigherPriorityThenName(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	qos := &v1.Qos{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+		Spec:       v1.QosSpec{MaxResources: &v1.ResourceCap{GPU: "8"}},
+	}
+	high := qosWorkload("z-high", "alice", "8")
+	high.CreationTimestamp = metav1.NewTime(base)
+	high.Spec.Priority = 10
+	low := qosWorkload("a-low", "alice", "8")
+	low.CreationTimestamp = metav1.NewTime(base)
+	low.Spec.Priority = 1
+	cl := ctrlfake.NewClientBuilder().WithScheme(ttlScheme(t)).WithObjects(qos, high, low).Build()
+	r := &SchedulerReconciler{Client: cl}
+	ctx := context.Background()
+	if reason := r.userQuotaHold(ctx, high, nil); reason != "" {
+		t.Fatalf("the higher priority keeps the quota, reason %q", reason)
+	}
+	reason := r.userQuotaHold(ctx, low, nil)
+	if !strings.HasPrefix(reason, commonqos.UserQuotaReasonPrefix) {
+		t.Fatalf("the lower priority waits, reason %q", reason)
+	}
+
+	left := qosWorkload("m-left", "alice", "8")
+	left.CreationTimestamp = metav1.NewTime(base)
+	left.Spec.Priority = 5
+	right := qosWorkload("m-right", "alice", "8")
+	right.CreationTimestamp = metav1.NewTime(base)
+	right.Spec.Priority = 5
+	cl = ctrlfake.NewClientBuilder().WithScheme(ttlScheme(t)).WithObjects(qos, left, right).Build()
+	r = &SchedulerReconciler{Client: cl}
+	if reason := r.userQuotaHold(ctx, left, nil); reason != "" {
+		t.Fatalf("the earlier name keeps the quota, reason %q", reason)
+	}
+	reason = r.userQuotaHold(ctx, right, nil)
+	if !strings.HasPrefix(reason, commonqos.UserQuotaReasonPrefix) {
+		t.Fatalf("the later name waits, reason %q", reason)
+	}
+}
+
+func TestUserQuotaCountsScheduledWorkRegardlessOfOrder(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	qos := &v1.Qos{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+		Spec:       v1.QosSpec{MaxResources: &v1.ResourceCap{GPU: "8"}},
+	}
+	older := qosWorkload("older", "alice", "8")
+	older.CreationTimestamp = metav1.NewTime(base)
+	running := qosWorkload("running", "alice", "8")
+	running.CreationTimestamp = metav1.NewTime(base.Add(time.Minute))
+	running.Annotations = map[string]string{v1.WorkloadScheduledAnnotation: "true"}
+	cl := ctrlfake.NewClientBuilder().WithScheme(ttlScheme(t)).WithObjects(qos, older, running).Build()
+	r := &SchedulerReconciler{Client: cl}
+
+	reason := r.userQuotaHold(context.Background(), older, nil)
+	if !strings.HasPrefix(reason, commonqos.UserQuotaReasonPrefix) {
+		t.Fatalf("a running workload counts even when it is newer, reason %q", reason)
+	}
+}
+
+func TestConcurrentQuotaChecksAdmitTheEarlierWorkload(t *testing.T) {
 	qos := &v1.Qos{
 		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
 		Spec:       v1.QosSpec{MaxResources: &v1.ResourceCap{GPU: "8"}},
@@ -106,63 +194,54 @@ func TestConcurrentQuotaReserveAdmitsOne(t *testing.T) {
 		go func(i int, w *v1.Workload) {
 			defer wg.Done()
 			<-start
-			reasons[i] = r.reserveUserQuota(context.Background(), w)
+			reasons[i] = r.userQuotaHold(context.Background(), w, nil)
 		}(i, w)
 	}
 	close(start)
 	wg.Wait()
 
-	admitted := 0
-	for _, reason := range reasons {
-		if reason == "" {
-			admitted++
-			continue
-		}
-		if !strings.HasPrefix(reason, commonqos.UserQuotaReasonPrefix) {
-			t.Fatalf("reason %q", reason)
-		}
+	if reasons[0] != "" {
+		t.Fatalf("the earlier name is admitted, reason %q", reasons[0])
 	}
-	if admitted != 1 {
-		t.Fatalf("one admission must be reserved, got %d (%q)", admitted, reasons)
-	}
-	r.releaseUserQuota(first)
-	r.releaseUserQuota(second)
-	if reason := r.reserveUserQuota(context.Background(), second); reason != "" {
-		t.Fatalf("releasing the reservation frees the quota, reason %q", reason)
+	if !strings.HasPrefix(reasons[1], commonqos.UserQuotaReasonPrefix) {
+		t.Fatalf("the later name waits, reason %q", reasons[1])
 	}
 }
 
-func TestQuotaReservationDropsWhenWorkloadIsGone(t *testing.T) {
+func TestUserQuotaDropsWhenWorkloadIsGone(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	qos := &v1.Qos{
 		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
 		Spec:       v1.QosSpec{MaxResources: &v1.ResourceCap{GPU: "8"}},
 	}
-	first := qosWorkload("first", "alice", "8")
-	second := qosWorkload("second", "alice", "8")
-	cl := ctrlfake.NewClientBuilder().WithScheme(ttlScheme(t)).WithObjects(qos, first, second).Build()
+	older := qosWorkload("older", "alice", "8")
+	older.CreationTimestamp = metav1.NewTime(base)
+	newer := qosWorkload("newer", "alice", "8")
+	newer.CreationTimestamp = metav1.NewTime(base.Add(time.Minute))
+	cl := ctrlfake.NewClientBuilder().WithScheme(ttlScheme(t)).WithObjects(qos, older, newer).Build()
 	r := &SchedulerReconciler{Client: cl}
 	ctx := context.Background()
-	if reason := r.reserveUserQuota(ctx, first); reason != "" {
-		t.Fatalf("first fits the empty quota, reason %q", reason)
+	if reason := r.userQuotaHold(ctx, newer, nil); !strings.HasPrefix(reason, commonqos.UserQuotaReasonPrefix) {
+		t.Fatalf("the older workload holds the quota, reason %q", reason)
 	}
-	if err := cl.Delete(ctx, first); err != nil {
+	if err := cl.Delete(ctx, older); err != nil {
 		t.Fatal(err)
 	}
-	if reason := r.reserveUserQuota(ctx, second); reason != "" {
-		t.Fatalf("a deleted workload must not keep its reservation, reason %q", reason)
+	if reason := r.userQuotaHold(ctx, newer, nil); reason != "" {
+		t.Fatalf("a deleted workload must leave the quota, reason %q", reason)
 	}
 }
 
-func TestReserveUserQuotaEdges(t *testing.T) {
+func TestUserQuotaHoldEdges(t *testing.T) {
 	cl := ctrlfake.NewClientBuilder().WithScheme(ttlScheme(t)).Build()
 	r := &SchedulerReconciler{Client: cl}
 	ctx := context.Background()
 	plain := qosWorkload("plain", "alice", "1")
-	if reason := r.reserveUserQuota(ctx, plain); reason != "" {
+	if reason := r.userQuotaHold(ctx, plain, nil); reason != "" {
 		t.Fatalf("no qos means no ceiling, reason %q", reason)
 	}
 	plain.Labels[v1.UserIdLabel] = ""
-	if reason := r.reserveUserQuota(ctx, plain); reason != "" {
+	if reason := r.userQuotaHold(ctx, plain, nil); reason != "" {
 		t.Fatalf("a workload without a user is not counted, reason %q", reason)
 	}
 	bad := &v1.Qos{
@@ -171,9 +250,8 @@ func TestReserveUserQuotaEdges(t *testing.T) {
 	}
 	cl = ctrlfake.NewClientBuilder().WithScheme(ttlScheme(t)).WithObjects(bad, qosWorkload("w", "alice", "1")).Build()
 	r = &SchedulerReconciler{Client: cl}
-	reason := r.reserveUserQuota(ctx, qosWorkload("w", "alice", "1"))
+	reason := r.userQuotaHold(ctx, qosWorkload("w", "alice", "1"), nil)
 	if !strings.HasPrefix(reason, commonqos.UserQuotaCheckFailedPrefix) {
 		t.Fatalf("a bad ceiling holds the workload, reason %q", reason)
 	}
-	r.releaseUserQuota(nil)
 }
