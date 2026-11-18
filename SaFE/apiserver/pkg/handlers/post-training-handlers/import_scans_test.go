@@ -32,6 +32,7 @@ import (
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
 
+// A scan path must be clean and under one of the user's prefixes, which it is resolved against.
 func TestScanPath(t *testing.T) {
 	all := []string{"/shared_nfs"}
 	for in, want := range map[string]string{
@@ -67,6 +68,7 @@ func TestScanPath(t *testing.T) {
 	require.ErrorContains(t, err, "allowedPrefixes", "without prefixes nothing can be scanned")
 }
 
+// A scan job runs where Spur's storage is mounted and is found by the scan's ID.
 func TestScanWorkload(t *testing.T) {
 	m := &registry.ImportMount{Cluster: "c1", Workspace: "spur-import", Root: "/shared_nfs"}
 	tok := &dbclient.PostTrainingImportToken{TokenID: "pti-0123456789abcdef", Workspace: "ws", UserID: "u1",
@@ -92,6 +94,7 @@ func TestScanWorkload(t *testing.T) {
 		scanWorkload(m, tok, "sst_a.b", "/shared_nfs/runs/j2r5-229357", "/shared_nfs/runs").Labels[v1.DisplayNameLabel])
 }
 
+// A scan reports its job's state, the command's own reason and an unknown parser version.
 func TestImportScanStates(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1.AddToScheme(scheme))
@@ -155,6 +158,7 @@ func TestImportScanStates(t *testing.T) {
 	require.Equal(t, "spur-j2r5-229357", s.RunID)
 }
 
+// Committing a scan imports its staged run for the user who scanned it.
 func TestCommitImportScan(t *testing.T) {
 	reg, err := registry.Parse([]byte(importRegistry))
 	require.NoError(t, err)
@@ -212,6 +216,7 @@ func TestCommitImportScan(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, commit(tok).Code)
 }
 
+// A scan's upload is only staged, without holding the directory, until the dialog commits it.
 func TestScanUploadsAreStaged(t *testing.T) {
 	h, db := importHandler(t)
 	scan := cliToken()

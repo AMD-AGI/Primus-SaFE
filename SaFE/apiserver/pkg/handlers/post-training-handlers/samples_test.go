@@ -13,6 +13,7 @@ import (
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 )
 
+// The samples shown are of the latest step by default, or of the step and dataset asked for.
 func TestPickSampleStep(t *testing.T) {
 	steps := []dbclient.PostTrainingRunSampleStep{
 		{Step: 40, Dataset: "aime", Count: 8}, {Step: 40, Dataset: "math", Count: 8}, {Step: 20, Dataset: "aime", Count: 8},
@@ -35,6 +36,7 @@ func TestPickSampleStep(t *testing.T) {
 	require.False(t, ok)
 }
 
+// A run's summary says when its samples reached the cap.
 func TestSamplesCapped(t *testing.T) {
 	require.True(t, samplesCapped(&dbclient.PostTrainingRun{MetricSummary: `{"samples":50000,"samplesCapped":true}`}))
 	require.False(t, samplesCapped(&dbclient.PostTrainingRun{}))

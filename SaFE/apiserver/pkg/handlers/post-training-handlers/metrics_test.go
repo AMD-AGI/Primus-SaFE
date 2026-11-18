@@ -37,6 +37,7 @@ func rows(name string, pairs ...float64) []*dbclient.PostTrainingRunMetric {
 	return out
 }
 
+// A name pattern matches whole path segments, with * inside one segment.
 func TestMatchName(t *testing.T) {
 	cases := []struct {
 		pattern, name string
@@ -57,6 +58,7 @@ func TestMatchName(t *testing.T) {
 	}
 }
 
+// Each metric gets the axis it is drawn on.
 func TestAxisOf(t *testing.T) {
 	require.Equal(t, AxisTime, axisOf("system/gpu_util_mean", "rl"))
 	require.Equal(t, AxisStep, axisOf("train/pg_loss", "rl"))
@@ -64,6 +66,7 @@ func TestAxisOf(t *testing.T) {
 	require.Equal(t, AxisStep, axisOf("eval/val/loss", "sft"))
 }
 
+// A series is downsampled with its spikes kept and its non-finite points listed.
 func TestBuildSeries(t *testing.T) {
 	s := buildSeries("train/loss", AxisStep, rows("train/loss", 1, 2.0, 2, math.NaN(), 3, math.Inf(1), 4, 1.5), 100)
 	require.Equal(t, 4, s.Count)
@@ -93,6 +96,7 @@ func TestBuildSeries(t *testing.T) {
 	require.Equal(t, 1000, d.Count)
 }
 
+// The checkpoint markers keep the most recent and the best checkpoints.
 func TestBuildMarkers(t *testing.T) {
 	run := &dbclient.PostTrainingRun{TrainType: "sft", Status: string(v1.WorkloadFailed), FailedStage: "train",
 		Message:      "no progress for 60 minutes",
@@ -123,6 +127,7 @@ func TestBuildMarkers(t *testing.T) {
 		"steps count from 0, so a last step of 19 means 20 steps done and the checkpoint saved after them")
 }
 
+// Stopping a workload records who stopped it and deletes it, and a missing one is fine.
 func TestStopWorkload(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1.AddToScheme(scheme))
@@ -174,6 +179,7 @@ func remaining(t *testing.T, cli ctrlclient.Client) []string {
 	return names
 }
 
+// Stopping a run also ends its evaluation and exports.
 func TestStopRunEndsItsEvaluationAndExports(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1.AddToScheme(scheme))
@@ -189,6 +195,7 @@ func TestStopRunEndsItsEvaluationAndExports(t *testing.T) {
 			"service goes on serving and the backfill still fills the stopped run's metrics")
 }
 
+// Deleting a run ends its children, which the controller no longer follows.
 func TestDeleteRunEndsWhatTheControllerNoLongerFollows(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1.AddToScheme(scheme))
@@ -212,6 +219,7 @@ func TestDeleteRunEndsWhatTheControllerNoLongerFollows(t *testing.T) {
 	}
 }
 
+// A run without a framework is a slime run.
 func TestFrameworkOf(t *testing.T) {
 	reg, err := registry.Parse([]byte(testRegistry))
 	require.NoError(t, err)
@@ -220,6 +228,7 @@ func TestFrameworkOf(t *testing.T) {
 	require.Nil(t, frameworkOf(nil, "slime"))
 }
 
+// A curve request reads at most the newest points of the run.
 func TestACurveRequestReadsAtMostTheNewestPoints(t *testing.T) {
 	db := mockclient.NewMockInterface(gomock.NewController(t))
 	h := templateHandler(t, db)

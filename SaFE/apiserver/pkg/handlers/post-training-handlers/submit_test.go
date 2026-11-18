@@ -102,6 +102,7 @@ func sftExperiment(variants ...experimentVariant) experimentRequest {
 		Resources: recipe.Resources{Nodes: 1, GpusPerNode: 8}}}
 }
 
+// An experiment with a variant that fails its checks creates no run.
 func TestAnExperimentWithAVariantThatFailsItsChecksCreatesNothing(t *testing.T) {
 	db := mockclient.NewMockInterface(gomock.NewController(t))
 	h, cli := submitHandler(t, db, nil)
@@ -115,6 +116,7 @@ func TestAnExperimentWithAVariantThatFailsItsChecksCreatesNothing(t *testing.T) 
 	require.Empty(t, workloads.Items, "no run starts before every variant passed its checks")
 }
 
+// An experiment whose workload the cluster refuses is rolled back with the cluster's answer.
 func TestAnExperimentWhoseWorkloadIsRefusedIsRolledBack(t *testing.T) {
 	db := mockclient.NewMockInterface(gomock.NewController(t))
 	refused := apierrors.NewForbidden(v1.SchemeGroupVersion.WithResource("workloads").GroupResource(), "x",
@@ -141,6 +143,7 @@ func TestAnExperimentWhoseWorkloadIsRefusedIsRolledBack(t *testing.T) {
 	require.Empty(t, workloads.Items, "the baseline that started is stopped with the experiment")
 }
 
+// A run's model is deleted with the run only for a user who may delete the model.
 func TestDeletingARunDeletesItsModelOnlyForWhoMayDeleteTheModel(t *testing.T) {
 	db := mockclient.NewMockInterface(gomock.NewController(t))
 	h, cli := submitHandler(t, db, nil)
@@ -170,6 +173,7 @@ func TestDeletingARunDeletesItsModelOnlyForWhoMayDeleteTheModel(t *testing.T) {
 	}
 }
 
+// Only the user who issued a scan may commit it.
 func TestOnlyTheIssuerCommitsAScan(t *testing.T) {
 	db := mockclient.NewMockInterface(gomock.NewController(t))
 	h, cli := submitHandler(t, db, nil)
@@ -189,6 +193,7 @@ func TestOnlyTheIssuerCommitsAScan(t *testing.T) {
 		w.Body.String())
 }
 
+// A run name longer than its column is refused.
 func TestANameLongerThanItsColumnIsRefused(t *testing.T) {
 	db := mockclient.NewMockInterface(gomock.NewController(t))
 	h, _ := submitHandler(t, db, nil)

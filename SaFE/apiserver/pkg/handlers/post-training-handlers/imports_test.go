@@ -104,6 +104,7 @@ func uploadContext(h *Handler, token string, summary []byte) (*httptest.Response
 	return w, c
 }
 
+// Issuing an import token deletes the expired ones, and a failed sweep does not fail the token.
 func TestIssuingATokenDeletesTheExpiredOnes(t *testing.T) {
 	db := mockclient.NewMockInterface(gomock.NewController(t))
 	h := &Handler{db: db}
@@ -120,6 +121,7 @@ func TestIssuingATokenDeletesTheExpiredOnes(t *testing.T) {
 	require.NotEmpty(t, token)
 }
 
+// The upload address takes only a host and port from the request.
 func TestTheUploadAddressTakesOnlyAHost(t *testing.T) {
 	r := httptest.NewRequest(http.MethodPost, "http://safe.example.com:30080/api/v1/post-training/imports/tokens", nil)
 	r.Header.Set("X-Forwarded-Host", "safe.example.com")
@@ -132,6 +134,7 @@ func TestTheUploadAddressTakesOnlyAHost(t *testing.T) {
 	require.Empty(t, externalAddress(r))
 }
 
+// The import token stays out of the audit log, which names the token's owner.
 func TestTheTokenStaysOutOfWhatTheAuditKeeps(t *testing.T) {
 	data, err := json.Marshal(importTokenResponse{TokenID: "pti-1", Token: "sst_a.b", ExpiresAt: time.Now()})
 	require.NoError(t, err)
@@ -155,6 +158,7 @@ func cliToken() *dbclient.PostTrainingImportToken {
 		UserID: "u1", UserName: "alice", ExpiresAt: time.Now().Add(10 * time.Minute)}
 }
 
+// An uploaded summary writes the run and its included curves, never as a platform success.
 func TestUploadImportWritesTheRun(t *testing.T) {
 	h, db := importHandler(t)
 	token := "sst_aHR0cHM6Ly9zYWZl.secret"
@@ -195,6 +199,7 @@ func TestUploadImportWritesTheRun(t *testing.T) {
 	require.Equal(t, dbclient.PostTrainingImportImported, imp.State)
 }
 
+// An unknown token, a refused summary or a spent token is refused and recorded on the token.
 func TestUploadImportRefusals(t *testing.T) {
 	h, db := importHandler(t)
 	db.EXPECT().GetPostTrainingImportTokenByHash(gomock.Any(), gomock.Any()).Return(nil, gorm.ErrRecordNotFound)
@@ -216,6 +221,7 @@ func TestUploadImportRefusals(t *testing.T) {
 	require.Contains(t, w.Body.String(), `"runId":"spur-j2r5-229357"`)
 }
 
+// An import summary is checked field by field, and its run ID is a slug of the Slurm job.
 func TestImportSummaryChecks(t *testing.T) {
 	reg, err := registry.Parse([]byte(importRegistry))
 	require.NoError(t, err)
@@ -245,6 +251,7 @@ func TestImportSummaryChecks(t *testing.T) {
 	require.Equal(t, "spur-j2r5-229357-ab12", importRunID("j2r5 229357", "ab12"))
 }
 
+// Deleting an imported run keeps its Spur directory and frees it for another import.
 func TestDeletingAnImportedRunKeepsTheSpurDirectory(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, corev1.AddToScheme(scheme))
@@ -264,6 +271,7 @@ func TestDeletingAnImportedRunKeepsTheSpurDirectory(t *testing.T) {
 	require.False(t, imported(&dbclient.PostTrainingRun{}), "rows before the source column are SaFE runs")
 }
 
+// The curve of a downsampled import gives the number of points the log had.
 func TestCurvesOfDownsampledImports(t *testing.T) {
 	run := &dbclient.PostTrainingRun{MetricSummary: `{"points":2,"downsampled":{"train/loss":40}}`}
 	s := buildSeries("train/loss", "step", []*dbclient.PostTrainingRunMetric{{Step: 0, Value: 2}, {Step: 1, Value: 1}},
@@ -273,6 +281,7 @@ func TestCurvesOfDownsampledImports(t *testing.T) {
 	require.Nil(t, importedCounts(&dbclient.PostTrainingRun{}))
 }
 
+// An import mount needs its workspace with a read-only volume at the mount's root.
 func TestImportMountNeedsAReadOnlyVolumeAtTheRoot(t *testing.T) {
 	reg := &registry.Registry{Imports: registry.Imports{Mounts: []registry.ImportMount{
 		{Cluster: "c1", Workspace: "spur-import", Root: "/shared_nfs"}}}}
@@ -298,6 +307,7 @@ func TestImportMountNeedsAReadOnlyVolumeAtTheRoot(t *testing.T) {
 	require.Equal(t, "The import workspace gone is not available.", reason)
 }
 
+// The run list shows where an import ran and which gate failed.
 func TestListShowsWhereAnImportRan(t *testing.T) {
 	h, db := importHandler(t)
 	ctx := context.Background()
