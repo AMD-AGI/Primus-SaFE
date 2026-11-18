@@ -136,7 +136,7 @@
           <el-table-column
             v-for="(r, i) in details"
             :key="r.runId"
-            :label="exp.runs[i]?.variantName || r.displayName"
+            :label="r.variantName || r.displayName"
             min-width="140"
           >
             <template #default="{ row }">
