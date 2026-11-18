@@ -254,6 +254,7 @@ func TestDownloadWorkloadQueuesOnExternalWorkspace(t *testing.T) {
 	}
 }
 
+// The download controller runs model inspections, with their own command only for a model or run.
 func TestModelInspectJobWorkload(t *testing.T) {
 	job := &v1.OpsJob{
 		ObjectMeta: metav1.ObjectMeta{
@@ -281,6 +282,7 @@ func TestModelInspectJobWorkload(t *testing.T) {
 	assert.True(t, isDownloadWorkload(wl))
 }
 
+// Only a cleanup of a conversion cache may run its own script.
 func TestConvertCacheCleanupMayRunItsScript(t *testing.T) {
 	job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{}},
 		Spec: v1.OpsJobSpec{Type: v1.OpsJobModelCleanupType}}

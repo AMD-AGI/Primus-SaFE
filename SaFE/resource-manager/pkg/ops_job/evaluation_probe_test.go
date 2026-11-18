@@ -46,6 +46,7 @@ func runProbes(t *testing.T, url string) (string, error) {
 	return string(out), err
 }
 
+// The output probes pass on the expected replies and name the probe that got another.
 func TestOutputProbes(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 is not installed")
@@ -69,6 +70,7 @@ func TestOutputProbes(t *testing.T) {
 	assert.Contains(t, out, "probe 1 got an unexpected reply")
 }
 
+// The probes run once the endpoint answers, and evaluations without probes are unchanged.
 func TestEvalCommandRunsProbesAfterTheEndpointCheck(t *testing.T) {
 	r := &EvaluationJobReconciler{}
 	benchmarks := `[{"datasetId":"d1","datasetName":"gsm8k"}]`

@@ -62,6 +62,7 @@ func TestOnUpdate(t *testing.T) {
 	w.OnUpdate(oldW, newW)
 }
 
+// Post Training workloads send no generic workload mail and look up no user.
 func TestPostTrainingWorkloadsGetNoGenericNotification(t *testing.T) {
 	s := runtime.NewScheme()
 	assert.NoError(t, v1.AddToScheme(s))

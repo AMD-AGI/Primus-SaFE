@@ -273,6 +273,7 @@ func TestModelMapperRichBranches(t *testing.T) {
 	assert.Assert(t, res.ModelConfig == nil)
 }
 
+// A Post Training output model is exported with its run ID and structure summary.
 func TestModelMapperPostTraining(t *testing.T) {
 	model := &v1.Model{
 		ObjectMeta: metav1.ObjectMeta{Name: "m3", CreationTimestamp: metav1.Now()},

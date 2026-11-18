@@ -532,6 +532,7 @@ const v2Report = `{"schema_version":2,"name":"m@gsm8k","dataset_name":"gsm8k","m
 {"identity":{"aggregation":"mean","name":"acc","dimensions":{}},"num":1319,"score":0.81}],
 "primary_metric_identity":{"name":"acc","aggregation":"mean","dimensions":{}},"num":1319}`
 
+// Report scores come from the primary metric of each dataset, and an unreadable report is an error.
 func TestEvalReportSummary(t *testing.T) {
 	got, err := reportSummary(v2Report)
 	assert.NoError(t, err)
@@ -586,6 +587,7 @@ func (s reportStore) ListObjectsWithSize(_ context.Context, prefix string) ([]co
 	return out, nil
 }
 
+// Recorded scores are not read again, and a report over the size limit is not read.
 func TestEvalReportsAreReadOnceAndBounded(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -608,6 +610,7 @@ func TestEvalReportsAreReadOnceAndBounded(t *testing.T) {
 	assert.Zero(t, reads, "a report over the limit is not read")
 }
 
+// A finished evaluation stores its report's scores, or empty scores without a report.
 func TestEvalUpdateReportPathStoresTheScores(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
