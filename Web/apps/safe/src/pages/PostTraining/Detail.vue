@@ -598,7 +598,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -695,7 +695,8 @@ const notFound = ref(false)
 /** Whether the run was imported from Spur, which shows its own header and tabs. */
 const imported = computed(() => !!run.value && isImportedRun(run.value))
 const importInfo = ref<RunImport>()
-const metrics = ref<MetricsResp>()
+// Replaced as a whole on every load; its points stay plain arrays for the charts.
+const metrics = shallowRef<MetricsResp>()
 const smoothing = ref(0.6)
 
 const isActive = computed(() => run.value?.status === 'Pending' || run.value?.status === 'Running')

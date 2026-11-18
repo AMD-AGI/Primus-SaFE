@@ -286,7 +286,6 @@ watch(
     isDark.value,
   ],
   render,
-  { deep: true },
 )
 
 onBeforeUnmount(() => {
