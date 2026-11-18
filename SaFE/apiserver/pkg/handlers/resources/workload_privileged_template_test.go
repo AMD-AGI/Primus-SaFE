@@ -138,6 +138,10 @@ func (f *privilegedTemplateFixture) createBuilt(t *testing.T, userId, name, kind
 		},
 	}
 	c := f.ginContext(t, userId, http.MethodPost, "")
+	// ScaleSet and GithubRunner encrypt the caller's API key at create; supply a bearer key.
+	if kind == common.CICDScaleRunnerSetKind || kind == common.CICDGithubRunnerKind {
+		c.Request.Header.Set("Authorization", "Bearer ak-privileged-template-test")
+	}
 	_, err := f.h.createWorkloadImpl(c, workload, user, f.h.accessController.GetRoles(t.Context(), user))
 	return err
 }

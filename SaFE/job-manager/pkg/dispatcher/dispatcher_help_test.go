@@ -1625,9 +1625,6 @@ func TestBuildEnvironment_InjectsUserIdAndApiKey(t *testing.T) {
 }
 
 func TestUpdateCICDScaleSetEnvs_InjectsUserApiKey(t *testing.T) {
-	commonconfig.SetValue("crypto.enable", "false")
-	t.Cleanup(func() { commonconfig.SetValue("crypto.enable", "") })
-
 	workspace := jobutils.TestWorkspaceData.DeepCopy()
 	workload := jobutils.TestWorkloadData.DeepCopy()
 	workload.Labels[v1.UserIdLabel] = "user-cicd"
@@ -1670,6 +1667,7 @@ func TestUpdateCICDScaleSetEnvs_MissingEncryptedAPIKeyFails(t *testing.T) {
 	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, "test-github-secret")
 	v1.SetAnnotation(workload, v1.AdminControlPlaneAnnotation, "10.0.0.1")
 	v1.SetAnnotation(workload, v1.MainContainerAnnotation, "runner")
+	v1.RemoveAnnotation(workload, v1.UserEncryptedAPIKeyAnnotation)
 	workload.Spec.Workspace = workspace.Name
 	workload.Spec.GroupVersionKind.Kind = common.CICDScaleRunnerSetKind
 
@@ -3078,7 +3076,7 @@ func TestInitializeObjectAddsTheClustersHostAliases(t *testing.T) {
 			{"ip": "10.0.0.5", "hostnames": []string{"registry.example.com"}},
 		},
 	}})
-	t.Cleanup(viper.Reset)
+	t.Cleanup(func() { commonconfig.UnsetValue("save_image.clusters") })
 
 	obj, workload, spec := externalAuthoringPod()
 	workload.Labels[v1.ClusterIdLabel] = "edge"
@@ -3107,7 +3105,7 @@ func TestInitializeObjectAddsTheClustersHostAliases(t *testing.T) {
 
 func TestModifyHostAliasesRefusesUnreadableSettings(t *testing.T) {
 	viper.Set("save_image.clusters", "not a list")
-	t.Cleanup(viper.Reset)
+	t.Cleanup(func() { commonconfig.UnsetValue("save_image.clusters") })
 	obj, workload, spec := externalAuthoringPod()
 	assert.Assert(t, modifyHostAliases(obj, workload, podSpecPath(workload, &spec, "hostAliases")) != nil)
 }

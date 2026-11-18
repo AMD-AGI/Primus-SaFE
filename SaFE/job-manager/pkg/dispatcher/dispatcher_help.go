@@ -398,7 +398,11 @@ func cicdAPIKeyFromAnnotation(workload *v1.Workload) (string, error) {
 	if enc == "" {
 		return "", commonerrors.NewBadRequest("CICD workload is missing the encrypted API key annotation")
 	}
-	plain, err := safecrypto.NewCrypto().Decrypt(enc)
+	cryptoClient := safecrypto.NewCrypto()
+	if cryptoClient == nil {
+		return "", commonerrors.NewInternalError("crypto is not available")
+	}
+	plain, err := cryptoClient.Decrypt(enc)
 	if err != nil {
 		klog.ErrorS(err, "failed to decrypt CICD API key annotation", "workload", workload.Name)
 		return "", commonerrors.NewBadRequest("failed to decrypt the CICD API key annotation")

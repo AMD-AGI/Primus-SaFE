@@ -175,8 +175,6 @@ func isWorkspaceVolumeName(name string) bool {
 // Every kind maps to its scope: the scoped volume reaches Authoring, CICD, Train, Infer and Ray
 // kinds and never a Sandbox; with no scopes every kind gets it.
 func TestWorkspaceVolumeScopesPerKind(t *testing.T) {
-	commonconfig.SetValue("crypto.enable", "false")
-	t.Cleanup(func() { commonconfig.SetValue("crypto.enable", "") })
 	kinds := map[string]bool{
 		common.AuthoringKind:           true,
 		common.CICDScaleRunnerSetKind:  true,

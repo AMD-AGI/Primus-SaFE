@@ -54,6 +54,11 @@ func TestAttachCICDEncryptedAPIKey(t *testing.T) {
 	other.Spec.GroupVersionKind.Kind = common.PytorchJobKind
 	require.NoError(t, h.attachCICDEncryptedAPIKey(c, other, &v1.User{ObjectMeta: metav1.ObjectMeta{Name: "u1"}}))
 	assert.Empty(t, v1.GetAnnotation(other, v1.UserEncryptedAPIKeyAnnotation))
+
+	ephemeral := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "ephemeral-1"}}
+	ephemeral.Spec.GroupVersionKind.Kind = common.CICDEphemeralRunnerKind
+	require.NoError(t, h.attachCICDEncryptedAPIKey(c, ephemeral, &v1.User{ObjectMeta: metav1.ObjectMeta{Name: "u1"}}))
+	assert.Empty(t, v1.GetAnnotation(ephemeral, v1.UserEncryptedAPIKeyAnnotation))
 }
 
 func TestResolveCICDAPIKeyPlainExternalNeedsSession(t *testing.T) {

@@ -23,12 +23,13 @@ import (
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 )
 
-// attachCICDEncryptedAPIKey resolves the caller's API key for a CICD workload, encrypts it with
-// the shared crypto secret, and stores the ciphertext on the workload annotation.
+// attachCICDEncryptedAPIKey resolves the caller's API key for ScaleSet/GithubRunner CICD
+// workloads, encrypts it with the shared crypto secret, and stores the ciphertext on the
+// workload annotation. Ephemeral runners inherit USER_APIKEY from the scale-set template.
 // Bearer ak-... is used as-is; a session/token is exchanged for a primary/platform key
 // (identity in external mode, SaFE DB in builtin mode).
 func (h *Handler) attachCICDEncryptedAPIKey(c *gin.Context, workload *v1.Workload, requestUser *v1.User) error {
-	if !commonworkload.IsCICD(workload) {
+	if !commonworkload.IsCICDScalingRunnerSet(workload) && !commonworkload.IsCICDGithubRunner(workload) {
 		return nil
 	}
 	plain, err := resolveCICDAPIKeyPlain(c, requestUser)
