@@ -39,10 +39,10 @@ describe('fieldStep', () => {
 })
 
 describe('newRequest', () => {
-  it('starts with one node, one retry and HF export', () => {
+  it('starts with one node, one retry, the medium priority it shows and HF export', () => {
     const req = newRequest('ws1')
     expect(req.workspace).toBe('ws1')
-    expect(req.resources).toEqual({ nodes: 1, gpusPerNode: 8, maxRetry: 1 })
+    expect(req.resources).toEqual({ nodes: 1, gpusPerNode: 8, maxRetry: 1, priority: 1 })
     expect(req.export.hf).toBe(true)
   })
 })

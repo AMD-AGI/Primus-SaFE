@@ -50,7 +50,7 @@ export function newRequest(workspace: string): SubmitRequest {
     modelId: '',
     datasetId: '',
     choices: {},
-    resources: { nodes: 1, gpusPerNode: 8, maxRetry: 1 },
+    resources: { nodes: 1, gpusPerNode: 8, maxRetry: 1, priority: 1 },
     export: { hf: true },
     tracking: { wandb: {} },
     evaluation: {},
