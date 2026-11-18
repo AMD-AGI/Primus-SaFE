@@ -787,7 +787,12 @@ useIntervalFn(() => {
   if (autoRefresh.value && visibility.value === 'visible' && !loading.value) fetchData(true)
 }, AUTO_REFRESH_MS)
 
-const summaryOf = (row: PostTrainingRun) => parseJSON<MetricSummary>(row.metricSummary)
+// Parsed once per row; a load replaces the rows.
+const summaries = new WeakMap<PostTrainingRun, MetricSummary | undefined>()
+const summaryOf = (row: PostTrainingRun) => {
+  if (!summaries.has(row)) summaries.set(row, parseJSON<MetricSummary>(row.metricSummary))
+  return summaries.get(row)
+}
 
 /** Compare opens once its page is routed. */
 const canCompare = router.hasRoute('PostTrainingCompare')
@@ -891,7 +896,7 @@ const shortTime = (t?: string) => (t ? dayjs(t).format('MM-DD HH:mm') : '—')
  * The second line of the status: checkpoints left a week after the end, why a run waits, failed, was stopped or
  * looks stalled.
  */
-const statusNote = (row: PostTrainingRun): { text: string; cls: string } => {
+const noteOf = (row: PostTrainingRun): { text: string; cls: string } => {
   if (isImportedRun(row)) {
     const cls =
       row.status === 'Failed' ? 'text-[var(--el-color-danger)]' : 'text-[var(--safe-muted)]'
@@ -919,6 +924,18 @@ const statusNote = (row: PostTrainingRun): { text: string; cls: string } => {
   }
   if (row.status === 'Stopped') return { text: row.message ?? '', cls: 'text-[var(--safe-muted)]' }
   return { text: '', cls: '' }
+}
+
+// The notes of the current second, each made once however often its row shows it.
+const notesNow = computed(() => {
+  void now.value
+  return new WeakMap<PostTrainingRun, { text: string; cls: string }>()
+})
+/** The status note of a row as of this second. */
+const statusNote = (row: PostTrainingRun) => {
+  const notes = notesNow.value
+  if (!notes.has(row)) notes.set(row, noteOf(row))
+  return notes.get(row)!
 }
 
 const evaluationText = (row: PostTrainingRun) => {
