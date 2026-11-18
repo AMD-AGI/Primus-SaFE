@@ -48,6 +48,7 @@ import {
   exportPhase,
   EXPORT_REGISTER_WAIT,
   backToRuns,
+  experimentNamesProblem,
 } from './index'
 import type { Router } from 'vue-router'
 import request from '@/services/request'
@@ -409,6 +410,18 @@ describe('postTrainingEntryReasons', () => {
     const reasonOf = await postTrainingEntryReasons('ws1')
     expect(reasonOf?.('m1')).toBe('')
     expect(reasonOf?.('m2')).toBe('The model is not ready in this workspace.')
+  })
+})
+
+describe('experimentNamesProblem', () => {
+  it('holds every run name of the experiment to what the backend takes', () => {
+    expect(experimentNamesProblem('qwen3-sft-ab', ['lr2e-6'])).toBe('')
+    expect(experimentNamesProblem('qwen3-sft-ab', ['LR'])).toContain('Variant name "LR"')
+    expect(experimentNamesProblem('e'.repeat(96), ['v'.repeat(32)])).toContain(
+      'Shorten the experiment name',
+    )
+    expect(experimentNamesProblem('e'.repeat(119), ['v'])).toBe('')
+    expect(experimentNamesProblem('e'.repeat(120), ['v'])).toContain(`${'e'.repeat(120)}-baseline`)
   })
 })
 

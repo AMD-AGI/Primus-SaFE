@@ -224,6 +224,23 @@ export function rewardOf(s: RunSample): { value: string; detail: string } {
   return { value, detail: s.rewardDetail.Valid ? s.rewardDetail.String : '' }
 }
 
+/** The most characters of a run's name, <experiment>-<variant> for a run of an experiment. */
+export const MAX_RUN_NAME = 128
+const VARIANT_NAME = /^[a-z0-9][a-z0-9-]{0,31}$/
+
+/** Why an experiment with these variant names cannot be submitted under its name, or an empty string. */
+export function experimentNamesProblem(name: string, variants: string[]): string {
+  const bad = variants.find((v) => !VARIANT_NAME.test(v))
+  if (bad !== undefined)
+    return `Variant name "${bad}" must be up to 32 lowercase letters, digits and dashes.`
+  const long = ['baseline', ...variants]
+    .map((v) => `${name.trim()}-${v}`)
+    .find((run) => [...run].length > MAX_RUN_NAME)
+  return long
+    ? `Shorten the experiment name: the run name ${long} has more than ${MAX_RUN_NAME} characters.`
+    : ''
+}
+
 /** Returns to the run list as it was left, its filters and page included, or opens it. */
 export function backToRuns(router: Router) {
   const back = (window.history.state as { back?: unknown } | null)?.back

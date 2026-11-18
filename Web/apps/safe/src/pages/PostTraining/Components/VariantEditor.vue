@@ -147,6 +147,7 @@ import { getDatasets } from '@/services/dataset'
 import type { DatasetItem } from '@/services/dataset/type'
 import {
   VARIANT_FIELDS,
+  experimentNamesProblem,
   getPostTrainingModels,
   nestChanges,
   previewPostTrainingRecipe,
@@ -343,6 +344,11 @@ const removeChange = (v: Variant, key: string) => {
 const blocked = computed(() => {
   if (!name.value.trim()) return 'Name the experiment.'
   if (!variants.value.length) return 'Add a variant.'
+  const names = experimentNamesProblem(
+    name.value,
+    variants.value.map((v) => v.name),
+  )
+  if (names) return names
   const failing = rows.value.filter((r) => r.check.errors.length).length
   if (failing) return `Fix ${failing} variant${failing === 1 ? '' : 's'} to submit`
   return ''
