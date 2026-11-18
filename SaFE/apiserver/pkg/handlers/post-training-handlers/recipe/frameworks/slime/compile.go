@@ -190,7 +190,7 @@ func (plugin) normalize(ctx *recipe.Context) recipe.Choices {
 			c.Lr = 1e-5
 		}
 		if c.MinLr == 0 {
-			c.MinLr = 1e-6
+			c.MinLr = min(1e-6, c.Lr)
 		}
 		if len(c.FieldMap) == 0 {
 			c.FieldMap = map[string]string{"instruction": "instruction", "input": "input", "output": "output"}
@@ -274,6 +274,14 @@ func loraDefaults(ctx *recipe.Context) *recipe.LoraChoice {
 	if len(l.Targets) == 0 && ctx.FrameworkSpec.Lora != nil {
 		l.Targets = append([]string(nil), ctx.FrameworkSpec.Lora.Targets...)
 	}
+	seen, targets := map[string]bool{}, l.Targets[:0:0]
+	for _, t := range l.Targets {
+		if !seen[t] {
+			seen[t] = true
+			targets = append(targets, t)
+		}
+	}
+	l.Targets = targets
 	if l.Experts && l.ExpertMode == "" {
 		l.ExpertMode = expertModeShared
 	}

@@ -7,6 +7,7 @@ package slime
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -391,6 +392,51 @@ func TestSlimeRules(t *testing.T) {
 		}, "global batch (9) must be divisible by the data-parallel size (8)"},
 		"dense ep": {registry.TrainTypeSFT, func(in *recipe.Input) { in.Request.Choices.EP = 2 },
 			"EP must be 1 for a model without experts"},
+		"min lr above lr": {registry.TrainTypeSFT, func(in *recipe.Input) {
+			in.Request.Choices.Lr, in.Request.Choices.MinLr = 1e-5, 1e-4
+		}, "The minimum learning rate must be between 0 and the learning rate"},
+		"negative min lr": {registry.TrainTypeSFT, func(in *recipe.Input) { in.Request.Choices.MinLr = -1e-6 },
+			"The minimum learning rate must be between 0 and the learning rate"},
+		"negative epochs": {registry.TrainTypeSFT, func(in *recipe.Input) { in.Request.Choices.NumEpoch = -1 },
+			"Train for at least one epoch or step"},
+		"negative steps": {registry.TrainTypeSFT, func(in *recipe.Input) {
+			in.Request.Choices.NumRollout, in.Request.Choices.NumEpoch = -1, 1
+		}, "Train for at least one epoch or step"},
+		"negative kl": {registry.TrainTypeRL, func(in *recipe.Input) { in.Request.Choices.KlLossCoef = -0.1 },
+			"The KL loss coefficient cannot be negative"},
+		"correction": {registry.TrainTypeRL, func(in *recipe.Input) { in.Request.Choices.Correction = "foo" },
+			`Correction must be "none" or "tis"`},
+		"rl eval dataset": {registry.TrainTypeRL, func(in *recipe.Input) {
+			in.Request.EvalDatasetID = "e1"
+			in.EvalDataset = &recipe.DatasetInfo{ID: "e1", Type: recipe.DatasetTypeSFT, Path: "/wekafs/datasets/e1",
+				Ready: true}
+		}, "The evaluation set must be an rlhf dataset, not sft"},
+		"freeze with lora": {registry.TrainTypeSFT, func(in *recipe.Input) {
+			in.Request.Method = registry.MethodLora
+			in.Request.Choices.Freeze = &recipe.FreezeChoice{TrainOnly: []string{"layers.0"}}
+		}, "Freezing parameters cannot be combined with LoRA"},
+		"framework options": {registry.TrainTypeSFT, func(in *recipe.Input) {
+			in.Request.FrameworkOptions = map[string]interface{}{"x": strings.Repeat("a", 20000)}
+		}, "Framework options must not exceed 16384 bytes"},
+		"lora targets": {registry.TrainTypeSFT, func(in *recipe.Input) {
+			in.Request.Method = registry.MethodLora
+			in.Request.Choices.Lora = &recipe.LoraChoice{Targets: make([]string, 40)}
+			for i := range in.Request.Choices.Lora.Targets {
+				in.Request.Choices.Lora.Targets[i] = fmt.Sprintf("t%d", i)
+			}
+		}, "at most 32 LoRA targets"},
+		"freeze patterns": {registry.TrainTypeSFT, func(in *recipe.Input) {
+			in.Request.Choices.Freeze = &recipe.FreezeChoice{TrainOnly: make([]string, 70)}
+			for i := range in.Request.Choices.Freeze.TrainOnly {
+				in.Request.Choices.Freeze.TrainOnly[i] = fmt.Sprintf("layers.%d", i)
+			}
+		}, "at most 64 patterns to train"},
+		"field map": {registry.TrainTypeSFT, func(in *recipe.Input) {
+			in.Request.Choices.FieldMap = map[string]string{}
+			for i := 0; i < 20; i++ {
+				in.Request.Choices.FieldMap[fmt.Sprintf("k%d", i)] = "v"
+			}
+		}, "at most 16 field mappings"},
 		"engine straddles nodes": {registry.TrainTypeRL, func(in *recipe.Input) {
 			in.Request.Resources.Nodes, in.Request.Resources.GpusPerNode = 2, 6
 			in.Request.Choices.GpusPerEngine = 4
@@ -403,6 +449,21 @@ func TestSlimeRules(t *testing.T) {
 			require.Contains(t, errorsOf(in), c.want)
 		})
 	}
+}
+
+func TestOnlyLoRAExportsAPeftAdapter(t *testing.T) {
+	in := qwen3Input(t, registry.TrainTypeSFT)
+	in.Request.Export.PeftAdapter = true
+	require.False(t, compile(t, in).Recipe.Output.PeftAdapter,
+		"full training has no adapter, so a form left with the switch on exports none and asks no image feature")
+}
+
+func TestTheMinimumLearningRateStaysBelowALowRate(t *testing.T) {
+	in := qwen3Input(t, registry.TrainTypeSFT)
+	in.Request.Choices.Lr = 5e-7
+	args := strings.Join(compile(t, in).Recipe.FrameworkArgs, " ")
+	require.Contains(t, args, "--lr 5e-07", "the rate the request asks for")
+	require.Contains(t, args, "--min-lr 5e-07", "Megatron refuses a minimum above the rate")
 }
 
 func TestModelParallelRules(t *testing.T) {

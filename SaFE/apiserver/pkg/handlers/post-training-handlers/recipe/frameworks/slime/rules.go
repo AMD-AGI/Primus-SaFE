@@ -308,6 +308,14 @@ func (p plugin) Validate(ctx *recipe.Context) []recipe.Diagnostic {
 	if c.BatchSize < 1 || c.MaxTokensPerGpu < 1 || c.SaveInterval < 1 || c.Lr <= 0 {
 		fail("choices.batchSize", "Batch size, max tokens per GPU, save interval and learning rate must be positive")
 	}
+	if ctx.Request.TrainType != registry.TrainTypeRL {
+		if c.MinLr < 0 || c.MinLr > c.Lr {
+			fail("choices.minLr", "The minimum learning rate must be between 0 and the learning rate")
+		}
+		if c.NumEpoch < 0 || c.NumRollout < 0 || (c.NumEpoch == 0 && c.NumRollout == 0) {
+			fail("choices.numEpoch", "Train for at least one epoch or step")
+		}
+	}
 
 	out = append(out, trackingRules(ctx)...)
 	out = append(out, loraRules(ctx, c.Lora)...)
@@ -316,6 +324,15 @@ func (p plugin) Validate(ctx *recipe.Context) []recipe.Diagnostic {
 	}
 	if c.NumRollout < 1 || c.NSamplesPerPrompt < 1 || c.MaxResponseLen < 1 {
 		fail("choices.numRollout", "Rollouts, samples per prompt and response length must be positive")
+	}
+	if c.KlLossCoef < 0 {
+		fail("choices.klLossCoef", "The KL loss coefficient cannot be negative")
+	}
+	if c.Correction != "" && c.Correction != "none" && c.Correction != correctionTIS {
+		fail("choices.correction", `Correction must be "none" or "tis"`)
+	}
+	if ev := ctx.Input.EvalDataset; ev != nil && ev.Type != recipe.DatasetTypeRL {
+		fail("evalDatasetId", "The evaluation set must be an %s dataset, not %s", recipe.DatasetTypeRL, ev.Type)
 	}
 	if !rewardTypes[c.RewardType] {
 		fail("choices.rewardType", "Reward type %q is not available", c.RewardType)

@@ -142,11 +142,11 @@ func TestCompileRejects(t *testing.T) {
 		"too many nodes": {func(in *Input) { in.Request.Resources.Nodes = 5 }, "only 4 nodes"},
 		"dataset type":   {func(in *Input) { in.Dataset.Type = "rlhf" }, "needs a sft dataset"},
 		"no dataset":     {func(in *Input) { in.Dataset = nil }, "Select a training dataset"},
-		"unvalidated lora": {func(in *Input) {
+		"unvalidated image": {func(in *Input) {
 			in.Request.Resources.Image = "img:new"
-			in.Request.Export.PeftAdapter = true
-		}, "allows only full SFT and GRPO without other features, not peftExport"},
-		"feature":          {func(in *Input) { in.Request.Export.PeftAdapter = true }, "validated for peftExport"},
+			in.Request.Choices.ValSplit = 0.1
+		}, "allows only full SFT and GRPO without other features, not valLoss"},
+		"feature":          {func(in *Input) { in.Request.Choices.ValSplit = 0.1 }, "validated for valLoss"},
 		"rl lora colocate": {rlLora(""), "RL with LoRA needs a separate rollout"},
 		"rl min nodes":     {rlLora(LayoutSeparate), "at least 2 nodes"},
 		"missing field": {func(in *Input) {

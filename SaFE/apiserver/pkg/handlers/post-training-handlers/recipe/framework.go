@@ -787,7 +787,7 @@ func requiredFeatures(req *SubmitRequest) []string {
 	if Variant(req) == registry.VariantFreeze {
 		f = append(f, registry.FeatureFreeze)
 	}
-	if req.Export.PeftAdapter {
+	if req.Export.PeftAdapter && req.Method == registry.MethodLora {
 		f = append(f, registry.FeaturePeftExport)
 	}
 	if !rl {
@@ -814,6 +814,33 @@ func requiredFeatures(req *SubmitRequest) []string {
 	return f
 }
 
+// Limits of the free-form parts of a request, which the recipe carries in one environment variable.
+const (
+	maxFrameworkOptionsBytes = 16 << 10
+	maxFieldMappings         = 16
+	maxFreezePatterns        = 64
+	maxLoraTargets           = 32
+)
+
+// requestLimits keeps the free-form parts of a request within their limits.
+func requestLimits(req *SubmitRequest, res *Result) {
+	c := req.Choices
+	if len(req.FrameworkOptions) > 0 {
+		if b, err := json.Marshal(req.FrameworkOptions); err != nil || len(b) > maxFrameworkOptionsBytes {
+			res.errorf("frameworkOptions", "Framework options must not exceed %d bytes", maxFrameworkOptionsBytes)
+		}
+	}
+	if len(c.FieldMap) > maxFieldMappings {
+		res.errorf("choices.fieldMap", "Give at most %d field mappings", maxFieldMappings)
+	}
+	if c.Freeze != nil && len(c.Freeze.TrainOnly) > maxFreezePatterns {
+		res.errorf("choices.freeze", "Give at most %d patterns to train", maxFreezePatterns)
+	}
+	if c.Lora != nil && len(c.Lora.Targets) > maxLoraTargets {
+		res.errorf("choices.lora.targets", "Give at most %d LoRA targets", maxLoraTargets)
+	}
+}
+
 // platformRules applies the framework-independent rules of a full request.
 func platformRules(ctx *Context, res *Result) {
 	in, req, fs := ctx.Input, ctx.Request, ctx.FrameworkSpec
@@ -827,14 +854,15 @@ func platformRules(ctx *Context, res *Result) {
 		return
 	}
 	checkMethod(ctx, res)
+	if req.Method == registry.MethodLora && c.Freeze != nil && len(c.Freeze.TrainOnly) > 0 {
+		res.errorf("choices.freeze", "Freezing parameters cannot be combined with LoRA")
+	}
+	requestLimits(req, res)
 
 	variant, sep := Variant(req), separate(req)
 	if variant == registry.VariantFreeze {
 		if fs.Freeze == nil || !fs.Freeze.Allowed {
 			res.errorf("choices.freeze", "%s does not allow freezing parameters", ctx.Spec.Name)
-		}
-		if req.Method == registry.MethodLora {
-			res.errorf("choices.freeze", "Freezing parameters cannot be combined with LoRA")
 		}
 		for _, p := range c.Freeze.TrainOnly {
 			if strings.TrimSpace(p) == "" || strings.HasPrefix(p, "-") {
@@ -952,8 +980,9 @@ func assemble(ctx *Context, fw *registry.Framework, plan *FrameworkPlan) *Recipe
 		Watchdog:      ctx.Spec.Watchdog,
 		Metrics:       RecipeMetrics{Include: fw.Metrics.Include, Samples: rlSamples(req, fw)},
 		Convert:       plan.Convert,
-		Output: RecipeOutput{Base: in.RunDir, ExportHF: exportHF, PeftAdapter: req.Export.PeftAdapter,
-			SaveHF: plan.SaveHF},
+		Output: RecipeOutput{Base: in.RunDir, ExportHF: exportHF,
+			PeftAdapter: req.Export.PeftAdapter && req.Method == registry.MethodLora,
+			SaveHF:      plan.SaveHF},
 		Provenance: Provenance{Compiler: CompilerVersion, FrameworkCommit: ctx.Image.FrameworkCommit,
 			Image: ctx.Image.Image, SpecSha256: SpecSha256(ctx.Spec)},
 	}
