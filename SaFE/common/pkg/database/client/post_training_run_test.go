@@ -46,6 +46,21 @@ func TestPostTrainingRunInputs(t *testing.T) {
 	require.Error(t, c.DeletePostTrainingRunMetrics(ctx, "r1"))
 }
 
+func TestRequestPostTrainingRunCleanupTakesOneRequest(t *testing.T) {
+	c, mock := newMockClient(t)
+	ctx := context.Background()
+	mock.ExpectExec(`UPDATE "post_training_run" SET "cleanup_request"=\$1,"updated_at"=\$2 WHERE .*\(cleanup_request IS NULL OR cleanup_request = ''\)`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	taken, err := c.RequestPostTrainingRunCleanup(ctx, "pt-1", `{"keep":"none"}`)
+	require.NoError(t, err)
+	require.True(t, taken)
+	mock.ExpectExec(`UPDATE "post_training_run" SET "cleanup_request"`).WillReturnResult(sqlmock.NewResult(0, 0))
+	taken, err = c.RequestPostTrainingRunCleanup(ctx, "pt-1", `{"keep":"best"}`)
+	require.NoError(t, err)
+	require.False(t, taken, "a run that has a request keeps it")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestUpdatePostTrainingRunNotFound(t *testing.T) {
 	c, mock := newMockClient(t)
 	mock.ExpectExec(`UPDATE "post_training_run" SET`).WillReturnResult(sqlmock.NewResult(0, 0))

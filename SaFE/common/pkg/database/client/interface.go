@@ -299,6 +299,7 @@ type PostTrainingRunInterface interface {
 	GetPostTrainingRun(ctx context.Context, runID string) (*PostTrainingRun, error)
 	ListPostTrainingRuns(ctx context.Context, filter PostTrainingRunFilter) ([]*PostTrainingRun, int64, error)
 	UpdatePostTrainingRun(ctx context.Context, runID string, fields map[string]interface{}) error
+	RequestPostTrainingRunCleanup(ctx context.Context, runID, request string) (bool, error)
 	SetPostTrainingRunDeleted(ctx context.Context, runID string) error
 	CountPostTrainingRunsByRecipe(ctx context.Context, hashes []string) (map[string]RecipeRecord, error)
 }

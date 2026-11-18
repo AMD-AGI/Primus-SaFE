@@ -258,6 +258,22 @@ func (c *Client) UpdatePostTrainingRun(ctx context.Context, runID string, fields
 	return updatePostTrainingRun(db.WithContext(ctx), runID, fields)
 }
 
+// RequestPostTrainingRunCleanup sets the checkpoint cleanup request of a run that has none and reports whether it
+// did, so two requests made at once cannot both be taken.
+func (c *Client) RequestPostTrainingRunCleanup(ctx context.Context, runID, request string) (bool, error) {
+	db, err := c.GetGormDB()
+	if err != nil {
+		return false, err
+	}
+	res := db.WithContext(ctx).Model(&PostTrainingRun{}).
+		Where("run_id = ? AND is_deleted = ? AND (cleanup_request IS NULL OR cleanup_request = '')", runID, false).
+		Update("cleanup_request", request)
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected > 0, nil
+}
+
 // SetPostTrainingRunDeleted soft-deletes a run.
 func (c *Client) SetPostTrainingRunDeleted(ctx context.Context, runID string) error {
 	db, err := c.GetGormDB()

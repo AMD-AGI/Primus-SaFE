@@ -2205,6 +2205,21 @@ func (mr *MockInterfaceMockRecorder) SetPostTrainingImportTokenError(ctx, tokenI
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPostTrainingImportTokenError", reflect.TypeOf((*MockInterface)(nil).SetPostTrainingImportTokenError), ctx, tokenID, message)
 }
 
+// RequestPostTrainingRunCleanup mocks base method.
+func (m *MockInterface) RequestPostTrainingRunCleanup(ctx context.Context, runID, request string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RequestPostTrainingRunCleanup", ctx, runID, request)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RequestPostTrainingRunCleanup indicates an expected call of RequestPostTrainingRunCleanup.
+func (mr *MockInterfaceMockRecorder) RequestPostTrainingRunCleanup(ctx, runID, request interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequestPostTrainingRunCleanup", reflect.TypeOf((*MockInterface)(nil).RequestPostTrainingRunCleanup), ctx, runID, request)
+}
+
 // SetPostTrainingRunDeleted mocks base method.
 func (m *MockInterface) SetPostTrainingRunDeleted(ctx context.Context, runID string) error {
 	m.ctrl.T.Helper()
@@ -5697,6 +5712,21 @@ func (m *MockPostTrainingRunInterface) ListPostTrainingRuns(ctx context.Context,
 func (mr *MockPostTrainingRunInterfaceMockRecorder) ListPostTrainingRuns(ctx, filter interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPostTrainingRuns", reflect.TypeOf((*MockPostTrainingRunInterface)(nil).ListPostTrainingRuns), ctx, filter)
+}
+
+// RequestPostTrainingRunCleanup mocks base method.
+func (m *MockPostTrainingRunInterface) RequestPostTrainingRunCleanup(ctx context.Context, runID, request string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RequestPostTrainingRunCleanup", ctx, runID, request)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RequestPostTrainingRunCleanup indicates an expected call of RequestPostTrainingRunCleanup.
+func (mr *MockPostTrainingRunInterfaceMockRecorder) RequestPostTrainingRunCleanup(ctx, runID, request interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RequestPostTrainingRunCleanup", reflect.TypeOf((*MockPostTrainingRunInterface)(nil).RequestPostTrainingRunCleanup), ctx, runID, request)
 }
 
 // SetPostTrainingRunDeleted mocks base method.
