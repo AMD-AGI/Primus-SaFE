@@ -4,10 +4,12 @@
 #
 import base64
 import gzip
+import http.server
 import io
 import json
 import os
 import subprocess
+import threading
 
 import pytest
 
@@ -253,4 +255,69 @@ def test_a_scan_reads_only_under_the_mount_root(monkeypatch, tmp_path, capsys):
         "only a scan job leaves a termination message"
     assert spur_import.main([inside, "--stage", "--root", inside + "/"]) == 2 and calls == [True, True], \
         "the root itself may be the run directory"
+    capsys.readouterr()
+
+
+def test_links_out_of_the_run_directory_are_not_read(tmp_path):
+    other = tmp_path / "other"
+    write(str(other / "secret.log"), "--- arguments ---\n  load ...... /models/x\n--- end of arguments ---\n"
+          "secret-check-line\n")
+    write(str(other / "mon.tsv"), "2026-10-21T10:20:00Z\t1000\t1\t99999\t0\n")
+    root = make_run(str(tmp_path / "j9-1"))
+    main = os.path.join(root, "logs", "b2_sft-h1.log")
+    os.remove(main)
+    os.symlink(str(other / "secret.log"), main)
+    os.symlink(str(other / "mon.tsv"), os.path.join(root, "mon", "h9.tsv"))
+    os.symlink(str(other), os.path.join(root, "ckpt", "iter_0000009"))
+    s = spur_import.parse_slime_rocm(root)
+    assert "secret-check-line" not in json.dumps(s) and s["arguments"]["total"] == 0 and s["mainLog"] is None
+    assert "h9" not in s["resources"]
+    assert [it["iteration"] for it in s["checkpoints"]["iterations"]] == [1]
+    assert any("link out of the run directory" in w for w in s["warnings"]), s["warnings"]
+
+
+def test_non_finite_metrics_are_dropped(tmp_path):
+    root = make_run(str(tmp_path / "j9-2"))
+    with open(os.path.join(root, "logs", "b2_sft-h1.log"), "a") as f:
+        f.write(RAY + "[2026-10-21 10:23:00] model.py:953 - step 2: {'train/loss': nan, 'train/grad_norm': inf}\n")
+    s = spur_import.parse_slime_rocm(root)
+    assert [p[0] for p in s["metrics"]["train/loss"]["points"]] == [0, 1]
+    assert any("2 non-finite metric values" in w for w in s["warnings"]), s["warnings"]
+    assert json.loads(spur_import.encode(s))["name"] == "j9-2"
+
+
+def test_bad_mon_lines_are_skipped(tmp_path):
+    root = make_run(str(tmp_path / "j9-3"))
+    with open(os.path.join(root, "mon", "h1.tsv"), "a") as f:
+        f.write("2026-10-21T10:21:00Z\t1000\tn/a\t7000\t9000\n")
+    assert spur_import.parse_slime_rocm(root)["resources"]["h1"]["hostMemPeakKb"] == 900
+
+
+def test_the_upload_does_not_follow_redirects(capsys):
+    hits = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            self.send_response(302)
+            self.send_header("Location", "http://127.0.0.1:%d/elsewhere" % self.server.server_port)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def do_GET(self):
+            hits.append(self.headers.get("Authorization"))
+            self.send_response(200)
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+            self.wfile.write(b"{}")
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        status, _ = spur_import.upload(b"{}", token("http://127.0.0.1:%d" % server.server_port))
+    finally:
+        server.shutdown()
+    assert status == 302 and hits == [], "the one-time token goes only to the address it names"
     capsys.readouterr()

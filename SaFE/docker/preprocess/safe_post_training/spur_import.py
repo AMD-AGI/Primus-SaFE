@@ -17,6 +17,7 @@ import datetime
 import getpass
 import gzip
 import json
+import math
 import os
 import re
 import sys
@@ -112,9 +113,34 @@ def mtime(path):
         return None
 
 
-def read_rows(path):
+def inside(root, path):
+    """Report whether path, with its links resolved, stays in root, the resolved run directory: the scan reads
+    nothing that a link in the run directory points elsewhere to."""
+    real = os.path.realpath(path)
+    return real == root or real.startswith(root + "/")
+
+
+def links_out(root):
+    """List the entries of the run directory and of its known subdirectories that link out of it."""
+    out = set()
+    for sub in ("", "logs", "results", "markers", "mon", "ckpt", "rollout"):
+        path = os.path.join(root, sub) if sub else root
+        if not inside(root, path):
+            out.add(sub)
+            continue
+        if os.path.isdir(path):
+            for name in os.listdir(path):
+                entry = os.path.join(path, name)
+                if not inside(root, entry):
+                    out.add(os.path.relpath(entry, root))
+    return sorted(out)
+
+
+def read_rows(root, path):
     """Read the tab-separated gate, node, result, seconds rows of a results file."""
     rows = []
+    if not inside(root, path):
+        return rows
     try:
         with open(path, errors="replace") as f:
             for line in f:
@@ -134,19 +160,19 @@ def read_verdict(root):
     path = os.path.join(root, "FAIL")
     if not os.path.exists(path):
         return "", []
-    return "FAIL", read_rows(path)
+    return "FAIL", read_rows(root, path)
 
 
 def read_results(root):
     """Read results/results.tsv, or merge the per-node results files when it is missing."""
     path = os.path.join(root, "results", "results.tsv")
     if os.path.exists(path):
-        return read_rows(path)
+        return read_rows(root, path)
     rows = []
-    for name in sorted(os.listdir(os.path.join(root, "results")) if os.path.isdir(os.path.join(root, "results"))
-                       else []):
+    results = os.path.join(root, "results")
+    for name in sorted(os.listdir(results) if os.path.isdir(results) and inside(root, results) else []):
         if name.startswith("results-") and name.endswith(".tsv"):
-            rows.extend(read_rows(os.path.join(root, "results", name)))
+            rows.extend(read_rows(root, os.path.join(results, name)))
     return rows
 
 
@@ -154,7 +180,7 @@ def read_nodes(root):
     """Read the node logs: each host with its rank, ip, image and head, and the BEGIN and END time of every gate."""
     nodes, gates = [], {}
     for name in sorted(os.listdir(root)):
-        if not (name.startswith("node-") and name.endswith(".log")):
+        if not (name.startswith("node-") and name.endswith(".log")) or not inside(root, os.path.join(root, name)):
             continue
         node = {"host": name[len("node-"):-len(".log")]}
         with open(os.path.join(root, name), errors="replace") as f:
@@ -183,7 +209,7 @@ def read_nodes(root):
 def read_markers(root):
     """List the marker files with their modification times; the files are empty."""
     path = os.path.join(root, "markers")
-    if not os.path.isdir(path):
+    if not os.path.isdir(path) or not inside(root, path):
         return []
     out = [{"name": n, "time": iso(mtime(os.path.join(path, n)))} for n in os.listdir(path)]
     return sorted(out, key=lambda m: (m["time"] or "", m["name"]))
@@ -193,18 +219,22 @@ def read_mon(root):
     """Read mon/<host>.tsv: host memory in use (total - available) and the largest per-GPU VRAM, with peaks."""
     out = {}
     path = os.path.join(root, "mon")
-    if not os.path.isdir(path):
+    if not os.path.isdir(path) or not inside(root, path):
         return out
     for name in sorted(os.listdir(path)):
-        if not name.endswith(".tsv"):
+        if not name.endswith(".tsv") or not inside(root, os.path.join(path, name)):
             continue
         samples, mem_peak, vram_peak = [], 0, 0
         with open(os.path.join(path, name), errors="replace") as f:
             for line in f:
                 parts = line.rstrip("\n").split("\t")
-                if len(parts) < 5 or not parts[1].isdigit():
+                if len(parts) < 5:
                     continue
-                ts, total, avail, vram = utc(parts[0]), int(parts[1]), int(parts[2]), int(parts[3])
+                try:
+                    total, avail, vram = int(parts[1]), int(parts[2]), int(parts[3])
+                except ValueError:
+                    continue
+                ts = utc(parts[0])
                 used = max(0, total - avail)
                 samples.append([ts, used, vram])
                 mem_peak, vram_peak = max(mem_peak, used), max(vram_peak, vram)
@@ -212,16 +242,20 @@ def read_mon(root):
     return out
 
 
-def dir_size(path):
-    """Return the number of files under a directory and their total size."""
+def dir_size(root, path):
+    """Return the number of files under a directory of the run and their total size; links are not followed."""
     files, size = 0, 0
+    if not inside(root, path):
+        return files, size
     for base, _, names in os.walk(path):
         for n in names:
             try:
-                size += os.stat(os.path.join(base, n)).st_size
-                files += 1
+                st = os.lstat(os.path.join(base, n))
             except OSError:
-                pass
+                continue
+            if not os.path.islink(os.path.join(base, n)):
+                size += st.st_size
+                files += 1
     return files, size
 
 
@@ -229,22 +263,24 @@ def read_checkpoints(root, steps_per_rollout):
     """List ckpt/: the latest iteration and each iter_* with its files, size, time and trained steps; and rollout/."""
     out = {"latest": None, "iterations": [], "rollout": None}
     ckpt = os.path.join(root, "ckpt")
-    if os.path.isdir(ckpt):
+    if os.path.isdir(ckpt) and inside(root, ckpt):
+        latest = os.path.join(ckpt, "latest_checkpointed_iteration.txt")
         try:
-            with open(os.path.join(ckpt, "latest_checkpointed_iteration.txt")) as f:
-                out["latest"] = int(f.read().strip())
+            if inside(root, latest):
+                with open(latest) as f:
+                    out["latest"] = int(f.read().strip())
         except (OSError, ValueError):
             pass
         for name in sorted(os.listdir(ckpt)):
             m = re.fullmatch(r"iter_(\d+)", name)
-            if m:
-                files, size = dir_size(os.path.join(ckpt, name))
+            if m and inside(root, os.path.join(ckpt, name)):
+                files, size = dir_size(root, os.path.join(ckpt, name))
                 it = int(m.group(1))
                 out["iterations"].append({"iteration": it, "step": (it + 1) * steps_per_rollout, "files": files,
                                           "bytes": size, "time": iso(mtime(os.path.join(ckpt, name)))})
     rollout = os.path.join(root, "rollout")
-    if os.path.isdir(rollout):
-        files, size = dir_size(rollout)
+    if os.path.isdir(rollout) and inside(root, rollout):
+        files, size = dir_size(root, rollout)
         out["rollout"] = {"files": files, "bytes": size}
     return out
 
@@ -258,18 +294,19 @@ def parse_value(text):
         return text == "True"
     for kind in (int, float):
         try:
-            return kind(text)
+            value = kind(text)
         except ValueError:
-            pass
+            continue
+        return value if kind is int or math.isfinite(value) else text
     return text
 
 
 def read_main_log(path, adapter):
     """Read the main log line by line: the arguments section, the metric points with their wall times, and the
-    check output printed without a Ray prefix at its end."""
+    check output printed without a Ray prefix at its end. NaN and infinite values are counted and dropped."""
     args, in_args, check = {}, False, []
     series = {}
-    errors = lines = 0
+    errors = lines = dropped = 0
     with open(path, errors="replace") as f:
         for line in f:
             if "--- arguments ---" in line:
@@ -296,6 +333,9 @@ def read_main_log(path, adapter):
                     t = _LOG_TIME.search(stripped)
                     wall = utc("%sT%sZ" % t.groups()) if t else None
                     for name, value in values.items():
+                        if not math.isfinite(value):
+                            dropped += 1
+                            continue
                         s = series.setdefault(name, {"axis": axis, "points": {}})
                         s["points"][step] = [step, value, wall]
                     check = []
@@ -305,7 +345,7 @@ def read_main_log(path, adapter):
                     check.append(line.rstrip("\n")[:MAX_LINE])
             else:
                 check = []
-    return args, series, check, errors, lines
+    return args, series, check, errors, lines, dropped
 
 
 def is_secret(name, value):
@@ -415,7 +455,12 @@ def parse_slime_rocm(root):
     """Parse a slime-rocm run directory into a summary (schema slime-rocm-run/1)."""
     if not os.path.isdir(root):
         raise RunDirError("%s is not a directory" % root)
+    root = os.path.realpath(root)
     warnings = []
+    outside = links_out(root)
+    if outside:
+        warnings.append("%d entries link out of the run directory and are not read: %s." % (
+            len(outside), ", ".join(outside[:5]) + (", ..." if len(outside) > 5 else "")))
     verdict, failed = read_verdict(root)
     results = read_results(root)
     nodes, head, gates = read_nodes(root)
@@ -426,13 +471,18 @@ def parse_slime_rocm(root):
     main = os.path.join(root, "logs", "%s-%s.log" % (train_gate, head)) if train_gate else ""
     adapter = Adapter(env={})
     adapter.train_type = "sft"
-    args, series, check, parse_errors, metric_lines = {}, {}, [], 0, 0
+    args, series, check, parse_errors, metric_lines, dropped = {}, {}, [], 0, 0, 0
+    if main and os.path.exists(main) and not inside(root, main):
+        warnings.append("The main log %s links out of the run directory, so it is not read." % os.path.basename(main))
+        main = ""
     if main and os.path.exists(main):
-        args, series, check, parse_errors, metric_lines = read_main_log(main, adapter)
-    else:
+        args, series, check, parse_errors, metric_lines, dropped = read_main_log(main, adapter)
+    elif main or not train_gate:
         warnings.append("No main log of a training gate on the head node %s." % head)
     if parse_errors:
         warnings.append("%d metric lines could not be parsed." % parse_errors)
+    if dropped:
+        warnings.append("%d non-finite metric values were dropped." % dropped)
     train_type = "sft" if args.get("loss_type") == "sft_loss" else ("rl" if args else "sft")
     spr = steps_per_rollout(args, train_type)
     markers = read_markers(root)
@@ -506,17 +556,25 @@ def downsample(points, buckets):
     return out
 
 
+def dump(summary):
+    """Serialize a summary as strict JSON, which has no NaN or infinity."""
+    try:
+        return json.dumps(summary, separators=(",", ":"), allow_nan=False).encode()
+    except ValueError as e:
+        raise RunDirError("the summary holds a value JSON cannot carry: %s" % e)
+
+
 def encode(summary, limit=None):
     """Serialize a summary, downsampling its longest series until it fits under limit bytes."""
     limit = limit or MAX_SUMMARY
-    data = json.dumps(summary, separators=(",", ":")).encode()
+    data = dump(summary)
     max_points = 1000
     while len(data) > limit and max_points >= 2:
         for s in summary["metrics"].values():
             if len(s["points"]) > max_points:
                 s["points"] = downsample(s["points"], max_points // 2)
                 s["downsampled"] = True
-        data = json.dumps(summary, separators=(",", ":")).encode()
+        data = dump(summary)
         max_points //= 2
     if len(data) > limit:
         raise RunDirError("the summary is %d bytes even after downsampling, above the limit of %d" % (len(data),
@@ -553,8 +611,18 @@ def read_token():
     return token
 
 
-def upload(data, token, stage=False, opener=urllib.request.urlopen):
-    """POST a gzip-compressed summary to SaFE with the token; return the HTTP status and the JSON answer."""
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuses redirects, so the one-time token goes only to the address it names."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        """Return no new request, which makes the redirect an HTTPError."""
+        return None
+
+
+def upload(data, token, stage=False, opener=None):
+    """POST a gzip-compressed summary to SaFE with the token; return the HTTP status and the JSON answer. A redirect
+    is answered as its status, not followed."""
+    opener = opener or urllib.request.build_opener(NoRedirect).open
     address = token_address(token)
     if urllib.parse.urlsplit(address).scheme == "http":
         print("warning: %s is plain http, so the token and the summary travel unencrypted" % address, file=sys.stderr)
