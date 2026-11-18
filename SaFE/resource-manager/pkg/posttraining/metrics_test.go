@@ -288,6 +288,7 @@ func TestIngestionStallDiskAndNoRetry(t *testing.T) {
 func TestLostLauncherIsMarkedAndCleared(t *testing.T) {
 	in := newTestIngestion(100)
 	in.cur.LastStage = time.Now().Add(-11 * time.Minute).Unix()
+	in.logRead = true
 	syncStall(in.u, in, true)
 	require.Contains(t, in.u.fields["message"], lostMessage)
 	require.NotNil(t, in.u.fields["stalled_since"])

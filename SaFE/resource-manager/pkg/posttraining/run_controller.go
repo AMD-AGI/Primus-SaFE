@@ -740,11 +740,12 @@ func (r *RunReconciler) readSubmitter(ctx context.Context, w *v1.Workload, cur *
 			in.add(m)
 		}
 	})
+	in.logRead = err == nil
 	return n >= maxReadBytes, err
 }
 
-// syncStall marks the run stalled from the watchdog's warning, or when a running launcher has printed no [STAGE]
-// for lostAfter, and clears the mark on progress or, for a lost launcher, on its next [STAGE].
+// syncStall marks the run stalled from the watchdog's warning, or when a running launcher whose log was read has
+// printed no [STAGE] for lostAfter, and clears the mark on progress or, for a lost launcher, on its next [STAGE].
 func syncStall(u *runUpdate, in *ingestion, running bool) {
 	run := u.run
 	lost := strings.HasPrefix(run.Message, lostMessage)
@@ -765,7 +766,7 @@ func syncStall(u *runUpdate, in *ingestion, running bool) {
 	case run.StalledSince.Valid && (in.unstalled || (lost && in.sawStage)):
 		u.fields["stalled_since"] = nil
 		u.set("message", run.Message, "")
-	case running && !run.StalledSince.Valid && !in.sawStage && in.cur.LastStage > 0 &&
+	case running && in.logRead && !run.StalledSince.Valid && !in.sawStage && in.cur.LastStage > 0 &&
 		u.now.Sub(time.Unix(in.cur.LastStage, 0)) > lostAfter:
 		minutes := int(u.now.Sub(time.Unix(in.cur.LastStage, 0)).Minutes())
 		message := fmt.Sprintf("%s for %d minutes", lostMessage, minutes)

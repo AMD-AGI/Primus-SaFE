@@ -8,6 +8,7 @@ package posttraining
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -69,6 +70,28 @@ func newTestReconciler(t *testing.T, run *dbclient.PostTrainingRun, objs ...clie
 		}).AnyTimes()
 	r := &RunReconciler{Client: cli, reader: cli, db: db, clientManager: commonutils.NewObjectManager()}
 	return r, db, updates
+}
+
+func TestAnUnreadableLogDoesNotMarkTheLauncherLost(t *testing.T) {
+	run := testRunRow("Running", "train")
+	data, err := json.Marshal(&logCursor{Pod: "sub-1", LastStage: time.Now().Add(-11 * time.Minute).Unix()})
+	require.NoError(t, err)
+	run.MetricCursor = string(data)
+	w := endedWorkload(v1.WorkloadRunning)
+	w.Status.EndTime = nil
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	var saved map[string]interface{}
+	db.EXPECT().SavePostTrainingRunMetrics(gomock.Any(), testRun, gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, _ []*dbclient.PostTrainingRunMetric, fields map[string]interface{}) error {
+			saved = fields
+			return nil
+		})
+	r := &RunReconciler{reader: ctrlfake.NewClientBuilder().Build(), db: db,
+		clientManager: commonutils.NewObjectManager()}
+	_, err = r.readLog(context.Background(), w, newRunUpdate(run))
+	require.NoError(t, err)
+	require.NotContains(t, saved, "message", "a log the controller cannot read says nothing about the launcher")
+	require.NotContains(t, saved, "stalled_since")
 }
 
 // endedWorkload returns the train workload of testRun in phase, ended a minute ago.

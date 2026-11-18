@@ -532,8 +532,10 @@ type ingestion struct {
 	stall     *stallDetail
 	unstalled bool
 	sawStage  bool
-	noRetry   bool
-	disk      string
+	// logRead is set when this read reached the submitter's log, without which no [STAGE] says nothing.
+	logRead bool
+	noRetry bool
+	disk    string
 	// parseFailures is the growth of the launchers' unparsable metric line counts in this read.
 	parseFailures int64
 	// conversion is the shared conversion the launcher reused or made.
