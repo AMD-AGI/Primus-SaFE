@@ -142,10 +142,11 @@ func (h *Handler) ListRuns(c *gin.Context) {
 		klog.ErrorS(err, "failed to count the successful runs of the listed recipes")
 	}
 	items := make([]listItem, 0, len(runs))
+	imports := h.listImports(c.Request.Context(), runs)
 	for _, r := range runs {
 		rec := records[r.RecipeHash]
 		items = append(items, listItem{PostTrainingRun: r, VerifiedRuns: rec.Succeeded, LatestVerifiedRun: rec.LatestRun,
-			Import: h.listImportOf(c.Request.Context(), r)})
+			Import: imports[r.RunID]})
 	}
 	c.JSON(http.StatusOK, listResponse{Total: total, Items: items})
 }
@@ -158,16 +159,32 @@ func pageLimit(limit, def int) int {
 	return min(limit, maxListLimit)
 }
 
-// listImportOf reads what the list shows of an imported run's import, or nil for a SaFE run or an unreadable record.
-func (h *Handler) listImportOf(ctx context.Context, run *dbclient.PostTrainingRun) *listImport {
-	if !imported(run) {
-		return nil
+// listImports reads, with one query, what the list shows of the imports of the imported runs among runs, keyed by
+// run id; a SaFE run, or one whose record cannot be read, has none.
+func (h *Handler) listImports(ctx context.Context, runs []*dbclient.PostTrainingRun) map[string]*listImport {
+	var ids []string
+	for _, r := range runs {
+		if imported(r) {
+			ids = append(ids, r.RunID)
+		}
 	}
-	imp, err := h.db.GetPostTrainingImportByRun(ctx, run.RunID)
+	out := map[string]*listImport{}
+	if len(ids) == 0 {
+		return out
+	}
+	records, err := h.db.ListPostTrainingImportsOfRuns(ctx, ids)
 	if err != nil {
-		klog.ErrorS(err, "failed to read the import of a run", "run", run.RunID)
-		return nil
+		klog.ErrorS(err, "failed to read the imports of the listed runs")
+		return out
 	}
+	for id, imp := range records {
+		out[id] = listImportOf(imp)
+	}
+	return out
+}
+
+// listImportOf returns what the list shows of an import.
+func listImportOf(imp *dbclient.PostTrainingImport) *listImport {
 	out := &listImport{SlurmJobID: imp.SlurmJobID, SourcePath: imp.SourcePath, Via: imp.Via, Verdict: imp.Verdict}
 	if imp.CreatedAt.Valid {
 		out.ImportedAt = &imp.CreatedAt.Time
