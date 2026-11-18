@@ -624,6 +624,7 @@ import {
   cleanupHintBytes,
   cleanupPostTrainingCheckpoints,
   deletePostTrainingRun,
+  exportPhase,
   exportPostTrainingCheckpoint,
   evaluatePostTrainingRun,
   formatDuration,
@@ -779,12 +780,19 @@ const fetchMetrics = async (quiet = false) => {
   }
 }
 
-/** Whether a checkpoint export is still running or its model is not ready yet. */
-const exporting = computed(() =>
-  (run.value?.exports ?? []).some((e) =>
-    e.modelId ? e.modelPhase !== 'Ready' : e.status !== 'Failed' && e.status !== 'Stopped',
-  ),
+// When each export by step was first seen succeeded without its model.
+const exportSucceededAt = new Map<number, number>()
+/** The phase of each export, read again with every load of the run. */
+const exportPhases = computed(() =>
+  (run.value?.exports ?? []).map((e) => {
+    if (e.status === 'Succeeded' && !e.modelId && !exportSucceededAt.has(e.step))
+      exportSucceededAt.set(e.step, Date.now())
+    return exportPhase(e, exportSucceededAt.get(e.step))
+  }),
 )
+
+/** Whether a checkpoint export is still running or its model is not ready yet. */
+const exporting = computed(() => exportPhases.value.includes('running'))
 
 useIntervalFn(() => {
   if (
@@ -1158,8 +1166,8 @@ const outputs = computed(() => {
       failed: false,
     })
   }
-  for (const e of r.exports ?? []) {
-    const failed = !e.modelId && (e.status === 'Failed' || e.status === 'Stopped')
+  for (const [i, e] of (r.exports ?? []).entries()) {
+    const failed = !e.modelId && exportPhases.value[i] === 'failed'
     rows.push({
       name: e.displayName || `${r.displayName}-step${e.step}`,
       modelId: e.modelId,

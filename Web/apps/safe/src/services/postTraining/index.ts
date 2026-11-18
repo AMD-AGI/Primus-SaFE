@@ -9,6 +9,7 @@ import type {
   Experiment,
   ExperimentListResp,
   ExperimentRequest,
+  ExportItem,
   FreezeOptions,
   ImportConfig,
   ImportGateRow,
@@ -220,6 +221,30 @@ export function lastLine(text: string): string {
 export function rewardOf(s: RunSample): { value: string; detail: string } {
   const value = s.reward.Valid ? String(Math.round(s.reward.Float64 * 1000) / 1000) : '—'
   return { value, detail: s.rewardDetail.Valid ? s.rewardDetail.String : '' }
+}
+
+/** How long the model of an export whose job succeeded may take to appear. */
+export const EXPORT_REGISTER_WAIT = 5 * 60 * 1000
+
+/**
+ * Where a checkpoint export stands: running until its model is ready or failed, or until its job ended without a
+ * model, which a succeeded job, first seen at succeededAt, waits EXPORT_REGISTER_WAIT for.
+ */
+export function exportPhase(
+  e: ExportItem,
+  succeededAt?: number,
+  now = Date.now(),
+): 'running' | 'done' | 'failed' {
+  if (e.modelId) {
+    if (e.modelPhase === 'Ready') return 'done'
+    return e.modelPhase === 'Failed' ? 'failed' : 'running'
+  }
+  if (e.status === 'Failed' || e.status === 'Stopped') return 'failed'
+  const unregistered =
+    e.status === 'Succeeded' &&
+    succeededAt !== undefined &&
+    now - succeededAt >= EXPORT_REGISTER_WAIT
+  return unregistered ? 'failed' : 'running'
 }
 
 /** scatterTooltip is the HTML tooltip of a point of the Compare scatter, its names shown as text. */

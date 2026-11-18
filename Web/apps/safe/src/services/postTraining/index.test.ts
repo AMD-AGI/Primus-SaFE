@@ -45,6 +45,8 @@ import {
   timeOf,
   trainableText,
   postTrainingEntryReasons,
+  exportPhase,
+  EXPORT_REGISTER_WAIT,
 } from './index'
 import request from '@/services/request'
 
@@ -405,6 +407,19 @@ describe('postTrainingEntryReasons', () => {
     const reasonOf = await postTrainingEntryReasons('ws1')
     expect(reasonOf?.('m1')).toBe('')
     expect(reasonOf?.('m2')).toBe('The model is not ready in this workspace.')
+  })
+})
+
+describe('exportPhase', () => {
+  it('ends an export whose model failed or never came', () => {
+    expect(exportPhase({ step: 1, modelId: 'm', modelPhase: 'Pending' })).toBe('running')
+    expect(exportPhase({ step: 1, modelId: 'm', modelPhase: 'Ready' })).toBe('done')
+    expect(exportPhase({ step: 1, modelId: 'm', modelPhase: 'Failed' })).toBe('failed')
+    expect(exportPhase({ step: 1, status: 'Stopped' })).toBe('failed')
+    expect(exportPhase({ step: 1, status: 'Succeeded' }, 0, EXPORT_REGISTER_WAIT - 1)).toBe(
+      'running',
+    )
+    expect(exportPhase({ step: 1, status: 'Succeeded' }, 0, EXPORT_REGISTER_WAIT)).toBe('failed')
   })
 })
 
