@@ -1359,6 +1359,7 @@ func TestModelInfoTags(t *testing.T) {
 	assert.Assert(t, len(info.CategorizedTags) > 0)
 }
 
+// A model's info carries the Post Training run that made it, from the CR and from the database.
 func TestModelInfoPostTrainingRun(t *testing.T) {
 	model := genMockLocalK8sModel("test-model", "")
 	model.Spec.PostTrainingRunId = "pt-abc"

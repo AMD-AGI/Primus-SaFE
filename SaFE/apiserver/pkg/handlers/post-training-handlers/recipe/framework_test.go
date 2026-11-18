@@ -87,6 +87,7 @@ func errorsOf(r *Result) []string {
 	return out
 }
 
+// A request compiles into a recipe for the matched spec.
 func TestCompileBuildsRecipe(t *testing.T) {
 	res := Compile(input(t))
 	require.Empty(t, errorsOf(res))
@@ -103,6 +104,7 @@ func TestCompileBuildsRecipe(t *testing.T) {
 	require.Len(t, r.Provenance.RecipeHash, 64)
 }
 
+// The recipe hash changes with the configuration but not with excluded fields or explicit defaults.
 func TestRecipeHashCoversTheConfiguration(t *testing.T) {
 	base := Compile(input(t)).Recipe.Provenance.RecipeHash
 
@@ -125,6 +127,7 @@ func TestRecipeHashCoversTheConfiguration(t *testing.T) {
 	require.NotEqual(t, base, Compile(in).Recipe.Provenance.RecipeHash)
 }
 
+// Compile refuses each unusable model, request and layout with the reason.
 func TestCompileRejects(t *testing.T) {
 	cases := map[string]struct {
 		mutate func(*Input)
@@ -175,6 +178,7 @@ func rlLora(layout string) func(*Input) {
 	}
 }
 
+// The default image serves unless a validated, not deprecated image is asked for.
 func TestImageSelection(t *testing.T) {
 	warnings := func(in *Input) []string {
 		var out []string
@@ -201,6 +205,7 @@ func TestImageSelection(t *testing.T) {
 	require.Contains(t, warnings(in)[0], "not in the image table")
 }
 
+// A configuration no image verified compiles with a warning.
 func TestUnverifiedConfigurationWarns(t *testing.T) {
 	in := input(t)
 	rlLora(LayoutSeparate)(in)
@@ -211,6 +216,7 @@ func TestUnverifiedConfigurationWarns(t *testing.T) {
 	require.Equal(t, Layout{Nodes: 2, GpusPerNode: 8, ActorGpus: 12, RolloutGpus: 4}, res.Recipe.Layout)
 }
 
+// Support lists the methods a model's spec allows and why the others are not.
 func TestSupport(t *testing.T) {
 	in := input(t)
 	ok, reason := Support(in)
@@ -228,6 +234,7 @@ func TestSupport(t *testing.T) {
 	require.Equal(t, "Reading the model structure", reason)
 }
 
+// A registry naming a compiler that is not built in is refused.
 func TestCheckRegistry(t *testing.T) {
 	reg, err := registry.Parse([]byte(testRegistry))
 	require.NoError(t, err)

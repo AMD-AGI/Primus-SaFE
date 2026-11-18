@@ -91,6 +91,7 @@ func errorsOf(in *recipe.Input) string {
 	return strings.Join(msgs, "; ")
 }
 
+// An SFT request compiles into slime's arguments with the spec's defaults filled in.
 func TestCompileSFT(t *testing.T) {
 	res := compile(t, qwen3Input(t, registry.TrainTypeSFT))
 	want := []string{
@@ -118,6 +119,7 @@ func TestCompileSFT(t *testing.T) {
 	require.Equal(t, "1", res.Plan.Env["CUDA_DEVICE_MAX_CONNECTIONS"])
 }
 
+// An SFT validation set comes from a split or an evaluation dataset, not both.
 func TestCompileSFTValidation(t *testing.T) {
 	in := qwen3Input(t, registry.TrainTypeSFT)
 	in.Registry.Images[0].Features = append(in.Registry.Images[0].Features, registry.FeatureValLoss)
@@ -143,6 +145,7 @@ func TestCompileSFTValidation(t *testing.T) {
 	require.Nil(t, plain.Recipe.Val)
 }
 
+// A table image reads and writes the shared conversion cache, and a custom image neither.
 func TestCompileConvertCache(t *testing.T) {
 	in := qwen3Input(t, registry.TrainTypeSFT)
 	res := compile(t, in)
@@ -157,6 +160,7 @@ func TestCompileConvertCache(t *testing.T) {
 	require.False(t, res.Recipe.Provenance.TableImage)
 }
 
+// The evaluation is kept in the recipe but out of its hash.
 func TestCompileKeepsEvaluationOutOfTheHash(t *testing.T) {
 	in := qwen3Input(t, registry.TrainTypeSFT)
 	plain := compile(t, in)
@@ -168,6 +172,7 @@ func TestCompileKeepsEvaluationOutOfTheHash(t *testing.T) {
 	require.Equal(t, plain.Recipe.Provenance.RecipeHash, res.Recipe.Provenance.RecipeHash)
 }
 
+// Tracking turns on wandb with its project, group and team, the key only in the environment.
 func TestCompileWandb(t *testing.T) {
 	in := qwen3Input(t, registry.TrainTypeSFT)
 	plain := compile(t, in)
@@ -198,6 +203,7 @@ func TestCompileWandb(t *testing.T) {
 	require.Contains(t, errorsOf(in), "Select the secret")
 }
 
+// Each reward type compiles into its slime arguments, a custom reward with its path.
 func TestCompileRewards(t *testing.T) {
 	in := qwen3Input(t, registry.TrainTypeRL)
 	argsOf := func(c recipe.Choices) (string, map[string]string) {
@@ -258,6 +264,7 @@ func TestCompileRewards(t *testing.T) {
 	require.Contains(t, errorsOf(in), "the dataset has no label field")
 }
 
+// A seed is passed to training and rollout, and none means none.
 func TestCompileSeed(t *testing.T) {
 	in := qwen3Input(t, registry.TrainTypeRL)
 	plain := compile(t, in)
@@ -275,6 +282,7 @@ func TestCompileSeed(t *testing.T) {
 	require.NotContains(t, args, "--rollout-seed")
 }
 
+// Pass rates are logged with eight samples per prompt by default.
 func TestCompilePassrate(t *testing.T) {
 	in := qwen3Input(t, registry.TrainTypeRL)
 	require.Contains(t, compile(t, in).Recipe.FrameworkArgs, "--log-passrate", "eight samples per prompt by default")
@@ -297,6 +305,7 @@ func TestCompilePassrate(t *testing.T) {
 	require.Nil(t, compile(t, qwen3Input(t, registry.TrainTypeSFT)).Recipe.Metrics.Samples)
 }
 
+// A colocated GRPO run compiles into slime's colocated arguments.
 func TestCompileGRPOColocated(t *testing.T) {
 	res := compile(t, qwen3Input(t, registry.TrainTypeRL))
 	got := strings.Join(res.Recipe.FrameworkArgs, " ")
@@ -316,6 +325,7 @@ func TestCompileGRPOColocated(t *testing.T) {
 	require.Equal(t, "grpo", res.Recipe.Algorithm)
 }
 
+// A separate GRPO rollout compiles without colocation and with TIS when asked.
 func TestCompileGRPOSeparate(t *testing.T) {
 	in := qwen3Input(t, registry.TrainTypeRL)
 	in.Request.Resources.Nodes = 2
@@ -328,6 +338,7 @@ func TestCompileGRPOSeparate(t *testing.T) {
 	require.NotContains(t, got, "--colocate")
 }
 
+// The rollout prompt limit leaves room for a full response and stays out of the choices.
 func TestRolloutPromptLimitFollowsTheContext(t *testing.T) {
 	in := qwen3Input(t, registry.TrainTypeRL)
 	in.Request.Choices.MaxResponseLen = 4096
@@ -351,6 +362,7 @@ func TestRolloutPromptLimitFollowsTheContext(t *testing.T) {
 		"an unknown context keeps every prompt")
 }
 
+// The slime rules refuse each invalid choice with the reason.
 func TestSlimeRules(t *testing.T) {
 	cases := map[string]struct {
 		trainType string
@@ -460,6 +472,7 @@ func TestSlimeRules(t *testing.T) {
 	}
 }
 
+// Sequence parallel is passed only when chosen.
 func TestSequenceParallelFollowsTheChoice(t *testing.T) {
 	in := qwen3Input(t, registry.TrainTypeSFT)
 	require.Contains(t, strings.Join(compile(t, in).Recipe.FrameworkArgs, " "), "--sequence-parallel",
@@ -469,6 +482,7 @@ func TestSequenceParallelFollowsTheChoice(t *testing.T) {
 	require.NotContains(t, strings.Join(compile(t, in).Recipe.FrameworkArgs, " "), "--sequence-parallel")
 }
 
+// Choices of the other train type leave the recipe hash alone.
 func TestTheRecipeHashIgnoresChoicesThatDoNotApply(t *testing.T) {
 	sft := qwen3Input(t, registry.TrainTypeSFT)
 	want := compile(t, sft).Recipe.Provenance.RecipeHash
@@ -481,6 +495,7 @@ func TestTheRecipeHashIgnoresChoicesThatDoNotApply(t *testing.T) {
 	require.Equal(t, want, compile(t, rl).Recipe.Provenance.RecipeHash, "SFT options leave an RL recipe alone")
 }
 
+// Only LoRA training exports a PEFT adapter.
 func TestOnlyLoRAExportsAPeftAdapter(t *testing.T) {
 	in := qwen3Input(t, registry.TrainTypeSFT)
 	in.Request.Export.PeftAdapter = true
@@ -488,6 +503,7 @@ func TestOnlyLoRAExportsAPeftAdapter(t *testing.T) {
 		"full training has no adapter, so a form left with the switch on exports none and asks no image feature")
 }
 
+// With the HF export off the run writes no model and checks the adapter against no export.
 func TestTurningTheHFExportOffWritesNoModel(t *testing.T) {
 	in := qwen3Input(t, registry.TrainTypeSFT)
 	in.Model.Path = "/wekafs/models/GLM-5.3-BF16"
@@ -513,6 +529,7 @@ func TestTurningTheHFExportOffWritesNoModel(t *testing.T) {
 	require.False(t, compile(t, lora).Recipe.Output.PeftAdapter, "the adapter is checked against the exported model")
 }
 
+// The minimum learning rate stays at or below a learning rate set lower.
 func TestTheMinimumLearningRateStaysBelowALowRate(t *testing.T) {
 	in := qwen3Input(t, registry.TrainTypeSFT)
 	in.Request.Choices.Lr = 5e-7
@@ -521,6 +538,7 @@ func TestTheMinimumLearningRateStaysBelowALowRate(t *testing.T) {
 	require.Contains(t, args, "--min-lr 5e-07", "Megatron refuses a minimum above the rate")
 }
 
+// Model parallel sizes must fit the model, checked once its structure is known.
 func TestModelParallelRules(t *testing.T) {
 	messages := func(cfg *v1.ModelConfig, tp, ep int) string {
 		var msgs []string
@@ -541,6 +559,7 @@ func TestModelParallelRules(t *testing.T) {
 	require.Empty(t, messages(&v1.ModelConfig{NumAttentionHeads: 64, NumExperts: 256}, 1, 8))
 }
 
+// RL tells slime the GPUs of a node for placing rollout engines.
 func TestRLNamesTheGPUsOfANode(t *testing.T) {
 	in := qwen3Input(t, registry.TrainTypeRL)
 	in.Request.Resources.GpusPerNode = 4
@@ -548,6 +567,7 @@ func TestRLNamesTheGPUsOfANode(t *testing.T) {
 	require.Contains(t, args, "--num-gpus-per-node 4", "slime places rollout engines by the GPUs of a node")
 }
 
+// The options of a model list its methods and layouts, LoRA RL only with a separate rollout.
 func TestOptions(t *testing.T) {
 	in := qwen3Input(t, registry.TrainTypeRL)
 	in.Request.Method = registry.MethodLora
@@ -560,6 +580,7 @@ func TestOptions(t *testing.T) {
 	require.False(t, layout[1].Disabled)
 }
 
+// PPO compiles a critic that saves apart from the actor.
 func TestCompilePPOCritic(t *testing.T) {
 	in := qwen3Input(t, registry.TrainTypeRL)
 	in.Registry.Images[0].Features = append(in.Registry.Images[0].Features, registry.FeaturePPO)
@@ -585,6 +606,7 @@ func TestCompilePPOCritic(t *testing.T) {
 	require.Zero(t, grpo.Recipe.Choices.CriticLr, "critic choices of GRPO stay out of the recipe hash")
 }
 
+// PPO is offered with the critic defaults, and only on an image validated for it.
 func TestPPOOption(t *testing.T) {
 	in := qwen3Input(t, registry.TrainTypeRL)
 	options := func(in *recipe.Input) *recipe.Options {
@@ -601,6 +623,7 @@ func TestPPOOption(t *testing.T) {
 	require.Equal(t, defaultCriticWarmup, *defaults.CriticWarmupRollouts)
 }
 
+// LoRA SFT compiles its adapter targets, rank and alpha, which the export reads.
 func TestCompileLoraSFT(t *testing.T) {
 	in := qwen3Input(t, registry.TrainTypeSFT)
 	in.Registry.Images[0].Validated = true
@@ -633,6 +656,7 @@ func TestCompileLoraSFT(t *testing.T) {
 	require.NotContains(t, strings.Join(full.Recipe.FrameworkArgs, " "), "custom-model-provider-path")
 }
 
+// A LoRA rank out of range or a target the spec does not allow is refused.
 func TestLoraRules(t *testing.T) {
 	cases := map[string]struct {
 		lora recipe.LoraChoice
@@ -654,6 +678,7 @@ func TestLoraRules(t *testing.T) {
 	}
 }
 
+// LoRA RL needs a separate rollout and compiles its adapter configuration.
 func TestCompileLoraRL(t *testing.T) {
 	in := qwen3Input(t, registry.TrainTypeRL)
 	in.Registry.Images[0].Features = append(in.Registry.Images[0].Features, registry.FeatureLora,
@@ -666,6 +691,7 @@ func TestCompileLoraRL(t *testing.T) {
 	require.Contains(t, args, "--custom-config-path "+in.RunDir+"/plugins.yaml --ref-trainable-only")
 }
 
+// The larger models' specs match their structures and images, GLM loading HF weights.
 func TestSpecsOfTheLargerModels(t *testing.T) {
 	reg := chartRegistry(t)
 	qwen3 := func(layers, hidden, heads int) *v1.ModelConfig {
@@ -698,6 +724,7 @@ func TestSpecsOfTheLargerModels(t *testing.T) {
 	require.Equal(t, 3, n, "frozen-layer GRPO runs on 2 training nodes and 1 rollout node, as J3 did")
 }
 
+// A request without an algorithm takes the spec's default.
 func TestAnOmittedAlgorithmIsTheSpecsDefault(t *testing.T) {
 	in := qwen3Input(t, registry.TrainTypeRL)
 	in.Registry.Specs[0].Frameworks[Name].Algorithms = []string{recipe.AlgorithmGRPO}
@@ -710,6 +737,7 @@ func TestAnOmittedAlgorithmIsTheSpecsDefault(t *testing.T) {
 	require.Contains(t, errorsOf(in), "supports only [ppo]")
 }
 
+// GLM needs its host memory on every node, against the pod's share.
 func TestGLMNeedsItsHostMemoryOnEveryNode(t *testing.T) {
 	in := qwen3Input(t, registry.TrainTypeSFT)
 	in.Model.Path = "/wekafs/models/GLM-5.3-BF16"
@@ -748,6 +776,7 @@ func TestGLMNeedsItsHostMemoryOnEveryNode(t *testing.T) {
 	compile(t, in)
 }
 
+// A GLM FP8 rollout keeps the BF16 HF checkpoint as the reference and for saving.
 func TestGLMFP8RolloutKeepsTheHFReference(t *testing.T) {
 	in := qwen3Input(t, registry.TrainTypeRL)
 	in.Model.Path = "/wekafs/models/GLM-5.3-BF16"
@@ -776,6 +805,7 @@ func TestGLMFP8RolloutKeepsTheHFReference(t *testing.T) {
 		" --ref-trainable-only", "the export stays BF16 and the reference keeps only the trainable weights")
 }
 
+// GLM freezes its early experts by default, and training everything needs more nodes.
 func TestGLMFreezesTheEarlyExpertsByDefault(t *testing.T) {
 	in := qwen3Input(t, registry.TrainTypeSFT)
 	in.Model.Path = "/wekafs/models/GLM-5.3-BF16"
@@ -824,6 +854,7 @@ func TestGLMFreezesTheEarlyExpertsByDefault(t *testing.T) {
 	require.Contains(t, warningsOf(res), "has not been verified")
 }
 
+// Specs without a node floor keep the recipe hashes of earlier runs.
 func TestSpecsWithoutAFloorKeepTheirRecipe(t *testing.T) {
 	res := compile(t, qwen3Input(t, registry.TrainTypeSFT))
 	data, err := json.Marshal(res.Recipe)
@@ -831,6 +862,7 @@ func TestSpecsWithoutAFloorKeepTheirRecipe(t *testing.T) {
 	require.NotContains(t, string(data), "minHostMemoryTB", "the recipe hashes of earlier runs stay the same")
 }
 
+// An FP8 rollout serves the weights the convert stage quantizes, and exports start from BF16.
 func TestFP8RolloutServesTheQuantizedWeights(t *testing.T) {
 	in := qwen3Input(t, registry.TrainTypeRL)
 	in.Registry.Specs[0].Frameworks[Name].Rollout = &registry.Rollout{FP8: true}
@@ -865,6 +897,7 @@ func TestFP8RolloutServesTheQuantizedWeights(t *testing.T) {
 	require.Equal(t, "bf16", res.Recipe.Rollout["precision"])
 }
 
+// A fully async rollout keeps generating with its concurrency, and is evaluated after training.
 func TestFullyAsyncKeepsGenerating(t *testing.T) {
 	in := qwen3Input(t, registry.TrainTypeRL)
 	in.Registry.Images[0].Features = append(in.Registry.Images[0].Features, registry.FeatureAsync)
@@ -893,6 +926,7 @@ func TestFullyAsyncKeepsGenerating(t *testing.T) {
 	require.Contains(t, errorsOf(in), "Schedule must be sync or async")
 }
 
+// Mooncake PD splits the rollout into prefill and decode engines over RDMA.
 func TestMooncakePDSplitsTheRollout(t *testing.T) {
 	in := qwen3Input(t, registry.TrainTypeRL)
 	in.Registry.Specs[0].Frameworks[Name].Rollout = &registry.Rollout{PD: true}
@@ -933,6 +967,7 @@ func TestMooncakePDSplitsTheRollout(t *testing.T) {
 	require.Equal(t, "No RDMA devices are registered for cluster c1", opts.Fields["pd"].Values[1].Reason)
 }
 
+// GLM LoRA adapts the experts, one adapter per layer by default, and the listed projections.
 func TestGLMExpertLoRA(t *testing.T) {
 	in := qwen3Input(t, registry.TrainTypeSFT)
 	in.Model.Path, in.Model.MaxTokens = "/wekafs/models/GLM-5.3-BF16", 202752
@@ -957,6 +992,7 @@ func TestGLMExpertLoRA(t *testing.T) {
 	require.Contains(t, errorsOf(in), "A PEFT adapter cannot hold the experts' LoRA; export the merged model")
 }
 
+// GLM LoRA keeps only the adapters in its checkpoints, on an image validated for it.
 func TestGLMLoRAKeepsOnlyAdaptersInCheckpoints(t *testing.T) {
 	in := qwen3Input(t, registry.TrainTypeSFT)
 	in.Model.Path, in.Model.MaxTokens = "/wekafs/models/GLM-5.3-BF16", 202752

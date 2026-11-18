@@ -29,6 +29,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/posttraining/registry"
 )
 
+// A new template is checked and gets an ID, version 1 and the slime framework by default.
 func TestNewTemplate(t *testing.T) {
 	req := &templateRequest{Workspace: "ws", Name: " LoRA zh ", TrainType: "sft", Method: "lora",
 		Content: json.RawMessage(`{"choices":{"lr":0.0001}}`), SourceRunID: "pt-1"}
@@ -60,6 +61,7 @@ func TestNewTemplate(t *testing.T) {
 	}
 }
 
+// A template edit must change something.
 func TestTemplateEdits(t *testing.T) {
 	fields, err := templateEdits(&templateRequest{Name: "renamed", Content: json.RawMessage(`{"a":1}`)})
 	require.NoError(t, err)
@@ -70,6 +72,7 @@ func TestTemplateEdits(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, statusCode(err))
 }
 
+// A template's content is returned as JSON, not as a string.
 func TestTemplateViewJSON(t *testing.T) {
 	data, err := json.Marshal(viewOf(&dbclient.PostTrainingTemplate{TemplateID: "tpl-1", Content: `{"a":1}`}, 3))
 	require.NoError(t, err)
@@ -110,6 +113,7 @@ func templateCall(handle gin.HandlerFunc, body string) (int, string) {
 	return w.Code, w.Body.String()
 }
 
+// A member may read the templates the workspace's list shows.
 func TestAMemberReadsTheTemplatesOfTheWorkspace(t *testing.T) {
 	db := mockclient.NewMockInterface(gomock.NewController(t))
 	db.EXPECT().ListPostTrainingRuns(gomock.Any(), gomock.Any()).Return(nil, int64(0), nil).AnyTimes()
@@ -120,6 +124,7 @@ func TestAMemberReadsTheTemplatesOfTheWorkspace(t *testing.T) {
 	require.Equal(t, http.StatusOK, code, "a member may use the templates the list shows: %s", body)
 }
 
+// The template list has a default and a maximum page size.
 func TestTheTemplateListIsBounded(t *testing.T) {
 	db := mockclient.NewMockInterface(gomock.NewController(t))
 	db.EXPECT().ListPostTrainingRuns(gomock.Any(), gomock.Any()).Return(nil, int64(0), nil).AnyTimes()
@@ -137,6 +142,7 @@ func TestTheTemplateListIsBounded(t *testing.T) {
 	}
 }
 
+// A template update needs the version it was read at and conflicts with a later save.
 func TestUpdateTemplateNeedsTheVersionItWasReadAt(t *testing.T) {
 	db := mockclient.NewMockInterface(gomock.NewController(t))
 	db.EXPECT().ListPostTrainingRuns(gomock.Any(), gomock.Any()).Return(nil, int64(0), nil).AnyTimes()
