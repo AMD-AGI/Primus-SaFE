@@ -7,7 +7,9 @@ package posttraining
 
 import (
 	"context"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -51,4 +53,50 @@ func TestCheckpointCleanup(t *testing.T) {
 	jobs := &v1.OpsJobList{}
 	require.NoError(t, r.List(ctx, jobs))
 	require.Empty(t, jobs.Items, "finished cleanup and count jobs are removed")
+}
+
+func TestAFailingCheckpointCleanupBacksOffAndGivesUp(t *testing.T) {
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1",
+		Volumes: []v1.WorkspaceVolume{{Type: v1.PFS, MountPath: "/wekafs"}}}}
+	run := testRunRow("Succeeded", "done")
+	run.CleanupRequest = `{"keep":"none","paths":["` + testRunDir + `/checkpoints/iter_0000010"]}`
+	r, _, updates := newTestReconciler(t, run, ws)
+	ctx := context.Background()
+	name := resource.DirectoryCleanupJobName("ws1", testRunDir+"/checkpoints/iter_0000010")
+	fail := func(ago time.Duration) {
+		job := &v1.OpsJob{}
+		require.NoError(t, r.Get(ctx, client.ObjectKey{Name: name}, job))
+		ended := metav1.NewTime(time.Now().Add(-ago))
+		job.Status.Phase, job.Status.FinishedAt = v1.OpsJobFailed, &ended
+		job.Status.Conditions = []metav1.Condition{{Type: "JobCompleted", Reason: "JobFailed", Message: "rm: permission denied"}}
+		require.NoError(t, r.Update(ctx, job))
+	}
+
+	for attempt := 1; attempt < cleanupAttempts; attempt++ {
+		reconcileRun(t, r)
+		fail(time.Minute)
+		res := reconcileRun(t, r)
+		require.Positive(t, res.RequeueAfter)
+		require.NoError(t, r.Get(ctx, client.ObjectKey{Name: name}, &v1.OpsJob{}),
+			"a failed cleanup waits before it runs again, attempt %d", attempt)
+		fail(time.Hour)
+		reconcileRun(t, r)
+		require.Error(t, r.Get(ctx, client.ObjectKey{Name: name}, &v1.OpsJob{}))
+		last := (*updates)[len(*updates)-1]
+		run.CleanupRequest = last["cleanup_request"].(string)
+		require.Contains(t, run.CleanupRequest, fmt.Sprintf(`"attempts":%d`, attempt))
+	}
+	reconcileRun(t, r)
+	fail(time.Hour)
+	reconcileRun(t, r)
+	last := (*updates)[len(*updates)-1]
+	require.Equal(t, "", last["cleanup_request"], "the request is dropped so the user can ask again")
+	require.Contains(t, last["stage_history"], `"event":"checkpoints-cleanup-failed"`)
+	require.Contains(t, last["stage_history"], "rm: permission denied")
+
+	gone := testRunRow("Succeeded", "done")
+	gone.Workspace, gone.CleanupRequest = "ws-gone", `{"keep":"none","paths":["/wekafs/x/checkpoints/iter_0000010"]}`
+	r, _, updates = newTestReconciler(t, gone)
+	reconcileRun(t, r)
+	require.Equal(t, "", (*updates)[len(*updates)-1]["cleanup_request"], "a cleanup in a deleted workspace cannot run")
 }

@@ -27,16 +27,23 @@ import (
 
 const (
 	cleanupPollInterval = time.Minute
-	cleanupRetry        = 5 * time.Minute
-	// checkpointsCleanedEvent is the stage_history event of a finished checkpoint cleanup.
-	checkpointsCleanedEvent = "checkpoints-cleaned"
+	// A failed cleanup job is kept for cleanupRetry before the cleanup runs again, and a cleanup that failed
+	// cleanupAttempts times is given up.
+	cleanupRetry    = 5 * time.Minute
+	cleanupAttempts = 3
+	// checkpointsCleanedEvent is the stage_history event of a finished checkpoint cleanup, and
+	// checkpointsCleanupFailedEvent the one of a cleanup given up, with the reason.
+	checkpointsCleanedEvent       = "checkpoints-cleaned"
+	checkpointsCleanupFailedEvent = "checkpoints-cleanup-failed"
 )
 
-// checkpointCleanup is the cleanup_request column the Post Training API writes.
+// checkpointCleanup is the cleanup_request column the Post Training API writes; the controller counts the failed
+// attempts in it.
 type checkpointCleanup struct {
 	Keep     string   `json:"keep"`
 	Paths    []string `json:"paths"`
 	KeptStep *int     `json:"keptStep,omitempty"`
+	Attempts int      `json:"attempts,omitempty"`
 }
 
 // runCleanupPolls queues the runs with a requested checkpoint cleanup every minute until ctx ends; the API only
@@ -71,7 +78,8 @@ func diskJobName(runID string) string {
 }
 
 // reconcileCleanup removes the directories of a requested checkpoint cleanup with model-cleanup jobs, then
-// counts the run directory again, stores the usage, records the cleanup and clears the request.
+// counts the run directory again, stores the usage, records the cleanup and clears the request. A failed job is
+// tried again after cleanupRetry; a cleanup that cannot run, or failed cleanupAttempts times, is given up.
 func (r *RunReconciler) reconcileCleanup(ctx context.Context, run *dbclient.PostTrainingRun) (ctrlruntime.Result, error) {
 	var plan checkpointCleanup
 	if err := json.Unmarshal([]byte(run.CleanupRequest), &plan); err != nil {
@@ -80,6 +88,9 @@ func (r *RunReconciler) reconcileCleanup(ctx context.Context, run *dbclient.Post
 	}
 	ws := &v1.Workspace{}
 	if err := r.Get(ctx, client.ObjectKey{Name: run.Workspace}, ws); err != nil {
+		if apierrors.IsNotFound(err) {
+			return ctrlruntime.Result{}, r.giveUpCleanup(ctx, run, plan, "the workspace no longer exists")
+		}
 		return ctrlruntime.Result{}, err
 	}
 	var jobs []*v1.OpsJob
@@ -89,7 +100,7 @@ func (r *RunReconciler) reconcileCleanup(ctx context.Context, run *dbclient.Post
 		err := r.Get(ctx, client.ObjectKey{Name: resource.DirectoryCleanupJobName(run.Workspace, dir)}, job)
 		if apierrors.IsNotFound(err) {
 			if job, err = resource.NewDirectoryCleanupOpsJob(ws, dir, map[string]string{v1.PostTrainingRunIdLabel: run.RunID}); err != nil {
-				return ctrlruntime.Result{}, err
+				return ctrlruntime.Result{}, r.giveUpCleanup(ctx, run, plan, err.Error())
 			}
 			if err = r.Create(ctx, job); client.IgnoreAlreadyExists(err) != nil {
 				return ctrlruntime.Result{}, err
@@ -104,8 +115,18 @@ func (r *RunReconciler) reconcileCleanup(ctx context.Context, run *dbclient.Post
 		case v1.OpsJobSucceeded:
 			jobs = append(jobs, job)
 		case v1.OpsJobFailed:
+			if wait := cleanupRetry - time.Since(jobEnd(job)); wait > 0 {
+				return ctrlruntime.Result{RequeueAfter: wait}, nil
+			}
+			if plan.Attempts++; plan.Attempts >= cleanupAttempts {
+				return ctrlruntime.Result{}, r.giveUpCleanup(ctx, run, plan, jobFailure(job))
+			}
 			klog.Warningf("cleanup of %s for post training run %s failed, retrying", dir, run.RunID)
-			return ctrlruntime.Result{RequeueAfter: cleanupRetry}, client.IgnoreNotFound(r.Delete(ctx, job))
+			data, _ := json.Marshal(plan)
+			if err = r.db.UpdatePostTrainingRun(ctx, run.RunID, map[string]interface{}{"cleanup_request": string(data)}); err != nil {
+				return ctrlruntime.Result{}, err
+			}
+			return ctrlruntime.Result{RequeueAfter: time.Second}, client.IgnoreNotFound(r.Delete(ctx, job))
 		default:
 			running = true
 		}
@@ -134,6 +155,45 @@ func (r *RunReconciler) reconcileCleanup(ctx context.Context, run *dbclient.Post
 		}
 	}
 	return ctrlruntime.Result{}, nil
+}
+
+// giveUpCleanup drops a checkpoint cleanup that cannot finish: it records why in the stage history, clears the
+// request so another can be made, and removes the cleanup's jobs.
+func (r *RunReconciler) giveUpCleanup(ctx context.Context, run *dbclient.PostTrainingRun, plan checkpointCleanup, reason string) error {
+	klog.Warningf("gave up the checkpoint cleanup of post training run %s: %s", run.RunID, reason)
+	u := newRunUpdate(run)
+	u.history = append(u.history, stageEntry{Stage: run.Stage, Time: u.now.Format(time.RFC3339),
+		Event: checkpointsCleanupFailedEvent, Message: reason})
+	u.historyChanged = true
+	u.fields["cleanup_request"] = ""
+	if err := r.save(ctx, u); err != nil {
+		return err
+	}
+	for _, dir := range plan.Paths {
+		job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: resource.DirectoryCleanupJobName(run.Workspace, dir)}}
+		if err := r.Delete(ctx, job); client.IgnoreNotFound(err) != nil {
+			klog.ErrorS(err, "failed to delete a cleanup job", "job", job.Name)
+		}
+	}
+	return nil
+}
+
+// jobEnd returns when an OpsJob finished, or when it was created if it has no finish time.
+func jobEnd(job *v1.OpsJob) time.Time {
+	if job.Status.FinishedAt != nil {
+		return job.Status.FinishedAt.Time
+	}
+	return job.CreationTimestamp.Time
+}
+
+// jobFailure returns the reason a failed OpsJob gives: the message of its failed completion condition.
+func jobFailure(job *v1.OpsJob) string {
+	for _, c := range job.Status.Conditions {
+		if c.Reason == "JobFailed" && c.Message != "" {
+			return c.Message
+		}
+	}
+	return "the cleanup job failed"
 }
 
 // countRunDir counts a run directory with a model-inspect job and returns the usage JSON once the job is done.
