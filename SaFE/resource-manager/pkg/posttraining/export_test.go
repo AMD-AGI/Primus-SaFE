@@ -12,8 +12,11 @@ import (
 
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
@@ -60,6 +63,70 @@ func TestReconcileExportsRegistersEachStepOnce(t *testing.T) {
 	require.Equal(t, "qwen sft step 20", m.Spec.DisplayName)
 	require.NotContains(t, m.Labels, v1.DisplayNameLabel, "a name that is no label value stays out of the labels")
 	require.Equal(t, testRunDir+"/exports/step-20", m.Spec.Source.LocalPath)
+}
+
+func TestADeletedExportModelIsNotRegisteredAgain(t *testing.T) {
+	w := exportJob("pt-x20-e", v1.WorkloadSucceeded)
+	r, db, _ := newTestReconciler(t, testRunRow("Succeeded", "done"), w)
+	db.EXPECT().ListWorkloadPods(gomock.Any(), w.Name, string(w.UID)).Return(exportPods(w,
+		`[SUCCESS] {"run":"`+testRun+`","attempt":"x20","pv":1,"stage":"export","output":"`+testRunDir+
+			`/exports/step-20"}`), nil).AnyTimes()
+	ctx := context.Background()
+	run := testRunRow("Succeeded", "done")
+	require.NoError(t, r.reconcileExports(ctx, run))
+	models := &v1.ModelList{}
+	require.NoError(t, r.List(ctx, models))
+	require.Len(t, models.Items, 1)
+	require.Equal(t, testRun+"-s20", models.Items[0].Name, "a retried registration finds the same name")
+	job := &v1.Workload{}
+	require.NoError(t, r.Get(ctx, client.ObjectKeyFromObject(w), job))
+	require.Equal(t, testRun+"-s20", job.Annotations[exportModelAnnotation], "the job records the model it made")
+
+	require.NoError(t, r.Delete(ctx, &models.Items[0]))
+	require.NoError(t, r.reconcileExports(ctx, run))
+	require.NoError(t, r.List(ctx, models))
+	require.Empty(t, models.Items, "the user deleted the model, so the still kept export job makes no new one")
+}
+
+func TestAnExportModelThatTheCacheDoesNotShowYetIsCreatedOnce(t *testing.T) {
+	w := exportJob("pt-x20-f", v1.WorkloadSucceeded)
+	base := &v1.Model{ObjectMeta: metav1.ObjectMeta{Name: "m-base"}}
+	base.Status.ModelConfig = &v1.ModelConfig{Architectures: []string{"Qwen3ForCausalLM"}, NumHiddenLayers: 36}
+	r, db, _ := newTestReconciler(t, testRunRow("Succeeded", "done"), w, base)
+	db.EXPECT().ListWorkloadPods(gomock.Any(), w.Name, string(w.UID)).Return(exportPods(w,
+		`[SUCCESS] {"run":"`+testRun+`","attempt":"x20","pv":1,"stage":"export","output":"`+testRunDir+
+			`/exports/step-20"}`), nil).AnyTimes()
+	lag := true
+	inner := r.Client
+	r.Client = interceptor.NewClient(inner.(client.WithWatch), interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object,
+			opts ...client.GetOption) error {
+			if _, ok := obj.(*v1.Model); ok && lag && key.Name != "m-base" {
+				return apierrors.NewNotFound(v1.SchemeGroupVersion.WithResource("models").GroupResource(), key.Name)
+			}
+			return c.Get(ctx, key, obj, opts...)
+		},
+		List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+			if _, ok := list.(*v1.ModelList); ok && lag {
+				return nil
+			}
+			return c.List(ctx, list, opts...)
+		},
+	})
+	ctx := context.Background()
+	run := testRunRow("Succeeded", "done")
+	run.BaseModelID = "m-base"
+	require.NoError(t, r.reconcileExports(ctx, run), "the new Model is not read back before the cache has it")
+	require.NoError(t, r.reconcileExports(ctx, run))
+	models := &v1.ModelList{}
+	require.NoError(t, inner.List(ctx, models, client.MatchingLabels{v1.PostTrainingRunIdLabel: testRun}))
+	require.Len(t, models.Items, 1, "a registration the cache does not show yet is not made twice")
+
+	lag = false
+	require.NoError(t, r.reconcileExports(ctx, run))
+	m := &v1.Model{}
+	require.NoError(t, inner.Get(ctx, client.ObjectKey{Name: testRun + "-s20"}, m))
+	require.NotNil(t, m.Status.ModelConfig, "the visible Model inherits the base model's structure summary")
 }
 
 func TestExportOutsideTheRunDirectoryIsIgnored(t *testing.T) {
