@@ -195,7 +195,7 @@ func TestImportMounts(t *testing.T) {
 
 	m := ImportMount{Cluster: "spur", Workspace: "spur-import", Root: "/shared_nfs",
 		AllowedPrefixes: []string{"/shared_nfs/{user}", "/shared_nfs/shared/runs"}}
-	require.Equal(t, []string{"/shared_nfs/zhanglei", "/shared_nfs/shared/runs"}, m.ScanPrefixes("zhanglei"))
+	require.Equal(t, []string{"/shared_nfs/bob", "/shared_nfs/shared/runs"}, m.ScanPrefixes("bob"))
 	for _, user := range []string{"", ".", "..", "a/b"} {
 		require.Equal(t, []string{"/shared_nfs/shared/runs"}, m.ScanPrefixes(user), "%q is no path segment", user)
 	}

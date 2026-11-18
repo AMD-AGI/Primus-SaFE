@@ -106,7 +106,7 @@ func TestNewRunID(t *testing.T) {
 	id := newRunID("Qwen3 8B — LoRA SFT, very long display name that keeps going")
 	require.True(t, strings.HasPrefix(id, "pt-qwen3-8b-lora-sft-very-long-"), id)
 	require.LessOrEqual(t, len(id), 40)
-	require.True(t, strings.HasPrefix(newRunID("中文"), "pt-run-"))
+	require.True(t, strings.HasPrefix(newRunID("\u4e2d\u6587"), "pt-run-"))
 }
 
 func TestRunRowRecordsTheTemplateVersion(t *testing.T) {
