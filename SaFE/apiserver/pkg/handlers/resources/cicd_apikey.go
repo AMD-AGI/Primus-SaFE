@@ -16,7 +16,6 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/identity"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/apikey"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	safecrypto "github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
@@ -63,12 +62,14 @@ func resolveCICDAPIKeyPlain(c *gin.Context, workload *v1.Workload, requestUser *
 	if strings.HasPrefix(bearer, authority.ApiKeyPrefix) {
 		return bearer, nil
 	}
-	cookieToken, _ := c.Cookie(authority.CookieToken)
-	userType := c.GetString(common.UserType)
-	if userType == "" {
-		if ut, err := c.Cookie(authority.CookieUserType); err == nil {
-			userType = ut
-		}
+	// The user type identity judges is the one the request carried (cookie or UserType header),
+	// not the one the external chain recorded on the context.
+	var userType string
+	cookieToken, err := c.Cookie(authority.CookieToken)
+	if err == nil {
+		userType, _ = c.Cookie(authority.CookieUserType)
+	} else {
+		userType = c.GetHeader("UserType")
 	}
 	return identity.FetchPlatformAPIKey(c.Request.Context(), bearer, cookieToken, userType)
 }

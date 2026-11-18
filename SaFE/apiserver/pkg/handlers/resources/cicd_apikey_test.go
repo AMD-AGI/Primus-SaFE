@@ -9,6 +9,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -98,6 +100,35 @@ func TestResolveCICDAPIKeyPlainExternalUsesBearerAPIKey(t *testing.T) {
 	got, err := resolveCICDAPIKeyPlain(c, cicdTestWorkload("cicd-1", common.CICDScaleRunnerSetKind, "u1"), cicdTestUser("u1"))
 	require.NoError(t, err)
 	assert.Equal(t, "ak-from-header", got)
+}
+
+func TestResolveCICDAPIKeyPlainExternalSSOTokenFetchesPlatformKey(t *testing.T) {
+	setAuthMode(t, "external")
+	var gotAuth, gotUserType, gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth, gotUserType, gotPath = r.Header.Get("Authorization"), r.Header.Get("UserType"), r.URL.Path
+		_, _ = w.Write([]byte(`{"apiKey":"ak-platform-u1"}`))
+	}))
+	t.Cleanup(srv.Close)
+	secret := filepath.Join(t.TempDir(), "client_secret")
+	require.NoError(t, os.WriteFile(secret, []byte("secret\n"), 0o600))
+	viper.Set("auth.scim.identity_url", srv.URL)
+	viper.Set("auth.authenticators", []map[string]any{{"type": "introspection", "client_id": "svc", "client_secret_file": secret}})
+	t.Cleanup(func() {
+		viper.Set("auth.scim.identity_url", nil)
+		viper.Set("auth.authenticators", nil)
+	})
+
+	c := cicdTestContext("Bearer sso-access-token")
+	c.Request.Header.Set("UserType", "sso")
+	c.Set(common.UserType, "external")
+
+	got, err := resolveCICDAPIKeyPlain(c, cicdTestWorkload("cicd-1", common.CICDScaleRunnerSetKind, "u1"), cicdTestUser("u1"))
+	require.NoError(t, err)
+	assert.Equal(t, "ak-platform-u1", got)
+	assert.Equal(t, "/api/v1/apikeys/platform", gotPath)
+	assert.Equal(t, "Bearer sso-access-token", gotAuth)
+	assert.Equal(t, "sso", gotUserType)
 }
 
 func TestResolveCICDAPIKeyPlainExternalNeedsSession(t *testing.T) {

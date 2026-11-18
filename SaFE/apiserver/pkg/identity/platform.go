@@ -60,6 +60,9 @@ func FetchPlatformAPIKey(ctx context.Context, sessionBearer, cookieToken, userTy
 		req.Header.Set("Cookie", cookie)
 	} else {
 		req.Header.Set("Authorization", "Bearer "+sessionBearer)
+		if userType != "" {
+			req.Header.Set("UserType", userType)
+		}
 	}
 	resp, err := cli.Do(req)
 	if err != nil {

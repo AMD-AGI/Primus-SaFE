@@ -1482,7 +1482,8 @@ func TestBuildPodAnnotations(t *testing.T) {
 func TestBuildEnvironmentBasic(t *testing.T) {
 	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
 	w.Spec.Workspace = "ws"
-	envs := buildEnvironment(w, nil, -1)
+	envs, err := buildEnvironment(w, nil, -1)
+	assert.NilError(t, err)
 	// Core env vars are always present (WORKLOAD_ID, WORKSPACE, etc).
 	assert.Assert(t, len(envs) > 0)
 }
@@ -1492,7 +1493,8 @@ func TestBuildEnvironmentGpuAndSupervised(t *testing.T) {
 	w.Spec.Workspace = "ws"
 	w.Spec.IsSupervised = true
 	w.Spec.Resources = []v1.WorkloadResource{{Replica: 1, GPU: "8", GPUName: "amd.com/gpu"}}
-	envs := buildEnvironment(w, nil, 0)
+	envs, err := buildEnvironment(w, nil, 0)
+	assert.NilError(t, err)
 	// GPU + supervised paths add more env vars than the basic case.
 	assert.Assert(t, len(envs) > 5)
 }
@@ -1506,7 +1508,8 @@ func TestBuildEnvironmentSkipsSupervisionForExternal(t *testing.T) {
 	w.Spec.Workspace = "ws"
 	w.Spec.IsSupervised = true
 	w.Status.ExternalExecution = &v1.WorkloadExternalExecution{ClaimId: "claim-1"}
-	envs := buildEnvironment(w, nil, -1)
+	envs, err := buildEnvironment(w, nil, -1)
+	assert.NilError(t, err)
 	for _, raw := range envs {
 		name := raw.(map[string]interface{})["name"]
 		assert.Assert(t, name != "ENABLE_SUPERVISE" && name != "HANG_CHECK_INTERVAL",
@@ -1615,7 +1618,8 @@ func TestBuildEnvironment_InjectsUserIdAndApiKey(t *testing.T) {
 	workload.Spec.GroupVersionKind.Kind = common.UnifiedJobKind
 	workload.Spec.Workspace = "ws"
 
-	envs := buildEnvironment(workload, nil, -1)
+	envs, err := buildEnvironment(workload, nil, -1)
+	assert.NilError(t, err)
 	assert.Equal(t, true, findEnv(envs, jobutils.UserIdEnv, "user-1"))
 	assert.Equal(t, true, findEnv(envs, jobutils.UserApiKeyEnv, "injected-user-api-key"))
 }
@@ -1655,8 +1659,7 @@ func TestUpdateCICDScaleSetEnvs_InjectsUserApiKey(t *testing.T) {
 	assert.Equal(t, true, findEnv(envs, jobutils.UserApiKeyEnv, "injected-user-api-key"))
 }
 
-func TestUpdateCICDScaleSetEnvs_MissingEncryptedAPIKeyUsesDBKey(t *testing.T) {
-	stubPlatformKey(t, "db-platform-key")
+func TestUpdateCICDScaleSetEnvs_MissingEncryptedAPIKeyFails(t *testing.T) {
 	workspace := jobutils.TestWorkspaceData.DeepCopy()
 	workload := jobutils.TestWorkloadData.DeepCopy()
 	workload.Labels[v1.UserIdLabel] = "user-cicd"
@@ -1685,10 +1688,8 @@ func TestUpdateCICDScaleSetEnvs_MissingEncryptedAPIKeyUsesDBKey(t *testing.T) {
 
 	resourceSpec := jobutils.TestCICDScaleSetResourceTemplate.Spec.ResourceSpecs[0]
 	err := updateCICDScaleSetEnvs(obj, workload, workspace, resourceSpec)
-	assert.NilError(t, err)
-
-	envs := getEnvs(t, obj, workload, &resourceSpec)
-	assert.Equal(t, true, findEnv(envs, jobutils.UserApiKeyEnv, "db-platform-key"))
+	assert.Assert(t, err != nil)
+	assert.Assert(t, strings.Contains(err.Error(), "encrypted API key"))
 }
 
 func TestCICDIdentityURL(t *testing.T) {

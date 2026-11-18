@@ -33,6 +33,7 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	safecrypto "github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
@@ -383,24 +384,26 @@ func platformKeyForUser(workload *v1.Workload) string {
 // tests flaky; a package var override is deterministic.
 var platformKeyForUserFn = platformKeyForUser
 
-// cicdAPIKey returns the API key of a CICD scale set or github runner: the encrypted annotation
-// written at CreateWorkload, or the owner's platform key from the database (best-effort) when the
-// annotation is missing or cannot be decrypted.
-func cicdAPIKey(workload *v1.Workload) string {
-	if enc := v1.GetAnnotation(workload, v1.UserEncryptedAPIKeyAnnotation); enc != "" {
-		if cryptoClient := safecrypto.NewCrypto(); cryptoClient != nil {
-			plain, err := cryptoClient.Decrypt(enc)
-			if err == nil && strings.TrimSpace(plain) != "" {
-				return plain
-			}
-			klog.ErrorS(err, "failed to decrypt CICD API key annotation; using the database platform key",
-				"workload", workload.Name)
-		}
-	} else {
-		klog.Warningf("CICD workload %s has no encrypted API key annotation; using the database platform key",
-			workload.Name)
+// cicdAPIKey decrypts the API key of a CICD scale set or github runner from the encrypted
+// annotation written at CreateWorkload. A missing or undecryptable annotation fails the workload.
+func cicdAPIKey(workload *v1.Workload) (string, error) {
+	enc := v1.GetAnnotation(workload, v1.UserEncryptedAPIKeyAnnotation)
+	if enc == "" {
+		return "", commonerrors.NewBadRequest("CICD workload is missing the encrypted API key annotation")
 	}
-	return platformKeyForUserFn(workload)
+	cryptoClient := safecrypto.NewCrypto()
+	if cryptoClient == nil {
+		return "", commonerrors.NewInternalError("crypto is not available")
+	}
+	plain, err := cryptoClient.Decrypt(enc)
+	if err != nil {
+		klog.ErrorS(err, "failed to decrypt CICD API key annotation", "workload", workload.Name)
+		return "", commonerrors.NewBadRequest("failed to decrypt the CICD API key annotation")
+	}
+	if strings.TrimSpace(plain) == "" {
+		return "", commonerrors.NewBadRequest("CICD encrypted API key annotation is empty")
+	}
+	return plain, nil
 }
 
 // cicdIdentityURL returns the identity API base for CICD pods: the public control-plane origin,
@@ -518,7 +521,10 @@ func modifyContainers(obj *unstructured.Unstructured,
 		return fmt.Errorf("failed to find container with path: %v", path)
 	}
 
-	env := buildEnvironment(workload, workspace, resourceId)
+	env, err := buildEnvironment(workload, workspace, resourceId)
+	if err != nil {
+		return err
+	}
 	mainContainerName := commonworkload.GetMainContainer(workload, workload.Spec.Kind, resourceId)
 	for i := range containers {
 		container := containers[i].(map[string]interface{})
@@ -1375,7 +1381,8 @@ func buildPodAnnotations(workload *v1.Workload, resourceId int) map[string]inter
 }
 
 // buildEnvironment creates environment variables for the workload container.
-func buildEnvironment(workload *v1.Workload, workspace *v1.Workspace, resourceId int) []interface{} {
+// CICD scale sets and github runners require the encrypted API key annotation.
+func buildEnvironment(workload *v1.Workload, workspace *v1.Workspace, resourceId int) ([]interface{}, error) {
 	var result []interface{}
 	if resourceId >= 0 && resourceId < len(workload.Spec.Resources) && workload.Spec.Resources[resourceId].HasGpu() {
 		if workload.GetEnv("AINIC_DRIVER_VERSION") != "" {
@@ -1412,12 +1419,14 @@ func buildEnvironment(workload *v1.Workload, workspace *v1.Workspace, resourceId
 	result = addEnvVar(result, workload, "DISPLAY_NAME", v1.GetDisplayName(workload))
 	result = addEnvVar(result, workload, "DISPATCH_COUNT", strconv.Itoa(v1.GetWorkloadDispatchCnt(workload)+1))
 	// USER_ID is skipped if already set via Spec.Env. CICD scale sets / github runners
-	// take the API key from the encrypted annotation; UnifiedJob uses the DB lookup.
+	// require the encrypted API key annotation; UnifiedJob uses the DB lookup.
 	result = addEnvVar(result, workload, jobutils.UserIdEnv, v1.GetUserId(workload))
 	if commonworkload.IsCICDProxyRoot(workload) {
-		if apiKey := cicdAPIKey(workload); apiKey != "" {
-			result = addEnvVar(result, workload, jobutils.UserApiKeyEnv, apiKey)
+		apiKey, err := cicdAPIKey(workload)
+		if err != nil {
+			return nil, err
 		}
+		result = addEnvVar(result, workload, jobutils.UserApiKeyEnv, apiKey)
 		if identityURL := cicdIdentityURL(); identityURL != "" {
 			result = addEnvVar(result, workload, jobutils.IdentityURLEnv, identityURL)
 		}
@@ -1438,7 +1447,7 @@ func buildEnvironment(workload *v1.Workload, workspace *v1.Workspace, resourceId
 			}
 		}
 	}
-	return result
+	return result, nil
 }
 
 func addEnvVar(result []interface{}, workload *v1.Workload, name, value string) []interface{} {
@@ -2369,10 +2378,13 @@ func updateCICDScaleSetEnvs(obj *unstructured.Unstructured,
 	}
 	envs := maps.Copy(adminWorkload.Spec.Env)
 	envs[jobutils.UserIdEnv] = v1.GetUserId(adminWorkload)
-	// CICD scale sets have their own env path (not buildEnvironment).
-	if apiKey := cicdAPIKey(adminWorkload); apiKey != "" {
-		envs[jobutils.UserApiKeyEnv] = apiKey
+	// CICD scale sets have their own env path (not buildEnvironment). The API key
+	// comes from the encrypted annotation written at CreateWorkload.
+	apiKey, err := cicdAPIKey(adminWorkload)
+	if err != nil {
+		return err
 	}
+	envs[jobutils.UserApiKeyEnv] = apiKey
 	if identityURL := cicdIdentityURL(); identityURL != "" {
 		envs[jobutils.IdentityURLEnv] = identityURL
 	}
