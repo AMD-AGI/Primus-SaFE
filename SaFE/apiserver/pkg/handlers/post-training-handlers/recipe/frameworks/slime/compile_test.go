@@ -148,11 +148,13 @@ func TestCompileConvertCache(t *testing.T) {
 	res := compile(t, in)
 	require.Equal(t, "/wekafs/custom/models/post-training-cache/slime-qwen3-4B-m1-540ea91/torch_dist",
 		res.Recipe.Convert.Dir, "runs of a model share its conversion")
+	require.True(t, res.Recipe.Provenance.TableImage)
 
 	in.Request.Resources.Image = "docker.io/me/slime:dev"
 	res = compile(t, in)
 	require.Empty(t, res.Recipe.Convert.CacheKey, "a custom image neither reads nor writes the cache")
 	require.Equal(t, "/wekafs/custom/models/pt-1/convert/torch_dist", res.Recipe.Convert.Dir)
+	require.False(t, res.Recipe.Provenance.TableImage)
 }
 
 func TestCompileKeepsEvaluationOutOfTheHash(t *testing.T) {

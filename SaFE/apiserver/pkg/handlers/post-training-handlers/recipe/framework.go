@@ -501,8 +501,10 @@ type Provenance struct {
 	Compiler        string `json:"compiler"`
 	FrameworkCommit string `json:"frameworkCommit"`
 	Image           string `json:"image"`
-	SpecSha256      string `json:"specSha256"`
-	RecipeHash      string `json:"recipeHash"`
+	// TableImage tells that the image came from the registry's image table rather than from the request.
+	TableImage bool   `json:"tableImage,omitempty"`
+	SpecSha256 string `json:"specSha256"`
+	RecipeHash string `json:"recipeHash"`
 }
 
 // Result is the outcome of Compile: diagnostics, and the recipe when there is no error.
@@ -992,7 +994,7 @@ func assemble(ctx *Context, fw *registry.Framework, plan *FrameworkPlan) *Recipe
 			PeftAdapter: req.Export.PeftAdapter && req.Method == registry.MethodLora && exportHF,
 			SaveHF:      plan.SaveHF},
 		Provenance: Provenance{Compiler: CompilerVersion, FrameworkCommit: ctx.Image.FrameworkCommit,
-			Image: ctx.Image.Image, SpecSha256: SpecSha256(ctx.Spec)},
+			Image: ctx.Image.Image, TableImage: !ctx.CustomImage, SpecSha256: SpecSha256(ctx.Spec)},
 	}
 	if req.TrainType == registry.TrainTypeRL {
 		r.Algorithm = plan.Choices.AdvantageEstimator
