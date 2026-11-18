@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -93,6 +94,15 @@ func newTemplate(c *gin.Context, req *templateRequest) (*dbclient.PostTrainingTe
 	}
 	if err := checkTemplateContent(req.Content); err != nil {
 		return nil, err
+	}
+	// The limits of the columns the fields are stored in.
+	for _, f := range []struct {
+		field, value string
+		max          int
+	}{{"framework", req.Framework, 32}, {"spec", req.Spec, 64}, {"sourceRunId", req.SourceRunID, 64}} {
+		if utf8.RuneCountInString(f.value) > f.max {
+			return nil, commonerrors.NewBadRequest(fmt.Sprintf("%s has more than %d characters", f.field, f.max))
+		}
 	}
 	framework := req.Framework
 	if framework == "" {

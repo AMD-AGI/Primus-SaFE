@@ -48,6 +48,12 @@ func TestNewTemplate(t *testing.T) {
 		{Workspace: "ws", Name: "x", TrainType: "sft", Method: "freeze", Content: json.RawMessage(`{}`)},
 		{Workspace: "ws", Name: "x", TrainType: "sft", Method: "full", Content: json.RawMessage(`[1]`)},
 		{Workspace: "ws", Name: strings.Repeat("n", 129), TrainType: "sft", Method: "full", Content: json.RawMessage(`{}`)},
+		{Workspace: "ws", Name: "x", TrainType: "sft", Method: "full", Content: json.RawMessage(`{}`),
+			Spec: strings.Repeat("s", 65)},
+		{Workspace: "ws", Name: "x", TrainType: "sft", Method: "full", Content: json.RawMessage(`{}`),
+			Framework: strings.Repeat("f", 33)},
+		{Workspace: "ws", Name: "x", TrainType: "sft", Method: "full", Content: json.RawMessage(`{}`),
+			SourceRunID: strings.Repeat("r", 65)},
 	} {
 		_, err = newTemplate(testContext(), &bad)
 		require.Equal(t, http.StatusBadRequest, statusCode(err), "%+v", bad)
