@@ -3,6 +3,7 @@
 # See LICENSE for license information.
 #
 import ast
+import errno
 import http.server
 import io
 import json
@@ -146,6 +147,114 @@ def test_sigterm_releases_the_conversion_lock(tmp_path):
     proc.send_signal(signal.SIGTERM)
     assert proc.wait(timeout=30) == 128 + signal.SIGTERM
     assert not (tmp_path / stages.CONVERT_LOCK).exists(), "a stopped run does not leave its lock behind"
+
+
+class NoSpaceAdapter(FakeAdapter):
+    """Trains by printing one line, with RUN standing for the run directory, and failing."""
+
+    def __init__(self, line):
+        super().__init__()
+        self.line = line
+
+    def train_command(self, recipe, run_dir):
+        return [sys.executable, "-c", "print(%r); raise SystemExit(1)" % self.line.replace("RUN", run_dir)], {}, {}
+
+
+def test_only_running_out_of_space_in_the_run_directory_is_final(monkeypatch, tmp_path):
+    recipe = recipe_for(tmp_path)
+    code, _, ms = run(monkeypatch, recipe, NoSpaceAdapter("NCCL WARN Call to posix_fallocate failed : "
+                                                          "No space left on device"))
+    assert code == 1 and ms[-1][1]["retry"] is True, "a full /dev/shm says nothing about the shared storage"
+    assert ms[-1][1]["reason"] == "training exited with code 1"
+    code, _, ms = run(monkeypatch, recipe, NoSpaceAdapter("OSError: [Errno 28] No space left on device: "
+                                                          "'RUN/checkpoints/iter_0000001/0_0.distcp'"))
+    assert code == 1 and ms[-1][1]["retry"] is False
+    assert ms[-1][1]["reason"].startswith("shared storage is out of space")
+
+
+class ExportFailsAdapter(FakeAdapter):
+    """Fails the export with error."""
+
+    def __init__(self, error):
+        super().__init__()
+        self.error = error
+
+    def export(self, recipe, run_dir, run_command, iteration=None, out=None):
+        raise self.error
+
+
+def test_a_launcher_error_out_of_space_elsewhere_is_retried(monkeypatch, tmp_path):
+    for name, path, retry in (("tmp", "/tmp/ray/spill/x", True), ("run", "RUN/final_model/x", False)):
+        (tmp_path / name).mkdir()
+        recipe = recipe_for(tmp_path / name)
+        filename = path.replace("RUN", recipe["output"]["base"])
+        err = OSError(errno.ENOSPC, os.strerror(errno.ENOSPC), filename)
+        code, _, ms = run(monkeypatch, recipe, ExportFailsAdapter(err))
+        assert code == 1 and ms[-1][1]["retry"] is retry, name
+
+
+def test_a_new_export_job_is_not_stopped_by_an_earlier_jobs_error(monkeypatch, tmp_path):
+    recipe = recipe_for(tmp_path)
+    recipe["exportOnly"] = {"step": 10, "iteration": 9, "dir": str(tmp_path / "run" / "exports" / "step-10"),
+                            "displayName": "m"}
+    gone = stages.StageError("export", "checkpoint step 10 no longer exists", retry=False)
+    monkeypatch.setenv("WORKLOAD_ID", "pt-x-x10-a")
+    code, _, ms = run(monkeypatch, recipe, ExportFailsAdapter(gone))
+    assert code == 1 and ms[-1][1]["retry"] is False
+    code, _, ms = run(monkeypatch, recipe, FakeAdapter())
+    assert code == 1 and len(ms) == 2, "a restart of the same job reports the stored error"
+    monkeypatch.setenv("WORKLOAD_ID", "pt-x-x10-b")
+    code, _, ms = run(monkeypatch, recipe, FakeAdapter())
+    assert code == 0, "a new export job of the same step runs"
+
+
+def test_errors_before_the_stages_still_end_with_an_error_marker(monkeypatch, tmp_path):
+    recipe = recipe_for(tmp_path)
+    status = os.path.join(recipe["output"]["base"], launch.STATUS_FILE)
+
+    def full(run_dir):
+        raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC), status)
+
+    monkeypatch.setattr(launch, "next_attempt", full)
+    code, _, ms = run(monkeypatch, recipe, FakeAdapter())
+    assert code == 1 and ms[0][1]["stage"] == "start" and ms[0][1]["attempt"] == "a1"
+    assert ms[-1][0] == "[ERROR]" and ms[-1][1]["retry"] is False
+    assert ms[-1][1]["reason"].startswith("shared storage is out of space")
+
+
+def test_an_unreadable_noretry_file_is_still_final(monkeypatch, tmp_path):
+    recipe = recipe_for(tmp_path)
+    os.makedirs(recipe["output"]["base"])
+    open(os.path.join(recipe["output"]["base"], launch.NORETRY_FILE), "w").close()
+    code, _, ms = run(monkeypatch, recipe, FakeAdapter())
+    assert code == 1 and ms[-1][0] == "[ERROR]" and ms[-1][1]["retry"] is False
+    assert ms[-1][1]["reason"] == "an earlier attempt failed for good and its reason was not recorded"
+
+
+class RaisingEmitter(metrics.Emitter):
+    """Fails to forward any output line."""
+
+    def forward(self, line):
+        raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+
+
+def test_a_crash_while_reading_the_output_ends_the_command(tmp_path):
+    pid_file = tmp_path / "pid"
+    code = ("import os, time\n"
+            "open(%r, 'w').write(str(os.getpid()))\n"
+            "print('line', flush=True)\n"
+            "time.sleep(60)\n" % str(pid_file))
+    runner = stages.Runner({}, str(tmp_path), FakeAdapter(), RaisingEmitter("pt-x", "a1", out=io.StringIO()))
+    with pytest.raises(OSError):
+        runner.run_command([sys.executable, "-c", code])
+    with pytest.raises(ProcessLookupError):
+        os.kill(int(pid_file.read_text()), 0)
+
+
+def test_a_metric_line_that_breaks_the_parser_is_counted(tmp_path):
+    runner = stages.Runner({}, str(tmp_path), FakeAdapter(), metrics.Emitter("pt-x", "a1", out=io.StringIO()))
+    runner.parse_line("x - step 1: {[1]: 2}\n")
+    assert runner.emitter.parse_failures == 1
 
 
 def test_too_few_gpus(monkeypatch, tmp_path):

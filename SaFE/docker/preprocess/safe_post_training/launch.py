@@ -18,7 +18,6 @@ import math
 import os
 import re
 import signal
-import subprocess
 import sys
 import threading
 import time
@@ -34,7 +33,9 @@ NORETRY_WAIT = 90
 STATUS_FILE = "status.json"
 RECIPE_FILE = "recipe.json"
 WATCH_INTERVAL = 10
-KILL_GRACE = 30
+# WORKLOAD_ENV names the workload a pod belongs to; it stays the same when the workload restarts its pods.
+WORKLOAD_ENV = "WORKLOAD_ID"
+UNKNOWN_NORETRY = "an earlier attempt failed for good and its reason was not recorded"
 SAVING_PATTERN = re.compile(r"saving checkpoint", re.IGNORECASE)
 
 
@@ -43,7 +44,7 @@ class Watchdog:
     output before the first step and in stages without steps. Past the warning threshold it prints a stalled
     [STAGE]; past the stop threshold it ends the child's process group."""
 
-    def __init__(self, emitter, config=None, clock=time.time, interval=WATCH_INTERVAL, grace=KILL_GRACE):
+    def __init__(self, emitter, config=None, clock=time.time, interval=WATCH_INTERVAL, grace=stages.KILL_GRACE):
         cfg = config or {}
         self.emitter, self.clock, self.interval, self.grace = emitter, clock, interval, grace
         self.startup = cfg.get("startupMinutes") or 30
@@ -128,7 +129,7 @@ class Watchdog:
                 if tick:
                     tick()
                 if self.check():
-                    stop_group(proc, self.grace)
+                    stages.stop_group(proc, self.grace)
                     return
 
         self._thread = threading.Thread(target=loop, name="watchdog", daemon=True)
@@ -140,20 +141,6 @@ class Watchdog:
         if self._thread:
             self._thread.join()
             self._thread = None
-
-
-def stop_group(proc, grace):
-    """End a child's whole process group: SIGTERM first, SIGKILL after grace seconds."""
-    try:
-        os.killpg(proc.pid, signal.SIGTERM)
-        proc.wait(timeout=grace)
-    except ProcessLookupError:
-        return
-    except subprocess.TimeoutExpired:
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
 
 
 def load_recipe(env=os.environ):
@@ -177,6 +164,36 @@ def next_attempt(run_dir):
         json.dump(status, f)
     os.replace(tmp, path)
     return "a%d" % status["attempts"]
+
+
+def peek_attempt(run_dir):
+    """Return the attempt id the next start gets without recording it, a1 when status.json cannot be read."""
+    try:
+        with open(os.path.join(run_dir, STATUS_FILE)) as f:
+            return "a%d" % (int(json.load(f).get("attempts", 0)) + 1)
+    except (OSError, ValueError, TypeError, AttributeError):
+        return "a1"
+
+
+def stored_error(path):
+    """Return the error a .noretry file holds, an unknown final error when it cannot be read."""
+    try:
+        with open(path) as f:
+            reason = json.load(f)
+        if isinstance(reason, dict):
+            return reason
+    except (OSError, ValueError):
+        pass
+    return {"stage": "start", "reason": UNKNOWN_NORETRY}
+
+
+def launcher_error(stage, err, run_dir):
+    """Turn a launcher crash into a stage error; running out of space is final unless it names a path outside the
+    run directory."""
+    if isinstance(err, OSError) and err.errno == errno.ENOSPC and \
+            not (isinstance(err.filename, str) and not stages.under(run_dir, err.filename)):
+        return stages.StageError(stage, stages.space_reason(run_dir), retry=False)
+    return stages.StageError(stage, "launcher error: %s" % err)
 
 
 def train_start(run_dir, clock=time.time):
@@ -203,13 +220,13 @@ def load_adapter(framework):
 
 
 def fail(emitter, run_dir, err, sleep=time.sleep):
-    """Report a failed stage: an error that would recur is written to .noretry first and given time for the
-    controller to disable failover; then the [ERROR] marker is printed last."""
+    """Report a failed stage: an error that would recur is written to .noretry first, with the workload it ends,
+    and given time for the controller to disable failover; then the [ERROR] marker is printed last."""
     reason = {"stage": err.stage, "reason": err.reason}
     if not err.retry:
         try:
             with open(os.path.join(run_dir, NORETRY_FILE), "w") as f:
-                json.dump(reason, f)
+                json.dump(dict(reason, workload=os.environ.get(WORKLOAD_ENV, "")), f)
         except OSError:
             pass
         emitter.stage(err.stage, state="failed", detail=reason, retry=False)
@@ -221,30 +238,41 @@ def fail(emitter, run_dir, err, sleep=time.sleep):
 
 
 def run(recipe, out=None, gpus=stages.ray_gpus, sleep=time.sleep, watchdog=None, sampler=gpu_sampler.GpuSampler):
-    """Run a recipe end to end and return the exit code; sampler, when set, samples the GPUs during training."""
+    """Run a recipe end to end and return the exit code; sampler, when set, samples the GPUs during training. A
+    .noretry file that another workload left, such as an earlier export job of the same step, is cleared."""
     run_dir = recipe["output"]["base"]
-    for sub in ("metrics", "logs/nccl"):
-        os.makedirs(os.path.join(run_dir, sub), exist_ok=True)
     only = recipe.get("exportOnly")
-    if only:
-        # A checkpoint export keeps the run's attempts, metrics and stored error apart from its own.
-        os.makedirs(only["dir"], exist_ok=True)
-        attempt, metrics_path, state_dir = "x%d" % only["step"], None, only["dir"]
-    else:
-        attempt = next_attempt(run_dir)
-        metrics_path, state_dir = os.path.join(run_dir, "metrics", "metrics.jsonl"), run_dir
-        # The sample plugin reads its limits from the recipe in the run directory.
-        with open(os.path.join(run_dir, RECIPE_FILE), "w") as f:
-            json.dump(recipe, f)
+    # A checkpoint export keeps the run's attempts, metrics and stored error apart from its own.
+    attempt, metrics_path, state_dir = ("x%d" % only["step"], None, only["dir"]) if only else (None, None, run_dir)
+    try:
+        for sub in ("metrics", "logs/nccl"):
+            os.makedirs(os.path.join(run_dir, sub), exist_ok=True)
+        if only:
+            os.makedirs(only["dir"], exist_ok=True)
+        else:
+            attempt = next_attempt(run_dir)
+            metrics_path = os.path.join(run_dir, "metrics", "metrics.jsonl")
+            # The sample plugin reads its limits from the recipe in the run directory.
+            with open(os.path.join(run_dir, RECIPE_FILE), "w") as f:
+                json.dump(recipe, f)
+    except (OSError, ValueError) as err:
+        emitter = metrics.Emitter(recipe["runId"], attempt or peek_attempt(run_dir), out=out)
+        emitter.stage("start", detail={"launcher": LAUNCHER_VERSION})
+        return fail(emitter, state_dir, launcher_error("start", err, run_dir), sleep=sleep)
     emitter = metrics.Emitter(recipe["runId"], attempt, metrics_path,
                               include=(recipe.get("metrics") or {}).get("include"), out=out)
     emitter.stage("start", detail={"launcher": LAUNCHER_VERSION})
     noretry = os.path.join(state_dir, NORETRY_FILE)
     if os.path.exists(noretry):
-        with open(noretry) as f:
-            reason = json.load(f)
-        emitter.error(reason.get("stage", ""), reason.get("reason", ""), retry=False)
-        return 1
+        reason = stored_error(noretry)
+        if reason.get("workload") and reason["workload"] != os.environ.get(WORKLOAD_ENV, ""):
+            try:
+                os.remove(noretry)
+            except OSError:
+                pass
+        else:
+            emitter.error(reason.get("stage", ""), reason.get("reason", ""), retry=False)
+            return 1
     emitter.start_heartbeat()
     try:
         start_sampler = None
@@ -257,12 +285,7 @@ def run(recipe, out=None, gpus=stages.ray_gpus, sleep=time.sleep, watchdog=None,
     except stages.StageError as err:
         return fail(emitter, state_dir, err, sleep=sleep)
     except Exception as err:  # noqa: BLE001 - any crash must still end with an [ERROR] marker
-        stage = emitter.stage_name or "start"
-        if isinstance(err, OSError) and err.errno == errno.ENOSPC:
-            err = stages.StageError(stage, stages.space_reason(run_dir), retry=False)
-        else:
-            err = stages.StageError(stage, "launcher error: %s" % err)
-        return fail(emitter, state_dir, err, sleep=sleep)
+        return fail(emitter, state_dir, launcher_error(emitter.stage_name or "start", err, run_dir), sleep=sleep)
     emitter.wait_after_last_metric(sleep=sleep)
     emitter.stop_heartbeat()
     emitter.success(**result)

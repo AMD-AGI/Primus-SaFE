@@ -73,3 +73,23 @@ def test_limit_and_errors(tmp_path):
     (tmp_path / "bad.jsonl").write_text("{not json}\n")
     with pytest.raises(dataset.DatasetError, match="line 1 is not JSON"):
         dataset.prepare(str(tmp_path / "bad.jsonl"), str(tmp_path / "t.jsonl"), "sft", {})
+
+
+@pytest.mark.parametrize("name, content, message", [
+    ("syntax.json", b"[{\"instruction\": ", "is not JSON"),
+    ("scalar.json", b"3", "holds neither a list of rows nor a data list"),
+    ("latin1.jsonl", b"{\"instruction\": \"caf\xe9\", \"output\": \"x\"}\n", "is not UTF-8 text"),
+    ("list.jsonl", b"[1, 2]\n", "row 1 is not an object"),
+    ("rows.json", b"[\"a\"]", "row 1 is not an object"),
+])
+def test_malformed_files_are_dataset_errors(tmp_path, name, content, message):
+    (tmp_path / name).write_bytes(content)
+    with pytest.raises(dataset.DatasetError, match=message):
+        dataset.prepare(str(tmp_path / name), str(tmp_path / "t.jsonl"), "sft", {})
+
+
+def test_a_broken_parquet_file_is_a_dataset_error(tmp_path):
+    pytest.importorskip("pyarrow")
+    (tmp_path / "train.parquet").write_bytes(b"not parquet")
+    with pytest.raises(dataset.DatasetError, match="is not a readable Parquet file"):
+        dataset.prepare(str(tmp_path / "train.parquet"), str(tmp_path / "t.jsonl"), "sft", {})

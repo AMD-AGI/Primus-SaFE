@@ -16,6 +16,7 @@ import math
 import os
 import re
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -57,6 +58,7 @@ REWARD_KEY_ENV = "PT_RM_API_KEY"
 REWARD_REJECTED_TEXT = "safe-post-training: the reward service rejected the key"
 WANDB_RUN_URL = re.compile(r"View run\b.*?(https?://\S+)")
 LOCK_POLL_SECONDS = 30
+KILL_GRACE = 30
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -158,6 +160,26 @@ def disk_usage(run_dir):
     sizes = {key: dir_size(os.path.join(run_dir, name)) for key, name in DISK_DIRS}
     sizes["total"] = sum(sizes.values())
     return sizes
+
+
+def under(root, path):
+    """Report whether path is root or lies inside it, comparing absolute paths."""
+    root, path = os.path.abspath(root), os.path.abspath(path)
+    return path == root or path.startswith(root.rstrip(os.sep) + os.sep)
+
+
+def stop_group(proc, grace):
+    """End a child's whole process group: SIGTERM first, SIGKILL after grace seconds."""
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+        proc.wait(timeout=grace)
+    except ProcessLookupError:
+        return
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
 
 
 def space_reason(run_dir):
@@ -827,7 +849,8 @@ class Runner:
     def run_command(self, cmd, env=None, parse=False, watch=None):
         """Run a command in its own process group, forward its output and, when parse is set, turn metric lines
         into [METRIC] markers. With watch naming the stage, the watchdog ends the command when it stops making
-        progress. Returns the exit code."""
+        progress; so does any error while reading its output. Only an out-of-space line that names a path in the run
+        directory counts as the shared storage being full. Returns the exit code."""
         full_env = dict(os.environ)
         full_env.update(env or {})
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=full_env,
@@ -838,7 +861,7 @@ class Runner:
         try:
             for line in proc.stdout:
                 self.emitter.forward(line)
-                if ENOSPC_TEXT in line:
+                if ENOSPC_TEXT in line and self.run_dir in line:
                     self.enospc = True
                 if REWARD_REJECTED_TEXT in line:
                     self.reward_rejected = True
@@ -850,6 +873,8 @@ class Runner:
         finally:
             if dog:
                 dog.unwatch()
+            if proc.poll() is None:
+                stop_group(proc, KILL_GRACE)
 
     def parse_line(self, line):
         """Report the metrics of one training output line, or the first W&B run link; a line that looks like metrics
@@ -862,7 +887,7 @@ class Runner:
                 return
         try:
             parsed = self.adapter.parse_metric_line(line)
-        except (ValueError, SyntaxError):
+        except Exception:  # noqa: BLE001 - a line the parser cannot handle must not stop the run
             self.emitter.parse_failures += 1
             return
         if parsed:

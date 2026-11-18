@@ -39,29 +39,50 @@ def input_files(path):
 
 
 def read_rows(path):
-    """Yield the rows of one data file as dicts."""
+    """Yield the rows of one data file as dicts; a file that cannot be decoded, or a row that is not an object,
+    raises DatasetError."""
     if path.endswith(".parquet"):
         try:
             import pyarrow.parquet as pq
         except ImportError as e:
             raise DatasetError("reading %s needs pyarrow, which the image lacks" % path) from e
-        for batch in pq.ParquetFile(path).iter_batches():
-            yield from batch.to_pylist()
+        try:
+            for batch in pq.ParquetFile(path).iter_batches():
+                yield from batch.to_pylist()
+        except Exception as e:  # noqa: BLE001 - pyarrow raises its own error types for a malformed file
+            raise DatasetError("%s is not a readable Parquet file: %s" % (path, e)) from e
         return
-    with open(path, encoding="utf-8") as f:
-        if path.endswith(".json"):
-            data = json.load(f)
-            rows = data if isinstance(data, list) else data.get("data", [])
-            yield from rows
-            return
-        for n, line in enumerate(f, 1):
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                yield json.loads(line)
-            except json.JSONDecodeError as e:
-                raise DatasetError("%s line %d is not JSON: %s" % (path, n, e)) from e
+    try:
+        with open(path, encoding="utf-8") as f:
+            if path.endswith(".json"):
+                try:
+                    data = json.load(f)
+                except json.JSONDecodeError as e:
+                    raise DatasetError("%s is not JSON: %s" % (path, e)) from e
+                rows = data.get("data", []) if isinstance(data, dict) else data
+                if not isinstance(rows, list):
+                    raise DatasetError("%s holds neither a list of rows nor a data list" % path)
+                for n, row in enumerate(rows, 1):
+                    yield object_row(path, n, row)
+                return
+            for n, line in enumerate(f, 1):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError as e:
+                    raise DatasetError("%s line %d is not JSON: %s" % (path, n, e)) from e
+                yield object_row(path, n, row)
+    except UnicodeDecodeError as e:
+        raise DatasetError("%s is not UTF-8 text: %s" % (path, e)) from e
+
+
+def object_row(path, n, row):
+    """Return row when it is a JSON object, and raise DatasetError naming its position otherwise."""
+    if not isinstance(row, dict):
+        raise DatasetError("%s row %d is not an object" % (path, n))
+    return row
 
 
 def sft_row(row, field_map):
