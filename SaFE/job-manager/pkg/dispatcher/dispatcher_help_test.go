@@ -1869,17 +1869,18 @@ func TestSetInferaReadinessPortSkipsASlotWithoutAMainContainer(t *testing.T) {
 // hostNetwork workloads on the node, so a random readiness port must never
 // land on one.
 func TestInferaReadinessPortsStartWithSaFEFixedHostPorts(t *testing.T) {
-	used := inferaReservedHostPorts()
-	_, reserved := used[common.RayJobMetricsPort]
-	assert.Assert(t, reserved, "the RayJob metrics port must be reserved")
+	reserved := inferaReservedHostPorts()
+	_, ok := reserved[common.RayJobMetricsPort]
+	assert.Assert(t, ok, "the RayJob metrics port must be reserved")
 
-	for p := inferaReadinessPortMin; p < inferaReadinessPortMax; p++ {
-		if p != common.RayJobMetricsPort {
-			used[p] = struct{}{}
-		}
+	used := inferaReservedHostPorts()
+	for i := 0; i < 100; i++ {
+		port, err := randomInferaReadinessPort(used)
+		assert.NilError(t, err)
+		_, fixed := reserved[port]
+		assert.Assert(t, !fixed && port >= inferaReadinessPortMin && port < inferaReadinessPortMax,
+			"readiness port %d", port)
 	}
-	_, err := randomInferaReadinessPort(used)
-	assert.Assert(t, err != nil, "the only free port left is a reserved one")
 }
 
 // A range with no free port is an error, not an endless loop in reconcile.
