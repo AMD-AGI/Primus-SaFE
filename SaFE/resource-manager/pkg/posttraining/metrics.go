@@ -343,7 +343,7 @@ func (a *attemptCursor) accept(seq int64, t float64, now time.Time) bool {
 // already too long. It returns the number of bytes read.
 func scanLog(r io.Reader, cur *logCursor, fn func(ts time.Time, line string)) (int64, error) {
 	br := bufio.NewReaderSize(r, 64<<10)
-	since := cur.sinceTime()
+	since, skip := cur.sinceTime(), cur.SinceN
 	seenAtSince := 0
 	var total int64
 	var buf []byte
@@ -356,7 +356,7 @@ func scanLog(r io.Reader, cur *logCursor, fn func(ts time.Time, line string)) (i
 		if !since.IsZero() && ts.Before(since) {
 			return
 		}
-		if !since.IsZero() && ts.Equal(since) && seenAtSince < cur.SinceN {
+		if !since.IsZero() && ts.Equal(since) && seenAtSince < skip {
 			seenAtSince++
 			return
 		}

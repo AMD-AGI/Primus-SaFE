@@ -102,6 +102,14 @@ func TestScanLogCursor(t *testing.T) {
 	_, err = scanLog(strings.NewReader(log[:strings.Index(log, "c\n")]), cut, collect)
 	require.NoError(t, err)
 	require.Equal(t, []string{"b"}, got, "a read cut between lines with one timestamp resumes after the first")
+
+	same := "2026-11-03T10:00:03Z a\n2026-11-03T10:00:03Z b\n2026-11-03T10:00:03Z c\n2026-11-03T10:00:03Z d\n"
+	cut = &logCursor{Since: "2026-11-03T10:00:03Z", SinceN: 1}
+	got = nil
+	_, err = scanLog(strings.NewReader(same), cut, collect)
+	require.NoError(t, err)
+	require.Equal(t, []string{"b", "c", "d"}, got, "only the lines read before are skipped")
+	require.Equal(t, 4, cut.SinceN)
 }
 
 func TestScanLogSkipsLongLines(t *testing.T) {
