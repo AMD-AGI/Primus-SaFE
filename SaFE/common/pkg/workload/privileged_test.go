@@ -75,12 +75,12 @@ func TestRunsPrivileged(t *testing.T) {
 	}
 	privileged := map[string]string{v1.WorkloadPrivilegedAnnotation: v1.TrueStr}
 	for _, kind := range []string{common.CICDScaleRunnerSetKind, common.CICDEphemeralRunnerKind,
-		common.CICDGithubRunnerKind, common.UnifiedJobKind} {
+		common.UnifiedJobKind} {
 		require.True(t, HasPrivilegedTemplate(workload(kind, nil)), kind)
 		require.True(t, RunsPrivileged(workload(kind, nil)), kind)
 	}
 	for _, kind := range []string{common.PytorchJobKind, common.AuthoringKind, common.DeploymentKind,
-		common.SandboxKind, common.RayJobKind, ""} {
+		common.SandboxKind, common.RayJobKind, common.CICDGithubRunnerKind, ""} {
 		require.False(t, HasPrivilegedTemplate(workload(kind, nil)), kind)
 		require.False(t, RunsPrivileged(workload(kind, nil)), kind)
 		require.True(t, RunsPrivileged(workload(kind, privileged)), kind)

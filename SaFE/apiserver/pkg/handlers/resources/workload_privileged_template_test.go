@@ -42,7 +42,7 @@ const (
 // privilegedTemplateKinds are the kinds whose stock templates run a privileged container; the
 // common package's test holds that list to the chart.
 var ptPrivilegedTemplateKinds = []string{
-	common.CICDScaleRunnerSetKind, common.CICDEphemeralRunnerKind, common.CICDGithubRunnerKind, common.UnifiedJobKind,
+	common.CICDScaleRunnerSetKind, common.CICDEphemeralRunnerKind, common.UnifiedJobKind,
 }
 
 type privilegedTemplateFixture struct {
@@ -181,7 +181,7 @@ func requirePrivilegedGrantRefusal(t *testing.T, err error, msgAndArgs ...any) {
 	require.Contains(t, err.Error(), authority.WorkloadPrivilegedKind, msgAndArgs...)
 }
 
-// A GitHub Actions runner or a unified job does not ask for privileged mode, but its template runs
+// EphemeralRunner and UnifiedJob do not ask for privileged mode, but their templates run
 // privileged containers, so creating one takes the workload/privileged grant a privileged workload
 // takes: a member of the workspace, and a member who manages another workspace, are refused (403
 // naming the grant, nothing created) on the create route the proxies use and for every such kind;
@@ -235,7 +235,6 @@ func TestWorkloadsThatRunPrivilegedNeedThePrivilegedGrantToChange(t *testing.T) 
 	}{
 		"legacy-scaleset": {common.CICDScaleRunnerSetKind, nil},
 		"legacy-runner":   {common.CICDEphemeralRunnerKind, nil},
-		"legacy-github":   {common.CICDGithubRunnerKind, nil},
 		"legacy-unified":  {common.UnifiedJobKind, nil},
 		"legacy-priv":     {common.PytorchJobKind, privileged},
 	}

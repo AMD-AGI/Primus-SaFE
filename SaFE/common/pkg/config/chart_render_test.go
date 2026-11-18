@@ -464,19 +464,9 @@ func TestChartRendersHostedRunnerRuntime(t *testing.T) {
 	testifyassert.False(t, runner.Spec.Template.Spec.Containers[0].SecurityContext.Privileged)
 	testifyassert.Equal(t, 1001, runner.Spec.Template.Spec.Containers[0].SecurityContext.RunAsUser)
 
-	names := map[string]container{}
-	for _, current := range runner.Spec.Template.Spec.InitContainers {
-		names[current.Name] = current
-	}
-	testifyassert.Equal(t, "ghcr.io/actions/actions-runner:2.328.0", names["init-dind-externals"].Image)
-	testifyassert.Equal(t, "docker:28.3.3-dind", names["dind"].Image)
-	testifyassert.Equal(t, "Always", names["dind"].RestartPolicy)
-	testifyassert.True(t, names["dind"].SecurityContext.Privileged)
-	testifyassert.Equal(t, []string{
-		"dockerd",
-		"--host=unix:///var/run/docker.sock",
-		"--group=123",
-	}, names["dind"].Args)
+	testifyrequire.Len(t, runner.Spec.Template.Spec.InitContainers, 1)
+	testifyassert.Equal(t, "proxy-relay", runner.Spec.Template.Spec.InitContainers[0].Name)
+	testifyassert.False(t, runner.Spec.Template.Spec.InitContainers[0].SecurityContext.Privileged)
 }
 
 // sandboxPod is the part of the rendered sandbox template the extra CA touches.
