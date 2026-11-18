@@ -435,6 +435,10 @@ func TestChartRendersHostedRunnerRuntime(t *testing.T) {
 		Image           string   `yaml:"image"`
 		RestartPolicy   string   `yaml:"restartPolicy"`
 		Args            []string `yaml:"args"`
+		Env             []struct {
+			Name  string `yaml:"name"`
+			Value string `yaml:"value"`
+		} `yaml:"env"`
 		SecurityContext struct {
 			Privileged bool `yaml:"privileged"`
 			RunAsUser  int  `yaml:"runAsUser"`
@@ -464,6 +468,17 @@ func TestChartRendersHostedRunnerRuntime(t *testing.T) {
 	testifyassert.False(t, runner.Spec.Template.Spec.Containers[0].SecurityContext.Privileged)
 	testifyassert.Equal(t, 1001, runner.Spec.Template.Spec.Containers[0].SecurityContext.RunAsUser)
 
+	testifyrequire.Len(t, runner.Spec.Template.Spec.InitContainers, 1)
+	testifyassert.Equal(t, "proxy-relay", runner.Spec.Template.Spec.InitContainers[0].Name)
+	testifyassert.False(t, runner.Spec.Template.Spec.InitContainers[0].SecurityContext.Privileged)
+	for _, env := range runner.Spec.Template.Spec.Containers[0].Env {
+		testifyassert.NotEqual(t, "DOCKER_HOST", env.Name)
+	}
+
+	withDocker := renderConfigMapData(t, "github-hosted-runner-template", "template",
+		"--show-only", "templates/configmap/github_hosted_runner_template.yaml",
+		"--set", "cicd.docker_enabled=true")
+	testifyrequire.NoError(t, yaml.Unmarshal([]byte(withDocker), &runner))
 	names := map[string]container{}
 	for _, current := range runner.Spec.Template.Spec.InitContainers {
 		names[current.Name] = current
@@ -477,6 +492,14 @@ func TestChartRendersHostedRunnerRuntime(t *testing.T) {
 		"--host=unix:///var/run/docker.sock",
 		"--group=123",
 	}, names["dind"].Args)
+	testifyassert.False(t, runner.Spec.Template.Spec.Containers[0].SecurityContext.Privileged)
+	var dockerHost string
+	for _, env := range runner.Spec.Template.Spec.Containers[0].Env {
+		if env.Name == "DOCKER_HOST" {
+			dockerHost = env.Value
+		}
+	}
+	testifyassert.Equal(t, "unix:///var/run/docker.sock", dockerHost)
 }
 
 // sandboxPod is the part of the rendered sandbox template the extra CA touches.
