@@ -7,6 +7,8 @@ package ops_job
 
 import (
 	"context"
+	"database/sql"
+	"strings"
 	"testing"
 	"time"
 
@@ -518,6 +520,7 @@ func TestEvalUpdateReportPath(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 	db := mockclient.NewMockInterface(ctrl)
+	db.EXPECT().GetEvaluationTask(gomock.Any(), "t1").Return(nil, sql.ErrNoRows)
 	db.EXPECT().UpdateEvaluationTaskResult(gomock.Any(), "t1", "{}", gomock.Any()).Return(nil)
 	r := &EvaluationJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t), dbClient: db}
 	r.updateReportPath(context.Background(), "t1", evalWorkload("t1", v1.WorkloadSucceeded))
@@ -548,18 +551,61 @@ func TestEvalReportSummary(t *testing.T) {
 	}
 }
 
-// reportStore serves the objects it holds and fails a read of any other; other S3 calls are not expected.
+// reportStore serves the objects it holds, listed with their length or the size given, and fails a read of any
+// other; other S3 calls are not expected.
 type reportStore struct {
 	commons3.Interface
 	objects map[string]string
+	sizes   map[string]int64
+	reads   *int
 }
 
 // GetObject returns a held object, or an error for a missing one.
 func (s reportStore) GetObject(_ context.Context, key string, _ int64) (string, error) {
+	if s.reads != nil {
+		*s.reads++
+	}
 	if v, ok := s.objects[key]; ok {
 		return v, nil
 	}
 	return "", assert.AnError
+}
+
+// ListObjectsWithSize lists the held objects under prefix.
+func (s reportStore) ListObjectsWithSize(_ context.Context, prefix string) ([]commons3.S3FileInfo, error) {
+	var out []commons3.S3FileInfo
+	for key, v := range s.objects {
+		if rel, ok := strings.CutPrefix(key, prefix); ok {
+			size, given := s.sizes[key]
+			if !given {
+				size = int64(len(v))
+			}
+			out = append(out, commons3.S3FileInfo{Key: rel, Size: size})
+		}
+	}
+	return out, nil
+}
+
+func TestEvalReportsAreReadOnceAndBounded(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	db := mockclient.NewMockInterface(ctrl)
+	reads := 0
+	r := &EvaluationJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t), dbClient: db,
+		s3Client: reportStore{objects: map[string]string{"evaluations/t1/report.json": v2Report,
+			"evaluations/t2/report.json": v2Report}, sizes: map[string]int64{"evaluations/t2/report.json": evalReportMaxBytes + 1},
+			reads: &reads}}
+	db.EXPECT().GetEvaluationTask(gomock.Any(), "t1").Return(&dbclient.EvaluationTask{TaskId: "t1",
+		Status:        dbclient.EvaluationTaskStatusSucceeded,
+		ReportS3Path:  sql.NullString{String: "evaluations/t1/report.json", Valid: true},
+		ResultSummary: sql.NullString{String: `{"overall_score":0.81}`, Valid: true}}, nil)
+	r.updateReportPath(context.Background(), "t1", evalWorkload("t1", v1.WorkloadSucceeded))
+	assert.Zero(t, reads, "a restart replays the finished workloads, whose recorded scores are not read again")
+
+	db.EXPECT().GetEvaluationTask(gomock.Any(), "t2").Return(&dbclient.EvaluationTask{TaskId: "t2"}, nil)
+	db.EXPECT().UpdateEvaluationTaskResult(gomock.Any(), "t2", "{}", "evaluations/t2/report.json").Return(nil)
+	r.updateReportPath(context.Background(), "t2", evalWorkload("t2", v1.WorkloadSucceeded))
+	assert.Zero(t, reads, "a report over the limit is not read")
 }
 
 func TestEvalUpdateReportPathStoresTheScores(t *testing.T) {
@@ -568,6 +614,7 @@ func TestEvalUpdateReportPathStoresTheScores(t *testing.T) {
 	db := mockclient.NewMockInterface(ctrl)
 	r := &EvaluationJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t), dbClient: db,
 		s3Client: reportStore{objects: map[string]string{"evaluations/t1/report.json": v2Report}}}
+	db.EXPECT().GetEvaluationTask(gomock.Any(), gomock.Any()).Return(&dbclient.EvaluationTask{}, nil).Times(2)
 	db.EXPECT().UpdateEvaluationTaskResult(gomock.Any(), "t1",
 		`{"benchmarks":{"gsm8k":{"accuracy":0.81,"samples":1319}},"overall_score":0.81}`,
 		"evaluations/t1/report.json").Return(nil)

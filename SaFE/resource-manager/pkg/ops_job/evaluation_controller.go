@@ -10,7 +10,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"path"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -42,6 +44,11 @@ const (
 	// Default resource requirements for evaluation workload
 	DefaultEvalCPU    = "16"
 	DefaultEvalMemory = "96Gi"
+
+	// evalReportTimeout bounds the reads of a report, done in the workload event handler, and evalReportMaxBytes
+	// the report read; a larger one keeps its path without scores.
+	evalReportTimeout  = 15 * time.Second
+	evalReportMaxBytes = 4 << 20
 )
 
 // EvaluationJobReconciler reconciles evaluation type OpsJobs.
@@ -683,13 +690,16 @@ func (r *EvaluationJobReconciler) updateReportPath(ctx context.Context, taskId s
 
 	// S3 key for the evaluation report (same format as in generateEvaluationWorkload)
 	s3Key := fmt.Sprintf("evaluations/%s/report.json", taskId)
+	// A restart replays every finished workload; scores already recorded are not read again.
+	if task, err := r.dbClient.GetEvaluationTask(ctx, taskId); err == nil && task.ReportS3Path.String == s3Key &&
+		task.ResultSummary.String != "" && task.ResultSummary.String != "{}" {
+		return
+	}
 
 	// "{}" when the scores cannot be read, since the field is JSONB type
 	summary := "{}"
 	if r.s3Client != nil {
-		if report, err := r.s3Client.GetObject(ctx, s3Key, 60); err != nil {
-			klog.ErrorS(err, "failed to read the evaluation report", "taskId", taskId, "s3Key", s3Key)
-		} else if s, err := reportSummary(report); err != nil {
+		if s, err := r.readReportSummary(ctx, s3Key); err != nil {
 			klog.ErrorS(err, "failed to read the scores of the evaluation report", "taskId", taskId, "s3Key", s3Key)
 		} else {
 			summary = s
@@ -700,6 +710,29 @@ func (r *EvaluationJobReconciler) updateReportPath(ctx context.Context, taskId s
 			"taskId", taskId,
 			"s3Key", s3Key)
 	}
+}
+
+// readReportSummary reads the scores of an uploaded report within evalReportTimeout; a report larger than
+// evalReportMaxBytes is not read.
+func (r *EvaluationJobReconciler) readReportSummary(ctx context.Context, s3Key string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, evalReportTimeout)
+	defer cancel()
+	files, err := r.s3Client.ListObjectsWithSize(ctx, path.Dir(s3Key)+"/")
+	if err != nil {
+		return "", err
+	}
+	i := slices.IndexFunc(files, func(f commons3.S3FileInfo) bool { return f.Key == path.Base(s3Key) })
+	if i < 0 {
+		return "", fmt.Errorf("no report was uploaded")
+	}
+	if files[i].Size > evalReportMaxBytes {
+		return "", fmt.Errorf("the report has %d bytes, more than %d", files[i].Size, evalReportMaxBytes)
+	}
+	report, err := r.s3Client.GetObject(ctx, s3Key, 0)
+	if err != nil {
+		return "", err
+	}
+	return reportSummary(report)
 }
 
 // evalReport is the part of an evalscope report its score comes from: schema 1 has a top-level score, schema 2
