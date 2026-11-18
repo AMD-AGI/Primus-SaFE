@@ -20,7 +20,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/klog/v2"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -31,6 +30,7 @@ import (
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/posttraining/registry"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
 
 const (
@@ -146,11 +146,10 @@ func scanWorkload(m *registry.ImportMount, t *dbclient.PostTrainingImportToken, 
 	w := &v1.Workload{}
 	w.Name = t.TokenID
 	w.Labels = map[string]string{
+		v1.DisplayNameLabel: commonutils.DNSDisplayName("import-scan-", path.Base(dir),
+			commonutils.MaxGeneratedNameLength),
 		v1.UserIdLabel:           t.UserID,
 		v1.PostTrainingRoleLabel: v1.PostTrainingRoleImportScan,
-	}
-	if name := "import-scan-" + path.Base(dir); len(validation.IsValidLabelValue(name)) == 0 {
-		w.Labels[v1.DisplayNameLabel] = name
 	}
 	w.Annotations = map[string]string{
 		v1.UserNameAnnotation:    t.UserName,

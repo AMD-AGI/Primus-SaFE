@@ -29,6 +29,7 @@ import (
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	mockclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/posttraining/registry"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
 
 func TestScanPath(t *testing.T) {
@@ -76,7 +77,8 @@ func TestScanWorkload(t *testing.T) {
 	require.Equal(t, common.JobKind, w.Spec.Kind)
 	require.Equal(t, v1.PostTrainingRoleImportScan, w.Labels[v1.PostTrainingRoleLabel])
 	require.Empty(t, w.Labels[v1.PostTrainingRunIdLabel], "the Post Training controller leaves it alone")
-	require.Empty(t, w.Labels[v1.DisplayNameLabel], "a directory name that is no label value is left out")
+	requireDisplayName(t, w, commonutils.MaxGeneratedNameLength)
+	require.Equal(t, "import-scan-j2-id", w.Labels[v1.DisplayNameLabel], "the workload webhook needs a DNS name")
 	require.Equal(t, "u1", w.Labels[v1.UserIdLabel])
 	require.Equal(t, importScanTimeout, *w.Spec.Timeout)
 	require.Equal(t, map[string]string{"SAFE_IMPORT_TOKEN": "sst_a.b", "PT_IMPORT_DIR": "/shared_nfs/runs/j2 $(id)",
