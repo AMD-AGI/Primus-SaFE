@@ -118,12 +118,12 @@ func (r *RunReconciler) sweepCaches(ctx context.Context) (ctrlruntime.Result, er
 }
 
 // cacheReclaimable reports whether a cache can go: its model is deleted, its commit is retired or its
-// reclaiming has begun, and no unfinished run of its workspace uses it.
+// reclaiming has begun, and no unfinished run uses it.
 func (r *RunReconciler) cacheReclaimable(ctx context.Context, cache *dbclient.PostTrainingConvertCache, commits map[string]bool) bool {
 	model := &v1.Model{}
 	err := r.Get(ctx, client.ObjectKey{Name: cache.ModelID}, model)
 	gone := apierrors.IsNotFound(err) || (err == nil && !model.GetDeletionTimestamp().IsZero())
-	retired := commits != nil && commitRetired(cache.CacheKey, commits)
+	retired := len(commits) > 0 && commitRetired(cache.CacheKey, commits)
 	if !gone && !retired && cache.Status != dbclient.ConvertCacheInvalid {
 		return false
 	}
@@ -131,10 +131,11 @@ func (r *RunReconciler) cacheReclaimable(ctx context.Context, cache *dbclient.Po
 	return err == nil && !inUse
 }
 
-// cacheInUse reports whether an unfinished run of the cache's workspace uses it.
+// cacheInUse reports whether an unfinished run uses the cache's key, in any workspace, as the workspaces on one
+// volume share the cache directory.
 func (r *RunReconciler) cacheInUse(ctx context.Context, cache *dbclient.PostTrainingConvertCache) (bool, error) {
 	runs, _, err := r.db.ListPostTrainingRuns(ctx, dbclient.PostTrainingRunFilter{BaseModelID: cache.ModelID,
-		Workspace: cache.Workspace, Statuses: []string{string(v1.WorkloadPending), string(v1.WorkloadRunning)}})
+		Statuses: []string{string(v1.WorkloadPending), string(v1.WorkloadRunning)}})
 	if err != nil {
 		return false, err
 	}

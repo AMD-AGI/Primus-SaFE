@@ -187,6 +187,42 @@ func TestACommitWithAHyphenIsNotRetired(t *testing.T) {
 	require.Empty(t, jobs.Items, "the cache of a listed commit stays, whatever the commit looks like")
 }
 
+func TestACacheSharedByAnotherWorkspaceOrARegistryWithoutImagesStays(t *testing.T) {
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1",
+		Volumes: []v1.WorkspaceVolume{{Type: v1.PFS, MountPath: "/wekafs"}}}}
+	kept := &v1.Model{ObjectMeta: metav1.ObjectMeta{Name: "m-kept"}}
+	r, db, _ := newTestReconciler(t, testRunRow("Running", "train"), ws, kept)
+	loadChartRegistry(t, r)
+	dir := "/wekafs/custom/models/post-training-cache/"
+	retired := &dbclient.PostTrainingConvertCache{ID: 5, Workspace: "ws1", CacheKey: "slime-qwen3-8B-m-kept-0ld",
+		ModelID: "m-kept", Path: dir + "slime-qwen3-8B-m-kept-0ld", Status: dbclient.ConvertCacheReady}
+	other := testRunRow("Running", "train")
+	other.Workspace, other.Recipe = "ws2", `{"convert":{"cacheKey":"slime-qwen3-8B-m-kept-0ld"}}`
+	db.EXPECT().ListPostTrainingConvertCaches(gomock.Any(), gomock.Any()).Return(
+		[]*dbclient.PostTrainingConvertCache{retired}, nil).Times(2)
+	db.EXPECT().ListPostTrainingRuns(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, f dbclient.PostTrainingRunFilter) ([]*dbclient.PostTrainingRun, int64, error) {
+			if f.Workspace == "" || f.Workspace == "ws2" {
+				return []*dbclient.PostTrainingRun{other}, 1, nil
+			}
+			return nil, 0, nil
+		}).Times(1)
+	ctx := context.Background()
+	_, err := r.Reconcile(ctx, ctrlruntime.Request{NamespacedName: client.ObjectKey{Name: cacheSweepRequest}})
+	require.NoError(t, err)
+	jobs := &v1.OpsJobList{}
+	require.NoError(t, r.List(ctx, jobs))
+	require.Empty(t, jobs.Items, "a run of another workspace on the same volume reads the same directory")
+
+	reg, err := r.registry.store.Get()
+	require.NoError(t, err)
+	reg.Images = nil
+	_, err = r.Reconcile(ctx, ctrlruntime.Request{NamespacedName: client.ObjectKey{Name: cacheSweepRequest}})
+	require.NoError(t, err)
+	require.NoError(t, r.List(ctx, jobs))
+	require.Empty(t, jobs.Items, "a registry that lists no image retires no commit")
+}
+
 func TestSweepDropsRecordsOutsideTheCacheDirectory(t *testing.T) {
 	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1",
 		Volumes: []v1.WorkspaceVolume{{Type: v1.PFS, MountPath: "/wekafs"}}}}
