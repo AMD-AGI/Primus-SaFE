@@ -28,7 +28,9 @@ import (
 const (
 	defaultMaxPoints = 1000
 	maxMaxPoints     = 20000
-	valLossMetric    = "eval/val/loss"
+	// maxMetricRows bounds the points a curve request reads; the curves of a run with more show its newest.
+	maxMetricRows = 200000
+	valLossMetric = "eval/val/loss"
 	// checkpointsCleanedEvent is the stage_history event of a finished checkpoint cleanup; keptStep names the
 	// checkpoint it kept, if any.
 	checkpointsCleanedEvent = "checkpoints-cleaned"
@@ -104,7 +106,7 @@ func (h *Handler) GetMetrics(c *gin.Context) {
 	if v, err := strconv.Atoi(c.Query("maxPoints")); err == nil && v > 0 {
 		maxPoints = min(v, maxMaxPoints)
 	}
-	points, err := h.selectPoints(c, run, c.Query("names"))
+	points, err := h.selectPoints(c, run, c.Query("names"), maxMetricRows)
 	if err != nil {
 		apiutils.AbortWithApiError(c, err)
 		return
@@ -163,7 +165,7 @@ func (h *Handler) ExportMetrics(c *gin.Context) {
 		apiutils.AbortWithApiError(c, err)
 		return
 	}
-	points, err := h.selectPoints(c, run, c.Query("names"))
+	points, err := h.selectPoints(c, run, c.Query("names"), 0)
 	if err != nil {
 		apiutils.AbortWithApiError(c, err)
 		return
@@ -181,10 +183,10 @@ func (h *Handler) ExportMetrics(c *gin.Context) {
 	w.Flush()
 }
 
-// selectPoints loads the points of the requested names; names is comma separated and may hold patterns where *
-// matches anything but "/". An empty names selects every metric.
-func (h *Handler) selectPoints(c *gin.Context, run *dbclient.PostTrainingRun,
-	names string) (map[string][]*dbclient.PostTrainingRunMetric, error) {
+// selectPoints loads the points of the requested names, the newest limit of them when limit is positive; names is
+// comma separated and may hold patterns where * matches anything but "/". An empty names selects every metric.
+func (h *Handler) selectPoints(c *gin.Context, run *dbclient.PostTrainingRun, names string,
+	limit int) (map[string][]*dbclient.PostTrainingRunMetric, error) {
 	ctx := c.Request.Context()
 	var selected []string
 	if strings.TrimSpace(names) != "" {
@@ -205,7 +207,13 @@ func (h *Handler) selectPoints(c *gin.Context, run *dbclient.PostTrainingRun,
 			return map[string][]*dbclient.PostTrainingRunMetric{}, nil
 		}
 	}
-	rows, err := h.db.ListPostTrainingRunMetrics(ctx, run.RunID, selected)
+	var rows []*dbclient.PostTrainingRunMetric
+	var err error
+	if limit > 0 {
+		rows, err = h.db.ListLatestPostTrainingRunMetrics(ctx, run.RunID, selected, limit)
+	} else {
+		rows, err = h.db.ListPostTrainingRunMetrics(ctx, run.RunID, selected)
+	}
 	if err != nil {
 		return nil, commonerrors.NewInternalError("failed to read metrics: " + err.Error())
 	}

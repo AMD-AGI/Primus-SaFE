@@ -8,9 +8,12 @@ package posttraininghandlers
 import (
 	"context"
 	"math"
+	"net/http"
+	"net/http/httptest"
 	"sort"
 	"testing"
 
+	"github.com/gin-gonic/gin"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -19,6 +22,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	mockclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/posttraining/registry"
@@ -214,4 +218,23 @@ func TestFrameworkOf(t *testing.T) {
 	require.Equal(t, "slime", frameworkOf(reg, "").Name, "runs without a framework are slime runs")
 	require.Nil(t, frameworkOf(reg, "verl"))
 	require.Nil(t, frameworkOf(nil, "slime"))
+}
+
+func TestACurveRequestReadsAtMostTheNewestPoints(t *testing.T) {
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	h := templateHandler(t, db)
+	db.EXPECT().ListPostTrainingRuns(gomock.Any(), gomock.Any()).Return(nil, int64(0), nil).AnyTimes()
+	db.EXPECT().GetPostTrainingRun(gomock.Any(), "pt-1").Return(&dbclient.PostTrainingRun{RunID: "pt-1",
+		Workspace: "ws1", UserID: "u1", TrainType: "sft"}, nil)
+	db.EXPECT().ListLatestPostTrainingRunMetrics(gomock.Any(), "pt-1", gomock.Nil(), maxMetricRows).
+		Return([]*dbclient.PostTrainingRunMetric{{RunID: "pt-1", Name: "train/loss", Step: 1, Value: 0.5}}, nil)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	c.Params = gin.Params{{Key: "id", Value: "pt-1"}}
+	c.Set(common.UserId, "u1")
+	c.Set(common.UserName, "alice")
+	h.GetMetrics(c)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Contains(t, w.Body.String(), `"train/loss"`)
 }
