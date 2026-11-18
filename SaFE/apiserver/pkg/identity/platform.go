@@ -22,7 +22,8 @@ type platformKeyResponse struct {
 }
 
 // FetchPlatformAPIKey returns the caller's sealed platform API key from the identity service.
-// The call uses the introspection service client and the user's session (cookie Token or Bearer).
+// The call uses the introspection service client and the user's credential (cookie Token, or a Bearer
+// session, SSO token or ak- key; an ak- key needs the client to hold identity.platform_keys).
 func FetchPlatformAPIKey(ctx context.Context, sessionBearer, cookieToken, userType string) (string, error) {
 	sessionBearer = strings.TrimSpace(sessionBearer)
 	cookieToken = strings.TrimSpace(cookieToken)

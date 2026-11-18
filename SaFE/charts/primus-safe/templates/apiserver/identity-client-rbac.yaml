@@ -1,0 +1,42 @@
+#
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+# With auth.client_secret and auth.identity_service_account set, the identity service's account may
+# read that Secret and create Secrets in this namespace, so it can write the client credentials
+# of its SERVICE_CLIENTS entry for this apiserver.
+{{- $secret := default "" .Values.auth.client_secret }}
+{{- $sa := default "" .Values.auth.identity_service_account }}
+{{- if and $secret $sa }}
+{{- $parts := splitList "/" $sa }}
+{{- if or (ne (len $parts) 2) (not (index $parts 0)) (not (index $parts 1)) }}
+{{- fail "auth.identity_service_account must be <namespace>/<name>" }}
+{{- end }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-identity-client
+  namespace: {{ .Release.Namespace }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: [{{ $secret | quote }}]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-identity-client
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ .Release.Name }}-identity-client
+subjects:
+  - kind: ServiceAccount
+    name: {{ index $parts 1 | quote }}
+    namespace: {{ index $parts 0 | quote }}
+{{- end }}

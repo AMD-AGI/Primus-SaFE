@@ -211,6 +211,7 @@ spec:
         - name: auth-client-secret
           secret:
             secretName: {{ .Values.auth.client_secret }}
+            optional: true
         {{- end }}
         - name: scim-tls
           secret:

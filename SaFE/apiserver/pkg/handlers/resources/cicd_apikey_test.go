@@ -93,20 +93,12 @@ func TestResolveCICDAPIKeyPlainRefusesNonOwner(t *testing.T) {
 	}
 }
 
-func TestResolveCICDAPIKeyPlainExternalUsesBearerAPIKey(t *testing.T) {
-	setAuthMode(t, "external")
-	c := cicdTestContext("Bearer ak-from-header")
-
-	got, err := resolveCICDAPIKeyPlain(c, cicdTestWorkload("cicd-1", common.CICDScaleRunnerSetKind, "u1"), cicdTestUser("u1"))
-	require.NoError(t, err)
-	assert.Equal(t, "ak-from-header", got)
-}
-
-func TestResolveCICDAPIKeyPlainExternalSSOTokenFetchesPlatformKey(t *testing.T) {
-	setAuthMode(t, "external")
-	var gotAuth, gotUserType, gotPath string
+// fakeIdentityPlatform serves the platform key endpoint for one test and records the last request.
+func fakeIdentityPlatform(t *testing.T) *http.Request {
+	t.Helper()
+	got := &http.Request{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotAuth, gotUserType, gotPath = r.Header.Get("Authorization"), r.Header.Get("UserType"), r.URL.Path
+		*got = *r.Clone(context.Background())
 		_, _ = w.Write([]byte(`{"apiKey":"ak-platform-u1"}`))
 	}))
 	t.Cleanup(srv.Close)
@@ -118,17 +110,36 @@ func TestResolveCICDAPIKeyPlainExternalSSOTokenFetchesPlatformKey(t *testing.T) 
 		viper.Set("auth.scim.identity_url", nil)
 		viper.Set("auth.authenticators", nil)
 	})
+	return got
+}
+
+func TestResolveCICDAPIKeyPlainExternalAPIKeyFetchesPlatformKey(t *testing.T) {
+	setAuthMode(t, "external")
+	got := fakeIdentityPlatform(t)
+	c := cicdTestContext("Bearer ak-user-key")
+
+	key, err := resolveCICDAPIKeyPlain(c, cicdTestWorkload("cicd-1", common.CICDScaleRunnerSetKind, "u1"), cicdTestUser("u1"))
+	require.NoError(t, err)
+	assert.Equal(t, "ak-platform-u1", key)
+	assert.Equal(t, "/api/v1/apikeys/platform", got.URL.Path)
+	assert.Equal(t, "Bearer ak-user-key", got.Header.Get("Authorization"))
+	assert.Equal(t, "svc:secret", got.Header.Get("X-Internal-Token"))
+}
+
+func TestResolveCICDAPIKeyPlainExternalSSOTokenFetchesPlatformKey(t *testing.T) {
+	setAuthMode(t, "external")
+	got := fakeIdentityPlatform(t)
 
 	c := cicdTestContext("Bearer sso-access-token")
 	c.Request.Header.Set("UserType", "sso")
 	c.Set(common.UserType, "external")
 
-	got, err := resolveCICDAPIKeyPlain(c, cicdTestWorkload("cicd-1", common.CICDScaleRunnerSetKind, "u1"), cicdTestUser("u1"))
+	key, err := resolveCICDAPIKeyPlain(c, cicdTestWorkload("cicd-1", common.CICDScaleRunnerSetKind, "u1"), cicdTestUser("u1"))
 	require.NoError(t, err)
-	assert.Equal(t, "ak-platform-u1", got)
-	assert.Equal(t, "/api/v1/apikeys/platform", gotPath)
-	assert.Equal(t, "Bearer sso-access-token", gotAuth)
-	assert.Equal(t, "sso", gotUserType)
+	assert.Equal(t, "ak-platform-u1", key)
+	assert.Equal(t, "/api/v1/apikeys/platform", got.URL.Path)
+	assert.Equal(t, "Bearer sso-access-token", got.Header.Get("Authorization"))
+	assert.Equal(t, "sso", got.Header.Get("UserType"))
 }
 
 func TestResolveCICDAPIKeyPlainExternalNeedsSession(t *testing.T) {

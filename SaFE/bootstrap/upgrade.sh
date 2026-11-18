@@ -54,6 +54,9 @@ install_or_upgrade_helm_chart() {
 #                        identity service (status changes, SCIM registration)  -> auth.provider_client
 #   auth_client_secret   name of the Secret holding the client secret of an
 #                        introspection authenticator (a name, not the secret) -> auth.client_secret
+#   auth_identity_service_account  <namespace>/<name> of the identity service's
+#                        ServiceAccount, granted get on that Secret and create
+#                        on Secrets. Omitted: primus-identity/primus-identity  -> auth.identity_service_account
 #   auth_authenticators  JSON array, the authenticator chain                 -> auth.authenticators
 #   auth_group_mappings  JSON array, identity groups to roles                -> auth.group_mappings
 #   auth_key_actors      JSON array, client ids that may fetch the keys of
@@ -73,7 +76,7 @@ install_or_upgrade_helm_chart() {
 #                        running release already uses that name. A different stored
 #                        name is kept only when .env sets it.                    -> auth.scim.token_secret
 # JSON values are single-quoted in .env, e.g. auth_key_actors='["client-a"]'.
-AUTH_ENV_KEYS=(auth_mode auth_login_url auth_allow_oidc_only auth_provider_client auth_client_secret auth_authenticators auth_group_mappings auth_key_actors auth_api_keys_url auth_api_keys_upstream auth_scim_enabled auth_scim_identity_url auth_scim_public_url auth_scim_token_secret)
+AUTH_ENV_KEYS=(auth_mode auth_login_url auth_allow_oidc_only auth_provider_client auth_client_secret auth_identity_service_account auth_authenticators auth_group_mappings auth_key_actors auth_api_keys_url auth_api_keys_upstream auth_scim_enabled auth_scim_identity_url auth_scim_public_url auth_scim_token_secret)
 
 # check_live_auth refuses an upgrade that would drop the external authentication of a release.
 # helm renders every value from the chart defaults and the files it is given, so a release that
@@ -195,7 +198,7 @@ write_auth_values() {
   fi
   if ! command -v jq &> /dev/null; then
     # The break-glass alone, auth_mode=builtin, needs no jq to be written.
-    if [[ "${auth_mode:-}" == "builtin" && -z "${auth_login_url+x}${auth_allow_oidc_only+x}${auth_provider_client+x}${auth_client_secret+x}${auth_authenticators+x}${auth_group_mappings+x}${auth_key_actors+x}${auth_api_keys_url+x}${auth_api_keys_upstream+x}${auth_scim_enabled+x}${auth_scim_identity_url+x}${auth_scim_public_url+x}${auth_scim_token_secret+x}" ]]; then
+    if [[ "${auth_mode:-}" == "builtin" && -z "${auth_login_url+x}${auth_allow_oidc_only+x}${auth_provider_client+x}${auth_client_secret+x}${auth_identity_service_account+x}${auth_authenticators+x}${auth_group_mappings+x}${auth_key_actors+x}${auth_api_keys_url+x}${auth_api_keys_upstream+x}${auth_scim_enabled+x}${auth_scim_identity_url+x}${auth_scim_public_url+x}${auth_scim_token_secret+x}" ]]; then
       printf '{"auth":{"mode":"builtin"}}\n' > "$out"
       AUTH_VALUES_FILE="$out"
       return 0

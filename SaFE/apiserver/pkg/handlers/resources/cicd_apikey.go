@@ -7,7 +7,6 @@ package resources
 
 import (
 	"context"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	"k8s.io/klog/v2"
@@ -46,10 +45,10 @@ func (h *Handler) attachCICDEncryptedAPIKey(c *gin.Context, workload *v1.Workloa
 	return nil
 }
 
-// resolveCICDAPIKeyPlain returns the plaintext API key the workload owner's runners use. Only the
+// resolveCICDAPIKeyPlain returns the workload owner's platform API key for the runners. Only the
 // owner may create or resume the workload. Builtin mode reads or creates the owner's platform key
-// in the SaFE database. External mode uses the owner's own credential: an ak- bearer as-is, or a
-// session exchanged with identity for the platform key.
+// in the SaFE database. External mode exchanges the owner's credential (session, SSO token or
+// ak- key) with identity for the platform key.
 func resolveCICDAPIKeyPlain(c *gin.Context, workload *v1.Workload, requestUser *v1.User) (string, error) {
 	ownerId := v1.GetUserId(workload)
 	if ownerId == "" || requestUser == nil || requestUser.Name != ownerId {
@@ -59,9 +58,6 @@ func resolveCICDAPIKeyPlain(c *gin.Context, workload *v1.Workload, requestUser *
 		return cicdPlatformKeyForUser(c.Request.Context(), ownerId, v1.GetUserName(workload))
 	}
 	bearer := authority.GetBearerToken(c)
-	if strings.HasPrefix(bearer, authority.ApiKeyPrefix) {
-		return bearer, nil
-	}
 	// The user type identity judges is the one the request carried (cookie or UserType header),
 	// not the one the external chain recorded on the context.
 	var userType string
