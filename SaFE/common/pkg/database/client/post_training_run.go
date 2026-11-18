@@ -7,6 +7,7 @@ package client
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/lib/pq"
@@ -114,7 +115,7 @@ type PostTrainingRunFilter struct {
 	UserID       string
 	TemplateID   string
 	ExperimentID string
-	Search       string // matches display_name ILIKE %search%
+	Search       string // matches display_name ILIKE %search%, or the run_id
 	// CleanupRequested selects the runs with a checkpoint cleanup to finish.
 	CleanupRequested bool
 	Limit            int
@@ -191,8 +192,8 @@ func (c *Client) ListPostTrainingRuns(
 	if filter.CleanupRequested {
 		query = query.Where("cleanup_request IS NOT NULL AND cleanup_request <> ''")
 	}
-	if filter.Search != "" {
-		query = query.Where("display_name ILIKE ?", "%"+filter.Search+"%")
+	if search := strings.TrimSpace(filter.Search); search != "" {
+		query = query.Where("display_name ILIKE ? OR run_id = ?", "%"+search+"%", search)
 	}
 
 	var total int64

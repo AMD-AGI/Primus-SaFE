@@ -34,6 +34,20 @@ func TestPostTrainingRunCRUD(t *testing.T) {
 	_ = c.DeletePostTrainingRunMetrics(ctx, "r1")
 }
 
+func TestARunIsFoundByItsIDToo(t *testing.T) {
+	c, mock := newMockClient(t)
+	mock.ExpectQuery(`SELECT count\(\*\) FROM "post_training_run" WHERE is_deleted = \$1 AND `+
+		`\(display_name ILIKE \$2 OR run_id = \$3\)`).
+		WithArgs(false, "%pt-sft-ab12%", "pt-sft-ab12").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(int64(0)))
+	mock.ExpectQuery(`SELECT \* FROM "post_training_run" WHERE is_deleted = \$1 AND ` +
+		`\(display_name ILIKE \$2 OR run_id = \$3\)`).
+		WillReturnRows(sqlmock.NewRows([]string{"run_id"}))
+	_, _, err := c.ListPostTrainingRuns(context.Background(), PostTrainingRunFilter{Search: " pt-sft-ab12 "})
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet(), "a pasted run ID finds its run")
+}
+
 func TestPostTrainingRunInputs(t *testing.T) {
 	c := &Client{}
 	ctx := context.Background()
