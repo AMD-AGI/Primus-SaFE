@@ -82,7 +82,9 @@
                   />
                   <div class="pem-file-row">
                     <el-button @click="privateKeyFileInput?.click()">Choose PEM file</el-button>
-                    <span class="pem-file-name">{{ privateKeyFileName || 'No file selected' }}</span>
+                    <span class="pem-file-name">{{
+                      privateKeyFileName || 'No file selected'
+                    }}</span>
                     <input
                       ref="privateKeyFileInput"
                       class="pem-file-input"
@@ -211,9 +213,10 @@
 
           <el-row :gutter="20">
             <el-col :span="24">
-              <el-form-item label="replica">
-                <!-- A GithubRunner scales by running several identical runners, so the
-                     count is a create-time choice. AutoscalingRunnerSet scales itself. -->
+              <el-form-item label="maxRunners">
+                <!-- GithubRunner sends this count as resources[].replica.
+                     AutoscalingRunnerSet only displays the chart default; its request
+                     still sends replica 1. -->
                 <el-input-number
                   v-if="isGithubRunner"
                   v-model.number="form.resource.replica"
@@ -222,7 +225,16 @@
                   :disabled="isEdit"
                   class="w-[160px]"
                 />
-                <el-input v-else placeholder="1" disabled />
+                <el-input-number
+                  v-else
+                  :model-value="SCALE_SET_MAX_RUNNERS"
+                  disabled
+                  class="w-[160px]"
+                />
+                <el-text size="small" type="info">
+                  <el-icon class="mr-1"><InfoFilled /></el-icon>
+                  {{ MAX_RUNNERS_INFO }}
+                </el-text>
               </el-form-item>
             </el-col>
             <el-col :span="24">
@@ -471,13 +483,16 @@ const TOLERATE_INFO = 'If enabled, workloads can be scheduled to nodes with tain
 const RETRY_TIMES_INFO = 'Maximum retries:50'
 const FORCE_HOST_NETWORK_INFO = 'Force host network (default: auto-based on resources)'
 const RUNNER_LABELS_INFO = 'Also used as the runner label your workflows target with runs-on'
+const MAX_RUNNERS_INFO = 'Default concurrency. Each runner takes one job at a time.'
+// Matches cicd.max_runners in the chart. Display only for AutoscalingRunnerSet.
+const SCALE_SET_MAX_RUNNERS = 1024
 
 // Rendered as the same button-group toggle as the image Select/Custom switch further
 // down the form, so the two mode pickers in one drawer look alike.
 const GITHUB_AUTH_OPTIONS: Array<{ value: GitHubAuthType; label: string }> = [
+  { value: 'registration_token', label: 'self-hosted runner' },
   { value: 'github_app', label: 'GitHub App (recommended)' },
   { value: 'pat', label: 'Personal Access Token (legacy)' },
-  { value: 'registration_token', label: 'self-hosted runner' },
 ]
 
 const imageOptions = ref([] as Array<{ id: number; tag: string }>)
@@ -517,7 +532,7 @@ const initialForm = () => ({
   priority: 1,
   unifiedJobEnable: false,
   githubConfigUrl: '',
-  githubAuthType: 'github_app' as GitHubAuthType,
+  githubAuthType: 'registration_token' as GitHubAuthType,
   githubAppId: '',
   githubAppInstallationId: '',
   githubAppPrivateKey: '',
@@ -780,10 +795,7 @@ const submitScaleRunnerSet = async () => {
   editEnvMap.RESOURCES = JSON.stringify(userResource)
   editEnvMap.IMAGE = form.image
   editEnvMap.ENTRYPOINT = encodeToBase64String(form.entryPoint)
-  Object.assign(
-    editEnvMap,
-    mergeUserEnv({}, userEnv, SCALE_SET_MANAGED_ENV),
-  )
+  Object.assign(editEnvMap, mergeUserEnv({}, userEnv, SCALE_SET_MANAGED_ENV))
 
   await editWorkload(props.wlid, {
     description: form.description,
