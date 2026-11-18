@@ -316,7 +316,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, h } from 'vue'
+import { ref, computed, onMounted, h, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useDark } from '@vueuse/core'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -498,6 +498,9 @@ onMounted(async () => {
   getDetail()
   ptReasonOf.value = await postTrainingEntryReasons(wsStore.currentWorkspaceId ?? '')
 })
+
+// The page stays mounted when a lineage link opens another model.
+watch(modelId, (id) => id && getDetail())
 </script>
 
 <style scoped lang="scss">
