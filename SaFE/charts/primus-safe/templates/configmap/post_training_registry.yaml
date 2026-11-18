@@ -3,7 +3,8 @@
 # See LICENSE for license information.
 #
 
-{{- if .Values.post_training.enabled }}
+{{- $pt := default dict .Values.post_training }}
+{{- if $pt.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -16,5 +17,5 @@ metadata:
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}
 data:
   registry.yaml: |
-{{ toYaml .Values.post_training.registry | indent 4 }}
+{{ toYaml (default dict $pt.registry) | indent 4 }}
 {{- end }}
