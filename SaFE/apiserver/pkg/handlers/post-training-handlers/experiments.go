@@ -291,7 +291,7 @@ func (h *Handler) GetExperiment(c *gin.Context) {
 	c.JSON(http.StatusOK, experimentView{PostTrainingExperiment: exp, Variants: rawJSON(exp.Variants), Runs: runs})
 }
 
-// StopExperiment stops every run of an experiment that has not finished.
+// StopExperiment stops every run of an experiment that still runs something, its evaluation included.
 func (h *Handler) StopExperiment(c *gin.Context) {
 	if _, _, ok := h.requireEnabled(c); !ok {
 		return
@@ -308,15 +308,14 @@ func (h *Handler) StopExperiment(c *gin.Context) {
 	message := fmt.Sprintf("Stopped by %s with its experiment", c.GetString(common.UserName))
 	stopped := []string{}
 	for _, r := range runs {
-		switch v1.WorkloadPhase(r.Status) {
-		case v1.WorkloadSucceeded, v1.WorkloadFailed, v1.WorkloadStopped:
-			continue
-		}
-		if err = h.stopWorkload(c.Request.Context(), r.WorkloadID, message); err != nil {
+		ok, err := h.stopRun(c.Request.Context(), r, message)
+		if err != nil {
 			apiutils.AbortWithApiError(c, err)
 			return
 		}
-		stopped = append(stopped, r.RunID)
+		if ok {
+			stopped = append(stopped, r.RunID)
+		}
 	}
 	klog.Infof("stop post training experiment %s by user %s", exp.ExperimentID, c.GetString(common.UserName))
 	c.JSON(http.StatusOK, gin.H{"experimentId": exp.ExperimentID, "stopped": stopped})

@@ -8,8 +8,10 @@ package posttraininghandlers
 import (
 	"context"
 	"math"
+	"sort"
 	"testing"
 
+	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -18,6 +20,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	mockclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/posttraining/registry"
 )
 
@@ -126,6 +129,83 @@ func TestStopWorkload(t *testing.T) {
 	err := cli.Get(context.Background(), ctrlclient.ObjectKey{Name: "pt-x"}, &v1.Workload{})
 	require.Error(t, err, "the workload is deleted")
 	require.NoError(t, h.stopWorkload(context.Background(), "missing", "x"), "a missing workload is fine")
+}
+
+// runChildren returns the training workload of run pt-x in phase and, all running, an evaluation service, a kept
+// service whose evaluation is over, a checkpoint export, a backfill and an evaluation OpsJob, plus a finished OpsJob.
+func runChildren(phase v1.WorkloadPhase) []ctrlclient.Object {
+	child := func(name, role string) *v1.Workload {
+		return &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: name,
+			Labels: map[string]string{v1.PostTrainingRunIdLabel: "pt-x", v1.PostTrainingRoleLabel: role}},
+			Status: v1.WorkloadStatus{Phase: v1.WorkloadRunning}}
+	}
+	train := child("pt-x", v1.PostTrainingRoleTrain)
+	train.Status.Phase = phase
+	kept := child("pt-x-eval-kept", v1.PostTrainingRoleEval)
+	kept.Annotations = map[string]string{v1.PostTrainingEvalDoneAnnotation: v1.TrueStr}
+	job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: "pt-x-eval-job",
+		Labels: map[string]string{v1.PostTrainingRunIdLabel: "pt-x"}},
+		Spec: v1.OpsJobSpec{Inputs: []v1.Parameter{{Name: v1.ParameterEvalTaskId, Value: "task-1"}}}}
+	job.Status.Phase = v1.OpsJobRunning
+	done := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: "pt-x-verify",
+		Labels: map[string]string{v1.PostTrainingRunIdLabel: "pt-x"}}}
+	done.Status.Phase = v1.OpsJobSucceeded
+	return []ctrlclient.Object{train, child("pt-x-eval", v1.PostTrainingRoleEval), kept,
+		child("pt-x-x20", v1.PostTrainingRoleExport), child("pt-x-backfill", v1.PostTrainingRoleBackfill), job, done}
+}
+
+// remaining lists the names of the workloads and OpsJobs left in cli.
+func remaining(t *testing.T, cli ctrlclient.Client) []string {
+	ctx, names := context.Background(), []string{}
+	workloads, jobs := &v1.WorkloadList{}, &v1.OpsJobList{}
+	require.NoError(t, cli.List(ctx, workloads))
+	require.NoError(t, cli.List(ctx, jobs))
+	for _, w := range workloads.Items {
+		names = append(names, w.Name)
+	}
+	for _, j := range jobs.Items {
+		names = append(names, j.Name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func TestStopRunEndsItsEvaluationAndExports(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1.AddToScheme(scheme))
+	objs := runChildren(v1.WorkloadSucceeded)
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).WithStatusSubresource(objs...).Build()
+	h := NewHandler(cli, nil)
+	run := &dbclient.PostTrainingRun{RunID: "pt-x", WorkloadID: "pt-x", Status: string(v1.WorkloadSucceeded), Stage: "eval"}
+	stopped, err := h.stopRun(context.Background(), run, "stopped by alice")
+	require.NoError(t, err)
+	require.True(t, stopped, "a run at its evaluation still has something to stop")
+	require.Equal(t, []string{"pt-x", "pt-x-backfill", "pt-x-eval-job", "pt-x-eval-kept", "pt-x-verify"},
+		remaining(t, cli), "the evaluation service and the export stop; the controller then cancels the job, a kept "+
+			"service goes on serving and the backfill still fills the stopped run's metrics")
+}
+
+func TestDeleteRunEndsWhatTheControllerNoLongerFollows(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1.AddToScheme(scheme))
+	for _, deleteModel := range []bool{false, true} {
+		objs := runChildren(v1.WorkloadRunning)
+		cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).WithStatusSubresource(objs...).Build()
+		db := mockclient.NewMockInterface(gomock.NewController(t))
+		db.EXPECT().UpdateEvaluationTaskStatus(gomock.Any(), "task-1", dbclient.EvaluationTaskStatusCancelled).Return(nil)
+		db.EXPECT().SetPostTrainingRunDeleted(gomock.Any(), "pt-x").Return(nil)
+		db.EXPECT().DeletePostTrainingRunMetrics(gomock.Any(), "pt-x").Return(nil)
+		db.EXPECT().DeletePostTrainingRunSamples(gomock.Any(), "pt-x", gomock.Any()).Return(nil)
+		h := NewHandler(cli, db)
+		run := &dbclient.PostTrainingRun{RunID: "pt-x", WorkloadID: "pt-x", Status: string(v1.WorkloadRunning)}
+		require.NoError(t, h.deleteRun(testContext(), run, deleteModel))
+		want := []string{"pt-x-eval-kept", "pt-x-verify"}
+		if deleteModel {
+			want = []string{"pt-x-verify"}
+		}
+		require.Equal(t, want, remaining(t, cli), "deleteModel=%v: a soft-deleted run's children are not "+
+			"reconciled any more, and a kept service only outlives the run while its model does", deleteModel)
+	}
 }
 
 func TestFrameworkOf(t *testing.T) {

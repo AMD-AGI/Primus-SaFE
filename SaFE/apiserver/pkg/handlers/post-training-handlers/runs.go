@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -319,7 +320,7 @@ func (h *Handler) StopRun(c *gin.Context) {
 		return
 	}
 	message := fmt.Sprintf("Stopped by %s", c.GetString(common.UserName))
-	if err := h.stopWorkload(c.Request.Context(), run.WorkloadID, message); err != nil {
+	if _, err := h.stopRun(c.Request.Context(), run, message); err != nil {
 		apiutils.AbortWithApiError(c, err)
 		return
 	}
@@ -444,6 +445,76 @@ func (h *Handler) checkpointMarkers(ctx context.Context, run *dbclient.PostTrain
 	return buildMarkers(run, points), nil
 }
 
+// stopRun stops the run's training workload, its evaluation services except kept ones whose evaluation is over,
+// and its checkpoint exports; the controller then cancels the evaluation jobs and records the run. It reports
+// whether anything was still running.
+func (h *Handler) stopRun(ctx context.Context, run *dbclient.PostTrainingRun, message string) (bool, error) {
+	return h.endRun(ctx, run, message, false, false)
+}
+
+// endRun stops what stopRun stops; deleting the run also stops its backfill and, when its model goes too, its
+// kept services, and deletes its unfinished OpsJobs, which the controller no longer follows once the run is
+// deleted. It reports whether anything was still running.
+func (h *Handler) endRun(ctx context.Context, run *dbclient.PostTrainingRun, message string,
+	deleting, deleteModel bool) (bool, error) {
+	workloads := &v1.WorkloadList{}
+	if err := h.client.List(ctx, workloads, ctrlclient.MatchingLabels{v1.PostTrainingRunIdLabel: run.RunID}); err != nil {
+		return false, err
+	}
+	names := []string{run.WorkloadID}
+	for i := range workloads.Items {
+		w := &workloads.Items[i]
+		switch v1.GetLabel(w, v1.PostTrainingRoleLabel) {
+		case v1.PostTrainingRoleEval:
+			if v1.GetAnnotation(w, v1.PostTrainingEvalDoneAnnotation) == v1.TrueStr && !deleteModel {
+				continue
+			}
+		case v1.PostTrainingRoleExport:
+		case v1.PostTrainingRoleBackfill:
+			if !deleting {
+				continue
+			}
+		default:
+			continue
+		}
+		names = append(names, w.Name)
+	}
+	stopped := false
+	for i := range workloads.Items {
+		if w := &workloads.Items[i]; !w.IsEnd() && slices.Contains(names, w.Name) {
+			stopped = true
+		}
+	}
+	for _, name := range names {
+		if err := h.stopWorkload(ctx, name, message); err != nil {
+			return stopped, err
+		}
+	}
+	if !deleting {
+		return stopped, nil
+	}
+	jobs := &v1.OpsJobList{}
+	if err := h.client.List(ctx, jobs, ctrlclient.MatchingLabels{v1.PostTrainingRunIdLabel: run.RunID}); err != nil {
+		return stopped, err
+	}
+	for i := range jobs.Items {
+		job := &jobs.Items[i]
+		if job.IsEnd() || job.Status.Phase == v1.OpsJobSucceeded || job.Status.Phase == v1.OpsJobFailed {
+			continue
+		}
+		if task := job.GetParameter(v1.ParameterEvalTaskId); task != nil {
+			if err := h.db.UpdateEvaluationTaskStatus(ctx, task.Value, dbclient.EvaluationTaskStatusCancelled); err != nil {
+				klog.ErrorS(err, "failed to cancel an evaluation task", "task", task.Value)
+			}
+		}
+		if err := h.client.Delete(ctx, job); err != nil && !apierrors.IsNotFound(err) {
+			return stopped, err
+		}
+		stopped = true
+	}
+	return stopped, nil
+}
+
 // stopWorkload marks a workload Stopped and deletes it, the way the workload stop API does; a missing or finished
 // workload is left alone.
 func (h *Handler) stopWorkload(ctx context.Context, name, message string) error {
@@ -504,8 +575,8 @@ func (h *Handler) deleteRun(c *gin.Context, run *dbclient.PostTrainingRun, delet
 			return commonerrors.NewInternalError("failed to delete the import record: " + err.Error())
 		}
 		deleteModel = false
-	} else if err := h.stopWorkload(ctx, run.WorkloadID, fmt.Sprintf("Deleted by %s",
-		c.GetString(common.UserName))); err != nil {
+	} else if _, err := h.endRun(ctx, run, fmt.Sprintf("Deleted by %s", c.GetString(common.UserName)), true,
+		deleteModel); err != nil {
 		return err
 	}
 	if deleteModel && run.OutputModelID != "" {
