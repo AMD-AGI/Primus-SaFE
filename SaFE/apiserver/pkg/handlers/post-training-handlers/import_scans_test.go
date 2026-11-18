@@ -37,7 +37,7 @@ func TestScanPath(t *testing.T) {
 	for in, want := range map[string]string{
 		"/shared_nfs/bob/runs/j2r5-229357":    "/shared_nfs/bob/runs/j2r5-229357",
 		" /shared_nfs/bob/runs/j2r5-229357/ ": "/shared_nfs/bob/runs/j2r5-229357",
-		"/shared_nfs/runs/j2 $(id)":                "/shared_nfs/runs/j2 $(id)",
+		"/shared_nfs/runs/j2 $(id)":           "/shared_nfs/runs/j2 $(id)",
 	} {
 		got, _, err := scanPath(in, "/shared_nfs", all)
 		require.NoError(t, err, in)
