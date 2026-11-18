@@ -2,7 +2,7 @@
   <div class="pt-experiment">
     <el-result v-if="notFound" icon="warning" title="Experiment not found">
       <template #extra>
-        <el-button round @click="router.push('/post-training')">Back to Post Training</el-button>
+        <el-button round @click="backToRuns(router)">Back to Post Training</el-button>
       </template>
     </el-result>
 
@@ -12,7 +12,7 @@
       <div class="flex items-start justify-between gap-4">
         <div>
           <div class="flex items-center gap-2">
-            <el-button link :icon="ArrowLeft" @click="router.push('/post-training')" />
+            <el-button link :icon="ArrowLeft" @click="backToRuns(router)" />
             <span class="text-[20px] font-600">{{ exp.displayName }}</span>
             <el-tag size="small" type="info" effect="plain">A/B experiment</el-tag>
             <el-tag size="small" effect="plain">{{ exp.trainType.toUpperCase() }}</el-tag>
@@ -184,6 +184,7 @@ import { useUserStore } from '@/stores/user'
 import { copyText } from '@/utils/index'
 import {
   VARIANT_FIELDS,
+  backToRuns,
   configDiff,
   fieldsDiffer,
   deletePostTrainingExperiment,
@@ -391,7 +392,7 @@ const confirmDelete = async () => {
     await deletePostTrainingExperiment(experimentId.value, deleteDialog.deleteModel)
     ElMessage.success('Experiment deleted')
     deleteDialog.visible = false
-    router.push('/post-training')
+    backToRuns(router)
   } catch (err) {
     const data = (
       err as { response?: { data?: { failed?: Record<string, string>; errorMessage?: string } } }

@@ -1,7 +1,7 @@
 <template>
   <div class="pt-templates">
     <div class="flex items-center gap-2">
-      <el-button link :icon="ArrowLeft" @click="router.push('/post-training')" />
+      <el-button link :icon="ArrowLeft" @click="backToRuns(router)" />
       <span class="text-[20px] font-600">Templates</span>
       <span class="text-[13px] text-[var(--safe-muted)]">
         {{ workspaceName }} · {{ items.length }} {{ items.length === 1 ? 'template' : 'templates' }}
@@ -103,6 +103,7 @@ import { useUserStore } from '@/stores/user'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { getDatasets } from '@/services/dataset'
 import {
+  backToRuns,
   deletePostTrainingTemplate,
   getPostTrainingModels,
   listPostTrainingTemplates,

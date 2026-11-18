@@ -2,7 +2,7 @@
   <div class="flex items-start justify-between gap-4">
     <div class="min-w-0 flex-1">
       <div class="flex items-center gap-2">
-        <el-button link :icon="ArrowLeft" @click="router.push('/post-training')" />
+        <el-button link :icon="ArrowLeft" @click="backToRuns(router)" />
         <span class="text-[20px] font-600 truncate">{{ run.displayName }}</span>
         <el-tag size="small" effect="plain">{{ run.trainType.toUpperCase() }}</el-tag>
         <el-tag size="small" type="info" effect="plain">{{
@@ -145,6 +145,7 @@ import dayjs from 'dayjs'
 import { useUserStore } from '@/stores/user'
 import { copyText } from '@/utils'
 import {
+  backToRuns,
   deletePostTrainingRun,
   formatDuration,
   importBanner,
@@ -212,7 +213,7 @@ const confirmDelete = async () => {
     await deletePostTrainingRun(props.run.runId)
     ElMessage.success('Record deleted')
     deleteDialog.visible = false
-    router.push('/post-training')
+    backToRuns(router)
   } finally {
     deleteDialog.loading = false
   }
