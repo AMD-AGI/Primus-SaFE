@@ -333,7 +333,8 @@ export function createPostTrainingTemplate(body: TemplateBody) {
   return request.post<TemplateItem>('/post-training/templates', body)
 }
 
-/** Edits a template's name, description or content; the version goes up by one. */
+/** Edits a template's name, description or content made on body.version; the version goes up by one, and the
+ * edit is refused with 409 when someone saved the template since. */
 export function updatePostTrainingTemplate(templateId: string, body: TemplateBody) {
   return request.put<{ templateId: string; version: number }>(
     `/post-training/templates/${templateId}`,

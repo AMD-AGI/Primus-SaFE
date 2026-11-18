@@ -135,6 +135,7 @@ const save = async () => {
         name: form.name.trim(),
         description: form.description,
         content,
+        version: e.version,
       })) as unknown as { version: number }
       ElMessage.success(`Template saved · v${res.version}`)
       emit('saved', res.version)

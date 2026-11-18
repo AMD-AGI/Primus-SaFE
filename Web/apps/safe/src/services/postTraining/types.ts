@@ -497,6 +497,8 @@ export interface TemplateBody {
   spec?: string
   content?: TemplateContent
   sourceRunId?: string
+  /** The version an edit was made on; the edit is refused when someone saved the template since. */
+  version?: number
 }
 
 /** A variant of an A/B experiment: its name and the request fields it changes from the baseline. */
