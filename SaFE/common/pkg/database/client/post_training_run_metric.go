@@ -7,6 +7,7 @@ package client
 
 import (
 	"context"
+	"sort"
 	"time"
 
 	"gorm.io/gorm"
@@ -109,6 +110,31 @@ func (c *Client) ListPostTrainingRunMetrics(
 	if err := query.Order("name ASC, step ASC").Find(&points).Error; err != nil {
 		return nil, err
 	}
+	return points, nil
+}
+
+// ListLatestPostTrainingRunMetrics returns the newest limit points of a run, or of its named metrics, by name and
+// step, which bounds what a curve request reads of a run with very many points.
+func (c *Client) ListLatestPostTrainingRunMetrics(ctx context.Context, runID string, names []string,
+	limit int) ([]*PostTrainingRunMetric, error) {
+	db, err := c.GetGormDB()
+	if err != nil {
+		return nil, err
+	}
+	query := db.WithContext(ctx).Where("run_id = ?", runID)
+	if len(names) > 0 {
+		query = query.Where("name IN ?", names)
+	}
+	var points []*PostTrainingRunMetric
+	if err := query.Order("step DESC").Limit(limit).Find(&points).Error; err != nil {
+		return nil, err
+	}
+	sort.SliceStable(points, func(i, j int) bool {
+		if points[i].Name != points[j].Name {
+			return points[i].Name < points[j].Name
+		}
+		return points[i].Step < points[j].Step
+	})
 	return points, nil
 }
 

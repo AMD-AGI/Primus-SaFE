@@ -7,6 +7,7 @@ package client
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"testing"
 	"time"
@@ -46,6 +47,23 @@ func TestARunIsFoundByItsIDToo(t *testing.T) {
 	_, _, err := c.ListPostTrainingRuns(context.Background(), PostTrainingRunFilter{Search: " pt-sft-ab12 "})
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet(), "a pasted run ID finds its run")
+}
+
+func TestACurveRequestReadsTheNewestPoints(t *testing.T) {
+	c, mock := newMockClient(t)
+	mock.ExpectQuery(`SELECT \* FROM "post_training_run_metric" WHERE run_id = \$1 AND name IN \(\$2,\$3\) `+
+		`ORDER BY step DESC LIMIT \$4`).
+		WithArgs("r1", "a", "b", 3).
+		WillReturnRows(sqlmock.NewRows([]string{"run_id", "name", "step", "value"}).
+			AddRow("r1", "b", 9, 1.0).AddRow("r1", "a", 9, 2.0).AddRow("r1", "a", 8, 3.0))
+	got, err := c.ListLatestPostTrainingRunMetrics(context.Background(), "r1", []string{"a", "b"}, 3)
+	require.NoError(t, err)
+	var order []string
+	for _, p := range got {
+		order = append(order, fmt.Sprintf("%s@%d", p.Name, p.Step))
+	}
+	require.Equal(t, []string{"a@8", "a@9", "b@9"}, order, "the newest points come back by name and step")
+	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 func TestPostTrainingRunInputs(t *testing.T) {

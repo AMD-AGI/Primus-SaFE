@@ -1775,6 +1775,21 @@ func (mr *MockInterfaceMockRecorder) ListPostTrainingRunMetricNames(ctx, runID i
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPostTrainingRunMetricNames", reflect.TypeOf((*MockInterface)(nil).ListPostTrainingRunMetricNames), ctx, runID)
 }
 
+// ListLatestPostTrainingRunMetrics mocks base method.
+func (m *MockInterface) ListLatestPostTrainingRunMetrics(ctx context.Context, runID string, names []string, limit int) ([]*client.PostTrainingRunMetric, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListLatestPostTrainingRunMetrics", ctx, runID, names, limit)
+	ret0, _ := ret[0].([]*client.PostTrainingRunMetric)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListLatestPostTrainingRunMetrics indicates an expected call of ListLatestPostTrainingRunMetrics.
+func (mr *MockInterfaceMockRecorder) ListLatestPostTrainingRunMetrics(ctx, runID, names, limit interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListLatestPostTrainingRunMetrics", reflect.TypeOf((*MockInterface)(nil).ListLatestPostTrainingRunMetrics), ctx, runID, names, limit)
+}
+
 // ListPostTrainingRunMetrics mocks base method.
 func (m *MockInterface) ListPostTrainingRunMetrics(ctx context.Context, runID string, names []string) ([]*client.PostTrainingRunMetric, error) {
 	m.ctrl.T.Helper()
@@ -6404,6 +6419,21 @@ func (m *MockPostTrainingRunMetricInterface) ListPostTrainingRunMetricNames(ctx 
 func (mr *MockPostTrainingRunMetricInterfaceMockRecorder) ListPostTrainingRunMetricNames(ctx, runID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPostTrainingRunMetricNames", reflect.TypeOf((*MockPostTrainingRunMetricInterface)(nil).ListPostTrainingRunMetricNames), ctx, runID)
+}
+
+// ListLatestPostTrainingRunMetrics mocks base method.
+func (m *MockPostTrainingRunMetricInterface) ListLatestPostTrainingRunMetrics(ctx context.Context, runID string, names []string, limit int) ([]*client.PostTrainingRunMetric, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListLatestPostTrainingRunMetrics", ctx, runID, names, limit)
+	ret0, _ := ret[0].([]*client.PostTrainingRunMetric)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListLatestPostTrainingRunMetrics indicates an expected call of ListLatestPostTrainingRunMetrics.
+func (mr *MockPostTrainingRunMetricInterfaceMockRecorder) ListLatestPostTrainingRunMetrics(ctx, runID, names, limit interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListLatestPostTrainingRunMetrics", reflect.TypeOf((*MockPostTrainingRunMetricInterface)(nil).ListLatestPostTrainingRunMetrics), ctx, runID, names, limit)
 }
 
 // ListPostTrainingRunMetrics mocks base method.

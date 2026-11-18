@@ -363,6 +363,8 @@ type PostTrainingRunMetricInterface interface {
 		runFields map[string]interface{}) error
 	DeletePostTrainingRunMetricsAfterStep(ctx context.Context, runID string, step int) error
 	ListPostTrainingRunMetrics(ctx context.Context, runID string, names []string) ([]*PostTrainingRunMetric, error)
+	ListLatestPostTrainingRunMetrics(ctx context.Context, runID string, names []string,
+		limit int) ([]*PostTrainingRunMetric, error)
 	ListPostTrainingRunMetricNames(ctx context.Context, runID string) ([]string, error)
 	DeletePostTrainingRunMetrics(ctx context.Context, runID string) error
 }
