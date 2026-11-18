@@ -413,6 +413,10 @@ func runRow(c *gin.Context, req *recipe.SubmitRequest, res *recipe.Result, ws *w
 	}
 	history, _ := json.Marshal([]map[string]string{{"stage": "queued", "time": time.Now().UTC().Format(time.RFC3339)}})
 	r := res.Recipe
+	templateVersion := 0
+	if r.Template != nil {
+		templateVersion = r.Template.Version
+	}
 	return &dbclient.PostTrainingRun{
 		RunID:            runID,
 		WorkloadID:       runID,
@@ -443,6 +447,7 @@ func runRow(c *gin.Context, req *recipe.SubmitRequest, res *recipe.Result, ws *w
 		RecipeHash:       r.Provenance.RecipeHash,
 		EvalEnabled:      req.Evaluation.Enabled,
 		TemplateID:       req.TemplateID,
+		TemplateVersion:  templateVersion,
 		ExperimentID:     req.ExperimentID,
 		VariantName:      req.VariantName,
 		Ext:              ext,

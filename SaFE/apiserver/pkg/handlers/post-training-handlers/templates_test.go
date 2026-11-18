@@ -113,3 +113,24 @@ func TestAMemberReadsTheTemplatesOfTheWorkspace(t *testing.T) {
 	code, body := templateCall(templateHandler(t, db).GetTemplate, "")
 	require.Equal(t, http.StatusOK, code, "a member may use the templates the list shows: %s", body)
 }
+
+func TestUpdateTemplateNeedsTheVersionItWasReadAt(t *testing.T) {
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	db.EXPECT().ListPostTrainingRuns(gomock.Any(), gomock.Any()).Return(nil, int64(0), nil).AnyTimes()
+	db.EXPECT().GetPostTrainingTemplate(gomock.Any(), "tpl-1").Return(&dbclient.PostTrainingTemplate{
+		TemplateID: "tpl-1", Workspace: "ws1", UserID: "u1", Version: 3, Content: "{}"}, nil).AnyTimes()
+	h := templateHandler(t, db)
+	code, _ := templateCall(h.UpdateTemplate, `{"name":"renamed"}`)
+	require.Equal(t, http.StatusBadRequest, code, "an edit says which version it changes")
+
+	db.EXPECT().UpdatePostTrainingTemplate(gomock.Any(), "tpl-1", 2, map[string]interface{}{"name": "renamed"}).
+		Return(0, dbclient.ErrStaleVersion)
+	code, _ = templateCall(h.UpdateTemplate, `{"name":"renamed","version":2}`)
+	require.Equal(t, http.StatusConflict, code, "someone else saved version 3 meanwhile")
+
+	db.EXPECT().UpdatePostTrainingTemplate(gomock.Any(), "tpl-1", 3, map[string]interface{}{"name": "renamed"}).
+		Return(4, nil)
+	code, body := templateCall(h.UpdateTemplate, `{"name":"renamed","version":3}`)
+	require.Equal(t, http.StatusOK, code, body)
+	require.JSONEq(t, `{"templateId":"tpl-1","version":4}`, body)
+}

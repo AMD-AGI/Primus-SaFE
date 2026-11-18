@@ -108,6 +108,17 @@ func TestNewRunID(t *testing.T) {
 	require.True(t, strings.HasPrefix(newRunID("中文"), "pt-run-"))
 }
 
+func TestRunRowRecordsTheTemplateVersion(t *testing.T) {
+	_, req, res := compiled(t, 1)
+	ws := &workspaceInfo{WorkspaceInfo: recipe.WorkspaceInfo{ID: "ws"}}
+	model := &v1.Model{ObjectMeta: metav1.ObjectMeta{Name: "m1"}}
+	require.Zero(t, runRow(testContext(), req, res, ws, model, "pt-x", "{}").TemplateVersion)
+	req.TemplateID, res.Recipe.Template = "tpl-1", &recipe.RecipeTemplate{ID: "tpl-1", Version: 3}
+	row := runRow(testContext(), req, res, ws, model, "pt-x", "{}")
+	require.Equal(t, "tpl-1", row.TemplateID)
+	require.Equal(t, 3, row.TemplateVersion, "the run keeps the template version it was made from")
+}
+
 func TestBuildWorkload(t *testing.T) {
 	reg, req, res := compiled(t, 2)
 	ws := &workspaceInfo{WorkspaceInfo: recipe.WorkspaceInfo{ID: "ws"}, flavor: flavor()}
