@@ -2,12 +2,16 @@
 # Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
+import collections
 import io
 import json
 import os
+import shutil
+import sys
 
 from safe_post_training import metrics, stages
-from safe_post_training.tests.test_launch import FakeAdapter, markers
+from safe_post_training.frameworks.slime.adapter import Adapter as SlimeAdapter
+from safe_post_training.tests.test_launch import FakeAdapter, markers, recipe_for, run
 
 
 def runner(tmp_path, recipe):
@@ -36,6 +40,67 @@ def test_keep_last_two_and_the_best(tmp_path):
     assert kept(tmp_path, "critic_checkpoints") == [7, 15, 19, 23], "critic checkpoints go at the same steps"
     notice = [m[1] for m in markers(out) if m[0] == "[STAGE]"][-1]
     assert notice["state"] == "retention" and notice["detail"] == {"deleted": [3, 11], "kept": [7, 15, 19]}
+
+
+class PPOAdapter(SlimeAdapter):
+    """Reads slime's checkpoint trackers and trains with a command that does nothing."""
+
+    def train_command(self, recipe, run_dir):
+        return [sys.executable, "-c", "pass"], {}, {}
+
+
+PPO = {"trainType": "rl", "critic": {"checkpoints": "critic_checkpoints"}, "checkpoint": {"keepLast": 1}}
+
+
+def track(tmp_path, sub, step):
+    (tmp_path / sub / "latest_checkpointed_iteration.txt").write_text(str(step))
+
+
+def test_ppo_retention_keeps_the_iteration_actor_and_critic_share(tmp_path):
+    r, _ = runner(tmp_path, PPO)
+    r.adapter = PPOAdapter()
+    save(tmp_path, 9, 19)
+    track(tmp_path, "checkpoints", 19)
+    track(tmp_path, "critic_checkpoints", 9)
+    r.apply_retention(19)
+    assert kept(tmp_path) == [9, 19] and kept(tmp_path, "critic_checkpoints") == [9, 19], \
+        "the critic is still writing iter_19, so iter_9 is the only one both can resume from"
+    track(tmp_path, "critic_checkpoints", 19)
+    r.apply_retention(19)
+    assert kept(tmp_path) == [19] and kept(tmp_path, "critic_checkpoints") == [19]
+
+
+def test_a_ppo_resume_falls_back_to_the_iteration_actor_and_critic_share(tmp_path):
+    r, out = runner(tmp_path, PPO)
+    r.adapter = PPOAdapter()
+    save(tmp_path, 9, 19)
+    track(tmp_path, "checkpoints", 19)
+    track(tmp_path, "critic_checkpoints", 9)
+    r.stage_train()
+    assert r.adapter.latest_checkpoint(str(tmp_path)) == 9
+    assert r.adapter.latest_checkpoint(str(tmp_path), "critic_checkpoints") == 9
+    assert kept(tmp_path) == [9] and kept(tmp_path, "critic_checkpoints") == [9], "the unmatched iter_19 goes"
+    stages_seen = [m[1] for m in markers(out) if m[0] == "[STAGE]"]
+    assert [s["detail"] for s in stages_seen if s.get("state") == "checkpoint"] == \
+        [{"actor": 19, "critic": 9, "resume": 9}]
+    assert any(s.get("detail") == {"resumeStep": 9} for s in stages_seen)
+
+    shutil.rmtree(tmp_path / "critic_checkpoints")
+    r.stage_train()
+    assert r.adapter.latest_checkpoint(str(tmp_path)) is None and kept(tmp_path) == [], \
+        "without a shared iteration both start over"
+
+
+def test_a_resumed_run_does_not_count_its_own_checkpoints_twice(monkeypatch, tmp_path):
+    recipe = recipe_for(tmp_path)
+    shard = tmp_path / "run" / "checkpoints" / "iter_0000001" / "shard.distcp"
+    shard.parent.mkdir(parents=True)
+    shard.write_bytes(b"x" * 1000)
+    monkeypatch.setattr(stages, "weights_size", lambda path: 100)
+    usage = collections.namedtuple("usage", "total used free")
+    monkeypatch.setattr(shutil, "disk_usage", lambda path: usage(1 << 40, 0, 1500))
+    code, _, ms = run(monkeypatch, recipe, FakeAdapter())
+    assert code == 0, "the run needs about 2200 bytes, 1000 of which it already wrote: %s" % ms[-1:]
 
 
 def test_rl_and_keep_all(tmp_path):

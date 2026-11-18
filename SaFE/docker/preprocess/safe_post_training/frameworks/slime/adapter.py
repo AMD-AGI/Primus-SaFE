@@ -188,6 +188,18 @@ class Adapter:
         except (OSError, ValueError):
             return None
 
+    def set_latest_checkpoint(self, run_dir, sub, iteration):
+        """Point the checkpoint tracker of sub, which Megatron resumes from, at iteration; None removes it."""
+        path = os.path.join(run_dir, sub, "latest_checkpointed_iteration.txt")
+        if iteration is None:
+            if os.path.exists(path):
+                os.remove(path)
+            return
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            f.write(str(iteration))
+        os.replace(tmp, path)
+
     def export(self, recipe, run_dir, run_command, iteration=None, out=None):
         """Convert a checkpoint, the latest unless iteration names one, to HF in out (final_model/ by default) and
         copy the tokenizer from the base model. A LoRA checkpoint is exported with its adapters merged, and one that

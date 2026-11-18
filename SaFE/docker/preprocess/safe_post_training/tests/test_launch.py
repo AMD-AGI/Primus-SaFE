@@ -239,6 +239,9 @@ class PPOAdapter(FakeAdapter):
     def latest_checkpoint(self, run_dir, sub="checkpoints"):
         return self.steps[sub]
 
+    def set_latest_checkpoint(self, run_dir, sub, iteration):
+        self.steps[sub] = iteration
+
 
 def test_ppo_resumes_only_in_step(monkeypatch, tmp_path):
     for name, actor, critic in (("fresh", None, None), ("resumed", 40, 40)):
@@ -252,11 +255,11 @@ def test_ppo_resumes_only_in_step(monkeypatch, tmp_path):
     (tmp_path / "apart").mkdir()
     recipe = recipe_for(tmp_path / "apart")
     recipe["critic"] = {"megatronConfig": "megatron.yaml", "checkpoints": "critic_checkpoints"}
-    code, _, ms = run(monkeypatch, recipe, PPOAdapter(40, 30))
-    assert code != 0
-    assert ms[-1][0] == "[ERROR]" and ms[-1][1]["stage"] == "train"
-    assert ms[-1][1]["reason"] == "the actor checkpoints end at step 40 but the critic checkpoints at step 30"
-    assert ms[-1][1]["retry"] is False, "a rerun would not bring them back in step"
+    adapter = PPOAdapter(40, 30)
+    code, _, ms = run(monkeypatch, recipe, adapter)
+    assert code == 0, "the actor and the critic go back to the iteration they share, here none"
+    assert adapter.steps == {"checkpoints": None, "critic_checkpoints": None}
+    assert not any("resumeStep" in (m[1].get("detail") or {}) for m in ms if m[0] == "[STAGE]")
 
 
 class LoraAdapter(FakeAdapter):

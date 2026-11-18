@@ -479,7 +479,7 @@ class Runner:
 
     def stage_check(self):
         """Check the GPU count, the nodes' host memory and RDMA devices, the inputs and the free space before
-        training."""
+        training; the checkpoints and model an earlier attempt already wrote count as space the run has."""
         layout = self.recipe["layout"]
         want = layout["nodes"] * layout["gpusPerNode"]
         have = self.gpus()
@@ -494,7 +494,8 @@ class Runner:
             if not os.path.exists(path):
                 raise StageError("check", "missing input %s" % path)
         self.check_freeze()
-        need = self.space_needed()
+        usage = disk_usage(self.run_dir)
+        need = max(0, self.space_needed() - (usage["total"] - usage["exports"]))
         free = shutil.disk_usage(self.run_dir).free
         if free < need:
             raise StageError("check", "shared storage has %d GiB free, the run needs about %d GiB"
@@ -610,8 +611,34 @@ class Runner:
         per = int((self.recipe.get("checkpointTB") or 0) * 1e12) or weights * CHECKPOINT_FACTOR
         return per * count + weights
 
+    def critic_dir(self):
+        """Return the directory of a PPO run's critic checkpoints, or None when the run has no critic."""
+        critic = self.recipe.get("critic")
+        return (critic.get("checkpoints") or "critic_checkpoints") if critic else None
+
+    def align_critic(self):
+        """Point a PPO run's actor and critic at the latest iteration both saved, which a crash between their saves
+        or a critic-only step can leave apart, and remove their newer iterations; with none shared both start
+        over."""
+        sub = self.critic_dir()
+        if not sub:
+            return
+        actor, critic = self.adapter.latest_checkpoint(self.run_dir), self.adapter.latest_checkpoint(self.run_dir, sub)
+        if actor == critic:
+            return
+        limit = -1 if actor is None or critic is None else min(actor, critic)
+        shared = set(saved_iterations(self.path("checkpoints"))) & set(saved_iterations(self.path(sub)))
+        common = max((s for s in shared if s <= limit), default=None)
+        for name in ("checkpoints", sub):
+            for step in saved_iterations(self.path(name)):
+                if common is None or step > common:
+                    shutil.rmtree(self.path(name, "iter_%07d" % step), ignore_errors=True)
+            self.adapter.set_latest_checkpoint(self.run_dir, name, common)
+        self.emitter.notice("checkpoint", {"actor": actor, "critic": critic, "resume": common})
+
     def stage_train(self):
         """Run the training command, resuming from the latest checkpoint when there is one."""
+        self.align_critic()
         cmd, env, files = self.adapter.train_command(self.recipe, self.run_dir)
         for rel, content in (files or {}).items():
             target = self.path(rel)
@@ -620,13 +647,6 @@ class Runner:
                 f.write(content)
         self.val_losses.update(load_val_losses(self.emitter.metrics_path))
         resume = self.checkpoint = self.adapter.latest_checkpoint(self.run_dir)
-        critic = self.recipe.get("critic")
-        if critic:
-            critic_dir = critic.get("checkpoints") or "critic_checkpoints"
-            critic_step = self.adapter.latest_checkpoint(self.run_dir, critic_dir)
-            if critic_step != resume:
-                raise StageError("train", "the actor checkpoints end at step %s but the critic checkpoints at step %s"
-                                 % (resume, critic_step), retry=False)
         if resume is not None:
             cmd = cmd + ["--load", self.path("checkpoints")]
             self.emitter.stage("train", state="running", detail={"resumeStep": resume})
@@ -660,9 +680,14 @@ class Runner:
     def apply_retention(self, latest):
         """Delete the saved checkpoints the spec's retention no longer keeps once latest is saved: all but the latest
         keepLast and, for SFT with keepBest, the one with the lowest validation loss. PPO critic checkpoints go at the
-        same steps, so actor and critic stay in step."""
+        same steps, and only up to the latest iteration the critic also saved, so actor and critic keep one they
+        share."""
         policy = self.recipe.get("checkpoint") or {}
         keep_last = int(policy.get("keepLast") or 0)
+        critic_sub = self.critic_dir()
+        if critic_sub and latest is not None:
+            critic = self.adapter.latest_checkpoint(self.run_dir, critic_sub)
+            latest = None if critic is None else min(latest, critic)
         if keep_last <= 0 or latest is None:
             return
         saved = [s for s in saved_iterations(self.path("checkpoints")) if s <= latest]
@@ -674,7 +699,7 @@ class Runner:
                 keep.add(min(scored, key=lambda s: self.val_losses[s + 1]))
         deleted = [s for s in saved if s not in keep]
         for step in deleted:
-            for sub in ("checkpoints", "critic_checkpoints"):
+            for sub in ("checkpoints", critic_sub or "critic_checkpoints"):
                 shutil.rmtree(self.path(sub, "iter_%07d" % step), ignore_errors=True)
         if deleted:
             self.emitter.notice("retention", {"deleted": deleted, "kept": sorted(keep)})
