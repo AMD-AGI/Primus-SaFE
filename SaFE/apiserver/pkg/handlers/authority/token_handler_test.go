@@ -309,3 +309,14 @@ func TestSSOLoginSessionIsNotUninitialized(t *testing.T) {
 	assert.Error(t, err)
 	assert.NotContains(t, err.Error(), "SSO authentication not initialized")
 }
+
+func TestCallerBearerPrefersBearerOverCookie(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodGet, "/test", nil)
+	c.Request.AddCookie(&http.Cookie{Name: CookieToken, Value: "cookie-token"})
+	assert.Equal(t, "cookie-token", CallerBearer(c))
+
+	c.Request.Header.Set("Authorization", "Bearer bearer-token")
+	assert.Equal(t, "bearer-token", CallerBearer(c))
+}

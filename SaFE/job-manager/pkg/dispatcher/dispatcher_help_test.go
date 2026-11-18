@@ -31,6 +31,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	safecrypto "github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
@@ -3742,6 +3743,10 @@ func TestCICDWorkloadWithParentAPIKey(t *testing.T) {
 	_, err = buildEnvironment(runner, nil, -1)
 	assert.Assert(t, err != nil, "an ephemeral runner without its scale set's key fails")
 
+	bare := parent.DeepCopy()
+	v1.RemoveAnnotation(bare, v1.UserEncryptedAPIKeyAnnotation)
+	assert.Assert(t, cicdWorkloadWithParentAPIKey(runner, bare) == runner, "a scale set without a key leaves the runner unchanged")
+
 	other := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "train"}}
 	other.Spec.GroupVersionKind.Kind = common.PytorchJobKind
 	assert.Assert(t, cicdWorkloadWithParentAPIKey(other, parent) == other)
@@ -3756,4 +3761,70 @@ func TestCICDWorkloadWithParentAPIKey(t *testing.T) {
 	unowned := runner.DeepCopy()
 	delete(unowned.Labels, v1.UserIdLabel)
 	assert.Assert(t, cicdWorkloadWithParentAPIKey(unowned, parent) == unowned, "a runner without a user id gets no key")
+}
+
+// cicdScaleSetForTest is a CICD scale set workload carrying enc as its encrypted API key annotation.
+func cicdScaleSetForTest(enc string) *v1.Workload {
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Labels[v1.UserIdLabel] = "user-cicd"
+	workload.Spec.Env[common.GithubConfigUrl] = "https://github.com/test/repo"
+	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, "test-github-secret")
+	v1.SetAnnotation(workload, v1.AdminControlPlaneAnnotation, "10.0.0.1")
+	v1.SetAnnotation(workload, v1.MainContainerAnnotation, "runner")
+	v1.RemoveAnnotation(workload, v1.UserEncryptedAPIKeyAnnotation)
+	if enc != "" {
+		v1.SetAnnotation(workload, v1.UserEncryptedAPIKeyAnnotation, enc)
+	}
+	workload.Spec.GroupVersionKind.Kind = common.CICDScaleRunnerSetKind
+	return workload
+}
+
+func TestCICDAPIKeyRefusesUnusableAnnotations(t *testing.T) {
+	_, err := cicdAPIKey(cicdScaleSetForTest(""))
+	assert.ErrorContains(t, err, "missing the encrypted API key annotation")
+
+	_, err = cicdAPIKey(cicdScaleSetForTest("   "))
+	assert.ErrorContains(t, err, "is empty")
+
+	assert.Assert(t, safecrypto.NewCrypto() != nil)
+	commonconfig.SetValue("crypto.enable", "true")
+	t.Cleanup(func() { commonconfig.SetValue("crypto.enable", "false") })
+	_, err = cicdAPIKey(cicdScaleSetForTest("not-a-ciphertext"))
+	assert.ErrorContains(t, err, "failed to decrypt")
+}
+
+func TestModifyContainersFailsWithoutCICDAPIKey(t *testing.T) {
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{"containers": []interface{}{map[string]interface{}{"name": "runner"}}},
+	}}
+	err := modifyContainers(obj, cicdScaleSetForTest(""), jobutils.TestWorkspaceData.DeepCopy(), []string{"spec", "containers"}, 0)
+	assert.ErrorContains(t, err, "encrypted API key")
+}
+
+func TestCICDEnvsCarryIdentityURLInExternalMode(t *testing.T) {
+	t.Cleanup(func() {
+		for _, k := range []string{"auth.mode", "auth.api_keys_upstream", "global.sub_domain", "global.domain"} {
+			commonconfig.UnsetValue(k)
+		}
+	})
+	commonconfig.SetValue("global.sub_domain", "safe")
+	commonconfig.SetValue("global.domain", "example.com")
+	commonconfig.SetValue("auth.mode", "external")
+	commonconfig.SetValue("auth.api_keys_upstream", "identity.idns.svc.cluster.local:8080")
+
+	workload := cicdScaleSetForTest("user-api-key")
+	envs, err := buildEnvironment(workload, nil, -1)
+	assert.NilError(t, err)
+	assert.Equal(t, true, findEnv(envs, jobutils.IdentityURLEnv, "https://safe.example.com"))
+
+	workspace := jobutils.TestWorkspaceData.DeepCopy()
+	workload.Spec.Workspace = workspace.Name
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{"template": map[string]interface{}{"spec": map[string]interface{}{
+			"containers": []interface{}{map[string]interface{}{"name": "runner", "env": []interface{}{}}},
+		}}},
+	}}
+	resourceSpec := jobutils.TestCICDScaleSetResourceTemplate.Spec.ResourceSpecs[0]
+	assert.NilError(t, updateCICDScaleSetEnvs(obj, workload, workspace, resourceSpec))
+	assert.Equal(t, true, findEnv(getEnvs(t, obj, workload, &resourceSpec), jobutils.IdentityURLEnv, "https://safe.example.com"))
 }

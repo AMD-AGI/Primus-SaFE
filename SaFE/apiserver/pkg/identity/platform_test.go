@@ -80,3 +80,60 @@ func TestFetchPlatformAPIKeyPrefersBearerAndRefusesAnotherUser(t *testing.T) {
 	_, err = FetchPlatformAPIKey(context.Background(), "u2", "bearer-token", "", "")
 	require.Error(t, err)
 }
+
+// platformIdentityAnswering serves every platform key request with status and body.
+func platformIdentityAnswering(t *testing.T, status int, body string) *httptest.Server {
+	t.Helper()
+	resetIdentityConfig(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+	viper.Set("auth.scim.identity_url", srv.URL)
+	viper.Set("auth.authenticators", []map[string]any{{
+		"type": "introspection", "client_id": "svc", "client_secret_file": writeFile(t, "client_secret", "secret\n"),
+	}})
+	return srv
+}
+
+func TestFetchPlatformAPIKeyRefusesBadAnswers(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+		body   string
+		code   int32
+	}{
+		{"unauthorized", http.StatusUnauthorized, `{}`, http.StatusBadGateway},
+		{"no primary key", http.StatusNotFound, `{}`, http.StatusBadGateway},
+		{"identity error", http.StatusInternalServerError, `{}`, http.StatusServiceUnavailable},
+		{"invalid body", http.StatusOK, `not json`, http.StatusBadGateway},
+		{"empty key", http.StatusOK, `{"userId":"u1","apiKey":" "}`, http.StatusBadGateway},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			platformIdentityAnswering(t, tc.status, tc.body)
+			_, err := FetchPlatformAPIKey(context.Background(), "u1", "sso-access-token", "", "")
+			var status apierrors.APIStatus
+			require.ErrorAs(t, err, &status)
+			require.Equal(t, tc.code, status.Status().Code, err.Error())
+		})
+	}
+}
+
+func TestFetchPlatformAPIKeyUnreachableIdentity(t *testing.T) {
+	srv := platformIdentityAnswering(t, http.StatusOK, `{}`)
+	srv.Close()
+	_, err := FetchPlatformAPIKey(context.Background(), "u1", "sso-access-token", "", "")
+	require.Error(t, err)
+}
+
+func TestFetchPlatformAPIKeyWithoutIdentityConfig(t *testing.T) {
+	resetIdentityConfig(t)
+	_, err := FetchPlatformAPIKey(context.Background(), "u1", "sso-access-token", "", "")
+	var cfg *ConfigError
+	require.ErrorAs(t, err, &cfg)
+
+	viper.Set("auth.scim.identity_url", "https://identity.example.com")
+	_, err = FetchPlatformAPIKey(context.Background(), "u1", "sso-access-token", "", "")
+	require.Error(t, err, "no introspection client secret")
+}

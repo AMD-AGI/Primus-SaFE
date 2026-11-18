@@ -232,3 +232,40 @@ func TestAttachCICDEncryptedAPIKey(t *testing.T) {
 	require.NoError(t, h.attachCICDEncryptedAPIKey(c, ephemeral, cicdTestUser("u1")))
 	assert.Empty(t, v1.GetAnnotation(ephemeral, v1.UserEncryptedAPIKeyAnnotation))
 }
+
+func TestAttachCICDEncryptedAPIKeyRefusesUnresolvedKeys(t *testing.T) {
+	setAuthMode(t, "builtin")
+	h := &Handler{}
+	c := cicdTestContext("")
+
+	stubCICDPlatformKey(t, "ak-owner")
+	err := h.attachCICDEncryptedAPIKey(c, cicdTestWorkload("cicd-1", common.CICDScaleRunnerSetKind, "owner"), cicdTestUser("admin"))
+	assert.True(t, apierrors.IsForbidden(err), "a non-owner cannot resolve the key")
+
+	stubCICDPlatformKey(t, "")
+	err = h.attachCICDEncryptedAPIKey(c, cicdTestWorkload("cicd-1", common.CICDScaleRunnerSetKind, "u1"), cicdTestUser("u1"))
+	assert.True(t, apierrors.IsBadRequest(err), "an empty key is refused")
+}
+
+func TestAttachCICDEncryptedAPIKeyEncryptFailure(t *testing.T) {
+	commonconfig.SetValue("crypto.enable", "false")
+	t.Cleanup(func() { commonconfig.SetValue("crypto.enable", "") })
+	if safecrypto.NewCrypto() == nil {
+		t.Skip("the crypto client of this process is unavailable")
+	}
+	setAuthMode(t, "builtin")
+	stubCICDPlatformKey(t, "ak-cicd-key")
+	commonconfig.SetValue("crypto.enable", "true")
+
+	workload := cicdTestWorkload("cicd-1", common.CICDScaleRunnerSetKind, "u1")
+	err := (&Handler{}).attachCICDEncryptedAPIKey(cicdTestContext(""), workload, cicdTestUser("u1"))
+	assert.True(t, apierrors.IsInternalError(err), "encryption without a key fails")
+	assert.Empty(t, v1.GetAnnotation(workload, v1.UserEncryptedAPIKeyAnnotation))
+}
+
+func TestCICDPlatformKeyForUserWithoutDatabase(t *testing.T) {
+	commonconfig.SetValue("db.enable", "false")
+	t.Cleanup(func() { commonconfig.SetValue("db.enable", "") })
+	_, err := cicdPlatformKeyForUser(context.Background(), "u1", "user-1")
+	assert.True(t, apierrors.IsInternalError(err))
+}
