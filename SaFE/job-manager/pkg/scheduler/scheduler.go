@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
@@ -61,6 +62,12 @@ type SchedulerReconciler struct {
 	*controller.KeyedController[*SchedulerMessage]
 	// dataPlaneDynamicOverride is used by unit tests to inject a fake dynamic client.
 	dataPlaneDynamicOverride dynamic.Interface
+	// quotaMu guards quotaReserved. Admission for one user on one cluster is decided
+	// and recorded together, so workers for different workspaces cannot both pass.
+	quotaMu sync.Mutex
+	// quotaReserved holds workloads admitted in this process whose scheduled mark
+	// is not in the cache yet. Keyed by user id, cluster id, then workload name.
+	quotaReserved map[string]map[string]*v1.Workload
 }
 
 type SchedulerMessage struct {
@@ -384,6 +391,12 @@ func (r *SchedulerReconciler) scheduleWorkloads(ctx context.Context, message *Sc
 		if err != nil {
 			return err
 		}
+		if ok {
+			// Re-check under the quota lock and record this admission before another
+			// workspace's worker can admit the same user.
+			reason = r.reserveUserQuota(ctx, w)
+			ok = reason == ""
+		}
 		if !ok {
 			if w.IsEnd() {
 				continue
@@ -438,6 +451,7 @@ func (r *SchedulerReconciler) scheduleWorkloads(ctx context.Context, message *Sc
 			}
 		}
 		if err = r.markAsScheduled(ctx, schedulingWorkloads[i]); err != nil {
+			r.releaseUserQuota(schedulingWorkloads[i])
 			return err
 		}
 		klog.Infof("the workload is scheduled, name: %s, dispatch count: %d",
@@ -471,7 +485,10 @@ func isSkippableReason(reason string) bool {
 // userQuotaHold returns the pending reason from the user's ceiling, or empty when the workload fits.
 // admitted holds workloads already scheduled, including those admitted earlier in this pass.
 // A failed check holds only this workload.
+// The caller does not hold quotaMu.
 func (r *SchedulerReconciler) userQuotaHold(ctx context.Context, workload *v1.Workload, admitted []*v1.Workload) string {
+	r.quotaMu.Lock()
+	defer r.quotaMu.Unlock()
 	reason, err := r.userQuotaReason(ctx, workload, admitted)
 	if err != nil {
 		klog.ErrorS(err, "failed to check the user quota", "workload", workload.Name)
@@ -480,10 +497,90 @@ func (r *SchedulerReconciler) userQuotaHold(ctx context.Context, workload *v1.Wo
 	return reason
 }
 
+// reserveUserQuota records the workload against its user's ceiling.
+// An empty result means it was recorded. The caller releases it when admission fails.
+func (r *SchedulerReconciler) reserveUserQuota(ctx context.Context, workload *v1.Workload) string {
+	r.quotaMu.Lock()
+	defer r.quotaMu.Unlock()
+	if v1.GetUserId(workload) == "" || v1.GetClusterId(workload) == "" {
+		return ""
+	}
+	limits, err := commonqos.Ceiling(ctx, r.Client, v1.GetUserId(workload), v1.GetClusterId(workload),
+		string(commonworkload.GetScope(workload)))
+	if err != nil {
+		klog.ErrorS(err, "failed to check the user quota", "workload", workload.Name)
+		return fmt.Sprintf("%s: %v", commonqos.UserQuotaCheckFailedPrefix, err)
+	}
+	if limits.CPU == "" && limits.Memory == "" && limits.GPU == "" {
+		return ""
+	}
+	reason, err := r.userQuotaReason(ctx, workload, nil)
+	if err != nil {
+		klog.ErrorS(err, "failed to check the user quota", "workload", workload.Name)
+		return fmt.Sprintf("%s: %v", commonqos.UserQuotaCheckFailedPrefix, err)
+	}
+	if reason != "" {
+		return reason
+	}
+	r.rememberQuota(workload)
+	return ""
+}
+
+// releaseUserQuota drops a reservation after admission fails.
+func (r *SchedulerReconciler) releaseUserQuota(workload *v1.Workload) {
+	if workload == nil {
+		return
+	}
+	r.quotaMu.Lock()
+	defer r.quotaMu.Unlock()
+	delete(r.quotaReserved[quotaReservationKey(v1.GetUserId(workload), v1.GetClusterId(workload))], workload.Name)
+}
+
+// rememberQuota stores a copy of a workload admitted under a ceiling. Caller holds quotaMu.
+func (r *SchedulerReconciler) rememberQuota(workload *v1.Workload) {
+	if r.quotaReserved == nil {
+		r.quotaReserved = map[string]map[string]*v1.Workload{}
+	}
+	key := quotaReservationKey(v1.GetUserId(workload), v1.GetClusterId(workload))
+	if r.quotaReserved[key] == nil {
+		r.quotaReserved[key] = map[string]*v1.Workload{}
+	}
+	r.quotaReserved[key][workload.Name] = workload.DeepCopy()
+}
+
+// reservedWorkloads returns admissions not yet visible as scheduled. Caller holds quotaMu.
+func (r *SchedulerReconciler) reservedWorkloads(userID, clusterID string) []*v1.Workload {
+	bucket := r.quotaReserved[quotaReservationKey(userID, clusterID)]
+	out := make([]*v1.Workload, 0, len(bucket))
+	for _, item := range bucket {
+		out = append(out, item)
+	}
+	return out
+}
+
+// dropQuotaReservations removes reservations the cache already shows as scheduled or ended.
+// Caller holds quotaMu.
+func (r *SchedulerReconciler) dropQuotaReservations(userID, clusterID string, items []v1.Workload) {
+	bucket := r.quotaReserved[quotaReservationKey(userID, clusterID)]
+	for i := range items {
+		item := &items[i]
+		if _, ok := bucket[item.Name]; !ok {
+			continue
+		}
+		if item.IsEnd() || v1.IsWorkloadScheduled(item) {
+			delete(bucket, item.Name)
+		}
+	}
+}
+
+func quotaReservationKey(userID, clusterID string) string {
+	return userID + "|" + clusterID
+}
+
 // userQuotaReason reports when this user's running work on the cluster cannot take the request.
 // Queued work is not counted. A request that is already larger than the ceiling stays pending.
 // admitted is added to the cached list by name, so a workload admitted in this pass counts
-// before the cache sees its scheduled flag.
+// before the cache sees its scheduled flag. Caller holds quotaMu.
 func (r *SchedulerReconciler) userQuotaReason(ctx context.Context, workload *v1.Workload, admitted []*v1.Workload) (string, error) {
 	userID := v1.GetUserId(workload)
 	clusterID := v1.GetClusterId(workload)
@@ -524,6 +621,8 @@ func (r *SchedulerReconciler) userQuotaReason(ctx context.Context, workload *v1.
 			return "", err
 		}
 	}
+	r.dropQuotaReservations(userID, clusterID, held.Items)
+	admitted = append(admitted, r.reservedWorkloads(userID, clusterID)...)
 	for _, item := range admitted {
 		if item == nil || item.Name == workload.Name || counted[item.Name] || item.IsEnd() ||
 			v1.GetUserId(item) != userID || v1.GetClusterId(item) != clusterID {

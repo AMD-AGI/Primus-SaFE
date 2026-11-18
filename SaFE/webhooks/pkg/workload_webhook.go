@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	admissionv1 "k8s.io/api/admission/v1"
@@ -1175,6 +1176,148 @@ func runtimeCeiling(ctx context.Context, c client.Reader, workload *v1.Workload,
 	return limits.RuntimeSeconds, nil
 }
 
+// validateScaleQuota rejects an update that grows CPU, memory or GPU past the user's ceiling.
+// A shrink or an unchanged dimension is left alone. Usage is the user's other scheduled work on the cluster.
+func (v *WorkloadValidator) validateScaleQuota(ctx context.Context, newWorkload, oldWorkload *v1.Workload) error {
+	if newWorkload == nil || oldWorkload == nil || reflect.DeepEqual(newWorkload.Spec.Resources, oldWorkload.Spec.Resources) {
+		return nil
+	}
+	oldTotal, err := commonworkload.GetTotalResourceList(oldWorkload)
+	if err != nil {
+		return err
+	}
+	newTotal, err := commonworkload.GetTotalResourceList(newWorkload)
+	if err != nil {
+		return err
+	}
+	cpu, memory, gpu := commonqos.ResourceGrew(oldTotal, newTotal)
+	if !cpu && !memory && !gpu {
+		return nil
+	}
+	v.scaleMu.Lock()
+	defer v.scaleMu.Unlock()
+	userID := v1.GetUserId(newWorkload)
+	clusterID := v1.GetClusterId(newWorkload)
+	limits, err := commonqos.Ceiling(ctx, v.Client, userID, clusterID, string(commonworkload.GetScope(newWorkload)))
+	if err != nil {
+		return err
+	}
+	if limits.CPU == "" && limits.Memory == "" && limits.GPU == "" {
+		return nil
+	}
+	used, err := v.scaleUsage(ctx, userID, clusterID, newWorkload.Name)
+	if err != nil {
+		return err
+	}
+	reason, err := commonqos.Exceeded(userID, clusterID, used, newTotal, limits, cpu, memory, gpu)
+	if err != nil {
+		return err
+	}
+	if reason != "" {
+		return commonerrors.NewBadRequest(reason)
+	}
+	v.rememberScale(newWorkload)
+	return nil
+}
+
+// scaleReservationTTL keeps a scale that this process allowed until the cache shows it,
+// or until the write is known not to have landed.
+const scaleReservationTTL = 30 * time.Second
+
+// scaleReservation is the new size of a scale this process has allowed.
+type scaleReservation struct {
+	at        time.Time
+	resources []v1.WorkloadResource
+}
+
+// scaleUsage sums this user's scheduled work on the cluster, using a reserved new size
+// until that size shows up in the cache. skip is compared separately. Caller holds scaleMu.
+func (v *WorkloadValidator) scaleUsage(ctx context.Context, userID, clusterID, skip string) (corev1.ResourceList, error) {
+	used := corev1.ResourceList{}
+	if userID == "" || clusterID == "" {
+		return used, nil
+	}
+	held := &v1.WorkloadList{}
+	if err := v.List(ctx, held, client.MatchingLabels{
+		v1.ClusterIdLabel: clusterID,
+		v1.UserIdLabel:    userID,
+	}); err != nil {
+		return nil, err
+	}
+	v.dropScaleReservations(userID, clusterID, held.Items)
+	covered := map[string]bool{}
+	prefix := scaleReservationPrefix(userID, clusterID)
+	for key, reserved := range v.scaleReserved {
+		if !strings.HasPrefix(key, prefix) {
+			continue
+		}
+		name := strings.TrimPrefix(key, prefix)
+		if name == skip {
+			continue
+		}
+		part, err := commonworkload.GetTotalResourceList(&v1.Workload{Spec: v1.WorkloadSpec{Resources: reserved.resources}})
+		if err != nil {
+			return nil, err
+		}
+		used = quantity.AddResource(used, part)
+		covered[name] = true
+	}
+	for i := range held.Items {
+		item := &held.Items[i]
+		if item.Name == skip || covered[item.Name] || item.IsEnd() || !v1.IsWorkloadScheduled(item) {
+			continue
+		}
+		part, err := commonworkload.GetTotalResourceList(item)
+		if err != nil {
+			return nil, err
+		}
+		used = quantity.AddResource(used, part)
+	}
+	return used, nil
+}
+
+// dropScaleReservations removes reservations the cache already shows, and ones older than the TTL.
+// Caller holds scaleMu.
+func (v *WorkloadValidator) dropScaleReservations(userID, clusterID string, items []v1.Workload) {
+	byName := make(map[string]*v1.Workload, len(items))
+	for i := range items {
+		byName[items[i].Name] = &items[i]
+	}
+	prefix := scaleReservationPrefix(userID, clusterID)
+	for key, reserved := range v.scaleReserved {
+		if !strings.HasPrefix(key, prefix) {
+			continue
+		}
+		if time.Since(reserved.at) > scaleReservationTTL {
+			delete(v.scaleReserved, key)
+			continue
+		}
+		item := byName[strings.TrimPrefix(key, prefix)]
+		if item != nil && reflect.DeepEqual(item.Spec.Resources, reserved.resources) {
+			delete(v.scaleReserved, key)
+		}
+	}
+}
+
+// rememberScale records the size just allowed. Caller holds scaleMu.
+func (v *WorkloadValidator) rememberScale(workload *v1.Workload) {
+	if v.scaleReserved == nil {
+		v.scaleReserved = map[string]scaleReservation{}
+	}
+	v.scaleReserved[scaleReservationKey(v1.GetUserId(workload), v1.GetClusterId(workload), workload.Name)] = scaleReservation{
+		at:        time.Now(),
+		resources: workload.DeepCopy().Spec.Resources,
+	}
+}
+
+func scaleReservationPrefix(userID, clusterID string) string {
+	return userID + "|" + clusterID + "|"
+}
+
+func scaleReservationKey(userID, clusterID, name string) string {
+	return scaleReservationPrefix(userID, clusterID) + name
+}
+
 // validateTimeout rejects a timeout above the qos ceiling for the workload's workspace scope.
 // It runs on create. A timeout change on update is authorized by the apiserver.
 func (v *WorkloadValidator) validateTimeout(ctx context.Context, workload *v1.Workload) error {
@@ -1199,6 +1342,10 @@ type WorkloadValidator struct {
 	client.Client
 	secretReader client.Reader
 	decoder      admission.Decoder
+	// scaleMu guards scaleReserved. A scale is checked and recorded together, so two
+	// updates for one user on one cluster cannot both pass on the old usage.
+	scaleMu       sync.Mutex
+	scaleReserved map[string]scaleReservation
 }
 
 // Handle validates workload resources on create, update, and delete operations.
@@ -1261,6 +1408,9 @@ func (v *WorkloadValidator) validateOnUpdate(ctx context.Context, newWorkload, o
 		return err
 	}
 	if err := v.validateCommon(ctx, newWorkload, oldWorkload); err != nil {
+		return err
+	}
+	if err := v.validateScaleQuota(ctx, newWorkload, oldWorkload); err != nil {
 		return err
 	}
 	if !reflect.DeepEqual(oldWorkload.Spec.CronJobs, newWorkload.Spec.CronJobs) {

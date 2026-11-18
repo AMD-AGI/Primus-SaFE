@@ -8,6 +8,7 @@ package scheduler
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -84,5 +85,49 @@ func TestUserQuotaErrorHoldsOnlyThatWorkload(t *testing.T) {
 	reason := r.userQuotaHold(context.Background(), w, nil)
 	if !strings.HasPrefix(reason, commonqos.UserQuotaCheckFailedPrefix) {
 		t.Fatalf("a bad qos value holds this workload with a reason, got %q", reason)
+	}
+}
+
+func TestConcurrentQuotaReserveAdmitsOne(t *testing.T) {
+	qos := &v1.Qos{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+		Spec:       v1.QosSpec{MaxResources: &v1.ResourceCap{GPU: "8"}},
+	}
+	first := qosWorkload("first", "alice", "8")
+	second := qosWorkload("second", "alice", "8")
+	cl := ctrlfake.NewClientBuilder().WithScheme(ttlScheme(t)).WithObjects(qos, first, second).Build()
+	r := &SchedulerReconciler{Client: cl}
+
+	start := make(chan struct{})
+	reasons := make([]string, 2)
+	var wg sync.WaitGroup
+	for i, w := range []*v1.Workload{first, second} {
+		wg.Add(1)
+		go func(i int, w *v1.Workload) {
+			defer wg.Done()
+			<-start
+			reasons[i] = r.reserveUserQuota(context.Background(), w)
+		}(i, w)
+	}
+	close(start)
+	wg.Wait()
+
+	admitted := 0
+	for _, reason := range reasons {
+		if reason == "" {
+			admitted++
+			continue
+		}
+		if !strings.HasPrefix(reason, commonqos.UserQuotaReasonPrefix) {
+			t.Fatalf("reason %q", reason)
+		}
+	}
+	if admitted != 1 {
+		t.Fatalf("one admission must be reserved, got %d (%q)", admitted, reasons)
+	}
+	r.releaseUserQuota(first)
+	r.releaseUserQuota(second)
+	if reason := r.reserveUserQuota(context.Background(), second); reason != "" {
+		t.Fatalf("releasing the reservation frees the quota, reason %q", reason)
 	}
 }

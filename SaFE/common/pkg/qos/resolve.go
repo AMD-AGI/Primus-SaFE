@@ -99,19 +99,34 @@ func Resolve(user *v1.User, clusterQos *v1.Qos, clusterID, scope string) Limits 
 // An empty result means the request fits. A request that is already larger than the ceiling
 // is the same condition with used at zero, and it stays pending.
 func QuotaReason(userID, clusterID string, used, request corev1.ResourceList, limits Limits) (string, error) {
+	return Exceeded(userID, clusterID, used, request, limits, true, true, true)
+}
+
+// ResourceGrew reports which of CPU, memory and GPU is larger in next than in prev.
+func ResourceGrew(prev, next corev1.ResourceList) (cpu, memory, gpu bool) {
+	prevCPU, nextCPU := quantityOf(prev, corev1.ResourceCPU), quantityOf(next, corev1.ResourceCPU)
+	prevMemory, nextMemory := quantityOf(prev, corev1.ResourceMemory), quantityOf(next, corev1.ResourceMemory)
+	prevGPU, nextGPU := gpuQuantity(prev), gpuQuantity(next)
+	return nextCPU.Cmp(prevCPU) > 0, nextMemory.Cmp(prevMemory) > 0, nextGPU.Cmp(prevGPU) > 0
+}
+
+// Exceeded reports the dimensions where used plus request passes the ceiling.
+// cpu, memory and gpu select which dimensions are checked.
+func Exceeded(userID, clusterID string, used, request corev1.ResourceList, limits Limits, cpu, memory, gpu bool) (string, error) {
 	var parts []string
 	checks := []struct {
 		name  string
+		on    bool
 		limit string
 		used  resource.Quantity
 		ask   resource.Quantity
 	}{
-		{"cpu", limits.CPU, used[corev1.ResourceCPU], request[corev1.ResourceCPU]},
-		{"memory", limits.Memory, used[corev1.ResourceMemory], request[corev1.ResourceMemory]},
-		{"gpu", limits.GPU, gpuQuantity(used), gpuQuantity(request)},
+		{"cpu", cpu, limits.CPU, used[corev1.ResourceCPU], request[corev1.ResourceCPU]},
+		{"memory", memory, limits.Memory, used[corev1.ResourceMemory], request[corev1.ResourceMemory]},
+		{"gpu", gpu, limits.GPU, gpuQuantity(used), gpuQuantity(request)},
 	}
 	for _, check := range checks {
-		if strings.TrimSpace(check.limit) == "" {
+		if !check.on || strings.TrimSpace(check.limit) == "" {
 			continue
 		}
 		ceiling, err := resource.ParseQuantity(check.limit)
@@ -190,6 +205,14 @@ func firstRuntime(scope string, runtimes ...map[string]int) int {
 		}
 	}
 	return 0
+}
+
+// quantityOf returns one resource, or zero when it is absent.
+func quantityOf(list corev1.ResourceList, name corev1.ResourceName) resource.Quantity {
+	if list == nil {
+		return resource.Quantity{}
+	}
+	return list[name]
 }
 
 // gpuQuantity sums NVIDIA and AMD GPU cards in a resource list.

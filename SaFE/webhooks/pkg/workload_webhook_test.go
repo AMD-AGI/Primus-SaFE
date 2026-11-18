@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -391,6 +392,83 @@ func TestWorkloadTimeoutCeilingOnCreateOnly(t *testing.T) {
 	updated := fullValidWorkload()
 	assert.NilError(t, m.mutateOnUpdate(ctx, fullValidWorkload(), updated))
 	assert.Assert(t, updated.Spec.Timeout == nil)
+}
+
+func scaleQuotaWorkload(name, gpu string, scheduled bool) *v1.Workload {
+	w := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Labels: map[string]string{
+			v1.ClusterIdLabel: "c1",
+			v1.UserIdLabel:    "alice",
+		}},
+		Spec: v1.WorkloadSpec{
+			GroupVersionKind: v1.GroupVersionKind{Kind: common.DeploymentKind},
+			Resources:        []v1.WorkloadResource{{Replica: 1, CPU: "1", Memory: "1Gi", GPU: gpu, GPUName: common.AmdGpu}},
+		},
+	}
+	if scheduled {
+		v1.SetAnnotation(w, v1.WorkloadScheduledAnnotation, v1.TrueStr)
+	}
+	return w
+}
+
+func TestScaleUpOverQuotaIsRejected(t *testing.T) {
+	scheme := newScheme(t)
+	qos := &v1.Qos{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+		Spec:       v1.QosSpec{MaxResources: &v1.ResourceCap{GPU: "8"}},
+	}
+	running := scaleQuotaWorkload("running", "6", true)
+	self := scaleQuotaWorkload("self", "1", true)
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(qos, running, self).Build()
+	v := &WorkloadValidator{Client: c}
+	ctx := context.Background()
+
+	err := v.validateScaleQuota(ctx, scaleQuotaWorkload("self", "4", true), self)
+	assert.Assert(t, err != nil)
+	assert.NilError(t, v.validateScaleQuota(ctx, scaleQuotaWorkload("self", "2", true), self))
+	larger := self.DeepCopy()
+	larger.Spec.Resources[0].GPU = "4"
+	assert.NilError(t, v.validateScaleQuota(ctx, self, larger))
+
+	open := fake.NewClientBuilder().WithScheme(scheme).WithObjects(self).Build()
+	assert.NilError(t, (&WorkloadValidator{Client: open}).validateScaleQuota(ctx, scaleQuotaWorkload("self", "16", true), self))
+}
+
+func TestConcurrentScaleReservesOne(t *testing.T) {
+	scheme := newScheme(t)
+	qos := &v1.Qos{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+		Spec:       v1.QosSpec{MaxResources: &v1.ResourceCap{GPU: "10"}},
+	}
+	first := scaleQuotaWorkload("first", "1", true)
+	second := scaleQuotaWorkload("second", "1", true)
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(qos, first, second).Build()
+	v := &WorkloadValidator{Client: c}
+	ctx := context.Background()
+
+	start := make(chan struct{})
+	errs := make([]error, 2)
+	var wg sync.WaitGroup
+	for i, item := range []*v1.Workload{first, second} {
+		wg.Add(1)
+		go func(i int, item *v1.Workload) {
+			defer wg.Done()
+			<-start
+			errs[i] = v.validateScaleQuota(ctx, scaleQuotaWorkload(item.Name, "8", true), item)
+		}(i, item)
+	}
+	close(start)
+	wg.Wait()
+
+	passed := 0
+	for _, err := range errs {
+		if err == nil {
+			passed++
+		}
+	}
+	if passed != 1 {
+		t.Fatalf("one scale must be allowed, got %d (%v)", passed, errs)
+	}
 }
 
 // TestWorkloadMutateMeta verifies labels and finalizer on workload.
