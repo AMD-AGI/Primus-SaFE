@@ -359,6 +359,9 @@ func TestSlimeRules(t *testing.T) {
 	}{
 		"divisibility": {registry.TrainTypeSFT, func(in *recipe.Input) { in.Request.Choices.TP = 3 },
 			"must be divisible by TP × PP × CP (6)"},
+		"model script": {registry.TrainTypeSFT, func(in *recipe.Input) {
+			in.Registry.Specs[0].Frameworks[Name].ModelScript = ""
+		}, "names no model script"},
 		"engine multiple": {registry.TrainTypeRL, func(in *recipe.Input) { in.Request.Choices.GpusPerEngine = 3 },
 			"multiple of GPUs per engine (3)"},
 		"whole nodes": {registry.TrainTypeRL, func(in *recipe.Input) {

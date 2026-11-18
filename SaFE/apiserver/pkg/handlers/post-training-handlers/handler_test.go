@@ -46,6 +46,7 @@ specs:
     evalTp: 1
     frameworks:
       slime:
+        modelScript: scripts/models/qwen3-4B.sh
         methods: {sft: [full], rl: [full]}
         minNodes: {sft-full: 1, rl: 1, rl-separate: 2}
 images:

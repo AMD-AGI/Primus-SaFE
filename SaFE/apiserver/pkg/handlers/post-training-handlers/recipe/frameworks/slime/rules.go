@@ -287,6 +287,9 @@ func (p plugin) Validate(ctx *recipe.Context) []recipe.Diagnostic {
 		out = append(out, recipe.Diagnostic{Level: recipe.LevelError, Field: field, Message: fmt.Sprintf(format, args...)})
 	}
 
+	if ctx.FrameworkSpec.ModelScript == "" {
+		fail("modelId", "Spec %s names no model script for slime", ctx.Spec.Name)
+	}
 	if c.TP < 1 || c.PP < 1 || c.CP < 1 || c.EP < 1 {
 		fail("choices.tp", "TP, PP, CP and EP must be positive")
 		return out
