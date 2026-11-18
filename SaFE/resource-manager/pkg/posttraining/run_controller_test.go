@@ -144,6 +144,21 @@ func TestRegisterRecordsTheAdapter(t *testing.T) {
 	}
 }
 
+func TestARunWithoutTheHFExportFinishesWithoutAModel(t *testing.T) {
+	run := testRunRow("Running", "export")
+	run.Recipe = `{"output":{"base":"` + testRunDir + `","exportHf":false}}`
+	r, db, updates := newTestReconciler(t, run, endedWorkload(v1.WorkloadSucceeded))
+	db.EXPECT().ListWorkloadPods(gomock.Any(), testRun, "uid1").Return(submitterPods(
+		`[SUCCESS] {"run":"`+testRun+`","attempt":"a1","stage":"export","output":""}`), nil).AnyTimes()
+	reconcileRun(t, r)
+	last := (*updates)[len(*updates)-1]
+	require.Equal(t, "Succeeded", last["status"])
+	require.Equal(t, "done", last["stage"])
+	models := &v1.ModelList{}
+	require.NoError(t, r.List(context.Background(), models))
+	require.Empty(t, models.Items, "there is no model to register")
+}
+
 func TestRegisterRejectsOutputOutsideRunDir(t *testing.T) {
 	r, db, updates := newTestReconciler(t, testRunRow("Running", "export"), endedWorkload(v1.WorkloadSucceeded))
 	db.EXPECT().ListWorkloadPods(gomock.Any(), testRun, "uid1").Return(submitterPods(

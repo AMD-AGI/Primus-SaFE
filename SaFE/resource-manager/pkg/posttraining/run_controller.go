@@ -95,6 +95,8 @@ type runRecipe struct {
 	} `json:"evaluation"`
 	Output struct {
 		Base string `json:"base"`
+		// ExportHF is false when the run exports no model; recipes without it export one.
+		ExportHF *bool `json:"exportHf"`
 	} `json:"output"`
 	Metrics struct {
 		Samples *struct {

@@ -28,10 +28,17 @@ const (
 	originRLTrained = "rl_trained"
 )
 
-// register turns a successful result into the run's output Model and finishes the run once the Model is Ready.
+// register turns a successful result into the run's output Model and finishes the run once the Model is Ready; a
+// run that exports no model finishes at once, with nothing to register or evaluate.
 func (r *RunReconciler) register(ctx context.Context, u *runUpdate, res *marker, endTime time.Time) (ctrlruntime.Result, error) {
 	run := u.run
-	output, base := filepath.Clean(res.Body.Output), parseRecipe(run).Output.Base
+	rec := parseRecipe(run)
+	if res.Body.Output == "" && rec.Output.ExportHF != nil && !*rec.Output.ExportHF {
+		u.end(v1.WorkloadSucceeded, endTime)
+		u.moveTo("done")
+		return ctrlruntime.Result{}, r.save(ctx, u)
+	}
+	output, base := filepath.Clean(res.Body.Output), rec.Output.Base
 	if !withinDir(output, base) {
 		u.fail("register", fmt.Sprintf("The output path %q is not under the run directory", res.Body.Output), endTime)
 		return ctrlruntime.Result{}, r.save(ctx, u)
