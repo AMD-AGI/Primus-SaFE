@@ -246,7 +246,7 @@ jobs:
           MATRIX+='{"name":"sync-image","basepath":"SaFE/tools/sync-image","dockerfile_path":"SaFE/tools/sync-image/Dockerfile"},'
         fi
         if [[ "${{ steps.detect-changes.outputs.web_changed }}" == "true" ]]; then
-          MATRIX+='{"name":"web","image":"primus-safe-web","basepath":"Web","dockerfile_path":"Web/Dockerfile","context":"Web"},'
+          MATRIX+='{"name":"primus-safe-web","basepath":"Web","dockerfile_path":"Web/Dockerfile","context":"Web"},'
         fi
         MATRIX=${MATRIX%,} # remove trailing comma
         MATRIX+=']}'
@@ -292,10 +292,9 @@ jobs:
           IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
           DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
           VITE_MCP_API_KEY: ${{ secrets.VITE_MCP_API_KEY }}
-          IMAGE_NAME: ${{ matrix.image || matrix.name }}
         run: |
           set -e
-          echo "🚧 Building ${{ matrix.name }} as ${IMAGE_NAME}..."
+          echo "🚧 Building ${{ matrix.name }}..."
 
           # For preprocess: include driver paths for BNXT and AINIC (tw325 cluster)
           # Change these paths when switching to a different cluster
@@ -304,7 +303,7 @@ jobs:
           if [[ -z "$CONTEXT" ]]; then
             CONTEXT="."
           fi
-          if [[ "${{ matrix.name }}" == "web" ]]; then
+          if [[ "${{ matrix.name }}" == "primus-safe-web" ]]; then
             EXTRA_ARGS+=" --build-arg VITE_MCP_BASE_URL=/sso-mcp/mcp"
             EXTRA_ARGS+=" --build-arg VITE_MCP_API_KEY=${VITE_MCP_API_KEY}"
           fi
@@ -327,23 +326,28 @@ jobs:
             --build-arg GOPROXY=${{ secrets.GOPROXY }},direct \
             --build-arg BUILDPATH=${{ matrix.buildpath }} \
             --build-arg BASEPATH=${{ matrix.basepath }} \
-            --build-arg APPNAME=${IMAGE_NAME} \
+            --build-arg APPNAME=${{ matrix.name }} \
             --build-arg GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }} \
             --build-arg REGISTRY=${{ secrets.REGISTRY }} \
             $EXTRA_ARGS \
-            -t ${IMAGE_NAME}:${IMAGE_VERSION} \
-            -t ${IMAGE_NAME}:${DATE_TIME} \
+            -t ${{ matrix.name }}:${IMAGE_VERSION} \
+            -t ${{ matrix.name }}:${DATE_TIME} \
             -f ${{ matrix.dockerfile_path }} "$CONTEXT"
 
-          for repo in ${DOCKERIO_REPOSITORY} ${QUAYIO_REPOSITORY}; do
-            echo "🚀 Pushing ${IMAGE_NAME} to $repo..."
-            buildah tag ${IMAGE_NAME}:${IMAGE_VERSION} ${repo}/${IMAGE_NAME}:${IMAGE_VERSION}
-            buildah tag ${IMAGE_NAME}:${DATE_TIME} ${repo}/${IMAGE_NAME}:${DATE_TIME}
-            echo "Pushing tags: ${repo}/${IMAGE_NAME}:${IMAGE_VERSION}"
-            buildah push --tls-verify=false ${repo}/${IMAGE_NAME}:${IMAGE_VERSION}
-            echo "Pushing tags: ${repo}/${IMAGE_NAME}:${DATE_TIME}"
-            buildah push --tls-verify=false ${repo}/${IMAGE_NAME}:${DATE_TIME}
-          done
+          # The web image is published from main and tags. Other refs are built and not pushed.
+          if [[ "${{ matrix.name }}" == "primus-safe-web" && "$GITHUB_REF" != "refs/heads/main" && "$GITHUB_REF" != refs/tags/* ]]; then
+            echo "Built primus-safe-web; not pushing from $GITHUB_REF"
+          else
+            for repo in ${DOCKERIO_REPOSITORY} ${QUAYIO_REPOSITORY}; do
+              echo "🚀 Pushing ${{ matrix.name }} to $repo..."
+              buildah tag ${{ matrix.name }}:${IMAGE_VERSION} ${repo}/${{ matrix.name }}:${IMAGE_VERSION}
+              buildah tag ${{ matrix.name }}:${DATE_TIME} ${repo}/${{ matrix.name }}:${DATE_TIME}
+              echo "Pushing tags: ${repo}/${{ matrix.name }}:${IMAGE_VERSION}"
+              buildah push --tls-verify=false ${repo}/${{ matrix.name }}:${IMAGE_VERSION}
+              echo "Pushing tags: ${repo}/${{ matrix.name }}:${DATE_TIME}"
+              buildah push --tls-verify=false ${repo}/${{ matrix.name }}:${DATE_TIME}
+            done
+          fi
 
 
 
