@@ -41,6 +41,7 @@ func statusCode(err error) int {
 	return 0
 }
 
+// An evaluation request takes the output model by default, and a waiting request blocks another.
 func TestRequestEvaluation(t *testing.T) {
 	run := &dbclient.PostTrainingRun{RunID: "pt-1", Stage: "done", OutputModelID: "m-out"}
 	out := &v1.Model{ObjectMeta: metav1.ObjectMeta{Name: "m-out", Labels: map[string]string{v1.PostTrainingRunIdLabel: "pt-1"}}}
@@ -74,6 +75,7 @@ func TestRequestEvaluation(t *testing.T) {
 	require.Equal(t, http.StatusConflict, statusCode(err), "the automatic evaluation blocks another")
 }
 
+// A kept service whose evaluation is over does not block a new evaluation.
 func TestEvaluationInProgressIgnoresFinishedServices(t *testing.T) {
 	labels := map[string]string{v1.PostTrainingRunIdLabel: "pt-1", v1.PostTrainingRoleLabel: v1.PostTrainingRoleEval}
 	kept := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "svc-kept", Labels: labels,

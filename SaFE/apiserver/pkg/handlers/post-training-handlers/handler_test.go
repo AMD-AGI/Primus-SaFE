@@ -102,6 +102,7 @@ func compiled(t *testing.T, nodes int) (*registry.Registry, *recipe.SubmitReques
 	return reg, req, res
 }
 
+// A run ID is a slug of the name with a random suffix, cut to its length.
 func TestNewRunID(t *testing.T) {
 	id := newRunID("Qwen3 8B — LoRA SFT, very long display name that keeps going")
 	require.True(t, strings.HasPrefix(id, "pt-qwen3-8b-lora-sft-very-long-"), id)
@@ -109,6 +110,7 @@ func TestNewRunID(t *testing.T) {
 	require.True(t, strings.HasPrefix(newRunID("\u4e2d\u6587"), "pt-run-"))
 }
 
+// A run made from a template keeps the template version it was made from.
 func TestRunRowRecordsTheTemplateVersion(t *testing.T) {
 	_, req, res := compiled(t, 1)
 	ws := &workspaceInfo{WorkspaceInfo: recipe.WorkspaceInfo{ID: "ws"}}
@@ -120,6 +122,7 @@ func TestRunRowRecordsTheTemplateVersion(t *testing.T) {
 	require.Equal(t, 3, row.TemplateVersion, "the run keeps the template version it was made from")
 }
 
+// A run's RayJob carries its labels, image, environment and resources.
 func TestBuildWorkload(t *testing.T) {
 	reg, req, res := compiled(t, 2)
 	ws := &workspaceInfo{WorkspaceInfo: recipe.WorkspaceInfo{ID: "ws"}, flavor: flavor()}
@@ -158,6 +161,7 @@ func TestBuildWorkload(t *testing.T) {
 	require.NotContains(t, env, "NCCL_DEBUG_FILE")
 }
 
+// A single-node run gets the node's network settings and needs a workspace with a node flavor.
 func TestBuildWorkloadSingleNode(t *testing.T) {
 	reg, req, res := compiled(t, 1)
 	zero := 0
@@ -190,6 +194,7 @@ func TestBuildWorkloadSingleNode(t *testing.T) {
 	require.Error(t, err)
 }
 
+// Only a remote reward sends its key, and Ray workers can import the slime plugins.
 func TestRewardSecret(t *testing.T) {
 	req := &recipe.SubmitRequest{TrainType: registry.TrainTypeRL, Choices: recipe.Choices{RewardType: "remote",
 		RewardRemote: &recipe.RewardRemote{URL: "https://rm.svc/s", SecretID: "rm-key"}}}
@@ -201,6 +206,7 @@ func TestRewardSecret(t *testing.T) {
 	require.Contains(t, nodeInitScript, "safe_post_training.pth", "Ray workers can import the slime plugins")
 }
 
+// A run on part of a node asks for its GPUs' share of the node's CPU and memory.
 func TestNodeResource(t *testing.T) {
 	r := nodeResource(flavor(), 8)
 	require.Equal(t, "8", r.GPU)
@@ -227,6 +233,7 @@ func TestNodeResource(t *testing.T) {
 	require.Equal(t, "75Gi", nodeResource(nf, 1).EphemeralStorage, "the maximum is shared by the GPUs")
 }
 
+// A workspace reports the host memory a whole-node pod gets after the reserve.
 func TestWorkspaceHostMemory(t *testing.T) {
 	viper.Set("workspace.mem_reserve_percent", 0.1)
 	t.Cleanup(func() { viper.Set("workspace.mem_reserve_percent", nil) })
@@ -243,6 +250,7 @@ func TestWorkspaceHostMemory(t *testing.T) {
 	require.Equal(t, 8, info.NodeGPUs)
 }
 
+// A model is ready in a workspace only where its local path is ready.
 func TestModelPathIn(t *testing.T) {
 	m := &v1.Model{Spec: v1.ModelSpec{Source: v1.ModelSource{AccessMode: v1.AccessModeLocal}},
 		Status: v1.ModelStatus{Phase: v1.ModelPhaseReady, LocalPaths: []v1.ModelLocalPath{
@@ -254,6 +262,7 @@ func TestModelPathIn(t *testing.T) {
 	require.False(t, info.Ready)
 }
 
+// No ConfigMap means Post Training is off, and an invalid registry keeps the last valid one.
 func TestRegistryLoading(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, corev1.AddToScheme(scheme))
@@ -277,6 +286,7 @@ func TestRegistryLoading(t *testing.T) {
 	require.Equal(t, `The workspace GPU "MI325X" has no known architecture`, workspaceUnavailable(reg, "", "MI325X"))
 }
 
+// A registry dropping an image a run uses waits, and is checked again after the retry interval.
 func TestRegistryRetriesImagesInUse(t *testing.T) {
 	ctx := context.Background()
 	scheme := runtime.NewScheme()
@@ -309,6 +319,7 @@ func TestRegistryRetriesImagesInUse(t *testing.T) {
 	require.True(t, h.retryAt.IsZero())
 }
 
+// A new registry waits while the images runs use cannot be read, and is checked again.
 func TestRegistryWaitsWhenTheImagesInUseCannotBeRead(t *testing.T) {
 	ctx := context.Background()
 	scheme := runtime.NewScheme()
@@ -344,6 +355,7 @@ func TestRegistryWaitsWhenTheImagesInUseCannotBeRead(t *testing.T) {
 	require.NotNil(t, reg.ImageByName("img:1"), "a run still uses img:1")
 }
 
+// After a restart only runs on a registry image keep that image listed.
 func TestRegistryChecksTableImagesAfterARestart(t *testing.T) {
 	ctx := context.Background()
 	scheme := runtime.NewScheme()
@@ -378,6 +390,7 @@ func TestRegistryChecksTableImagesAfterARestart(t *testing.T) {
 	}
 }
 
+// A pause of new runs is refused with its reason.
 func TestPausedError(t *testing.T) {
 	reg, err := registry.Parse([]byte(testRegistry))
 	require.NoError(t, err)
@@ -387,6 +400,7 @@ func TestPausedError(t *testing.T) {
 	require.ErrorContains(t, err, "cluster upgrade until 18:00")
 }
 
+// A list item keeps the run's fields at the top level, with a label only for a proven recipe.
 func TestListItemJSON(t *testing.T) {
 	data, err := json.Marshal(listItem{PostTrainingRun: &dbclient.PostTrainingRun{RunID: "pt-1"}, VerifiedRuns: 2,
 		LatestVerifiedRun: "pt-0"})
@@ -402,6 +416,7 @@ func TestListItemJSON(t *testing.T) {
 	require.NotContains(t, string(data), "verifiedRuns", "a recipe that never succeeded carries no label")
 }
 
+// A model request without a model ID is a bad request.
 func TestGetModelNeedsAnID(t *testing.T) {
 	_, _, err := evalHandler(t).getModel(context.Background(), "", "ws")
 	require.Equal(t, 400, statusCode(err), "a request without a model is the caller's mistake, not a server error")

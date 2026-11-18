@@ -40,6 +40,7 @@ func cleanupHandler(t *testing.T) *Handler {
 	return NewHandler(nil, db)
 }
 
+// A cleanup plan removes the older checkpoints of actor and critic and keeps the best on request.
 func TestPlanCleanup(t *testing.T) {
 	h := exportHandler(t)
 	ctx := context.Background()
@@ -74,6 +75,7 @@ func TestPlanCleanup(t *testing.T) {
 	require.Equal(t, http.StatusConflict, statusCode(err), "a running export still reads its checkpoint")
 }
 
+// A cleanup request is refused while another one is queued.
 func TestOnlyOneCleanupRequestIsTaken(t *testing.T) {
 	db := mockclient.NewMockInterface(gomock.NewController(t))
 	h := NewHandler(nil, db)
@@ -84,6 +86,7 @@ func TestOnlyOneCleanupRequestIsTaken(t *testing.T) {
 	require.Equal(t, http.StatusConflict, statusCode(err), "a request made meanwhile keeps the cleanup")
 }
 
+// The checkpoint markers show which checkpoints a cleanup removed and which it kept.
 func TestMarkersShowCleanedCheckpoints(t *testing.T) {
 	h := cleanupHandler(t)
 	rows, err := h.db.ListPostTrainingRunMetrics(context.Background(), "pt-1", nil)

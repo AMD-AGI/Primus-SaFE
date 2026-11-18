@@ -45,6 +45,7 @@ func exportHandler(t *testing.T, objs ...runtime.Object) *Handler {
 	return h
 }
 
+// An export workload converts the step's checkpoint with the run's image under a DNS display name.
 func TestExportWorkload(t *testing.T) {
 	reg, err := registry.Parse([]byte(testRegistry))
 	require.NoError(t, err)
@@ -111,6 +112,7 @@ func exportJob(name string, phase v1.WorkloadPhase, minute int) *v1.Workload {
 	return w
 }
 
+// A running export of a step refuses another, a failed one can be retried, and the latest is listed.
 func TestExportConflictsAndList(t *testing.T) {
 	failed := exportJob("pt-1-x20-a", v1.WorkloadFailed, 1)
 	h := exportHandler(t, failed)

@@ -25,6 +25,7 @@ func baselineRequest() experimentRequest {
 		Evaluation: recipe.EvaluationRequest{Benchmarks: []string{"aime"}}}}
 }
 
+// Each variant's request is the baseline with its changes and a name of experiment and variant.
 func TestVariantRequests(t *testing.T) {
 	req := baselineRequest()
 	req.Variants = []experimentVariant{
@@ -66,12 +67,14 @@ func TestVariantRequests(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, statusCode(err), "a variant's run name holds at most 128 characters")
 }
 
+// Changes merge into nested fields, and a null removes the field.
 func TestMergeChanges(t *testing.T) {
 	dst := map[string]interface{}{"a": map[string]interface{}{"x": 1, "y": 2}, "b": 1, "c": 3}
 	mergeChanges(dst, map[string]interface{}{"a": map[string]interface{}{"y": 5}, "b": nil, "d": "new"})
 	require.Equal(t, map[string]interface{}{"a": map[string]interface{}{"x": 1, "y": 5}, "c": 3, "d": "new"}, dst)
 }
 
+// An experiment lists its runs in variant order, without their recipes.
 func TestExperimentRunsInVariantOrder(t *testing.T) {
 	db := mockclient.NewMockInterface(gomock.NewController(t))
 	db.EXPECT().ListPostTrainingRuns(gomock.Any(), dbclient.PostTrainingRunFilter{ExperimentID: "exp-1", Limit: 5}).
