@@ -332,7 +332,8 @@ func (p plugin) Compile(ctx *recipe.Context) (*recipe.FrameworkPlan, error) {
 		if l.Colocate {
 			a.add("--colocate")
 		}
-		a.add("--rollout-num-gpus", itoa(l.RolloutGpus))
+		// slime places rollout engines by the GPUs of a node, 8 unless told.
+		a.add("--rollout-num-gpus", itoa(l.RolloutGpus), "--num-gpus-per-node", itoa(l.GpusPerNode))
 	}
 	a.add("--hf-checkpoint", hf, "--ref-load", refLoad, "--save", in.RunDir+"/checkpoints",
 		"--save-interval", itoa(c.SaveInterval))

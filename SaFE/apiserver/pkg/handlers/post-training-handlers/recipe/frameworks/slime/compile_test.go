@@ -319,7 +319,8 @@ func TestCompileGRPOSeparate(t *testing.T) {
 	in.Request.Choices.Layout, in.Request.Choices.RolloutGpus, in.Request.Choices.Correction = "separate", 8, "tis"
 	res := compile(t, in)
 	got := strings.Join(res.Recipe.FrameworkArgs, " ")
-	require.Contains(t, got, "--actor-num-nodes 1 --actor-num-gpus-per-node 8 --rollout-num-gpus 8 --hf-checkpoint")
+	require.Contains(t, got,
+		"--actor-num-nodes 1 --actor-num-gpus-per-node 8 --rollout-num-gpus 8 --num-gpus-per-node 8 --hf-checkpoint")
 	require.Contains(t, got, "--use-tis --tis-clip-low 0 --tis-clip 2")
 	require.NotContains(t, got, "--colocate")
 }
@@ -381,6 +382,19 @@ func TestSlimeRules(t *testing.T) {
 		}, "The critic learning rate must be positive"},
 		"algorithm": {registry.TrainTypeRL, func(in *recipe.Input) { in.Request.Choices.AdvantageEstimator = "dpo" },
 			`Algorithm "dpo" is not available`},
+		"global batch": {registry.TrainTypeSFT, func(in *recipe.Input) {
+			in.Request.Choices.TP, in.Request.Choices.CP, in.Request.Choices.BatchSize = 1, 1, 100
+		}, "global batch (100) must be divisible by the data-parallel size (8)"},
+		"rl global batch": {registry.TrainTypeRL, func(in *recipe.Input) {
+			in.Request.Choices.TP, in.Request.Choices.CP = 1, 1
+			in.Request.Choices.BatchSize, in.Request.Choices.NSamplesPerPrompt = 3, 3
+		}, "global batch (9) must be divisible by the data-parallel size (8)"},
+		"dense ep": {registry.TrainTypeSFT, func(in *recipe.Input) { in.Request.Choices.EP = 2 },
+			"EP must be 1 for a model without experts"},
+		"engine straddles nodes": {registry.TrainTypeRL, func(in *recipe.Input) {
+			in.Request.Resources.Nodes, in.Request.Resources.GpusPerNode = 2, 6
+			in.Request.Choices.GpusPerEngine = 4
+		}, "GPUs per engine (4) must fit within a node of 6 GPUs or span whole nodes"},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -389,6 +403,33 @@ func TestSlimeRules(t *testing.T) {
 			require.Contains(t, errorsOf(in), c.want)
 		})
 	}
+}
+
+func TestModelParallelRules(t *testing.T) {
+	messages := func(cfg *v1.ModelConfig, tp, ep int) string {
+		var msgs []string
+		for _, d := range modelParallelRules(cfg, recipe.Choices{TP: tp, EP: ep}) {
+			msgs = append(msgs, d.Message)
+		}
+		return strings.Join(msgs, "; ")
+	}
+	require.Empty(t, messages(nil, 3, 3), "a model still being read is checked once its structure is known")
+	require.Empty(t, messages(&v1.ModelConfig{NumAttentionHeads: 32, NumKeyValueHeads: 4}, 8, 1),
+		"TP may be a multiple of the KV heads")
+	require.Contains(t, messages(&v1.ModelConfig{NumAttentionHeads: 20, NumKeyValueHeads: 4}, 8, 1),
+		"TP (8) must divide the 20 attention heads")
+	require.Contains(t, messages(&v1.ModelConfig{NumAttentionHeads: 32, NumKeyValueHeads: 3}, 2, 1),
+		"The KV heads (3) and TP (2) must be multiples of one another")
+	require.Contains(t, messages(&v1.ModelConfig{NumAttentionHeads: 64, NumExperts: 256}, 1, 3),
+		"EP (3) must divide the 256 experts")
+	require.Empty(t, messages(&v1.ModelConfig{NumAttentionHeads: 64, NumExperts: 256}, 1, 8))
+}
+
+func TestRLNamesTheGPUsOfANode(t *testing.T) {
+	in := qwen3Input(t, registry.TrainTypeRL)
+	in.Request.Resources.GpusPerNode = 4
+	args := strings.Join(compile(t, in).Recipe.FrameworkArgs, " ")
+	require.Contains(t, args, "--num-gpus-per-node 4", "slime places rollout engines by the GPUs of a node")
 }
 
 func TestOptions(t *testing.T) {

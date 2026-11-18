@@ -254,6 +254,31 @@ func loraRules(ctx *recipe.Context, l *recipe.LoraChoice) []recipe.Diagnostic {
 var rewardTypes = map[string]bool{defaultRewardType: true, "dapo": true, "math": true, "f1": true,
 	rewardCustom: true, rewardRemote: true}
 
+// modelParallelRules checks the parallelism against the model's structure the way Megatron does at start-up: TP
+// divides the attention heads, the KV heads and TP are multiples of one another, and EP divides the experts.
+func modelParallelRules(cfg *v1.ModelConfig, c recipe.Choices) []recipe.Diagnostic {
+	if cfg == nil {
+		return nil
+	}
+	var out []recipe.Diagnostic
+	fail := func(field, format string, args ...interface{}) {
+		out = append(out, recipe.Diagnostic{Level: recipe.LevelError, Field: field, Message: fmt.Sprintf(format, args...)})
+	}
+	if heads := cfg.NumAttentionHeads; heads > 0 && heads%c.TP != 0 {
+		fail("choices.tp", "TP (%d) must divide the %d attention heads", c.TP, heads)
+	}
+	if kv := cfg.NumKeyValueHeads; kv > 0 && kv%c.TP != 0 && c.TP%kv != 0 {
+		fail("choices.tp", "The KV heads (%d) and TP (%d) must be multiples of one another", kv, c.TP)
+	}
+	switch {
+	case cfg.NumExperts == 0 && c.EP > 1:
+		fail("choices.ep", "EP must be 1 for a model without experts")
+	case cfg.NumExperts > 0 && cfg.NumExperts%c.EP != 0:
+		fail("choices.ep", "EP (%d) must divide the %d experts", c.EP, cfg.NumExperts)
+	}
+	return out
+}
+
 // Validate applies slime's rules on top of the platform rules.
 func (p plugin) Validate(ctx *recipe.Context) []recipe.Diagnostic {
 	c, l := p.normalize(ctx), ctx.Layout
@@ -269,7 +294,17 @@ func (p plugin) Validate(ctx *recipe.Context) []recipe.Diagnostic {
 	if train := l.ActorGpus; train <= 0 || train%(c.TP*c.PP*c.CP) != 0 || train%(c.EP*c.PP) != 0 {
 		fail("choices.tp", "Training GPUs (%d) must be divisible by TP × PP × CP (%d) and EP × PP (%d)",
 			l.ActorGpus, c.TP*c.PP*c.CP, c.EP*c.PP)
+	} else {
+		dp, global := train/(c.TP*c.PP*c.CP), c.BatchSize
+		if ctx.Request.TrainType == registry.TrainTypeRL {
+			global = c.BatchSize * c.NSamplesPerPrompt
+		}
+		if global > 0 && global%dp != 0 {
+			fail("choices.batchSize", "The global batch (%d) must be divisible by the data-parallel size (%d)",
+				global, dp)
+		}
 	}
+	out = append(out, modelParallelRules(ctx.Input.Model.Config, c)...)
 	if c.BatchSize < 1 || c.MaxTokensPerGpu < 1 || c.SaveInterval < 1 || c.Lr <= 0 {
 		fail("choices.batchSize", "Batch size, max tokens per GPU, save interval and learning rate must be positive")
 	}
@@ -321,6 +356,10 @@ func (p plugin) Validate(ctx *recipe.Context) []recipe.Diagnostic {
 	engines := 0
 	if c.GpusPerEngine > 0 {
 		engines = l.RolloutGpus / c.GpusPerEngine
+	}
+	if g, n := c.GpusPerEngine, l.GpusPerNode; g > 0 && n > 0 && n%g != 0 && g%n != 0 {
+		fail("choices.gpusPerEngine", "GPUs per engine (%d) must fit within a node of %d GPUs or span whole nodes",
+			g, n)
 	}
 	if pd := c.PD; pd != nil && pd.Enabled && c.GpusPerEngine > 0 {
 		prefill, decode := pd.PrefillGpus, l.RolloutGpus-pd.PrefillGpus
