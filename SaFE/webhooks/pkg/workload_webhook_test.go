@@ -411,6 +411,102 @@ func scaleQuotaWorkload(name, gpu string, scheduled bool) *v1.Workload {
 	return w
 }
 
+func TestCreateRejectsARequestLargerThanTheCeiling(t *testing.T) {
+	ctx := context.Background()
+	scheme := newScheme(t)
+	flavor := gpuFlavor("flavor1")
+	flavor.Spec.Gpu.Quantity = resource.MustParse("32")
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Replica: 100, Cluster: "cluster1"}}
+	rt := &v1.ResourceTemplate{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "rt1",
+			Labels:      map[string]string{v1.WorkloadVersionLabel: "v1"},
+			Annotations: map[string]string{v1.WorkloadKindLabel: common.PytorchJobKind},
+		},
+	}
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "wt1",
+			Namespace: common.PrimusSafeNamespace,
+			Labels: map[string]string{
+				v1.WorkloadVersionLabel: "v1",
+				v1.WorkloadKindLabel:    common.PytorchJobKind,
+			},
+		},
+	}
+	qos := &v1.Qos{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster1"},
+		Spec:       v1.QosSpec{MaxResources: &v1.ResourceCap{GPU: "8"}},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ws, flavor, rt, cm, qos).Build()
+	v := &WorkloadValidator{Client: c}
+
+	over := fullValidWorkload()
+	v1.SetLabel(over, v1.UserIdLabel, "alice")
+	over.Spec.Resources[0].GPU = "16"
+	over.Spec.Resources[0].GPUName = common.AmdGpu
+	if err := v.validateOnCreation(ctx, over); err == nil {
+		t.Fatal("a create larger than the ceiling is rejected")
+	}
+
+	cron := fullValidWorkload()
+	v1.SetLabel(cron, v1.UserIdLabel, "alice")
+	cron.Spec.Resources[0].GPU = "4"
+	cron.Spec.Resources[0].GPUName = common.AmdGpu
+	cron.Spec.CronJobs = []v1.CronJob{{
+		Action:   v1.CronStart,
+		Schedule: time.Now().UTC().Add(24 * time.Hour).Format(time.RFC3339),
+	}}
+	assert.NilError(t, v.validateOnCreation(ctx, cron))
+}
+
+func TestDryRunUpdateDoesNotReserve(t *testing.T) {
+	ctx := context.Background()
+	scheme := newScheme(t)
+	flavor := gpuFlavor("flavor1")
+	flavor.Spec.Gpu.Quantity = resource.MustParse("32")
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Replica: 100, Cluster: "cluster1"}}
+	rt := &v1.ResourceTemplate{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "rt1",
+			Labels:      map[string]string{v1.WorkloadVersionLabel: "v1"},
+			Annotations: map[string]string{v1.WorkloadKindLabel: common.PytorchJobKind},
+		},
+	}
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "wt1",
+			Namespace: common.PrimusSafeNamespace,
+			Labels: map[string]string{
+				v1.WorkloadVersionLabel: "v1",
+				v1.WorkloadKindLabel:    common.PytorchJobKind,
+			},
+		},
+	}
+	qos := &v1.Qos{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster1"},
+		Spec:       v1.QosSpec{MaxResources: &v1.ResourceCap{GPU: "10"}},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ws, flavor, rt, cm, qos).Build()
+	v := &WorkloadValidator{Client: c}
+	oldWorkload := fullValidWorkload()
+	v1.SetLabel(oldWorkload, v1.UserIdLabel, "alice")
+	v1.SetAnnotation(oldWorkload, v1.WorkloadScheduledAnnotation, v1.TrueStr)
+	oldWorkload.Spec.Resources[0].GPU = "1"
+	oldWorkload.Spec.Resources[0].GPUName = common.AmdGpu
+	scaled := oldWorkload.DeepCopy()
+	scaled.Spec.Resources[0].GPU = "8"
+
+	assert.NilError(t, v.validateOnUpdate(ctx, scaled, oldWorkload, true))
+	if len(v.scaleReserved) != 0 {
+		t.Fatalf("a dry-run update must not reserve, got %d", len(v.scaleReserved))
+	}
+	assert.NilError(t, v.validateOnUpdate(ctx, scaled, oldWorkload, false))
+	if len(v.scaleReserved) != 1 {
+		t.Fatalf("a real update reserves the scale, got %d", len(v.scaleReserved))
+	}
+}
+
 func TestScaleUpOverQuotaIsRejected(t *testing.T) {
 	scheme := newScheme(t)
 	qos := &v1.Qos{

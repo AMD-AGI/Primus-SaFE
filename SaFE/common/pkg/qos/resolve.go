@@ -115,8 +115,7 @@ func Resolve(user *v1.User, clusterQos *v1.Qos, clusterID, scope string) Limits 
 }
 
 // QuotaReason reports the dimensions where used plus request passes the ceiling.
-// An empty result means the request fits. A request that is already larger than the ceiling
-// is the same condition with used at zero, and it stays pending.
+// An empty result means the request fits.
 func QuotaReason(userID, clusterID string, used, request corev1.ResourceList, limits Limits) (string, error) {
 	return Exceeded(userID, clusterID, used, request, limits, true, true, true)
 }

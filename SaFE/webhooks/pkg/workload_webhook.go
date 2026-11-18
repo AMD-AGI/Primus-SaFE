@@ -1435,6 +1435,46 @@ func (v *WorkloadValidator) validateOnCreation(ctx context.Context, workload *v1
 	if err := v.validateCronJobs(workload); err != nil {
 		return err
 	}
+	if err := v.validateCreateQuota(ctx, workload); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateCreateQuota rejects a create whose own request is already larger than the ceiling.
+// Other workloads' usage is left to the scheduler. A cron workload that fits is accepted and
+// counts toward the ceiling while it waits.
+func (v *WorkloadValidator) validateCreateQuota(ctx context.Context, workload *v1.Workload) error {
+	if workload == nil {
+		return nil
+	}
+	workspace, _ := getWorkspace(ctx, v.Client, workload.Spec.Workspace)
+	userID := v1.GetUserId(workload)
+	clusterID := v1.GetClusterId(workload)
+	if clusterID == "" && workspace != nil {
+		clusterID = workspace.Spec.Cluster
+	}
+	if userID == "" || clusterID == "" {
+		return nil
+	}
+	limits, err := commonqos.Ceiling(ctx, v.Client, userID, clusterID, string(commonworkload.GetScope(workload)))
+	if err != nil {
+		return err
+	}
+	if limits.CPU == "" && limits.Memory == "" && limits.GPU == "" {
+		return nil
+	}
+	request, err := commonworkload.GetTotalResourceList(workload)
+	if err != nil {
+		return err
+	}
+	reason, err := commonqos.QuotaReason(userID, clusterID, corev1.ResourceList{}, request, limits)
+	if err != nil {
+		return err
+	}
+	if reason != "" {
+		return commonerrors.NewBadRequest(reason)
+	}
 	return nil
 }
 
@@ -1446,7 +1486,7 @@ func (v *WorkloadValidator) validateOnUpdate(ctx context.Context, newWorkload, o
 	if err := v.validateCommon(ctx, newWorkload, oldWorkload); err != nil {
 		return err
 	}
-	if err := v.validateScaleQuota(ctx, newWorkload, oldWorkload, false); err != nil {
+	if err := v.validateScaleQuota(ctx, newWorkload, oldWorkload, dryRun); err != nil {
 		return err
 	}
 	if !reflect.DeepEqual(oldWorkload.Spec.CronJobs, newWorkload.Spec.CronJobs) {

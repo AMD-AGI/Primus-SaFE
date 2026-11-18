@@ -116,6 +116,26 @@ func TestUserQuotaCountsOlderPendingWork(t *testing.T) {
 	}
 }
 
+func TestUserQuotaCountsAnOlderCron(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	qos := &v1.Qos{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+		Spec:       v1.QosSpec{MaxResources: &v1.ResourceCap{GPU: "8"}},
+	}
+	cron := qosWorkload("cron", "alice", "8")
+	cron.CreationTimestamp = metav1.NewTime(base)
+	cron.Spec.CronJobs = []v1.CronJob{{Action: v1.CronStart, Schedule: "2026-06-01T00:00:00Z"}}
+	later := qosWorkload("later", "alice", "1")
+	later.CreationTimestamp = metav1.NewTime(base.Add(time.Minute))
+	cl := ctrlfake.NewClientBuilder().WithScheme(ttlScheme(t)).WithObjects(qos, cron, later).Build()
+	r := &SchedulerReconciler{Client: cl}
+
+	reason := r.userQuotaHold(context.Background(), later, nil)
+	if !strings.HasPrefix(reason, commonqos.UserQuotaReasonPrefix) {
+		t.Fatalf("an older cron workload counts toward the ceiling, reason %q", reason)
+	}
+}
+
 func TestUserQuotaSameTimeKeepsHigherPriorityThenName(t *testing.T) {
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	qos := &v1.Qos{
