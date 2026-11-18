@@ -47,7 +47,9 @@ import {
   postTrainingEntryReasons,
   exportPhase,
   EXPORT_REGISTER_WAIT,
+  backToRuns,
 } from './index'
+import type { Router } from 'vue-router'
 import request from '@/services/request'
 
 vi.mock('@/services/request', () => ({ default: { get: vi.fn() } }))
@@ -407,6 +409,23 @@ describe('postTrainingEntryReasons', () => {
     const reasonOf = await postTrainingEntryReasons('ws1')
     expect(reasonOf?.('m1')).toBe('')
     expect(reasonOf?.('m2')).toBe('The model is not ready in this workspace.')
+  })
+})
+
+describe('backToRuns', () => {
+  it('returns to the list it came from, its filters kept', () => {
+    const router = { back: vi.fn(), push: vi.fn() }
+    const from = (state: unknown) => vi.stubGlobal('window', { history: { state } })
+    from({ back: '/post-training?status=Running&page=2' })
+    backToRuns(router as unknown as Router)
+    expect(router.back).toHaveBeenCalledOnce()
+    from({ back: '/model-square/detail/m1' })
+    backToRuns(router as unknown as Router)
+    from(null)
+    backToRuns(router as unknown as Router)
+    expect(router.push).toHaveBeenCalledTimes(2)
+    expect(router.push).toHaveBeenCalledWith('/post-training')
+    vi.unstubAllGlobals()
   })
 })
 

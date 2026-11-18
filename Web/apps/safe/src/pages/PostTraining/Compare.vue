@@ -2,7 +2,7 @@
   <div class="pt-compare">
     <div class="flex items-center justify-between">
       <div class="flex items-center gap-2">
-        <el-button link :icon="ArrowLeft" @click="router.push('/post-training')" />
+        <el-button link :icon="ArrowLeft" @click="backToRuns(router)" />
         <span class="text-[20px] font-600">Compare Runs</span>
         <el-tag v-if="trainType" size="small" effect="plain">{{ trainType.toUpperCase() }}</el-tag>
         <span class="text-[13px] text-[var(--safe-muted)]">{{ found.length }} runs</span>
@@ -17,7 +17,7 @@
       :sub-title="mixedTypes.join('; ')"
     >
       <template #extra>
-        <el-button round @click="router.push('/post-training')">Back to Post Training</el-button>
+        <el-button round @click="backToRuns(router)">Back to Post Training</el-button>
       </template>
     </el-result>
 
@@ -219,6 +219,7 @@ import dayjs from 'dayjs'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { copyText } from '@/utils/index'
 import {
+  backToRuns,
   configDiff,
   fieldsDiffer,
   formatDuration,

@@ -2,7 +2,7 @@
   <div class="pt-detail">
     <el-result v-if="notFound" icon="warning" title="Run not found">
       <template #extra>
-        <el-button round @click="router.push('/post-training')">Back to runs</el-button>
+        <el-button round @click="backToRuns(router)">Back to runs</el-button>
       </template>
     </el-result>
 
@@ -19,7 +19,7 @@
       <div v-else class="flex items-start justify-between gap-4">
         <div class="min-w-0">
           <div class="flex items-center gap-2">
-            <el-button link :icon="ArrowLeft" @click="router.push('/post-training')" />
+            <el-button link :icon="ArrowLeft" @click="backToRuns(router)" />
             <span class="text-[20px] font-600 truncate">{{ run.displayName }}</span>
             <el-tag size="small" effect="plain">{{ run.trainType.toUpperCase() }}</el-tag>
             <el-tag size="small" type="info" effect="plain">{{ methodLabel(run.method) }}</el-tag>
@@ -620,6 +620,7 @@ import {
   LOST_MESSAGE,
   NOT_RETRIED_EVENT,
   STAGE_LABELS,
+  backToRuns,
   checkpointBytes,
   cleanupHintBytes,
   cleanupPostTrainingCheckpoints,
@@ -1309,7 +1310,7 @@ const confirmDelete = async () => {
     await deletePostTrainingRun(runId.value, deleteDialog.deleteModel)
     ElMessage.success('Run deleted')
     deleteDialog.visible = false
-    router.push('/post-training')
+    backToRuns(router)
   } finally {
     deleteDialog.loading = false
   }

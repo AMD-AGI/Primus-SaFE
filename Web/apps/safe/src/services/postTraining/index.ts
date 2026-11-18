@@ -1,4 +1,5 @@
 import dayjs from 'dayjs'
+import type { Router } from 'vue-router'
 import request from '@/services/request'
 import { formatBytes } from '@/utils'
 import { textToBr } from '@/utils/sanitize'
@@ -221,6 +222,13 @@ export function lastLine(text: string): string {
 export function rewardOf(s: RunSample): { value: string; detail: string } {
   const value = s.reward.Valid ? String(Math.round(s.reward.Float64 * 1000) / 1000) : '—'
   return { value, detail: s.rewardDetail.Valid ? s.rewardDetail.String : '' }
+}
+
+/** Returns to the run list as it was left, its filters and page included, or opens it. */
+export function backToRuns(router: Router) {
+  const back = (window.history.state as { back?: unknown } | null)?.back
+  if (typeof back === 'string' && /^\/post-training(\?|$)/.test(back)) router.back()
+  else router.push('/post-training')
 }
 
 /** How long the model of an export whose job succeeded may take to appear. */
