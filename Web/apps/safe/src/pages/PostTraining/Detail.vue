@@ -777,9 +777,12 @@ const fetchRun = async (quiet = false) => {
   }
 }
 
+// When the curves were last asked for.
+let curvesReadAt = 0
 /** Loads all metric series and their markers. */
 const fetchMetrics = async (quiet = false) => {
   if (!runId.value) return
+  curvesReadAt = Date.now()
   try {
     metrics.value = (await getPostTrainingMetrics(runId.value, {}, quiet)) as unknown as MetricsResp
   } catch {
@@ -801,6 +804,8 @@ const exportPhases = computed(() =>
 /** Whether a checkpoint export is still running or its model is not ready yet. */
 const exporting = computed(() => exportPhases.value.includes('running'))
 
+// The run is read every 10 seconds, and its curves every 30 while a tab shows them.
+const CURVE_TABS = ['overview', 'metrics']
 useIntervalFn(() => {
   if (
     !isActive.value &&
@@ -811,7 +816,7 @@ useIntervalFn(() => {
     return
   if (visibility.value !== 'visible') return
   fetchRun(true)
-  fetchMetrics(true)
+  if (CURVE_TABS.includes(tab.value) && Date.now() - curvesReadAt >= 30000) fetchMetrics(true)
 }, 10000)
 
 /** Training time from the start of the workload to its end, or to now while it runs. */
