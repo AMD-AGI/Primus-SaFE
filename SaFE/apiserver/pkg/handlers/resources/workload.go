@@ -615,10 +615,12 @@ func (h *Handler) authWorkloadUpdate(c *gin.Context, adminWorkload *v1.Workload,
 		if err != nil {
 			return err
 		}
+		// A timeout above the qos limit for the scope, or no timeout, requires the highest-priority permission.
 		if limits.RuntimeSeconds > 0 && (*request.Timeout > limits.RuntimeSeconds || *request.Timeout <= 0) {
-			return commonerrors.NewBadRequest(fmt.Sprintf(
-				"timeout %d exceeds the qos limit of %d seconds for scope %s",
-				*request.Timeout, limits.RuntimeSeconds, scope))
+			priorityKind := generatePriority(common.HighPriorityInt)
+			if err = h.authWorkloadAction(c, adminWorkload, v1.UpdateVerb, priorityKind, requestUser, roles); err != nil {
+				return err
+			}
 		}
 	}
 	// A change to a workload that runs privileged changes what runs privileged, so it takes the

@@ -11,8 +11,8 @@ import (
 
 const (
 	QosKind = "Qos"
-	// QosDefaultName is the Qos object that holds the global defaults.
-	// A cluster-specific object uses the cluster id as its name.
+	// QosDefaultName is a reserved name. It does not apply to any cluster.
+	// A Qos object uses the cluster id as its name.
 	QosDefaultName = "default"
 )
 
@@ -23,7 +23,7 @@ type ResourceCap struct {
 	GPU    string `json:"gpu,omitempty"`
 }
 
-// UserQosScope is one user's ceiling, either for every cluster or for one cluster.
+// UserQosScope is one user's ceiling on one cluster.
 type UserQosScope struct {
 	MaxResources *ResourceCap `json:"maxResources,omitempty"`
 	// MaxRuntime is the timeout ceiling in seconds, keyed by workspace scope
@@ -31,7 +31,8 @@ type UserQosScope struct {
 	MaxRuntime map[string]int `json:"maxRuntime,omitempty"`
 }
 
-// UserQos is stored on the User. Clusters holds per-cluster overrides keyed by cluster id.
+// UserQos is stored on the User. Clusters holds the ceilings keyed by cluster id.
+// The top-level MaxResources and MaxRuntime are not used.
 type UserQos struct {
 	MaxResources *ResourceCap `json:"maxResources,omitempty"`
 	// MaxRuntime is the timeout ceiling in seconds, keyed by workspace scope
@@ -40,8 +41,7 @@ type UserQos struct {
 	Clusters   map[string]UserQosScope `json:"clusters,omitempty"`
 }
 
-// QosSpec is the default ceiling for one scope. The object name selects the scope:
-// "default" is global, any other name is a cluster id.
+// QosSpec is the ceiling for one cluster. The object name is the cluster id.
 type QosSpec struct {
 	MaxResources *ResourceCap `json:"maxResources,omitempty"`
 	// MaxRuntime is the timeout ceiling in seconds, keyed by workspace scope
@@ -55,7 +55,7 @@ type QosSpec struct {
 // +kubebuilder:resource:scope=Cluster,path=qos,singular=qos
 // +kubebuilder:rbac:groups=amd.com,resources=qos,verbs=get;list;watch;create;update;patch;delete
 
-// Qos is a cluster-scoped default ceiling. It does not carry per-user values.
+// Qos is the ceiling for one cluster. It does not carry per-user values.
 type Qos struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

@@ -107,3 +107,33 @@ func TestQosUpdateClearsEveryTimeout(t *testing.T) {
 	assert.Empty(t, updated.Spec.MaxRuntime)
 	assert.Equal(t, "8", updated.Spec.MaxResources.GPU)
 }
+
+// TestWorkloadTimeoutAboveQosNeedsHighPriority verifies that an update to a timeout above the
+// qos limit, or to no timeout, is allowed with the high-priority grant and denied without it.
+func TestWorkloadTimeoutAboveQosNeedsHighPriority(t *testing.T) {
+	f := newAccessFixture(t)
+	assert.NoError(t, f.cli.Create(t.Context(), &v1.Qos{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+		Spec:       v1.QosSpec{MaxRuntime: map[string]int{string(v1.TrainScope): 7200}},
+	}))
+	update := func(userId string, timeout int) error {
+		requestUser := &v1.User{}
+		assert.NoError(t, f.cli.Get(t.Context(), client.ObjectKey{Name: userId}, requestUser))
+		workload := &v1.Workload{
+			ObjectMeta: metav1.ObjectMeta{Name: "w-" + userId, Labels: map[string]string{
+				v1.ClusterIdLabel: "c1", v1.UserIdLabel: userId,
+			}},
+			Spec: v1.WorkloadSpec{
+				GroupVersionKind: v1.GroupVersionKind{Kind: common.PytorchJobKind},
+				Timeout:          &[]int{3600}[0],
+			},
+		}
+		roles := f.h.accessController.GetRoles(t.Context(), requestUser)
+		return f.h.authWorkloadUpdate(f.ctx(userId, workload.Name, ""), workload, requestUser, roles,
+			&view.PatchWorkloadRequest{Timeout: &timeout})
+	}
+	assert.NoError(t, update(userAdmin, 0))
+	assert.NoError(t, update(userAdmin, 9000))
+	assert.NoError(t, update(userDefault, 1800))
+	assert.Error(t, update(userDefault, 9000))
+}

@@ -9,7 +9,8 @@ package v1
 // UserQosApplyConfiguration represents a declarative configuration of the UserQos type for use
 // with apply.
 //
-// UserQos is stored on the User. Clusters holds per-cluster overrides keyed by cluster id.
+// UserQos is stored on the User. Clusters holds the ceilings keyed by cluster id.
+// The top-level MaxResources and MaxRuntime are not used.
 type UserQosApplyConfiguration struct {
 	MaxResources *ResourceCapApplyConfiguration            `json:"maxResources,omitempty"`
 	MaxRuntime   map[string]int                            `json:"maxRuntime,omitempty"`

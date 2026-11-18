@@ -104,13 +104,13 @@ func knownQosScope(name string) bool {
 	}
 }
 
-// ValidateUserQos checks the personal ceiling and each per-cluster override.
+// ValidateUserQos checks each per-cluster ceiling. Top-level fields are rejected.
 func ValidateUserQos(qos *v1.UserQos) error {
 	if qos == nil {
 		return nil
 	}
-	if err := ValidateQosLimits(qos.MaxResources, qos.MaxRuntime); err != nil {
-		return err
+	if qos.MaxResources != nil || len(qos.MaxRuntime) > 0 {
+		return commonerrors.NewBadRequest("a user qos is set per cluster in clusters")
 	}
 	for clusterID, scope := range qos.Clusters {
 		if strings.TrimSpace(clusterID) == "" {

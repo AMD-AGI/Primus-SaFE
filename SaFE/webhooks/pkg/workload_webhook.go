@@ -139,10 +139,7 @@ func (m *WorkloadMutator) mutateOnUpdate(ctx context.Context, oldWorkload, newWo
 		return m.mutateCICDProxyOptIn(ctx, oldWorkload, newWorkload)
 	}
 	workspace, _ := getWorkspace(ctx, m.Client, newWorkload.Spec.Workspace)
-	if err := m.mutateCommon(ctx, oldWorkload, newWorkload, workspace); err != nil {
-		return err
-	}
-	return m.mutateTimeout(ctx, newWorkload, workspace)
+	return m.mutateCommon(ctx, oldWorkload, newWorkload, workspace)
 }
 
 // mutateCommon normalizes resources, hostpath, priority, image, entry point, host network and so on
@@ -1179,6 +1176,7 @@ func runtimeCeiling(ctx context.Context, c client.Reader, workload *v1.Workload,
 }
 
 // validateTimeout rejects a timeout above the qos ceiling for the workload's workspace scope.
+// It runs on create. A timeout change on update is authorized by the apiserver.
 func (v *WorkloadValidator) validateTimeout(ctx context.Context, workload *v1.Workload) error {
 	workspace, _ := getWorkspace(ctx, v.Client, workload.Spec.Workspace)
 	ceiling, err := runtimeCeiling(ctx, v.Client, workload, workspace)
@@ -1243,6 +1241,9 @@ func (v *WorkloadValidator) Handle(ctx context.Context, req admission.Request) a
 // validateOnCreation validates workload spec, resources, scope and cron jobs on creation.
 func (v *WorkloadValidator) validateOnCreation(ctx context.Context, workload *v1.Workload) error {
 	if err := v.validateCommon(ctx, workload, nil); err != nil {
+		return err
+	}
+	if err := v.validateTimeout(ctx, workload); err != nil {
 		return err
 	}
 	if err := v.validateScope(ctx, workload); err != nil {
@@ -1312,10 +1313,6 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, old
 		if err = v.validateHostPath(ctx, newWorkload, oldWorkload); err != nil {
 			return err
 		}
-	}
-
-	if err = v.validateTimeout(ctx, newWorkload); err != nil {
-		return err
 	}
 	if err = v.validateRequiredParams(newWorkload); err != nil {
 		return err

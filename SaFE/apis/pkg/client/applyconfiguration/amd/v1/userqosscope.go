@@ -9,7 +9,7 @@ package v1
 // UserQosScopeApplyConfiguration represents a declarative configuration of the UserQosScope type for use
 // with apply.
 //
-// UserQosScope is one user's ceiling, either for every cluster or for one cluster.
+// UserQosScope is one user's ceiling on one cluster.
 type UserQosScopeApplyConfiguration struct {
 	MaxResources *ResourceCapApplyConfiguration `json:"maxResources,omitempty"`
 	MaxRuntime   map[string]int                 `json:"maxRuntime,omitempty"`

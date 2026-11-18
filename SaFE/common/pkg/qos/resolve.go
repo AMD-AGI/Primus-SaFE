@@ -24,6 +24,15 @@ import (
 // as blocked by earlier workloads.
 const UserQuotaReasonPrefix = "In queue - user quota exceeded"
 
+// UserQuotaCheckFailedPrefix marks a workload whose quota could not be evaluated, for example
+// because a stored ceiling is not a valid quantity. Only that workload waits.
+const UserQuotaCheckFailedPrefix = "In queue - user quota check failed"
+
+// IsUserQuotaReason reports whether a pending reason comes from the per-user ceiling.
+func IsUserQuotaReason(reason string) bool {
+	return strings.HasPrefix(reason, UserQuotaReasonPrefix) || strings.HasPrefix(reason, UserQuotaCheckFailedPrefix)
+}
+
 // Limits is the ceiling that applies to one user on one cluster for one workspace scope.
 // An empty resource field and a zero runtime mean that dimension is not limited.
 type Limits struct {
@@ -48,7 +57,7 @@ func Load(ctx context.Context, c client.Reader, name string) (*v1.Qos, error) {
 	return qos, nil
 }
 
-// Ceiling loads the user and the global and cluster defaults, then resolves the workspace scope.
+// Ceiling loads the user and the cluster Qos, then resolves the workspace scope.
 // A missing user or Qos is an empty contribution, not an error.
 func Ceiling(ctx context.Context, c client.Reader, userID, clusterID, scope string) (Limits, error) {
 	var user *v1.User
@@ -65,17 +74,13 @@ func Ceiling(ctx context.Context, c client.Reader, userID, clusterID, scope stri
 	if err != nil {
 		return Limits{}, err
 	}
-	globalQos, err := Load(ctx, c, v1.QosDefaultName)
-	if err != nil {
-		return Limits{}, err
-	}
-	return Resolve(user, clusterQos, globalQos, clusterID, scope), nil
+	return Resolve(user, clusterQos, clusterID, scope), nil
 }
 
 // Resolve picks each field independently. A set value stops the search.
-// Order: this user on the cluster, the cluster ceiling, the global ceiling.
-// A user's top-level qos fields are not a ceiling. scope is a workspace scope such as Train or Infer.
-func Resolve(user *v1.User, clusterQos, globalQos *v1.Qos, clusterID, scope string) Limits {
+// Order: this user on the cluster, then the cluster ceiling.
+// scope is a workspace scope such as Train or Infer.
+func Resolve(user *v1.User, clusterQos *v1.Qos, clusterID, scope string) Limits {
 	var userCluster v1.UserQosScope
 	if user != nil && user.Spec.Qos != nil {
 		if item, ok := user.Spec.Qos.Clusters[clusterID]; ok {
@@ -83,10 +88,10 @@ func Resolve(user *v1.User, clusterQos, globalQos *v1.Qos, clusterID, scope stri
 		}
 	}
 	return Limits{
-		CPU:            firstSet(capCPU(userCluster.MaxResources), capCPU(specCap(clusterQos)), capCPU(specCap(globalQos))),
-		Memory:         firstSet(capMemory(userCluster.MaxResources), capMemory(specCap(clusterQos)), capMemory(specCap(globalQos))),
-		GPU:            firstSet(capGPU(userCluster.MaxResources), capGPU(specCap(clusterQos)), capGPU(specCap(globalQos))),
-		RuntimeSeconds: firstRuntime(scope, userCluster.MaxRuntime, specRuntime(clusterQos), specRuntime(globalQos)),
+		CPU:            firstSet(capCPU(userCluster.MaxResources), capCPU(specCap(clusterQos))),
+		Memory:         firstSet(capMemory(userCluster.MaxResources), capMemory(specCap(clusterQos))),
+		GPU:            firstSet(capGPU(userCluster.MaxResources), capGPU(specCap(clusterQos))),
+		RuntimeSeconds: firstRuntime(scope, userCluster.MaxRuntime, specRuntime(clusterQos)),
 	}
 }
 

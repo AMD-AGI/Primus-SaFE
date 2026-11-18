@@ -9,8 +9,7 @@ package v1
 // QosSpecApplyConfiguration represents a declarative configuration of the QosSpec type for use
 // with apply.
 //
-// QosSpec is the default ceiling for one scope. The object name selects the scope:
-// "default" is global, any other name is a cluster id.
+// QosSpec is the ceiling for one cluster. The object name is the cluster id.
 type QosSpecApplyConfiguration struct {
 	MaxResources *ResourceCapApplyConfiguration `json:"maxResources,omitempty"`
 	MaxRuntime   map[string]int                 `json:"maxRuntime,omitempty"`

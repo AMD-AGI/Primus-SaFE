@@ -15,7 +15,7 @@ import (
 // QosApplyConfiguration represents a declarative configuration of the Qos type for use
 // with apply.
 //
-// Qos is a cluster-scoped default ceiling. It does not carry per-user values.
+// Qos is the ceiling for one cluster. It does not carry per-user values.
 type QosApplyConfiguration struct {
 	metav1.TypeMetaApplyConfiguration    `json:",inline"`
 	*metav1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`

@@ -6,11 +6,15 @@
 package qos
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -31,26 +35,50 @@ func TestResolveFallsThroughEachField(t *testing.T) {
 		MaxResources: &v1.ResourceCap{GPU: "8", Memory: "128Gi"},
 		MaxRuntime:   map[string]int{string(v1.TrainScope): 7200},
 	}}
-	global := &v1.Qos{Spec: v1.QosSpec{
-		MaxResources: &v1.ResourceCap{CPU: "4", Memory: "64Gi", GPU: "1"},
-		MaxRuntime:   map[string]int{string(v1.AuthoringScope): 600, string(v1.TrainScope): 600, string(v1.RayScope): 900},
-	}}
 
-	got := Resolve(user, cluster, global, "c1", string(v1.AuthoringScope))
+	got := Resolve(user, cluster, "c1", string(v1.AuthoringScope))
 	if got.GPU != "2" || got.CPU != "32" || got.Memory != "128Gi" || got.RuntimeSeconds != 3600 {
 		t.Fatalf("c1 authoring: %+v", got)
 	}
-	got = Resolve(user, nil, global, "c2", string(v1.RayScope))
-	if got.GPU != "1" || got.CPU != "4" || got.Memory != "64Gi" || got.RuntimeSeconds != 900 {
-		t.Fatalf("c2 ray: %+v", got)
+	got = Resolve(user, cluster, "c1", string(v1.TrainScope))
+	if got.RuntimeSeconds != 7200 {
+		t.Fatalf("c1 train falls back to the cluster: %+v", got)
 	}
-	got = Resolve(user, nil, global, "c2", string(v1.AuthoringScope))
-	if got.RuntimeSeconds != 600 {
-		t.Fatalf("a user-wide timeout does not apply: %+v", got)
+	got = Resolve(user, nil, "c2", string(v1.AuthoringScope))
+	if got != (Limits{}) {
+		t.Fatalf("a user-wide value does not apply: %+v", got)
 	}
-	got = Resolve(user, cluster, global, "c1", "PyTorchJob")
+	got = Resolve(user, cluster, "c1", "PyTorchJob")
 	if got.RuntimeSeconds != 0 {
 		t.Fatalf("a workload kind is not a timeout key: %+v", got)
+	}
+}
+
+func TestCeilingUsesOnlyTheClusterQos(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := v1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	stale := &v1.Qos{
+		ObjectMeta: metav1.ObjectMeta{Name: "default"},
+		Spec: v1.QosSpec{
+			MaxResources: &v1.ResourceCap{GPU: "1"},
+			MaxRuntime:   map[string]int{string(v1.TrainScope): 600},
+		},
+	}
+	cluster := &v1.Qos{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+		Spec:       v1.QosSpec{MaxResources: &v1.ResourceCap{GPU: "8"}},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(stale, cluster).Build()
+
+	got, err := Ceiling(context.Background(), c, "", "c2", string(v1.TrainScope))
+	if err != nil || got != (Limits{}) {
+		t.Fatalf("a cluster without qos has no ceiling: %+v %v", got, err)
+	}
+	got, err = Ceiling(context.Background(), c, "", "c1", string(v1.TrainScope))
+	if err != nil || got != (Limits{GPU: "8"}) {
+		t.Fatalf("c1 uses its own qos only: %+v %v", got, err)
 	}
 }
 
