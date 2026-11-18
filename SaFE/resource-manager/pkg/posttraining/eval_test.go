@@ -251,6 +251,35 @@ func TestBaselineIsEvaluatedTwice(t *testing.T) {
 	require.Equal(t, "done", (*updates)[len(*updates)-1]["stage"], "the baseline is evaluated twice, not more")
 }
 
+func TestABaselineServiceStillBeingDeletedDoesNotEndTheRepeat(t *testing.T) {
+	run, objs := evalFixtures("eval")
+	run.ExperimentID, run.VariantName = "exp-1", "baseline"
+	first := autoService("pt-eval-1")
+	first.Finalizers = []string{"primus-safe/workload"}
+	r, db, updates := newTestReconciler(t, run, append(objs, first)...)
+	loadChartRegistry(t, r)
+	db.EXPECT().GetPostTrainingExperiment(gomock.Any(), "exp-1").Return(
+		&dbclient.PostTrainingExperiment{ExperimentID: "exp-1", BaselineVariant: "baseline"}, nil).Times(1)
+	ctx := context.Background()
+	require.NoError(t, r.finishEvaluation(ctx, run, first, true))
+	run.StageHistory = (*updates)[len(*updates)-1]["stage_history"].(string)
+	services := evalServices(t, r)
+	require.Len(t, services, 2, "the webhook's finalizer keeps the first service while it is deleted")
+	for i := range services {
+		if s := &services[i]; s.Name != first.Name {
+			s.CreationTimestamp = metav1.Now()
+			require.NoError(t, r.Update(ctx, s))
+		}
+	}
+
+	seen := len(*updates)
+	_, err := r.reconcileEvaluations(ctx, run)
+	require.NoError(t, err)
+	for _, u := range (*updates)[seen:] {
+		require.NotEqual(t, "done", u["stage"], "the repeated evaluation has only started")
+	}
+}
+
 func TestVariantIsEvaluatedOnce(t *testing.T) {
 	run, objs := evalFixtures("eval")
 	run.ExperimentID, run.VariantName = "exp-1", "tis"
