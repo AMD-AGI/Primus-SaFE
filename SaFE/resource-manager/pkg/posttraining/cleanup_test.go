@@ -19,6 +19,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/resource"
 )
 
+// A checkpoint cleanup deletes the planned paths, then counts the run directory and removes its jobs.
 func TestCheckpointCleanup(t *testing.T) {
 	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1",
 		Volumes: []v1.WorkspaceVolume{{Type: v1.PFS, MountPath: "/wekafs"}}}}
@@ -55,6 +56,7 @@ func TestCheckpointCleanup(t *testing.T) {
 	require.Empty(t, jobs.Items, "finished cleanup and count jobs are removed")
 }
 
+// A cleanup removes nothing outside the run's checkpoints and waits for exports reading them.
 func TestACleanupStaysInTheRunDirectoryAndWaitsForExports(t *testing.T) {
 	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1",
 		Volumes: []v1.WorkspaceVolume{{Type: v1.PFS, MountPath: "/wekafs"}}}}
@@ -78,6 +80,7 @@ func TestACleanupStaysInTheRunDirectoryAndWaitsForExports(t *testing.T) {
 	require.Empty(t, jobs.Items, "the cleanup waits for the export that reads a checkpoint")
 }
 
+// A failing cleanup is retried after a wait and dropped after its attempts, so it can be asked again.
 func TestAFailingCheckpointCleanupBacksOffAndGivesUp(t *testing.T) {
 	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1",
 		Volumes: []v1.WorkspaceVolume{{Type: v1.PFS, MountPath: "/wekafs"}}}}

@@ -71,6 +71,7 @@ func evalServices(t *testing.T, r *RunReconciler) []v1.Workload {
 	return list.Items
 }
 
+// An automatic evaluation serves the output model, evaluates it and ends the run with its scores.
 func TestAutoEvaluationLifecycle(t *testing.T) {
 	run, objs := evalFixtures("eval")
 	r, db, updates := newTestReconciler(t, run, objs...)
@@ -123,6 +124,7 @@ func TestAutoEvaluationLifecycle(t *testing.T) {
 	require.Equal(t, "done", (*updates)[len(*updates)-1]["stage"])
 }
 
+// The evaluation service of a run gets a DNS display name from the run's name.
 func TestEvaluationServiceHasAValidDisplayName(t *testing.T) {
 	run, objs := evalFixtures("eval")
 	run.DisplayName = "Qwen3 SFT demo"
@@ -137,6 +139,7 @@ func TestEvaluationServiceHasAValidDisplayName(t *testing.T) {
 	require.Equal(t, "eval-qwen3-sft-demo", name)
 }
 
+// The workloads and jobs of a deleted run are removed, except a kept service that is done.
 func TestTheChildrenOfADeletedRunAreRemoved(t *testing.T) {
 	labels := func(role string) map[string]string {
 		return map[string]string{v1.PostTrainingRunIdLabel: "pt-gone", v1.PostTrainingRoleLabel: role}
@@ -158,6 +161,7 @@ func TestTheChildrenOfADeletedRunAreRemoved(t *testing.T) {
 	require.NoError(t, r.Get(ctx, client.ObjectKeyFromObject(kept), &v1.Workload{}), "a kept service goes on serving")
 }
 
+// An evaluation whose task cannot be built records the failure and frees its GPUs.
 func TestAnEvaluationWhoseTaskCannotBeBuiltEnds(t *testing.T) {
 	run, objs := evalFixtures("eval")
 	s := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "svc-2", CreationTimestamp: metav1.Now(),
@@ -179,6 +183,7 @@ func TestAnEvaluationWhoseTaskCannotBeBuiltEnds(t *testing.T) {
 	require.Equal(t, "done", (*updates)[len(*updates)-1]["stage"])
 }
 
+// A job or service the cache does not show yet does not end the evaluation.
 func TestAnEvaluationIsNotCancelledForWhatTheCacheDoesNotShowYet(t *testing.T) {
 	run, objs := evalFixtures("eval")
 	s := autoService("svc-3")
@@ -203,6 +208,7 @@ func TestAnEvaluationIsNotCancelledForWhatTheCacheDoesNotShowYet(t *testing.T) {
 	}
 }
 
+// A service not ready within the wait fails its evaluation task.
 func TestEvaluationServiceNotReadyInTime(t *testing.T) {
 	run, objs := evalFixtures("eval")
 	s := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "svc-1", CreationTimestamp: metav1.NewTime(time.Now().Add(-3 * time.Hour)),
@@ -218,6 +224,7 @@ func TestEvaluationServiceNotReadyInTime(t *testing.T) {
 	require.Equal(t, "done", (*updates)[len(*updates)-1]["stage"])
 }
 
+// A requested evaluation is taken once, keeps its service and leaves the run's stage alone.
 func TestRequestedEvaluationKeepsItsService(t *testing.T) {
 	run, objs := evalFixtures("done")
 	model := objs[2].(*v1.Model)
@@ -234,6 +241,7 @@ func TestRequestedEvaluationKeepsItsService(t *testing.T) {
 	require.NotContains(t, got.Annotations, v1.PostTrainingEvaluateAnnotation, "the request is taken once")
 }
 
+// An evaluation job whose service is gone is deleted and its task cancelled.
 func TestDeletedServiceCancelsItsJob(t *testing.T) {
 	run, objs := evalFixtures("done")
 	job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: "pt-eval-x", Labels: map[string]string{
@@ -247,6 +255,7 @@ func TestDeletedServiceCancelsItsJob(t *testing.T) {
 	require.Error(t, r.Get(context.Background(), client.ObjectKey{Name: "pt-eval-x"}, &v1.OpsJob{}))
 }
 
+// The evaluation service asks for its GPUs with the CPU and memory shares that go with them.
 func TestServiceResource(t *testing.T) {
 	_, objs := evalFixtures("eval")
 	nf := objs[1].(*v1.NodeFlavor)
@@ -276,6 +285,7 @@ func autoService(name string) *v1.Workload {
 		Annotations: map[string]string{evalAutoAnnotation: v1.TrueStr}}}
 }
 
+// An experiment's baseline is evaluated twice, on a new service each time, and not more.
 func TestBaselineIsEvaluatedTwice(t *testing.T) {
 	run, objs := evalFixtures("eval")
 	run.ExperimentID, run.VariantName = "exp-1", "baseline"
@@ -299,6 +309,7 @@ func TestBaselineIsEvaluatedTwice(t *testing.T) {
 	require.Equal(t, "done", (*updates)[len(*updates)-1]["stage"], "the baseline is evaluated twice, not more")
 }
 
+// The baseline's first service, still being deleted, does not end the repeated evaluation.
 func TestABaselineServiceStillBeingDeletedDoesNotEndTheRepeat(t *testing.T) {
 	run, objs := evalFixtures("eval")
 	run.ExperimentID, run.VariantName = "exp-1", "baseline"
@@ -328,6 +339,7 @@ func TestABaselineServiceStillBeingDeletedDoesNotEndTheRepeat(t *testing.T) {
 	}
 }
 
+// A variant of an experiment is evaluated once and its service removed.
 func TestVariantIsEvaluatedOnce(t *testing.T) {
 	run, objs := evalFixtures("eval")
 	run.ExperimentID, run.VariantName = "exp-1", "tis"

@@ -41,6 +41,7 @@ func exportPods(w *v1.Workload, result string) []*dbclient.WorkloadPod {
 			Message: commonopsjob.FilterRunResultLog([]byte(result), testRun)}}})}
 }
 
+// Each succeeded export registers its step's model once, and a failed export none.
 func TestReconcileExportsRegistersEachStepOnce(t *testing.T) {
 	ok := exportJob("pt-x20-a", v1.WorkloadSucceeded)
 	failed := exportJob("pt-x20-b", v1.WorkloadFailed)
@@ -65,6 +66,7 @@ func TestReconcileExportsRegistersEachStepOnce(t *testing.T) {
 	require.Equal(t, testRunDir+"/exports/step-20", m.Spec.Source.LocalPath)
 }
 
+// An export model the user deleted is not registered again from the kept export job.
 func TestADeletedExportModelIsNotRegisteredAgain(t *testing.T) {
 	w := exportJob("pt-x20-e", v1.WorkloadSucceeded)
 	r, db, _ := newTestReconciler(t, testRunRow("Succeeded", "done"), w)
@@ -88,6 +90,7 @@ func TestADeletedExportModelIsNotRegisteredAgain(t *testing.T) {
 	require.Empty(t, models.Items, "the user deleted the model, so the still kept export job makes no new one")
 }
 
+// An export model the cache does not show yet is not created twice and inherits once visible.
 func TestAnExportModelThatTheCacheDoesNotShowYetIsCreatedOnce(t *testing.T) {
 	w := exportJob("pt-x20-f", v1.WorkloadSucceeded)
 	base := &v1.Model{ObjectMeta: metav1.ObjectMeta{Name: "m-base"}}
@@ -129,6 +132,7 @@ func TestAnExportModelThatTheCacheDoesNotShowYetIsCreatedOnce(t *testing.T) {
 	require.NotNil(t, m.Status.ModelConfig, "the visible Model inherits the base model's structure summary")
 }
 
+// An export whose output is outside the run directory registers no model.
 func TestExportOutsideTheRunDirectoryIsIgnored(t *testing.T) {
 	w := exportJob("pt-x20-c", v1.WorkloadSucceeded)
 	r, db, _ := newTestReconciler(t, testRunRow("Succeeded", "done"), w)
@@ -140,6 +144,7 @@ func TestExportOutsideTheRunDirectoryIsIgnored(t *testing.T) {
 	require.Empty(t, models.Items)
 }
 
+// The exports of a stopped run are registered.
 func TestReconcileTakesExportsOfFinishedRuns(t *testing.T) {
 	w := exportJob("pt-x20-d", v1.WorkloadSucceeded)
 	r, db, _ := newTestReconciler(t, testRunRow("Stopped", "train"), w)

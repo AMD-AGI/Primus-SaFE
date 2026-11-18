@@ -22,6 +22,7 @@ import (
 	commonsearch "github.com/AMD-AIG-AIMA/SAFE/common/pkg/opensearch"
 )
 
+// A metric line found by the log search fills the gap it belongs to.
 func TestSearchHitsFillAGap(t *testing.T) {
 	in := newTestIngestion(100)
 	feed(in, stageLine("a1", "train", "running", ""), metricLine("a1", 1, 1, `{"train/loss":1}`),
@@ -37,6 +38,7 @@ func TestSearchHitsFillAGap(t *testing.T) {
 	require.Equal(t, []string{"train/loss@1=1", "train/loss@2=0.9", "train/loss@3=0.8"}, pointKeys(in.finish()))
 }
 
+// A finished run with gaps or a failed run's directory still needs the end-of-run backfill.
 func TestBackfillPending(t *testing.T) {
 	failed := testRunRow("Failed", "train")
 	failed.OutputPath = testRunDir
@@ -49,6 +51,7 @@ func TestBackfillPending(t *testing.T) {
 	require.True(t, backfillPending(done, nil), "a finished run with gaps is backfilled")
 }
 
+// The backfill workload has a DNS display name and runs the backfill script on the run directory.
 func TestBackfillWorkload(t *testing.T) {
 	run := testRunRow("Failed", "train")
 	run.OutputPath, run.DisplayName = testRunDir, "Qwen3 SFT demo"
@@ -75,6 +78,7 @@ func TestBackfillWorkload(t *testing.T) {
 		"the finished backfill is removed even when its log cannot be read")
 }
 
+// A queued backfill lets exports register and is given up when it does not end in time.
 func TestAPendingBackfillDoesNotHoldExportsAndEndsInTime(t *testing.T) {
 	run := testRunRow("Stopped", "train")
 	run.OutputPath = testRunDir

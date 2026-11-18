@@ -21,6 +21,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/resource"
 )
 
+// A conversion marker records the shared cache, which a custom image's conversion does not have.
 func TestConvertMarkerRegistersTheCache(t *testing.T) {
 	in := newTestIngestion(100)
 	feed(in, stageLine("a1", "convert", "running", ""),
@@ -59,6 +60,7 @@ func TestConvertMarkerRegistersTheCache(t *testing.T) {
 	r.registerConversion(context.Background(), run, in.conversion)
 }
 
+// The sweep reclaims only the cache of a deleted model and removes the finished cleanup job.
 func TestSweepReclaimsCachesOfDeletedModels(t *testing.T) {
 	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1",
 		Volumes: []v1.WorkspaceVolume{{Type: v1.PFS, MountPath: "/wekafs"}}}}
@@ -109,6 +111,7 @@ func TestSweepReclaimsCachesOfDeletedModels(t *testing.T) {
 	require.Empty(t, jobs.Items, "the finished cleanup job is removed")
 }
 
+// A cache is reclaimed only if no run uses it after it was marked invalid.
 func TestReclaimChecksTheRunsAgainOnceTheCacheIsMarked(t *testing.T) {
 	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1",
 		Volumes: []v1.WorkspaceVolume{{Type: v1.PFS, MountPath: "/wekafs"}}}}
@@ -138,6 +141,7 @@ func TestReclaimChecksTheRunsAgainOnceTheCacheIsMarked(t *testing.T) {
 	require.Empty(t, jobs.Items, "a run submitted before the cache was marked keeps it")
 }
 
+// A failed reclaim job is kept for a while before the reclaim is tried again.
 func TestAFailedReclaimWaitsBeforeItRunsAgain(t *testing.T) {
 	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1",
 		Volumes: []v1.WorkspaceVolume{{Type: v1.PFS, MountPath: "/wekafs"}}}}
@@ -167,6 +171,7 @@ func TestAFailedReclaimWaitsBeforeItRunsAgain(t *testing.T) {
 	require.Error(t, r.Get(ctx, client.ObjectKeyFromObject(job), &v1.OpsJob{}), "after the wait it is tried again")
 }
 
+// The cache of a listed commit stays, whatever characters the commit has.
 func TestACommitWithAHyphenIsNotRetired(t *testing.T) {
 	kept := &v1.Model{ObjectMeta: metav1.ObjectMeta{Name: "m-kept"}}
 	r, db, _ := newTestReconciler(t, testRunRow("Running", "train"), kept)
@@ -187,6 +192,7 @@ func TestACommitWithAHyphenIsNotRetired(t *testing.T) {
 	require.Empty(t, jobs.Items, "the cache of a listed commit stays, whatever the commit looks like")
 }
 
+// A cache another workspace's run reads, or that a registry without images cannot retire, stays.
 func TestACacheSharedByAnotherWorkspaceOrARegistryWithoutImagesStays(t *testing.T) {
 	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1",
 		Volumes: []v1.WorkspaceVolume{{Type: v1.PFS, MountPath: "/wekafs"}}}}
@@ -223,6 +229,7 @@ func TestACacheSharedByAnotherWorkspaceOrARegistryWithoutImagesStays(t *testing.
 	require.Empty(t, jobs.Items, "a registry that lists no image retires no commit")
 }
 
+// A cache record whose path is outside the cache directory loses the record, never the directory.
 func TestSweepDropsRecordsOutsideTheCacheDirectory(t *testing.T) {
 	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1",
 		Volumes: []v1.WorkspaceVolume{{Type: v1.PFS, MountPath: "/wekafs"}}}}
@@ -244,6 +251,7 @@ func TestSweepDropsRecordsOutsideTheCacheDirectory(t *testing.T) {
 	require.Empty(t, jobs.Items, "a record whose path is no cache directory loses the record, never the directory")
 }
 
+// A cache key is retired only when it ends in none of the listed commits.
 func TestCommitRetired(t *testing.T) {
 	commits := map[string]bool{"540ea91": true, "540ea91-rc1": true}
 	require.False(t, commitRetired("slime-qwen3-4B-Instruct-2507-m-1-540ea91", commits))
