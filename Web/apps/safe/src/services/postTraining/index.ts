@@ -1,6 +1,7 @@
 import dayjs from 'dayjs'
 import request from '@/services/request'
 import { formatBytes } from '@/utils'
+import { textToBr } from '@/utils/sanitize'
 import type {
   Choices,
   ConfigResp,
@@ -222,6 +223,17 @@ export function lastLine(text: string): string {
 export function rewardOf(s: RunSample): { value: string; detail: string } {
   const value = s.reward.Valid ? String(Math.round(s.reward.Float64 * 1000) / 1000) : '—'
   return { value, detail: s.rewardDetail.Valid ? s.rewardDetail.String : '' }
+}
+
+/** scatterTooltip is the HTML tooltip of a point of the Compare scatter, its names shown as text. */
+export function scatterTooltip(
+  name: string,
+  xLabel: string,
+  x: number,
+  yLabel: string,
+  y: number,
+): string {
+  return [name, `${xLabel}: ${x}`, `${yLabel}: ${y}`].map(textToBr).join('<br/>')
 }
 
 /** The training command of a recipe, one option with its values per line: `head \` then `  --flag value \`. */

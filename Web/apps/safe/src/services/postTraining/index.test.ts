@@ -18,6 +18,7 @@ import {
   parallelismText,
   resourcePeaks,
   resourceSeries,
+  scatterTooltip,
   trainableTotal,
   groupSamples,
   importCommandFor,
@@ -384,6 +385,14 @@ describe('samples', () => {
     }
     expect(rewardOf(s)).toEqual({ value: '0.123', detail: '{"score":0.12345}' })
     expect(rewardOf(sample(1, 0)).value).toBe('—')
+  })
+})
+
+describe('scatterTooltip', () => {
+  it('shows the names as text', () => {
+    expect(scatterTooltip('<img src=x onerror=alert(1)>', 'lr', 0.1, 'gsm8k<b>', 0.8)).toBe(
+      '&lt;img src=x onerror=alert(1)&gt;<br/>lr: 0.1<br/>gsm8k&lt;b&gt;: 0.8',
+    )
   })
 })
 

@@ -20,6 +20,7 @@ import { ScatterChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { useDark } from '@vueuse/core'
+import { scatterTooltip } from '@/services/postTraining'
 
 echarts.use([ScatterChart, GridComponent, TooltipComponent, CanvasRenderer])
 
@@ -63,7 +64,7 @@ const render = () => {
       tooltip: {
         trigger: 'item',
         formatter: (p: { data: { name: string; value: [number, number] } }) =>
-          `${p.data.name}<br/>${props.xLabel}: ${p.data.value[0]}<br/>${label}: ${p.data.value[1]}`,
+          scatterTooltip(p.data.name, props.xLabel, p.data.value[0], label, p.data.value[1]),
       },
       xAxis: { type: logX.value ? 'log' : 'value', scale: true, axisLabel: { color: axisColor } },
       yAxis: { type: 'value', scale: true, axisLabel: { color: axisColor } },
