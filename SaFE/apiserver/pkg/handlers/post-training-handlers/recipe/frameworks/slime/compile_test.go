@@ -411,6 +411,10 @@ func TestSlimeRules(t *testing.T) {
 			in.EvalDataset = &recipe.DatasetInfo{ID: "e1", Type: recipe.DatasetTypeSFT, Path: "/wekafs/datasets/e1",
 				Ready: true}
 		}, "The evaluation set must be an rlhf dataset, not sft"},
+		"eval without export": {registry.TrainTypeSFT, func(in *recipe.Input) {
+			off := false
+			in.Request.Export.HF, in.Request.Evaluation.Enabled = &off, true
+		}, "Automatic evaluation needs the exported Hugging Face model"},
 		"freeze with lora": {registry.TrainTypeSFT, func(in *recipe.Input) {
 			in.Request.Method = registry.MethodLora
 			in.Request.Choices.Freeze = &recipe.FreezeChoice{TrainOnly: []string{"layers.0"}}
@@ -477,6 +481,31 @@ func TestOnlyLoRAExportsAPeftAdapter(t *testing.T) {
 	in.Request.Export.PeftAdapter = true
 	require.False(t, compile(t, in).Recipe.Output.PeftAdapter,
 		"full training has no adapter, so a form left with the switch on exports none and asks no image feature")
+}
+
+func TestTurningTheHFExportOffWritesNoModel(t *testing.T) {
+	in := qwen3Input(t, registry.TrainTypeSFT)
+	in.Model.Path = "/wekafs/models/GLM-5.3-BF16"
+	in.Model.MaxTokens = 202752
+	in.Model.Config = &v1.ModelConfig{Architectures: []string{"GlmMoeDsaForCausalLM"}, ModelType: "glm_moe_dsa",
+		NumHiddenLayers: 78, HiddenSize: 6144, NumAttentionHeads: 64, NumKeyValueHeads: 64, NumExperts: 256,
+		MaxPositionEmbeddings: 1048576}
+	in.Registry.Images[0].Features = append(in.Registry.Images[0].Features, registry.FeatureFreeze)
+	in.Workspace.Nodes, in.Workspace.HostMemoryBytes = 8, 3_000_000_000_000
+	in.Request.Resources.Nodes = 2
+	off := false
+	in.Request.Export.HF = &off
+	res := compile(t, in)
+	args := strings.Join(res.Recipe.FrameworkArgs, " ")
+	require.Contains(t, args, "--trainable-only-ckpt-base "+in.Model.Path, "training still loads the frozen parameters")
+	require.NotContains(t, args, "--save-hf ", "the training process writes no model")
+	require.False(t, res.Recipe.Output.SaveHF)
+	require.False(t, res.Recipe.Output.ExportHF)
+
+	lora := qwen3Input(t, registry.TrainTypeSFT)
+	lora.Request.Method, lora.Request.Export.PeftAdapter, lora.Request.Export.HF = registry.MethodLora, true, &off
+	lora.Registry.Images[0].Features = append(lora.Registry.Images[0].Features, registry.FeatureLora)
+	require.False(t, compile(t, lora).Recipe.Output.PeftAdapter, "the adapter is checked against the exported model")
 }
 
 func TestTheMinimumLearningRateStaysBelowALowRate(t *testing.T) {

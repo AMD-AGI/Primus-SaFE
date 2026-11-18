@@ -167,6 +167,11 @@ type Export struct {
 	PeftAdapter bool  `json:"peftAdapter,omitempty"`
 }
 
+// HFModel reports whether the run exports a Hugging Face model, which it does unless the request turns it off.
+func (e Export) HFModel() bool {
+	return e.HF == nil || *e.HF
+}
+
 // Tracking holds optional experiment tracking.
 type Tracking struct {
 	Wandb Wandb `json:"wandb"`
@@ -787,7 +792,7 @@ func requiredFeatures(req *SubmitRequest) []string {
 	if Variant(req) == registry.VariantFreeze {
 		f = append(f, registry.FeatureFreeze)
 	}
-	if req.Export.PeftAdapter && req.Method == registry.MethodLora {
+	if req.Export.PeftAdapter && req.Method == registry.MethodLora && req.Export.HFModel() {
 		f = append(f, registry.FeaturePeftExport)
 	}
 	if !rl {
@@ -856,6 +861,9 @@ func platformRules(ctx *Context, res *Result) {
 	checkMethod(ctx, res)
 	if req.Method == registry.MethodLora && c.Freeze != nil && len(c.Freeze.TrainOnly) > 0 {
 		res.errorf("choices.freeze", "Freezing parameters cannot be combined with LoRA")
+	}
+	if req.Evaluation.Enabled && !req.Export.HFModel() {
+		res.errorf("evaluation.enabled", "Automatic evaluation needs the exported Hugging Face model")
 	}
 	requestLimits(req, res)
 
@@ -955,7 +963,7 @@ func checkDataset(in *Input, req *SubmitRequest, res *Result) {
 // assemble builds the recipe from the request, the spec and the plugin's plan.
 func assemble(ctx *Context, fw *registry.Framework, plan *FrameworkPlan) *Recipe {
 	in, req := ctx.Input, ctx.Request
-	exportHF := req.Export.HF == nil || *req.Export.HF
+	exportHF := req.Export.HFModel()
 	r := &Recipe{
 		Schema:           RecipeSchema,
 		RunID:            in.RunID,
@@ -981,7 +989,7 @@ func assemble(ctx *Context, fw *registry.Framework, plan *FrameworkPlan) *Recipe
 		Metrics:       RecipeMetrics{Include: fw.Metrics.Include, Samples: rlSamples(req, fw)},
 		Convert:       plan.Convert,
 		Output: RecipeOutput{Base: in.RunDir, ExportHF: exportHF,
-			PeftAdapter: req.Export.PeftAdapter && req.Method == registry.MethodLora,
+			PeftAdapter: req.Export.PeftAdapter && req.Method == registry.MethodLora && exportHF,
 			SaveHF:      plan.SaveHF},
 		Provenance: Provenance{Compiler: CompilerVersion, FrameworkCommit: ctx.Image.FrameworkCommit,
 			Image: ctx.Image.Image, SpecSha256: SpecSha256(ctx.Spec)},

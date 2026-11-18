@@ -454,14 +454,18 @@ func (p plugin) Compile(ctx *recipe.Context) (*recipe.FrameworkPlan, error) {
 			a.add("--trainable-only-ckpt-base", in.Model.Path)
 		}
 	}
-	saveHF := c.Lora == nil && c.Freeze != nil && len(c.Freeze.TrainOnly) > 0
-	if saveHF {
-		// Checkpoints keep the trainable parameters only, so the training process writes the final HF model;
-		// the launcher adds --save-hf-rollouts with the last rollout.
+	frozen := c.Lora == nil && c.Freeze != nil && len(c.Freeze.TrainOnly) > 0
+	saveHF := frozen && ctx.Request.Export.HFModel()
+	if frozen {
+		// Checkpoints keep the trainable parameters only, so the training process writes the final HF model when
+		// the run exports one; the launcher adds --save-hf-rollouts with the last rollout.
 		a.add("--only-train-params-name-list")
 		a.add(c.Freeze.TrainOnly...)
-		a.add("--trainable-only-ckpt-base", in.Model.Path, "--save-hf", in.RunDir+"/final_model")
-		if fp8 {
+		a.add("--trainable-only-ckpt-base", in.Model.Path)
+		if saveHF {
+			a.add("--save-hf", in.RunDir+"/final_model")
+		}
+		if saveHF && fp8 {
 			// The export takes its quantization config from the BF16 base, not from the FP8 rollout weights.
 			a.add("--save-hf-origin-dir", in.Model.Path)
 		}
