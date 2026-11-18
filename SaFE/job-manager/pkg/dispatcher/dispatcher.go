@@ -64,16 +64,25 @@ const (
 type DispatcherReconciler struct {
 	client.Client
 	clusterClientSets *commonutils.ObjectManager
+	// apiReader reads workloads from the API server. Quota decisions must see a scale
+	// that another webhook replica has already stored.
+	apiReader client.Reader
 	// portMu serializes host-port allocation. With MaxConcurrentReconciles > 1,
 	// two workloads could otherwise read the same "used ports" snapshot and pick
 	// the same host port before either is persisted.
 	portMu sync.Mutex
+	// scaleMu guards scaleHeld.
+	scaleMu sync.Mutex
+	// scaleHeld is a scale this process has decided to apply, before the running-size
+	// annotation is cleared. Keyed by user id, cluster id and workload name.
+	scaleHeld map[string][]v1.WorkloadResource
 }
 
 // SetupDispatcherController initializes and registers the dispatcher controller with the manager.
 func SetupDispatcherController(mgr manager.Manager) error {
 	r := &DispatcherReconciler{
 		Client:            mgr.GetClient(),
+		apiReader:         mgr.GetAPIReader(),
 		clusterClientSets: commonutils.NewObjectManagerSingleton(),
 	}
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &v1.Workload{}, cicdProxyOwnerIndex, cicdProxyOwnerUID); err != nil {
@@ -363,9 +372,18 @@ func (r *DispatcherReconciler) processWorkload(ctx context.Context, adminWorkloa
 			}
 		}
 		if commonworkload.IsApplication(adminWorkload) || commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
-			// update the workload which is already dispatched
+			// A scale that does not fit is restored to the running size before it is synced.
+			clearRunning, err := r.prepareScaleQuota(ctx, adminWorkload)
+			if err != nil {
+				return ctrlruntime.Result{}, err
+			}
 			if err = r.syncWorkloadToObject(ctx, adminWorkload, clientSets, obj); err != nil {
 				return ctrlruntime.Result{}, err
+			}
+			if clearRunning {
+				if err = r.clearRunningResources(ctx, adminWorkload); err != nil {
+					return ctrlruntime.Result{}, err
+				}
 			}
 			// sync service according to latest spec
 			if result, err := r.updateService(ctx, adminWorkload, clientSets, obj); err != nil || result.RequeueAfter > 0 {

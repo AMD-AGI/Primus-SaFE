@@ -267,13 +267,16 @@ const (
 	FaultMonitorId = FaultPrefix + "monitor.id"
 
 	// workload
-	WorkloadPrefix                    = PrimusSafePrefix + "workload."
-	WorkloadFinalizer                 = PrimusSafeDomain + "workload.finalizer"
-	MonarchMeshFinalizer              = PrimusSafeDomain + "monarch.mesh.finalizer"
-	WorkloadIdLabel                   = WorkloadPrefix + "id"
-	WorkloadUidLabel                  = WorkloadPrefix + "uid"
-	WorkloadDispatchedAnnotation      = WorkloadPrefix + "dispatched"
-	WorkloadScheduledAnnotation       = WorkloadPrefix + "scheduled"
+	WorkloadPrefix               = PrimusSafePrefix + "workload."
+	WorkloadFinalizer            = PrimusSafeDomain + "workload.finalizer"
+	MonarchMeshFinalizer         = PrimusSafeDomain + "monarch.mesh.finalizer"
+	WorkloadIdLabel              = WorkloadPrefix + "id"
+	WorkloadUidLabel             = WorkloadPrefix + "uid"
+	WorkloadDispatchedAnnotation = WorkloadPrefix + "dispatched"
+	WorkloadScheduledAnnotation  = WorkloadPrefix + "scheduled"
+	// QosRunningResourcesAnnotation stores the resource list still running while a
+	// larger spec waits for the dispatcher to admit it.
+	QosRunningResourcesAnnotation     = WorkloadPrefix + "qos.running.resources"
 	WorkloadPreemptedAnnotation       = WorkloadPrefix + "preempted"
 	WorkloadKindLabel                 = WorkloadPrefix + "kind"
 	WorkloadVersionLabel              = WorkloadPrefix + "version"

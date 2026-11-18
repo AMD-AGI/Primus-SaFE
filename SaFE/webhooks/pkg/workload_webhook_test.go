@@ -471,6 +471,76 @@ func TestConcurrentScaleReservesOne(t *testing.T) {
 	}
 }
 
+func TestScaleCountsQueuedWorkAheadOfIt(t *testing.T) {
+	scheme := newScheme(t)
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	qos := &v1.Qos{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+		Spec:       v1.QosSpec{MaxResources: &v1.ResourceCap{GPU: "8"}},
+	}
+	queued := scaleQuotaWorkload("queued", "6", false)
+	queued.CreationTimestamp = metav1.NewTime(base)
+	running := scaleQuotaWorkload("running", "1", true)
+	running.CreationTimestamp = metav1.NewTime(base.Add(time.Minute))
+	running.Spec.Priority = 100
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(qos, queued, running).Build()
+	v := &WorkloadValidator{Client: c}
+	ctx := context.Background()
+	err := v.validateScaleQuota(ctx, scaleQuotaWorkload("running", "4", true), running, false)
+	assert.Assert(t, err != nil)
+
+	later := scaleQuotaWorkload("later", "6", false)
+	later.CreationTimestamp = metav1.NewTime(base.Add(time.Hour))
+	older := scaleQuotaWorkload("older", "1", true)
+	older.CreationTimestamp = metav1.NewTime(base)
+	c = fake.NewClientBuilder().WithScheme(scheme).WithObjects(qos, later, older).Build()
+	v = &WorkloadValidator{Client: c}
+	assert.NilError(t, v.validateScaleQuota(ctx, scaleQuotaWorkload("older", "4", true), older, false))
+
+	high := scaleQuotaWorkload("z-high", "6", false)
+	high.CreationTimestamp = metav1.NewTime(base)
+	high.Spec.Priority = 10
+	low := scaleQuotaWorkload("a-low", "1", true)
+	low.CreationTimestamp = metav1.NewTime(base)
+	low.Spec.Priority = 1
+	c = fake.NewClientBuilder().WithScheme(scheme).WithObjects(qos, high, low).Build()
+	v = &WorkloadValidator{Client: c}
+	err = v.validateScaleQuota(ctx, scaleQuotaWorkload("a-low", "4", true), low, false)
+	assert.Assert(t, err != nil)
+
+	left := scaleQuotaWorkload("m-left", "6", false)
+	left.CreationTimestamp = metav1.NewTime(base)
+	left.Spec.Priority = 5
+	right := scaleQuotaWorkload("m-right", "1", true)
+	right.CreationTimestamp = metav1.NewTime(base)
+	right.Spec.Priority = 5
+	c = fake.NewClientBuilder().WithScheme(scheme).WithObjects(qos, left, right).Build()
+	v = &WorkloadValidator{Client: c}
+	err = v.validateScaleQuota(ctx, scaleQuotaWorkload("m-right", "4", true), right, false)
+	assert.Assert(t, err != nil)
+}
+
+func TestRememberRunningResourcesKeepsTheOriginalSize(t *testing.T) {
+	oldWorkload := scaleQuotaWorkload("running", "1", true)
+	updated := scaleQuotaWorkload("running", "8", true)
+	rememberRunningResources(oldWorkload, updated)
+	if updated.Annotations[v1.QosRunningResourcesAnnotation] == "" {
+		t.Fatal("a scale records the size that is still running")
+	}
+	again := scaleQuotaWorkload("running", "9", true)
+	v1.SetAnnotation(again, v1.QosRunningResourcesAnnotation, updated.Annotations[v1.QosRunningResourcesAnnotation])
+	grown := scaleQuotaWorkload("running", "10", true)
+	rememberRunningResources(again, grown)
+	if grown.Annotations[v1.QosRunningResourcesAnnotation] != again.Annotations[v1.QosRunningResourcesAnnotation] {
+		t.Fatal("a second scale keeps the original running size")
+	}
+	same := scaleQuotaWorkload("running", "10", true)
+	rememberRunningResources(grown, same)
+	if same.Annotations[v1.QosRunningResourcesAnnotation] != "" {
+		t.Fatal("an unchanged size does not record a running size")
+	}
+}
+
 func TestUnscheduledScaleSkipsQuota(t *testing.T) {
 	scheme := newScheme(t)
 	qos := &v1.Qos{
@@ -513,7 +583,7 @@ func TestScaleReservationDropsWhenLandedOrExpired(t *testing.T) {
 		scaleReservationKey("alice", "c1", "gone"):   {at: time.Now().Add(-time.Hour), resources: landed.Spec.Resources},
 		scaleReservationKey("bob", "c2", "other"):    {at: time.Now().Add(-time.Hour), resources: landed.Spec.Resources},
 	}
-	used, err := v.scaleUsage(context.Background(), "alice", "c1", "someone")
+	used, err := v.scaleUsage(context.Background(), "alice", "c1", "someone", nil)
 	assert.NilError(t, err)
 	cpu := used[corev1.ResourceCPU]
 	assert.Equal(t, cpu.String(), "1")
@@ -526,7 +596,7 @@ func TestScaleReservationDropsWhenLandedOrExpired(t *testing.T) {
 	if _, ok := v.scaleReserved[scaleReservationKey("bob", "c2", "other")]; !ok {
 		t.Fatal("another user's reservation stays")
 	}
-	empty, err := v.scaleUsage(context.Background(), "", "c1", "someone")
+	empty, err := v.scaleUsage(context.Background(), "", "c1", "someone", nil)
 	assert.NilError(t, err)
 	assert.Equal(t, len(empty), 0)
 }

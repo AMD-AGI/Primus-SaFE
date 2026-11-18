@@ -33,6 +33,25 @@ func IsUserQuotaReason(reason string) bool {
 	return strings.HasPrefix(reason, UserQuotaReasonPrefix) || strings.HasPrefix(reason, UserQuotaCheckFailedPrefix)
 }
 
+// AdmissionBefore reports whether a is admitted ahead of b.
+// An earlier creation time goes first. The same time keeps the higher priority.
+// The same priority keeps the name that sorts first.
+func AdmissionBefore(a, b *v1.Workload) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	if a.CreationTimestamp.Time.Before(b.CreationTimestamp.Time) {
+		return true
+	}
+	if b.CreationTimestamp.Time.Before(a.CreationTimestamp.Time) {
+		return false
+	}
+	if a.Spec.Priority != b.Spec.Priority {
+		return a.Spec.Priority > b.Spec.Priority
+	}
+	return a.Name < b.Name
+}
+
 // Limits is the ceiling that applies to one user on one cluster for one workspace scope.
 // An empty resource field and a zero runtime mean that dimension is not limited.
 type Limits struct {

@@ -481,19 +481,8 @@ func (r *SchedulerReconciler) userQuotaHold(ctx context.Context, workload *v1.Wo
 }
 
 // quotaBefore reports whether a is admitted ahead of b.
-// An earlier creation time goes first. The same time keeps the higher priority.
-// The same priority keeps the name that sorts first.
 func quotaBefore(a, b *v1.Workload) bool {
-	if a.CreationTimestamp.Time.Before(b.CreationTimestamp.Time) {
-		return true
-	}
-	if b.CreationTimestamp.Time.Before(a.CreationTimestamp.Time) {
-		return false
-	}
-	if a.Spec.Priority != b.Spec.Priority {
-		return a.Spec.Priority > b.Spec.Priority
-	}
-	return a.Name < b.Name
+	return commonqos.AdmissionBefore(a, b)
 }
 
 // userQuotaReason reports when this user's work on the cluster cannot take the request.

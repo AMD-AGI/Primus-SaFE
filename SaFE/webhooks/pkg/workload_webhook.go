@@ -140,7 +140,32 @@ func (m *WorkloadMutator) mutateOnUpdate(ctx context.Context, oldWorkload, newWo
 		return m.mutateCICDProxyOptIn(ctx, oldWorkload, newWorkload)
 	}
 	workspace, _ := getWorkspace(ctx, m.Client, newWorkload.Spec.Workspace)
-	return m.mutateCommon(ctx, oldWorkload, newWorkload, workspace)
+	if err := m.mutateCommon(ctx, oldWorkload, newWorkload, workspace); err != nil {
+		return err
+	}
+	rememberRunningResources(oldWorkload, newWorkload)
+	return nil
+}
+
+// rememberRunningResources keeps the resource list that is still running when a
+// scheduled workload changes size. A later change keeps the original list until
+// the dispatcher admits the new size.
+func rememberRunningResources(oldWorkload, newWorkload *v1.Workload) {
+	if oldWorkload == nil || newWorkload == nil || !v1.IsWorkloadScheduled(oldWorkload) {
+		return
+	}
+	if reflect.DeepEqual(oldWorkload.Spec.Resources, newWorkload.Spec.Resources) {
+		return
+	}
+	if previous := v1.GetAnnotation(oldWorkload, v1.QosRunningResourcesAnnotation); previous != "" {
+		v1.SetAnnotation(newWorkload, v1.QosRunningResourcesAnnotation, previous)
+		return
+	}
+	encoded, err := json.Marshal(oldWorkload.Spec.Resources)
+	if err != nil {
+		return
+	}
+	v1.SetAnnotation(newWorkload, v1.QosRunningResourcesAnnotation, string(encoded))
 }
 
 // mutateCommon normalizes resources, hostpath, priority, image, entry point, host network and so on
@@ -1177,8 +1202,9 @@ func runtimeCeiling(ctx context.Context, c client.Reader, workload *v1.Workload,
 }
 
 // validateScaleQuota rejects an update of a scheduled workload that grows CPU, memory or GPU
-// past the user's ceiling. A queued workload is left to the scheduler, which holds it instead
-// of rejecting the update. A shrink or an unchanged dimension is left alone.
+// past the user's ceiling. Queued work ahead of this workload counts. A queued workload's own
+// update is left to the scheduler, which holds it instead of rejecting the update.
+// A shrink or an unchanged dimension is left alone.
 func (v *WorkloadValidator) validateScaleQuota(ctx context.Context, newWorkload, oldWorkload *v1.Workload, dryRun bool) error {
 	if newWorkload == nil || oldWorkload == nil || !v1.IsWorkloadScheduled(oldWorkload) ||
 		reflect.DeepEqual(newWorkload.Spec.Resources, oldWorkload.Spec.Resources) {
@@ -1207,7 +1233,7 @@ func (v *WorkloadValidator) validateScaleQuota(ctx context.Context, newWorkload,
 	if limits.CPU == "" && limits.Memory == "" && limits.GPU == "" {
 		return nil
 	}
-	used, err := v.scaleUsage(ctx, userID, clusterID, newWorkload.Name)
+	used, err := v.scaleUsage(ctx, userID, clusterID, newWorkload.Name, oldWorkload)
 	if err != nil {
 		return err
 	}
@@ -1236,9 +1262,10 @@ type scaleReservation struct {
 	resources []v1.WorkloadResource
 }
 
-// scaleUsage sums this user's scheduled work on the cluster, using a reserved new size
-// until that size shows up in the cache. skip is compared separately. Caller holds scaleMu.
-func (v *WorkloadValidator) scaleUsage(ctx context.Context, userID, clusterID, skip string) (corev1.ResourceList, error) {
+// scaleUsage sums this user's scheduled work on the cluster, plus queued work admitted
+// ahead of candidate. A reserved new size stands in until the cache shows it.
+// skip is compared separately. Caller holds scaleMu.
+func (v *WorkloadValidator) scaleUsage(ctx context.Context, userID, clusterID, skip string, candidate *v1.Workload) (corev1.ResourceList, error) {
 	used := corev1.ResourceList{}
 	if userID == "" || clusterID == "" {
 		return used, nil
@@ -1270,7 +1297,10 @@ func (v *WorkloadValidator) scaleUsage(ctx context.Context, userID, clusterID, s
 	}
 	for i := range held.Items {
 		item := &held.Items[i]
-		if item.Name == skip || covered[item.Name] || item.IsEnd() || !v1.IsWorkloadScheduled(item) {
+		if item.Name == skip || covered[item.Name] || item.IsEnd() {
+			continue
+		}
+		if !v1.IsWorkloadScheduled(item) && !commonqos.AdmissionBefore(item, candidate) {
 			continue
 		}
 		part, err := commonworkload.GetTotalResourceList(item)
