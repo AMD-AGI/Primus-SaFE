@@ -19,6 +19,7 @@ import (
 	"sync"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/posttraining/registry"
 )
 
@@ -910,6 +911,10 @@ func platformRules(ctx *Context, res *Result) {
 	nodes := req.Resources.Nodes
 	if nodes < 1 || req.Resources.GpusPerNode < 1 {
 		res.errorf("resources.nodes", "Nodes and GPUs per node must be positive")
+	}
+	// Another value is authorized as low but runs as high, as the workload webhook clamps it.
+	if p := req.Resources.Priority; p < common.LowPriorityInt || p > common.HighPriorityInt {
+		res.errorf("resources.priority", "Priority must be 0 (low), 1 (medium) or 2 (high)")
 	}
 	if min, ok := fs.MinNodesFor(req.TrainType, variant, sep); ok && nodes < min {
 		res.errorf("resources.nodes", "This configuration needs at least %d nodes", min)

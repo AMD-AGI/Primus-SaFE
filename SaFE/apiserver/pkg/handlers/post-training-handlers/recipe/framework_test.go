@@ -108,7 +108,7 @@ func TestRecipeHashCoversTheConfiguration(t *testing.T) {
 
 	in := input(t)
 	in.RunID, in.Request.DisplayName, in.RunDir = "pt-2", "other", "/elsewhere"
-	in.Request.Resources.Priority, in.Request.Tracking.Wandb.Enabled = 3, true
+	in.Request.Resources.Priority, in.Request.Tracking.Wandb.Enabled = 2, true
 	in.Request.Ext = map[string]interface{}{"note": "x"}
 	require.Equal(t, base, Compile(in).Recipe.Provenance.RecipeHash, "excluded fields must not change the hash")
 
@@ -140,6 +140,7 @@ func TestCompileRejects(t *testing.T) {
 		"unknown gpu":    {func(in *Input) { in.Workspace.GPUModel = "" }, "no known architecture"},
 		"method":         {func(in *Input) { in.Request.Method = "lora" }, "does not support sft with lora"},
 		"too many nodes": {func(in *Input) { in.Request.Resources.Nodes = 5 }, "only 4 nodes"},
+		"priority":       {func(in *Input) { in.Request.Resources.Priority = 3 }, "Priority must be 0 (low), 1 (medium) or 2 (high)"},
 		"dataset type":   {func(in *Input) { in.Dataset.Type = "rlhf" }, "needs a sft dataset"},
 		"no dataset":     {func(in *Input) { in.Dataset = nil }, "Select a training dataset"},
 		"unvalidated image": {func(in *Input) {
