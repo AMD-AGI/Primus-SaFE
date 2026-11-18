@@ -439,13 +439,18 @@ write_sso_values() {
   AUTH_VALUES_FILE="$out"
 }
 
-# write_post_training_values merges post_training_registry from .env, a base64-encoded JSON object whose
-# keys replace those of post_training.registry (e.g. images, network), into the extra values file
-# AUTH_VALUES_FILE, writing it to $1 if no other writer did; nothing when .env does not set it.
+# write_post_training_values merges post_training_registry from .env, a base64-encoded JSON object, as
+# post_training.registry into the extra values file AUTH_VALUES_FILE, writing it to $1 if no other writer did;
+# nothing when .env does not set it. Helm merges it with the chart's registry: a list (e.g. images) replaces the
+# default one, a map (e.g. network, evaluation) is merged key by key, and a default key is removed by a null.
 write_post_training_values() {
   local out="$1" base='{}' registry
   if [[ -z "${post_training_registry:-}" ]]; then
     return 0
+  fi
+  if ! command -v jq &> /dev/null; then
+    echo "Error: jq is required when .env sets post_training_registry" >&2
+    return 1
   fi
   if ! registry=$(printf '%s' "$post_training_registry" | base64 -d 2>/dev/null) || \
      ! jq -e 'type == "object"' <<<"$registry" &> /dev/null; then
