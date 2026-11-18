@@ -183,16 +183,23 @@ func (r *DispatcherReconciler) Reconcile(ctx context.Context, req ctrlruntime.Re
 		return ctrlruntime.Result{}, err
 	}
 
+	// A scale that does not fit is restored to the running size before any object is synced.
 	var result ctrlruntime.Result
-	switch {
-	case commonworkload.IsTorchFT(workload):
-		result, err = r.processTorchFTWorkload(ctx, workload)
-	case commonworkload.IsMonarchJob(workload):
-		result, err = r.processMonarchWorkload(ctx, workload)
-	case commonworkload.IsAtom(workload), commonworkload.IsSGLangRouter(workload):
-		result, err = r.processAtomWorkload(ctx, workload)
-	default:
-		result, err = r.processWorkload(ctx, workload)
+	clearRunning, err := r.prepareScaleQuota(ctx, workload)
+	if err == nil {
+		switch {
+		case commonworkload.IsTorchFT(workload):
+			result, err = r.processTorchFTWorkload(ctx, workload)
+		case commonworkload.IsMonarchJob(workload):
+			result, err = r.processMonarchWorkload(ctx, workload)
+		case commonworkload.IsAtom(workload), commonworkload.IsSGLangRouter(workload):
+			result, err = r.processAtomWorkload(ctx, workload)
+		default:
+			result, err = r.processWorkload(ctx, workload)
+		}
+	}
+	if err == nil && clearRunning && result.RequeueAfter == 0 {
+		err = r.clearRunningResources(ctx, workload)
 	}
 
 	if err != nil {
@@ -372,18 +379,9 @@ func (r *DispatcherReconciler) processWorkload(ctx context.Context, adminWorkloa
 			}
 		}
 		if commonworkload.IsApplication(adminWorkload) || commonworkload.IsCICDScalingRunnerSet(adminWorkload) {
-			// A scale that does not fit is restored to the running size before it is synced.
-			clearRunning, err := r.prepareScaleQuota(ctx, adminWorkload)
-			if err != nil {
-				return ctrlruntime.Result{}, err
-			}
+			// update the workload which is already dispatched
 			if err = r.syncWorkloadToObject(ctx, adminWorkload, clientSets, obj); err != nil {
 				return ctrlruntime.Result{}, err
-			}
-			if clearRunning {
-				if err = r.clearRunningResources(ctx, adminWorkload); err != nil {
-					return ctrlruntime.Result{}, err
-				}
 			}
 			// sync service according to latest spec
 			if result, err := r.updateService(ctx, adminWorkload, clientSets, obj); err != nil || result.RequeueAfter > 0 {

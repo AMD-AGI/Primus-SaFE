@@ -7,14 +7,25 @@ package dispatcher
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"testing"
 	"time"
 
+	"github.com/agiledragon/gomonkey/v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	ctrlruntime "sigs.k8s.io/controller-runtime"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	"github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/syncer"
+	jobutils "github.com/AMD-AIG-AIMA/SAFE/job-manager/pkg/utils"
 )
 
 func runningResources(gpu string) string {
@@ -111,6 +122,69 @@ func TestDispatcherScaleSameTimeKeepsHigherPriorityThenName(t *testing.T) {
 	}
 	if _, err = r.prepareScaleQuota(ctx, left); err != nil || left.Spec.Resources[0].GPU != "8" {
 		t.Fatalf("the earlier name is applied, gpu %s err %v", left.Spec.Resources[0].GPU, err)
+	}
+}
+
+func TestDispatcherClearsTheAtomRootAnnotation(t *testing.T) {
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	cs := monkeyDispatchClientSets()
+	patches.ApplyFunc(syncer.GetClusterClientSets,
+		func(*commonutils.ObjectManager, string) (*syncer.ClusterClientSets, error) { return cs, nil })
+	patches.ApplyFunc(commonworkload.GetResourceTemplate,
+		func(context.Context, ctrlclient.Client, *v1.Workload) (*v1.ResourceTemplate, error) {
+			return &v1.ResourceTemplate{}, nil
+		})
+	patches.ApplyFunc(jobutils.GetObject,
+		func(context.Context, *commonclient.ClientFactory, string, string, schema.GroupVersionKind) (*unstructured.Unstructured, error) {
+			return &unstructured.Unstructured{}, nil
+		})
+	reflectType := reflect.TypeOf(&DispatcherReconciler{})
+	patches.ApplyPrivateMethod(reflectType, "markAsDispatched",
+		func(_ *DispatcherReconciler, _ context.Context, _ *v1.Workload) error { return nil })
+	patches.ApplyPrivateMethod(reflectType, "syncWorkloadToObject",
+		func(_ *DispatcherReconciler, _ context.Context, _ *v1.Workload, _ *syncer.ClusterClientSets, _ *unstructured.Unstructured) error {
+			return nil
+		})
+	patches.ApplyPrivateMethod(reflectType, "updateService",
+		func(_ *DispatcherReconciler, _ context.Context, _ *v1.Workload, _ *syncer.ClusterClientSets, _ *unstructured.Unstructured) (ctrlruntime.Result, error) {
+			return ctrlruntime.Result{}, nil
+		})
+	patches.ApplyPrivateMethod(reflectType, "updateIngress",
+		func(_ *DispatcherReconciler, _ context.Context, _ *v1.Workload, _ *syncer.ClusterClientSets, _ *unstructured.Unstructured) (ctrlruntime.Result, error) {
+			return ctrlruntime.Result{}, nil
+		})
+
+	scheme, err := genMockScheme()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := atomRootWorkload()
+	raw, err := json.Marshal(root.Spec.Resources)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v1.SetLabel(root, v1.ClusterIdLabel, "c1")
+	v1.SetLabel(root, v1.UserIdLabel, "alice")
+	v1.SetAnnotation(root, v1.WorkloadScheduledAnnotation, "true")
+	v1.SetAnnotation(root, v1.WorkloadDispatchedAnnotation, "true")
+	v1.SetAnnotation(root, v1.QosRunningResourcesAnnotation, string(raw))
+	cl := ctrlfake.NewClientBuilder().WithScheme(scheme).WithObjects(root).WithStatusSubresource(root).Build()
+	r := &DispatcherReconciler{Client: cl}
+	ctx := context.Background()
+
+	if _, err = r.Reconcile(ctx, ctrlruntime.Request{NamespacedName: ctrlclient.ObjectKey{Name: root.Name}}); err != nil {
+		t.Fatalf("reconcile the atom root: %v", err)
+	}
+	stored := &v1.Workload{}
+	if err = cl.Get(ctx, ctrlclient.ObjectKey{Name: root.Name}, stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored.IsEnd() {
+		t.Fatalf("the atom root stays running, phase %s", stored.Status.Phase)
+	}
+	if v1.GetAnnotation(stored, v1.QosRunningResourcesAnnotation) != "" {
+		t.Fatal("the running-size annotation is cleared on the atom root")
 	}
 }
 

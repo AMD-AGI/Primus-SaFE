@@ -525,8 +525,16 @@ func (r *SchedulerReconciler) userQuotaReason(ctx context.Context, workload *v1.
 		if item.Name == workload.Name || item.IsEnd() {
 			continue
 		}
-		if !v1.IsWorkloadScheduled(item) && !quotaBefore(item, workload) {
-			continue
+		if !v1.IsWorkloadScheduled(item) {
+			if !quotaBefore(item, workload) {
+				continue
+			}
+			if above, aboveErr := aboveCeiling(userID, clusterID, item, limits); aboveErr != nil || above {
+				if aboveErr != nil {
+					return "", aboveErr
+				}
+				continue
+			}
 		}
 		if err = add(item); err != nil {
 			return "", err
@@ -546,6 +554,17 @@ func (r *SchedulerReconciler) userQuotaReason(ctx context.Context, workload *v1.
 		return "", err
 	}
 	return commonqos.QuotaReason(userID, clusterID, used, request, limits)
+}
+
+// aboveCeiling reports whether a workload's own request already exceeds the ceiling.
+// Such a queued workload can never start and does not count toward later work.
+func aboveCeiling(userID, clusterID string, workload *v1.Workload, limits commonqos.Limits) (bool, error) {
+	request, err := commonworkload.GetTotalResourceList(workload)
+	if err != nil {
+		return false, err
+	}
+	reason, err := commonqos.QuotaReason(userID, clusterID, corev1.ResourceList{}, request, limits)
+	return reason != "", err
 }
 
 // canScheduleWorkload checks if a workload can be scheduled based on resource availability.

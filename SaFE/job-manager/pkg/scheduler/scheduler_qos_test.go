@@ -116,6 +116,24 @@ func TestUserQuotaCountsOlderPendingWork(t *testing.T) {
 	}
 }
 
+func TestUserQuotaSkipsQueuedWorkAboveTheCeiling(t *testing.T) {
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	qos := &v1.Qos{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+		Spec:       v1.QosSpec{MaxResources: &v1.ResourceCap{GPU: "4"}},
+	}
+	older := qosWorkload("older", "alice", "8")
+	older.CreationTimestamp = metav1.NewTime(base)
+	newer := qosWorkload("newer", "alice", "2")
+	newer.CreationTimestamp = metav1.NewTime(base.Add(time.Minute))
+	cl := ctrlfake.NewClientBuilder().WithScheme(ttlScheme(t)).WithObjects(qos, older, newer).Build()
+	r := &SchedulerReconciler{Client: cl}
+
+	if reason := r.userQuotaHold(context.Background(), newer, nil); reason != "" {
+		t.Fatalf("a queued workload above the ceiling by itself must not count, reason %q", reason)
+	}
+}
+
 func TestUserQuotaCountsAnOlderCron(t *testing.T) {
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	qos := &v1.Qos{
