@@ -30,8 +30,8 @@ export const getWorkloadsList = (params: WorkloadParams): Promise<any> => {
 export const getWorkloadDetail = (id: string): Promise<any> =>
   request.get(`/workloads/${id}`, { params: { src: 'console' }, timeout: LONG_TIMEOUT })
 
-export const getWorkloadService = (id: string): Promise<any> =>
-  request.get(`/workloads/${id}/service`, { timeout: LONG_TIMEOUT })
+export const getWorkloadService = (id: string, silentStatuses?: number[]): Promise<any> =>
+  request.get(`/workloads/${id}/service`, { timeout: LONG_TIMEOUT, silentStatuses })
 
 // Log download
 export const downloadWlLogs = (data: DownloadParams): Promise<{ jobId: string }> =>

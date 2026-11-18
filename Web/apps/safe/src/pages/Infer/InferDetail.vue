@@ -329,21 +329,20 @@ const truncatedEntryPoint = computed(() => {
   return decodedEntryPoint.value.substring(0, 100)
 })
 
-// Fetch service info
-const getServiceInfo = async () => {
-  if (!workloadId.value || !detailData.value) return
+// A workload does not always publish a Service; the global interceptor silences only 404 here.
+const MISSING_SERVICE_STATUSES = [404]
 
-  // Skip service info fetch if task has ended (has endTime)
-  if (!detailData.value?.endTime) {
-    try {
-      const serviceRes = await getWorkloadService(workloadId.value)
-      serviceData.value = serviceRes
-    } catch (error) {
-      console.error(error)
-      serviceData.value = null
-    }
-  } else {
+// Fetch service info. Other failures are reported by the shared request interceptor.
+const getServiceInfo = async () => {
+  if (!workloadId.value || !detailData.value || detailData.value.endTime) {
     serviceData.value = null
+    return
+  }
+  try {
+    serviceData.value = await getWorkloadService(workloadId.value, MISSING_SERVICE_STATUSES)
+  } catch (error) {
+    serviceData.value = null
+    console.error(error)
   }
 }
 
