@@ -230,6 +230,7 @@
 <script lang="ts" setup>
 import { onMounted, ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { getWorkloadService, PRIORITY_LABEL_MAP, type PriorityValue } from '@/services'
 import {
   Cpu,
@@ -329,21 +330,39 @@ const truncatedEntryPoint = computed(() => {
   return decodedEntryPoint.value.substring(0, 100)
 })
 
-// Fetch service info
-const getServiceInfo = async () => {
-  if (!workloadId.value || !detailData.value) return
+// A workload does not always publish a Service. Absence is an empty panel.
+function isMissingService(error: unknown): boolean {
+  const err = error as {
+    errorCode?: string | number
+    response?: { status?: number; data?: { errorCode?: string | number; code?: string | number } }
+  }
+  const status = err.response?.status
+  const code = err.response?.data?.errorCode ?? err.response?.data?.code ?? err.errorCode
+  return status === 404 || code === 'NotFound' || code === 404
+}
 
-  // Skip service info fetch if task has ended (has endTime)
-  if (!detailData.value?.endTime) {
-    try {
-      const serviceRes = await getWorkloadService(workloadId.value)
-      serviceData.value = serviceRes
-    } catch (error) {
-      console.error(error)
-      serviceData.value = null
-    }
-  } else {
+// Fetch service info. A missing Service is expected and stays silent.
+const getServiceInfo = async () => {
+  if (!workloadId.value || !detailData.value || detailData.value.endTime) {
     serviceData.value = null
+    return
+  }
+  try {
+    serviceData.value = await getWorkloadService(workloadId.value, { skipErrorHandler: true })
+  } catch (error) {
+    serviceData.value = null
+    if (isMissingService(error)) return
+    const err = error as {
+      message?: string
+      errorCode?: string | number
+      errorMessage?: string
+      response?: { data?: { errorCode?: string | number; errorMessage?: string; message?: string } }
+    }
+    const data = err.response?.data
+    const code = data?.errorCode ?? err.errorCode
+    const msg =
+      data?.errorMessage || data?.message || err.errorMessage || err.message || 'Request failed.'
+    ElMessage.error(code ? `${code}: ${msg}` : String(msg))
   }
 }
 
