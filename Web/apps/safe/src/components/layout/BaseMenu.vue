@@ -227,6 +227,7 @@ import { useUserStore } from '@/stores/user'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useDark } from '@vueuse/core'
 import { menuIcons } from './menuIcons'
+import { postTrainingIsOn } from '@/services/postTraining'
 import type { ScopesKeys } from '@/services/base/type'
 
 const isDark = useDark()
@@ -432,18 +433,26 @@ watchEffect(() => {
   workloadMenuItems.value = allWorkloadItems.filter((item) => item.canAccess !== false)
 })
 
-// Model Lab submenu config - static
-const modelLabMenuItems: MenuItem[] = [
+// Post Training takes the place of Post Train where it is on.
+const postTrainingOn = ref(false)
+watch(
+  [() => wsStore.currentWorkspaceId, hasManagerAccess],
+  async ([workspace, manager]) => {
+    if (workspace && manager) postTrainingOn.value = await postTrainingIsOn(workspace)
+  },
+  { immediate: true },
+)
+
+// Model Lab submenu config
+const modelLabMenuItems = computed<MenuItem[]>(() => [
   {
     index: '/model-square',
     name: 'Model Square',
     icon: menuIcons.modelSquare,
   },
-  {
-    index: '/post-training',
-    name: 'Post Training',
-    icon: menuIcons.postTraining,
-  },
+  postTrainingOn.value
+    ? { index: '/post-training', name: 'Post Training', icon: menuIcons.postTraining }
+    : { index: '/posttrain', name: 'Post Train', icon: menuIcons.training },
   {
     index: '/dataset',
     name: 'Dataset',
@@ -459,7 +468,7 @@ const modelLabMenuItems: MenuItem[] = [
     name: 'Optimization',
     icon: menuIcons.modelOptimization,
   },
-]
+])
 
 // Agent Infra submenu config - dynamic
 const agentInfraMenuItems = shallowRef<MenuItem[]>([])
@@ -641,7 +650,7 @@ const flattenNav = (items: MenuItem[], section: string): FlatNavItem[] => {
 const searchIndex = computed<FlatNavItem[]>(() => [
   ...staticNavItems,
   ...flattenNav(workloadMenuItems.value, 'Workloads'),
-  ...(hasManagerAccess.value ? flattenNav(modelLabMenuItems, 'Model Lab') : []),
+  ...(hasManagerAccess.value ? flattenNav(modelLabMenuItems.value, 'Model Lab') : []),
   ...flattenNav(agentInfraMenuItems.value, 'Agent Infra'),
   ...flattenNav(systemMenuItems.value, 'System'),
   ...(canSeeWorkspaceAndUserMenu.value && !hasManagerAccess.value

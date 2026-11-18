@@ -57,6 +57,16 @@ export function getPostTrainingModels(workspace: string) {
   })
 }
 
+/** Whether Post Training is on in the cluster; where it is off its API answers 404. */
+export async function postTrainingIsOn(workspace: string): Promise<boolean> {
+  try {
+    await getPostTrainingModels(workspace)
+    return true
+  } catch (err) {
+    return (err as { response?: { status?: number } })?.response?.status !== 404
+  }
+}
+
 /** Returns the frameworks and wizard options of a model for a train type and method. */
 export function getPostTrainingConfig(params: {
   workspace: string

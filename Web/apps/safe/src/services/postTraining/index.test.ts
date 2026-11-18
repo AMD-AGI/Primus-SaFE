@@ -49,6 +49,7 @@ import {
   EXPORT_REGISTER_WAIT,
   backToRuns,
   experimentNamesProblem,
+  postTrainingIsOn,
 } from './index'
 import type { Router } from 'vue-router'
 import request from '@/services/request'
@@ -392,6 +393,17 @@ describe('samples', () => {
     }
     expect(rewardOf(s)).toEqual({ value: '0.123', detail: '{"score":0.12345}' })
     expect(rewardOf(sample(1, 0)).value).toBe('—')
+  })
+})
+
+describe('postTrainingIsOn', () => {
+  it('takes only a 404 for Post Training off', async () => {
+    vi.mocked(request.get).mockRejectedValueOnce({ response: { status: 404 } })
+    expect(await postTrainingIsOn('ws1')).toBe(false)
+    vi.mocked(request.get).mockRejectedValueOnce({ response: { status: 503 } })
+    expect(await postTrainingIsOn('ws1')).toBe(true)
+    vi.mocked(request.get).mockResolvedValueOnce({ items: [] })
+    expect(await postTrainingIsOn('ws1')).toBe(true)
   })
 })
 
