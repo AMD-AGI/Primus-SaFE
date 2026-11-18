@@ -299,6 +299,7 @@ func (r *EvaluationJobReconciler) generateEvaluationWorkload(ctx context.Context
 	if job.Spec.TTLSecondsAfterFinished > 0 {
 		workload.Spec.TTLSecondsAfterFinished = pointer.Int(job.Spec.TTLSecondsAfterFinished)
 	}
+	copyPostTrainingLabels(job, workload)
 
 	// Set owner reference
 	if err := controllerutil.SetControllerReference(job, workload, r.Client.Scheme()); err != nil {

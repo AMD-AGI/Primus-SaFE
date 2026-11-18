@@ -77,7 +77,7 @@ func (r *DownloadJobReconciler) handleWorkloadEvent() handler.EventHandler {
 	}
 }
 
-// isDownloadWorkload checks if a workload belongs to a download or model-cleanup job.
+// isDownloadWorkload checks if a workload belongs to a download, model-cleanup or model-inspect job.
 func isDownloadWorkload(workload *v1.Workload) bool {
 	if v1.GetOpsJobId(workload) == "" {
 		return false
@@ -93,6 +93,16 @@ func isDownloadWorkload(workload *v1.Workload) bool {
 func isModelOwned(job *v1.OpsJob) bool {
 	owner := metav1.GetControllerOf(job)
 	return owner != nil && owner.Kind == v1.ModelKind
+}
+
+// copyPostTrainingLabels carries the Post Training labels of a job onto its workload, whose notices the Post
+// Training controller sends instead of the generic workload ones.
+func copyPostTrainingLabels(job *v1.OpsJob, workload *v1.Workload) {
+	for _, key := range []string{v1.PostTrainingRunIdLabel, v1.PostTrainingConvertCacheLabel} {
+		if value := v1.GetLabel(job, key); value != "" {
+			workload.Labels[key] = value
+		}
+	}
 }
 
 // mayRunEntryPoint reports whether the job may carry its own entry point: jobs of a Model, the model-inspect
@@ -155,7 +165,7 @@ func (r *DownloadJobReconciler) handle(ctx context.Context, job *v1.OpsJob) (ctr
 	return ctrlruntime.Result{}, nil
 }
 
-// generateDownloadWorkload generates the workload of a download or model-cleanup job.
+// generateDownloadWorkload generates the workload of a download, model-cleanup or model-inspect job.
 // The workload runs in the job's workspace, so the workspace volumes are mounted.
 func (r *DownloadJobReconciler) generateDownloadWorkload(ctx context.Context, job *v1.OpsJob) (*v1.Workload, error) {
 	workspaceId := v1.GetWorkspaceId(job)
@@ -230,6 +240,7 @@ func (r *DownloadJobReconciler) generateDownloadWorkload(ctx context.Context, jo
 	if modelId := job.GetLabels()[v1.ModelIdLabel]; modelId != "" {
 		workload.Labels[v1.ModelIdLabel] = modelId
 	}
+	copyPostTrainingLabels(job, workload)
 	if err = controllerutil.SetControllerReference(job, workload, r.Client.Scheme()); err != nil {
 		return nil, err
 	}
@@ -255,7 +266,7 @@ func (r *DownloadJobReconciler) generateDownloadWorkload(ctx context.Context, jo
 	}
 	if job.Spec.EntryPoint != nil && *job.Spec.EntryPoint != "" {
 		if !mayRunEntryPoint(job) {
-			return nil, commonerrors.NewBadRequest("only jobs created by a model may set an entry point")
+			return nil, commonerrors.NewBadRequest("only the jobs of a model or of Post Training may set an entry point")
 		}
 		workload.Spec.EntryPoints = []string{*job.Spec.EntryPoint}
 	}

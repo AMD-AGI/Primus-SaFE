@@ -73,6 +73,13 @@ func TestDownloadGenerateWorkload(t *testing.T) {
 	assert.Equal(t, "j1", wl.Name)
 	assert.Equal(t, "http://x", wl.Spec.Env["INPUT_URL"])
 	assert.Equal(t, "/data", wl.Spec.Env["DEST_PATH"])
+
+	job.Labels[v1.PostTrainingRunIdLabel] = "pt-1"
+	job.Labels[v1.PostTrainingConvertCacheLabel] = "c1"
+	wl, err = r.generateDownloadWorkload(context.Background(), job)
+	assert.NoError(t, err)
+	assert.Equal(t, "pt-1", wl.Labels[v1.PostTrainingRunIdLabel], "the run's notices come from its controller")
+	assert.Equal(t, "c1", wl.Labels[v1.PostTrainingConvertCacheLabel])
 }
 
 func TestDownloadGenerateWorkloadNoWorkspaceId(t *testing.T) {
