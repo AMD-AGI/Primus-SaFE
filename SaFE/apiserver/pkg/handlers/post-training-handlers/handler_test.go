@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http/httptest"
 	"strings"
@@ -306,6 +307,41 @@ func TestRegistryRetriesImagesInUse(t *testing.T) {
 	reg, _ = h.registry(ctx)
 	require.NotNil(t, reg.ImageByName("img:2"), "once no run uses img:1 the new version is loaded")
 	require.True(t, h.retryAt.IsZero())
+}
+
+func TestRegistryWaitsWhenTheImagesInUseCannotBeRead(t *testing.T) {
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+	cli := fake.NewClientBuilder().WithScheme(scheme).Build()
+	dbDown := false
+	running := []*dbclient.PostTrainingRun{{RunID: "r1", Image: "img:1"}}
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	db.EXPECT().ListPostTrainingRuns(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(context.Context, dbclient.PostTrainingRunFilter) ([]*dbclient.PostTrainingRun, int64, error) {
+			if dbDown {
+				return nil, 0, errors.New("connection refused")
+			}
+			return running, int64(len(running)), nil
+		}).AnyTimes()
+	h := NewHandler(cli, db)
+	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Namespace: common.PrimusSafeNamespace,
+		Name: registry.ConfigMapName}, Data: map[string]string{registry.DataKey: testRegistry}}
+	require.NoError(t, cli.Create(ctx, cm))
+	_, err := h.registry(ctx)
+	require.NoError(t, err)
+
+	dbDown = true
+	cm.Data[registry.DataKey] = strings.Replace(testRegistry, `"img:1"`, `"img:2"`, 1)
+	require.NoError(t, cli.Update(ctx, cm))
+	reg, _ := h.registry(ctx)
+	require.NotNil(t, reg.ImageByName("img:1"), "without the runs in use the new version is not taken")
+	require.False(t, h.retryAt.IsZero(), "and it is checked again")
+
+	dbDown = false
+	h.retryAt = time.Now().Add(-time.Second)
+	reg, _ = h.registry(ctx)
+	require.NotNil(t, reg.ImageByName("img:1"), "a run still uses img:1")
 }
 
 func TestRegistryChecksTableImagesAfterARestart(t *testing.T) {

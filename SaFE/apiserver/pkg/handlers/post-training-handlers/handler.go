@@ -40,9 +40,14 @@ const (
 	defaultStorageRoot = "/wekafs"
 	// runDirParent is where runs write their directory under the workspace storage.
 	runDirParent = "custom/models"
-	// registryRetryInterval is how often a version rejected for images in use is checked again.
+	// registryRetryInterval is how often a version rejected for images in use, or for not knowing them, is checked
+	// again.
 	registryRetryInterval = time.Minute
+	imagesInUseTimeout    = 10 * time.Second
 )
+
+// errImagesInUseUnknown rejects a registry version while the images of the unfinished runs cannot be read.
+var errImagesInUseUnknown = errors.New("invalid registry: the images that unfinished runs use cannot be read")
 
 // Handler serves the Post Training routes.
 type Handler struct {
@@ -80,13 +85,17 @@ func (h *Handler) registry(ctx context.Context) (*registry.Registry, error) {
 			if err := recipe.CheckRegistry(next); err != nil {
 				return err
 			}
-			return registry.CheckRemovedImages(prev, next, h.imagesInUse(ctx, prev != nil))
+			inUse, err := h.imagesInUse(prev != nil)
+			if err != nil {
+				return fmt.Errorf("%w: %v", errImagesInUseUnknown, err)
+			}
+			return registry.CheckRemovedImages(prev, next, inUse)
 		}
 		err := h.store.Load([]byte(cm.Data[registry.DataKey]), check)
 		h.loadedRV, h.retryAt = cm.ResourceVersion, time.Time{}
 		if err != nil {
 			klog.ErrorS(err, "rejected a Post Training registry version", "resourceVersion", cm.ResourceVersion)
-			if errors.Is(err, registry.ErrRemovedImagesInUse) {
+			if errors.Is(err, registry.ErrRemovedImagesInUse) || errors.Is(err, errImagesInUseUnknown) {
 				h.retryAt = time.Now().Add(registryRetryInterval)
 			}
 		}
@@ -97,16 +106,18 @@ func (h *Handler) registry(ctx context.Context) (*registry.Registry, error) {
 
 // imagesInUse lists the images of the runs that have not finished. Unless all is set, only the runs whose recipe
 // records an image from the image table count, as a custom image or an older recipe cannot be told apart from a
-// removed image without the previous registry version.
-func (h *Handler) imagesInUse(ctx context.Context, all bool) []string {
+// removed image without the previous registry version. The query has its own deadline, as the registry lock is
+// held meanwhile and the request that loads the registry may end first.
+func (h *Handler) imagesInUse(all bool) ([]string, error) {
 	if h.db == nil {
-		return nil
+		return nil, nil
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), imagesInUseTimeout)
+	defer cancel()
 	runs, _, err := h.db.ListPostTrainingRuns(ctx, dbclient.PostTrainingRunFilter{
 		Statuses: []string{string(v1.WorkloadPending), string(v1.WorkloadRunning)}})
 	if err != nil {
-		klog.ErrorS(err, "failed to list unfinished runs for the registry check")
-		return nil
+		return nil, err
 	}
 	images := make([]string, 0, len(runs))
 	for _, r := range runs {
@@ -115,7 +126,7 @@ func (h *Handler) imagesInUse(ctx context.Context, all bool) []string {
 			images = append(images, r.Image)
 		}
 	}
-	return images
+	return images, nil
 }
 
 // requireEnabled answers 404 when Post Training is off, and returns the registry or its load error otherwise.
