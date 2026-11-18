@@ -48,7 +48,8 @@ func TestPlanCleanup(t *testing.T) {
 	require.NoError(t, err)
 	var got checkpointCleanup
 	require.NoError(t, json.Unmarshal([]byte(plan), &got))
-	require.Equal(t, []string{"/w/pt-1/checkpoints/iter_0000010", "/w/pt-1/checkpoints/iter_0000030"}, got.Paths)
+	require.Equal(t, []string{"/w/pt-1/checkpoints/iter_0000009", "/w/pt-1/checkpoints/iter_0000029"}, got.Paths,
+		"slime saves the checkpoint after step N as iter_{N-1}")
 	require.Equal(t, 20, *got.KeptStep, "the lowest validation loss stays")
 
 	plan, err = h.planCleanup(ctx, cleanupRun("Stopped"), "none")

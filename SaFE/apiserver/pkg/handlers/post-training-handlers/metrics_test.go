@@ -109,6 +109,11 @@ func TestBuildMarkers(t *testing.T) {
 	require.Empty(t, m.Checkpoints)
 	require.Nil(t, m.BestCheckpoint)
 	require.Nil(t, m.Failure)
+
+	run.Recipe = `{"choices":{"saveInterval":10}}`
+	m = buildMarkers(run, map[string][]*dbclient.PostTrainingRunMetric{"train/loss": rows("train/loss", 0, 3, 19, 1)})
+	require.Equal(t, []checkpointMark{{Step: 10}, {Step: 20}}, m.Checkpoints,
+		"steps count from 0, so a last step of 19 means 20 steps done and the checkpoint saved after them")
 }
 
 func TestStopWorkload(t *testing.T) {

@@ -414,7 +414,7 @@ func (h *Handler) planCleanup(ctx context.Context, run *dbclient.PostTrainingRun
 		}
 		for _, cp := range m.Checkpoints {
 			if !cp.Deleted && cp.Step != m.BestCheckpoint.Step {
-				plan.Paths = append(plan.Paths, fmt.Sprintf("%s/checkpoints/iter_%07d", base, cp.Step))
+				plan.Paths = append(plan.Paths, fmt.Sprintf("%s/checkpoints/iter_%07d", base, checkpointIteration(cp.Step)))
 			}
 		}
 		kept := m.BestCheckpoint.Step

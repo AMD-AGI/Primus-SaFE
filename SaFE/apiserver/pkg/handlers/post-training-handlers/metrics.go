@@ -50,7 +50,8 @@ type series struct {
 	NonFinite [][2]interface{} `json:"nonFinite,omitempty"`
 }
 
-// checkpointMark is a checkpoint position on the curves.
+// checkpointMark is a checkpoint position on the curves. Step counts the steps done when slime saved it; its
+// directory is named by checkpointIteration(Step).
 type checkpointMark struct {
 	Step    int      `json:"step"`
 	Deleted bool     `json:"deleted,omitempty"`
@@ -335,6 +336,12 @@ func sortedNames(points map[string][]*dbclient.PostTrainingRunMetric) []string {
 	return names
 }
 
+// checkpointIteration returns the iteration in the directory name of the checkpoint saved after step steps: slime
+// saves after rollout i, counted from 0, as iter_i.
+func checkpointIteration(step int) int {
+	return step - 1
+}
+
 // buildMarkers derives the checkpoint, best checkpoint, resume and failure markers of a run from its recipe, stage
 // history and points.
 func buildMarkers(run *dbclient.PostTrainingRun, points map[string][]*dbclient.PostTrainingRunMetric) markers {
@@ -345,9 +352,10 @@ func buildMarkers(run *dbclient.PostTrainingRun, points map[string][]*dbclient.P
 	if run.TrainType == registry.TrainTypeRL {
 		main = "rollout/raw_reward"
 	}
-	lastStep := 0
+	lastStep, done := 0, 0
 	if rows := points[main]; len(rows) > 0 {
 		lastStep = rows[len(rows)-1].Step
+		done = lastStep + 1
 	}
 	valLoss := map[int]float64{}
 	for _, r := range points[valLossMetric] {
@@ -356,7 +364,7 @@ func buildMarkers(run *dbclient.PostTrainingRun, points map[string][]*dbclient.P
 		}
 	}
 	if interval := rec.Choices.SaveInterval; interval > 0 {
-		for step := interval; step <= lastStep; step += interval {
+		for step := interval; step <= done; step += interval {
 			cp := checkpointMark{Step: step}
 			if v, ok := valLoss[step]; ok {
 				cp.ValLoss = &v
