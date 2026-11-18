@@ -66,8 +66,8 @@ func TestExportWorkload(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(data, &snapshot))
 	require.Equal(t, "/w/pt-1", snapshot.Output.Base, "the rest of the snapshot stays")
-	require.Equal(t, exportOnly{Step: 20, Dir: "/w/pt-1/exports/step-20", DisplayName: "qwen-sft-step20"},
-		snapshot.ExportOnly)
+	require.Equal(t, exportOnly{Step: 20, Iteration: 19, Dir: "/w/pt-1/exports/step-20", DisplayName: "qwen-sft-step20"},
+		snapshot.ExportOnly, "the launcher reads slime's iter_0000019 for step 20")
 
 	for req, code := range map[exportRequest]int{
 		{Step: 25}:                    http.StatusBadRequest,

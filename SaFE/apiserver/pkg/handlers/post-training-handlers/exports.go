@@ -41,6 +41,7 @@ type exportRequest struct {
 // controller reads the display name of the new model from it.
 type exportOnly struct {
 	Step        int    `json:"step"`
+	Iteration   int    `json:"iteration"`
 	Dir         string `json:"dir"`
 	DisplayName string `json:"displayName"`
 	PeftAdapter bool   `json:"peftAdapter,omitempty"`
@@ -149,8 +150,8 @@ func (h *Handler) exportWorkload(c *gin.Context, reg *registry.Registry, run *db
 	if err = json.Unmarshal([]byte(run.Recipe), &snapshot); err != nil {
 		return nil, commonerrors.NewInternalError("failed to read the recipe snapshot: " + err.Error())
 	}
-	snapshot["exportOnly"] = exportOnly{Step: req.Step, Dir: fmt.Sprintf("%s/exports/step-%d", rec.Output.Base, req.Step),
-		DisplayName: name, PeftAdapter: req.PeftAdapter}
+	snapshot["exportOnly"] = exportOnly{Step: req.Step, Iteration: checkpointIteration(req.Step),
+		Dir: fmt.Sprintf("%s/exports/step-%d", rec.Output.Base, req.Step), DisplayName: name, PeftAdapter: req.PeftAdapter}
 	recipeJSON, err := json.Marshal(snapshot)
 	if err != nil {
 		return nil, commonerrors.NewInternalError("failed to encode the export recipe: " + err.Error())
