@@ -2,8 +2,7 @@
   <div>
     <el-text class="block textx-18 font-500" tag="b">{{ isCreate ? 'Create QoS' : 'Edit QoS' }}</el-text>
     <el-text class="block mt-2" type="info">
-      Resource totals and timeouts for one cluster. Memory is in Gi. Timeouts are per workspace scope.
-      Remove a scope and save to drop that timeout. Personal values are set on a user.
+      Resource totals and timeouts for one cluster. Memory is in Gi. Personal values are set on a user.
     </el-text>
   </div>
   <el-card class="mt-6 safe-card" shadow="never" v-loading="loading">
