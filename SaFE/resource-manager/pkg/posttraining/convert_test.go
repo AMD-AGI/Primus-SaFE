@@ -8,6 +8,7 @@ package posttraining
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
@@ -17,6 +18,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/resource"
 )
 
 func TestConvertMarkerRegistersTheCache(t *testing.T) {
@@ -107,6 +109,84 @@ func TestSweepReclaimsCachesOfDeletedModels(t *testing.T) {
 	require.Empty(t, jobs.Items, "the finished cleanup job is removed")
 }
 
+func TestReclaimChecksTheRunsAgainOnceTheCacheIsMarked(t *testing.T) {
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1",
+		Volumes: []v1.WorkspaceVolume{{Type: v1.PFS, MountPath: "/wekafs"}}}}
+	r, db, _ := newTestReconciler(t, testRunRow("Running", "train"), ws)
+	loadChartRegistry(t, r)
+	gone := &dbclient.PostTrainingConvertCache{ID: 1, Workspace: "ws1", CacheKey: "slime-qwen3-8B-m-gone-540ea91",
+		ModelID: "m-gone", Path: "/wekafs/custom/models/post-training-cache/slime-qwen3-8B-m-gone-540ea91",
+		Status: dbclient.ConvertCacheReady}
+	late := testRunRow("Pending", "")
+	late.Recipe = `{"convert":{"cacheKey":"slime-qwen3-8B-m-gone-540ea91"}}`
+	db.EXPECT().ListPostTrainingConvertCaches(gomock.Any(), gomock.Any()).Return(
+		[]*dbclient.PostTrainingConvertCache{gone}, nil)
+	listed := 0
+	db.EXPECT().ListPostTrainingRuns(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(context.Context, dbclient.PostTrainingRunFilter) ([]*dbclient.PostTrainingRun, int64, error) {
+			if listed++; listed == 1 {
+				return nil, 0, nil
+			}
+			return []*dbclient.PostTrainingRun{late}, 1, nil
+		}).AnyTimes()
+	db.EXPECT().UpdatePostTrainingConvertCache(gomock.Any(), int64(1),
+		map[string]interface{}{"status": dbclient.ConvertCacheInvalid}).Return(nil)
+	_, err := r.Reconcile(context.Background(), ctrlruntime.Request{NamespacedName: client.ObjectKey{Name: cacheSweepRequest}})
+	require.NoError(t, err)
+	jobs := &v1.OpsJobList{}
+	require.NoError(t, r.List(context.Background(), jobs))
+	require.Empty(t, jobs.Items, "a run submitted before the cache was marked keeps it")
+}
+
+func TestAFailedReclaimWaitsBeforeItRunsAgain(t *testing.T) {
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1",
+		Volumes: []v1.WorkspaceVolume{{Type: v1.PFS, MountPath: "/wekafs"}}}}
+	dir := "/wekafs/custom/models/post-training-cache/slime-qwen3-8B-m-gone-540ea91"
+	ended := metav1.NewTime(time.Now().Add(-time.Minute))
+	job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: resource.DirectoryCleanupJobName("ws1", dir)}}
+	job.Status.Phase, job.Status.FinishedAt = v1.OpsJobFailed, &ended
+	r, db, _ := newTestReconciler(t, testRunRow("Running", "train"), ws, job)
+	loadChartRegistry(t, r)
+	gone := &dbclient.PostTrainingConvertCache{ID: 1, Workspace: "ws1", CacheKey: "slime-qwen3-8B-m-gone-540ea91",
+		ModelID: "m-gone", Path: dir, Status: dbclient.ConvertCacheInvalid}
+	db.EXPECT().ListPostTrainingConvertCaches(gomock.Any(), gomock.Any()).Return(
+		[]*dbclient.PostTrainingConvertCache{gone}, nil).Times(2)
+	db.EXPECT().ListPostTrainingRuns(gomock.Any(), gomock.Any()).Return(nil, int64(0), nil).AnyTimes()
+	ctx := context.Background()
+	_, err := r.Reconcile(ctx, ctrlruntime.Request{NamespacedName: client.ObjectKey{Name: cacheSweepRequest}})
+	require.NoError(t, err)
+	require.NoError(t, r.Get(ctx, client.ObjectKeyFromObject(job), &v1.OpsJob{}),
+		"the failed job stays, so the next sweep in a minute does not start the cleanup again")
+
+	require.NoError(t, r.Get(ctx, client.ObjectKeyFromObject(job), job))
+	long := metav1.NewTime(time.Now().Add(-time.Hour))
+	job.Status.FinishedAt = &long
+	require.NoError(t, r.Update(ctx, job))
+	_, err = r.Reconcile(ctx, ctrlruntime.Request{NamespacedName: client.ObjectKey{Name: cacheSweepRequest}})
+	require.NoError(t, err)
+	require.Error(t, r.Get(ctx, client.ObjectKeyFromObject(job), &v1.OpsJob{}), "after the wait it is tried again")
+}
+
+func TestACommitWithAHyphenIsNotRetired(t *testing.T) {
+	kept := &v1.Model{ObjectMeta: metav1.ObjectMeta{Name: "m-kept"}}
+	r, db, _ := newTestReconciler(t, testRunRow("Running", "train"), kept)
+	loadChartRegistry(t, r)
+	reg, err := r.registry.store.Get()
+	require.NoError(t, err)
+	reg.Images[0].FrameworkCommit = "540ea91-rc1"
+	cache := &dbclient.PostTrainingConvertCache{ID: 4, Workspace: "ws1", CacheKey: "slime-qwen3-8B-m-kept-540ea91-rc1",
+		ModelID: "m-kept", Path: "/wekafs/custom/models/post-training-cache/slime-qwen3-8B-m-kept-540ea91-rc1",
+		Status: dbclient.ConvertCacheReady}
+	db.EXPECT().ListPostTrainingConvertCaches(gomock.Any(), gomock.Any()).Return(
+		[]*dbclient.PostTrainingConvertCache{cache}, nil)
+	db.EXPECT().ListPostTrainingRuns(gomock.Any(), gomock.Any()).Return(nil, int64(0), nil).AnyTimes()
+	_, err = r.Reconcile(context.Background(), ctrlruntime.Request{NamespacedName: client.ObjectKey{Name: cacheSweepRequest}})
+	require.NoError(t, err)
+	jobs := &v1.OpsJobList{}
+	require.NoError(t, r.List(context.Background(), jobs))
+	require.Empty(t, jobs.Items, "the cache of a listed commit stays, whatever the commit looks like")
+}
+
 func TestSweepDropsRecordsOutsideTheCacheDirectory(t *testing.T) {
 	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1",
 		Volumes: []v1.WorkspaceVolume{{Type: v1.PFS, MountPath: "/wekafs"}}}}
@@ -128,6 +208,9 @@ func TestSweepDropsRecordsOutsideTheCacheDirectory(t *testing.T) {
 	require.Empty(t, jobs.Items, "a record whose path is no cache directory loses the record, never the directory")
 }
 
-func TestCacheCommit(t *testing.T) {
-	require.Equal(t, "540ea91", cacheCommit("slime-qwen3-4B-Instruct-2507-m-1-540ea91"))
+func TestCommitRetired(t *testing.T) {
+	commits := map[string]bool{"540ea91": true, "540ea91-rc1": true}
+	require.False(t, commitRetired("slime-qwen3-4B-Instruct-2507-m-1-540ea91", commits))
+	require.False(t, commitRetired("slime-qwen3-4B-m-1-540ea91-rc1", commits))
+	require.True(t, commitRetired("slime-qwen3-4B-m-1-0ld", commits))
 }

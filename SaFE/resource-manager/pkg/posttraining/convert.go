@@ -29,6 +29,8 @@ const (
 	// cacheSweepRequest is the work queue key of a sweep of the conversion caches; run ids never take this form.
 	cacheSweepRequest = "#convert-cache-sweep"
 	cacheSweepRequeue = time.Minute
+	// cacheReclaimRetry is how long a failed reclaim job is kept before the cache is reclaimed again.
+	cacheReclaimRetry = 30 * time.Minute
 	// convertCacheDir is the directory the compiler keeps shared conversions in, one <cache key> directory each.
 	convertCacheDir = "post-training-cache"
 )
@@ -121,31 +123,44 @@ func (r *RunReconciler) cacheReclaimable(ctx context.Context, cache *dbclient.Po
 	model := &v1.Model{}
 	err := r.Get(ctx, client.ObjectKey{Name: cache.ModelID}, model)
 	gone := apierrors.IsNotFound(err) || (err == nil && !model.GetDeletionTimestamp().IsZero())
-	retired := commits != nil && !commits[cacheCommit(cache.CacheKey)]
+	retired := commits != nil && commitRetired(cache.CacheKey, commits)
 	if !gone && !retired && cache.Status != dbclient.ConvertCacheInvalid {
 		return false
 	}
+	inUse, err := r.cacheInUse(ctx, cache)
+	return err == nil && !inUse
+}
+
+// cacheInUse reports whether an unfinished run of the cache's workspace uses it.
+func (r *RunReconciler) cacheInUse(ctx context.Context, cache *dbclient.PostTrainingConvertCache) (bool, error) {
 	runs, _, err := r.db.ListPostTrainingRuns(ctx, dbclient.PostTrainingRunFilter{BaseModelID: cache.ModelID,
 		Workspace: cache.Workspace, Statuses: []string{string(v1.WorkloadPending), string(v1.WorkloadRunning)}})
 	if err != nil {
-		return false
+		return false, err
 	}
 	for _, run := range runs {
 		if rec := parseRecipe(run); rec.Convert != nil && rec.Convert.CacheKey == cache.CacheKey {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// commitRetired reports whether no framework commit of the registry ends a cache key; a commit may hold hyphens
+// itself.
+func commitRetired(key string, commits map[string]bool) bool {
+	for commit := range commits {
+		if commit != "" && strings.HasSuffix(key, "-"+commit) {
 			return false
 		}
 	}
 	return true
 }
 
-// cacheCommit returns the framework commit that ends a cache key.
-func cacheCommit(key string) string {
-	return key[strings.LastIndex(key, "-")+1:]
-}
-
-// reclaimCache removes a cache directory with a model-cleanup job, marking the record invalid meanwhile, and
-// deletes the record once the job succeeded. A failed job is deleted, so the next sweep tries again. A record
-// whose path is not a cache directory loses only the record. It reports whether the cache is gone.
+// reclaimCache removes a cache directory with a model-cleanup job, marking the record invalid first and checking
+// once more that no run took the cache meanwhile, and deletes the record once the job succeeded. A failed job is
+// kept for cacheReclaimRetry and then deleted, so a later sweep tries again. A record whose path is not a cache
+// directory loses only the record. It reports whether the cache is gone.
 func (r *RunReconciler) reclaimCache(ctx context.Context, cache *dbclient.PostTrainingConvertCache) (bool, error) {
 	if path.Base(cache.Path) != cache.CacheKey || path.Base(path.Dir(cache.Path)) != convertCacheDir {
 		klog.InfoS("dropping a conversion cache record whose path is not a cache directory", "cache", cache.CacheKey,
@@ -171,6 +186,9 @@ func (r *RunReconciler) reclaimCache(ctx context.Context, cache *dbclient.PostTr
 				return false, err
 			}
 		}
+		if inUse, err := r.cacheInUse(ctx, cache); err != nil || inUse {
+			return false, err
+		}
 		return false, client.IgnoreAlreadyExists(r.Create(ctx, job))
 	}
 	if err != nil {
@@ -183,6 +201,11 @@ func (r *RunReconciler) reclaimCache(ctx context.Context, cache *dbclient.PostTr
 		}
 		return true, client.IgnoreNotFound(r.Delete(ctx, job))
 	case v1.OpsJobFailed:
+		if time.Since(jobEnd(job)) < cacheReclaimRetry {
+			return false, nil
+		}
+		klog.Warningf("reclaiming conversion cache %s at %s failed: %s; trying again", cache.CacheKey, cache.Path,
+			jobFailure(job))
 		return false, client.IgnoreNotFound(r.Delete(ctx, job))
 	}
 	return false, nil
