@@ -42,6 +42,8 @@ type templateRequest struct {
 	Spec        string          `json:"spec"`
 	Content     json.RawMessage `json:"content"`
 	SourceRunID string          `json:"sourceRunId"`
+	// Version is the version an edit was made on; the edit is refused when the template has another one now.
+	Version int `json:"version"`
 }
 
 // templateView is a template with its content as JSON and how many of its runs succeeded.
@@ -208,7 +210,8 @@ func (h *Handler) CreateTemplate(c *gin.Context) {
 	c.JSON(http.StatusOK, viewOf(t, 0))
 }
 
-// UpdateTemplate edits a template's name, description or content and increments its version.
+// UpdateTemplate edits a template's name, description or content and increments its version; the edit names the
+// version it was made on and is refused with 409 when someone saved the template since.
 func (h *Handler) UpdateTemplate(c *gin.Context) {
 	if _, _, ok := h.requireEnabled(c); !ok {
 		return
@@ -224,15 +227,26 @@ func (h *Handler) UpdateTemplate(c *gin.Context) {
 		return
 	}
 	fields, err := templateEdits(&req)
+	if err == nil && req.Version <= 0 {
+		err = commonerrors.NewBadRequest("version is required: the version of the template the edit was made on")
+	}
+	version := 0
 	if err == nil {
-		err = h.db.UpdatePostTrainingTemplate(c.Request.Context(), t.TemplateID, fields)
+		version, err = h.db.UpdatePostTrainingTemplate(c.Request.Context(), t.TemplateID, req.Version, fields)
+		switch {
+		case errors.Is(err, dbclient.ErrStaleVersion):
+			err = commonerrors.NewConflict(fmt.Sprintf("template %s was saved by someone else after version %d; "+
+				"reload it and edit again", t.TemplateID, req.Version))
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			err = commonerrors.NewNotFoundWithMessage(fmt.Sprintf("template %s not found", t.TemplateID))
+		}
 	}
 	if err != nil {
 		apiutils.AbortWithApiError(c, err)
 		return
 	}
 	klog.Infof("update post training template %s by user %s", t.TemplateID, c.GetString(common.UserName))
-	c.JSON(http.StatusOK, gin.H{"templateId": t.TemplateID, "version": t.Version + 1})
+	c.JSON(http.StatusOK, gin.H{"templateId": t.TemplateID, "version": version})
 }
 
 // DeleteTemplate soft-deletes a template; runs keep the template id and version they recorded.

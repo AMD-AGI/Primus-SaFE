@@ -2555,17 +2555,18 @@ func (mr *MockInterfaceMockRecorder) UpdatePostTrainingRun(ctx, runID, fields in
 }
 
 // UpdatePostTrainingTemplate mocks base method.
-func (m *MockInterface) UpdatePostTrainingTemplate(ctx context.Context, templateID string, fields map[string]interface{}) error {
+func (m *MockInterface) UpdatePostTrainingTemplate(ctx context.Context, templateID string, version int, fields map[string]interface{}) (int, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdatePostTrainingTemplate", ctx, templateID, fields)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret := m.ctrl.Call(m, "UpdatePostTrainingTemplate", ctx, templateID, version, fields)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // UpdatePostTrainingTemplate indicates an expected call of UpdatePostTrainingTemplate.
-func (mr *MockInterfaceMockRecorder) UpdatePostTrainingTemplate(ctx, templateID, fields interface{}) *gomock.Call {
+func (mr *MockInterfaceMockRecorder) UpdatePostTrainingTemplate(ctx, templateID, version, fields interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePostTrainingTemplate", reflect.TypeOf((*MockInterface)(nil).UpdatePostTrainingTemplate), ctx, templateID, fields)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePostTrainingTemplate", reflect.TypeOf((*MockInterface)(nil).UpdatePostTrainingTemplate), ctx, templateID, version, fields)
 }
 
 // UpdateWorkloadStatistic mocks base method.
@@ -6059,17 +6060,18 @@ func (mr *MockPostTrainingTemplateInterfaceMockRecorder) SetPostTrainingTemplate
 }
 
 // UpdatePostTrainingTemplate mocks base method.
-func (m *MockPostTrainingTemplateInterface) UpdatePostTrainingTemplate(ctx context.Context, templateID string, fields map[string]interface{}) error {
+func (m *MockPostTrainingTemplateInterface) UpdatePostTrainingTemplate(ctx context.Context, templateID string, version int, fields map[string]interface{}) (int, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdatePostTrainingTemplate", ctx, templateID, fields)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret := m.ctrl.Call(m, "UpdatePostTrainingTemplate", ctx, templateID, version, fields)
+	ret0, _ := ret[0].(int)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // UpdatePostTrainingTemplate indicates an expected call of UpdatePostTrainingTemplate.
-func (mr *MockPostTrainingTemplateInterfaceMockRecorder) UpdatePostTrainingTemplate(ctx, templateID, fields interface{}) *gomock.Call {
+func (mr *MockPostTrainingTemplateInterfaceMockRecorder) UpdatePostTrainingTemplate(ctx, templateID, version, fields interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePostTrainingTemplate", reflect.TypeOf((*MockPostTrainingTemplateInterface)(nil).UpdatePostTrainingTemplate), ctx, templateID, fields)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePostTrainingTemplate", reflect.TypeOf((*MockPostTrainingTemplateInterface)(nil).UpdatePostTrainingTemplate), ctx, templateID, version, fields)
 }
 
 // MockPostTrainingExperimentInterface is a mock of PostTrainingExperimentInterface interface.

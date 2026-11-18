@@ -330,7 +330,7 @@ type PostTrainingTemplateInterface interface {
 	CreatePostTrainingTemplate(ctx context.Context, t *PostTrainingTemplate) error
 	GetPostTrainingTemplate(ctx context.Context, templateID string) (*PostTrainingTemplate, error)
 	ListPostTrainingTemplates(ctx context.Context, filter PostTrainingTemplateFilter) ([]*PostTrainingTemplate, int64, error)
-	UpdatePostTrainingTemplate(ctx context.Context, templateID string, fields map[string]interface{}) error
+	UpdatePostTrainingTemplate(ctx context.Context, templateID string, version int, fields map[string]interface{}) (int, error)
 	SetPostTrainingTemplateDeleted(ctx context.Context, templateID string) error
 	CountPostTrainingRunsByTemplate(ctx context.Context, templateIDs []string) (map[string]int, error)
 }

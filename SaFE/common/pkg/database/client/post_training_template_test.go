@@ -46,11 +46,23 @@ func TestPostTrainingTemplateInputs(t *testing.T) {
 
 func TestUpdatePostTrainingTemplateBumpsVersion(t *testing.T) {
 	c, mock := newMockClient(t)
-	mock.ExpectExec(`UPDATE "post_training_template" SET .*"version"=version \+ 1`).
+	ctx := context.Background()
+	mock.ExpectExec(`UPDATE "post_training_template" SET .*"version"=version \+ 1.* WHERE .*AND version = \$\d+`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	require.NoError(t, c.UpdatePostTrainingTemplate(context.Background(), "tpl-1",
-		map[string]interface{}{"name": "renamed"}))
+	version, err := c.UpdatePostTrainingTemplate(ctx, "tpl-1", 3, map[string]interface{}{"name": "renamed"})
+	require.NoError(t, err)
+	require.Equal(t, 4, version, "the version written is the one after the version that was read")
+
 	mock.ExpectExec(`UPDATE "post_training_template" SET`).WillReturnResult(sqlmock.NewResult(0, 0))
-	require.ErrorIs(t, c.UpdatePostTrainingTemplate(context.Background(), "missing", nil), gorm.ErrRecordNotFound)
+	mock.ExpectQuery(`SELECT count\(\*\) FROM "post_training_template"`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	_, err = c.UpdatePostTrainingTemplate(ctx, "tpl-1", 2, map[string]interface{}{"name": "renamed"})
+	require.ErrorIs(t, err, ErrStaleVersion, "someone else saved the template since version 2 was read")
+
+	mock.ExpectExec(`UPDATE "post_training_template" SET`).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(`SELECT count\(\*\) FROM "post_training_template"`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	_, err = c.UpdatePostTrainingTemplate(ctx, "missing", 1, nil)
+	require.ErrorIs(t, err, gorm.ErrRecordNotFound)
 	require.NoError(t, mock.ExpectationsWereMet())
 }

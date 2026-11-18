@@ -7,6 +7,7 @@ package client
 
 import (
 	"context"
+	"errors"
 
 	"github.com/lib/pq"
 	"gorm.io/gorm"
@@ -17,6 +18,9 @@ import (
 const (
 	TPostTrainingTemplate = "post_training_template"
 )
+
+// ErrStaleVersion is returned by an update that names a version the record no longer has.
+var ErrStaleVersion = errors.New("the record was changed since that version was read")
 
 // PostTrainingTemplate is a recipe template of a workspace: the framework, train type, method, spec, options,
 // resources, evaluation and W&B settings, and optionally the base model and dataset, as JSON content. Every edit
@@ -116,26 +120,36 @@ func (c *Client) ListPostTrainingTemplates(ctx context.Context,
 	return out, total, nil
 }
 
-// UpdatePostTrainingTemplate sets the given columns of a non-deleted template and increments its version. It
-// returns gorm.ErrRecordNotFound when no such template exists.
-func (c *Client) UpdatePostTrainingTemplate(ctx context.Context, templateID string, fields map[string]interface{}) error {
+// UpdatePostTrainingTemplate sets the given columns of a non-deleted template that still has version and
+// increments the version, which it returns. It returns gorm.ErrRecordNotFound when no such template exists and
+// ErrStaleVersion when the template has another version.
+func (c *Client) UpdatePostTrainingTemplate(ctx context.Context, templateID string, version int,
+	fields map[string]interface{}) (int, error) {
 	db, err := c.GetGormDB()
 	if err != nil {
-		return err
+		return 0, err
 	}
 	updates := map[string]interface{}{"version": gorm.Expr("version + 1")}
 	for k, v := range fields {
 		updates[k] = v
 	}
 	res := db.WithContext(ctx).Model(&PostTrainingTemplate{}).
-		Where("template_id = ? AND is_deleted = ?", templateID, false).Updates(updates)
+		Where("template_id = ? AND is_deleted = ? AND version = ?", templateID, false, version).Updates(updates)
 	if res.Error != nil {
-		return res.Error
+		return 0, res.Error
 	}
 	if res.RowsAffected == 0 {
-		return gorm.ErrRecordNotFound
+		var n int64
+		if err = db.WithContext(ctx).Model(&PostTrainingTemplate{}).
+			Where("template_id = ? AND is_deleted = ?", templateID, false).Count(&n).Error; err != nil {
+			return 0, err
+		}
+		if n > 0 {
+			return 0, ErrStaleVersion
+		}
+		return 0, gorm.ErrRecordNotFound
 	}
-	return nil
+	return version + 1, nil
 }
 
 // SetPostTrainingTemplateDeleted soft-deletes a template; runs keep the template id and version they recorded.
