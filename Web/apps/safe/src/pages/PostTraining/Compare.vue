@@ -133,7 +133,9 @@
                 </span>
               </template>
             </el-table-column>
-            <el-table-column label="Duration" prop="duration" width="110" />
+            <el-table-column label="Duration" width="110">
+              <template #default="{ row }">{{ durations[row.runId] }}</template>
+            </el-table-column>
           </el-table>
         </el-card>
 
@@ -431,9 +433,6 @@ const results = computed(() =>
       const total = (r.recipe as { choices?: { numRollout?: number } } | undefined)?.choices
         ?.numRollout
       const best = r.metricSummary?.bestValLoss
-      const start = timeOf(r.startTime)
-      const end = timeOf(r.endTime)
-      const endMs = end ? dayjs(end).valueOf() : now.value.getTime()
       return {
         runId: r.runId,
         name: r.displayName,
@@ -448,10 +447,23 @@ const results = computed(() =>
         rising: !!best && risingAfterBest(e, best.step),
         scores: scoresOf(r),
         pending: isActive(r) || r.stage === 'eval' ? 'Pending' : '—',
-        duration: start ? formatDuration((endMs - dayjs(start).valueOf()) / 1000) : '—',
       }
     }),
 )
+
+/** The run time of each run by id; it alone reads the clock, so the results and the scatter keep still. */
+const durations = computed(() => {
+  const out: Record<string, string> = {}
+  for (const e of entries.value) {
+    const r = e.run
+    if (!r) continue
+    const start = timeOf(r.startTime)
+    const end = timeOf(r.endTime)
+    const endMs = end ? dayjs(end).valueOf() : now.value.getTime()
+    out[r.runId] = start ? formatDuration((endMs - dayjs(start).valueOf()) / 1000) : '—'
+  }
+  return out
+})
 
 const benchmarks = computed(() =>
   [...new Set(results.value.flatMap((r) => Object.keys(r.scores)))].sort(),
