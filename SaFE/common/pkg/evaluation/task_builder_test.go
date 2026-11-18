@@ -23,6 +23,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	mockclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 )
 
 // noSecret fails every Secret read.
@@ -88,6 +89,38 @@ func TestBuildTaskLocalWorkload(t *testing.T) {
 	assert.Equal(t, sql.NullString{String: "pt-qwen-abc12", Valid: true}, stored.PostTrainingRunId)
 	assert.Equal(t, sql.NullString{String: "m-1", Valid: true}, stored.ModelId)
 	assert.Equal(t, dbclient.EvaluationTaskStatusPending, stored.Status)
+}
+
+func TestBuildTaskNamedAndOnAPort(t *testing.T) {
+	cli := fake.NewClientBuilder().Build()
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	db.EXPECT().GetDataset(gomock.Any(), "gsm8k").Return(&dbclient.Dataset{DatasetType: "evaluation"}, nil)
+	db.EXPECT().GetWorkload(gomock.Any(), "pt-eval-1").Return(&dbclient.Workload{WorkloadId: "pt-eval-1"}, nil)
+	db.EXPECT().UpsertEvaluationTask(gomock.Any(), gomock.Any()).Return(nil)
+	task, err := BuildTask(context.Background(), cli, db, noSecret, TaskRequest{TaskID: "eval-task-fixed",
+		ServiceID: "pt-eval-1", ServiceType: ServiceTypeLocalWorkload, ServicePort: 30000,
+		Benchmarks: `[{"datasetId":"gsm8k"}]`})
+	require.NoError(t, err)
+	assert.Equal(t, "eval-task-fixed", task.TaskID, "a retried build upserts the same task")
+	for _, in := range task.Inputs {
+		if in.Name == v1.ParameterModelEndpoint {
+			assert.Equal(t, "http://pt-eval-1:30000/v1", in.Value, "the service's own port")
+		}
+	}
+}
+
+func TestBuildTaskTellsAMissingDatasetFromAFailedRead(t *testing.T) {
+	cli := fake.NewClientBuilder().Build()
+	req := TaskRequest{ServiceID: "pt-eval-1", ServiceType: ServiceTypeLocalWorkload, Benchmarks: `[{"datasetId":"gsm8k"}]`}
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	db.EXPECT().GetDataset(gomock.Any(), "gsm8k").Return(nil, commonerrors.NewNotFoundWithMessage("dataset gsm8k not found"))
+	_, err := BuildTask(context.Background(), cli, db, noSecret, req)
+	assert.True(t, commonerrors.IsBadRequest(err), "a deleted benchmark fails the same way every time")
+
+	db.EXPECT().GetDataset(gomock.Any(), "gsm8k").Return(nil, errors.New("connection reset"))
+	_, err = BuildTask(context.Background(), cli, db, noSecret, req)
+	require.Error(t, err)
+	assert.False(t, commonerrors.IsBadRequest(err), "a database that failed to answer may answer the next time")
 }
 
 func TestServedModelNameFromCmd(t *testing.T) {

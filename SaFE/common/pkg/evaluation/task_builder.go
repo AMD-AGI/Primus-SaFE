@@ -47,9 +47,13 @@ type Benchmark struct {
 
 // TaskRequest is what an evaluation task is built from.
 type TaskRequest struct {
+	// TaskID names the task, so building it again upserts the same row; a random one is made when it is empty.
+	TaskID      string
 	Name        string
 	ServiceID   string
 	ServiceType string
+	// ServicePort is the port of a local workload service; 8000 when it is not positive.
+	ServicePort int
 	// Benchmarks is the JSON array of Benchmark; each needs a datasetId.
 	Benchmarks string
 	Workspace  string
@@ -112,7 +116,10 @@ func BuildTask(ctx context.Context, cli client.Client, db dbclient.Interface, ge
 		}
 		dataset, err := db.GetDataset(ctx, b.DatasetId)
 		if err != nil {
-			return nil, commonerrors.NewBadRequest(fmt.Sprintf("dataset not found: %s", b.DatasetId))
+			if commonerrors.IsNotFound(err) {
+				return nil, commonerrors.NewBadRequest(fmt.Sprintf("dataset not found: %s", b.DatasetId))
+			}
+			return nil, commonerrors.NewInternalError(fmt.Sprintf("failed to read dataset %s: %v", b.DatasetId, err))
 		}
 		if dataset.DatasetType != "evaluation" {
 			return nil, commonerrors.NewBadRequest(fmt.Sprintf("dataset %s is not an evaluation type dataset", b.DatasetId))
@@ -121,7 +128,10 @@ func BuildTask(ctx context.Context, cli client.Client, db dbclient.Interface, ge
 		// DatasetLocalDir will be set after we know the workspace
 	}
 
-	taskId := fmt.Sprintf("eval-task-%s", uuid.New().String()[:8])
+	taskId := req.TaskID
+	if taskId == "" {
+		taskId = fmt.Sprintf("eval-task-%s", uuid.New().String()[:8])
+	}
 
 	// Get service info and construct endpoint
 	var serviceName, modelEndpoint, modelName, modelAPIKey, clusterId string
@@ -174,7 +184,11 @@ func BuildTask(ctx context.Context, cli client.Client, db dbclient.Interface, ge
 		serviceName = workload.DisplayName
 		clusterId = workload.Cluster
 
-		modelEndpoint = fmt.Sprintf("http://%s:8000/v1", workload.WorkloadId)
+		port := req.ServicePort
+		if port <= 0 {
+			port = 8000
+		}
+		modelEndpoint = fmt.Sprintf("http://%s:%d/v1", workload.WorkloadId, port)
 
 		// Parse real model name: priority is --served-model-name from entryPoint > env > displayName
 		modelName = servedModelName(workload.EntryPoint, workload.EntryPoints)
