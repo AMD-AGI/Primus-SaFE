@@ -169,12 +169,12 @@ func (h *Handler) ListTemplates(c *gin.Context) {
 	c.JSON(http.StatusOK, out)
 }
 
-// GetTemplate returns one template.
+// GetTemplate returns one template to whoever may list the workspace's templates.
 func (h *Handler) GetTemplate(c *gin.Context) {
 	if _, _, ok := h.requireEnabled(c); !ok {
 		return
 	}
-	t, err := h.getTemplate(c, v1.GetVerb)
+	t, err := h.getTemplate(c, v1.ListVerb)
 	if err != nil {
 		apiutils.AbortWithApiError(c, err)
 		return
