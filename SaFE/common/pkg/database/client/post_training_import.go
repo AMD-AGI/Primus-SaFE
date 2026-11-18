@@ -262,6 +262,22 @@ func (c *Client) getPostTrainingImport(ctx context.Context, cond string, args ..
 	return &imp, nil
 }
 
+// DeleteExpiredPostTrainingImports deletes, in one transaction, the tokens that expired before a time and the scan
+// records, staged or committed, created before it; an imported record stays with its run.
+func (c *Client) DeleteExpiredPostTrainingImports(ctx context.Context, before time.Time) error {
+	db, err := c.GetGormDB()
+	if err != nil {
+		return err
+	}
+	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("expires_at < ?", before).Delete(&PostTrainingImportToken{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("state IN ? AND created_at < ?",
+			[]string{PostTrainingImportStaged, PostTrainingImportCommitted}, before).Delete(&PostTrainingImport{}).Error
+	})
+}
+
 // DeletePostTrainingImportOfRun soft-deletes the import of a run and clears its path key, so the directory can be
 // imported again.
 func (c *Client) DeletePostTrainingImportOfRun(ctx context.Context, runID string) error {

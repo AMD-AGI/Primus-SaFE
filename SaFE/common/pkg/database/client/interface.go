@@ -7,6 +7,7 @@ package client
 
 import (
 	"context"
+	"time"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
 
@@ -323,6 +324,7 @@ type PostTrainingImportInterface interface {
 	GetPostTrainingImport(ctx context.Context, importID string) (*PostTrainingImport, error)
 	GetPostTrainingImportByRun(ctx context.Context, runID string) (*PostTrainingImport, error)
 	ListPostTrainingImportsOfRuns(ctx context.Context, runIDs []string) (map[string]*PostTrainingImport, error)
+	DeleteExpiredPostTrainingImports(ctx context.Context, before time.Time) error
 	GetPostTrainingImportByPathKey(ctx context.Context, pathKey string) (*PostTrainingImport, error)
 	DeletePostTrainingImportOfRun(ctx context.Context, runID string) error
 }

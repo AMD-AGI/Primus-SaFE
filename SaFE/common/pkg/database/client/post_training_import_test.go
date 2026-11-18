@@ -8,6 +8,7 @@ package client
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/require"
@@ -29,4 +30,18 @@ func TestListPostTrainingImportsOfRunsReadsOnlyWhatTheListShows(t *testing.T) {
 	require.Equal(t, "/runs/a", got["spur-a"].SourcePath)
 	require.Equal(t, "FAIL", got["spur-b"].Verdict)
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestExpiredImportTokensAndScanRecordsAreDeleted(t *testing.T) {
+	c, mock := newMockClient(t)
+	before := time.Now().UTC().Add(-24 * time.Hour)
+	mock.ExpectBegin()
+	mock.ExpectExec(`DELETE FROM "post_training_import_token" WHERE expires_at < \$1`).
+		WithArgs(before).WillReturnResult(sqlmock.NewResult(0, 2))
+	mock.ExpectExec(`DELETE FROM "post_training_import" WHERE state IN \(\$1,\$2\) AND created_at < \$3`).
+		WithArgs(PostTrainingImportStaged, PostTrainingImportCommitted, before).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+	require.NoError(t, c.DeleteExpiredPostTrainingImports(context.Background(), before))
+	require.NoError(t, mock.ExpectationsWereMet(), "an imported record is kept")
 }

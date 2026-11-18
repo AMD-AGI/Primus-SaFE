@@ -7,6 +7,7 @@ package mock_client
 import (
 	context "context"
 	reflect "reflect"
+	time "time"
 
 	client "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	model "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
@@ -1258,6 +1259,20 @@ func (m *MockInterface) GetPostTrainingImportByPathKey(ctx context.Context, path
 func (mr *MockInterfaceMockRecorder) GetPostTrainingImportByPathKey(ctx, pathKey interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPostTrainingImportByPathKey", reflect.TypeOf((*MockInterface)(nil).GetPostTrainingImportByPathKey), ctx, pathKey)
+}
+
+// DeleteExpiredPostTrainingImports mocks base method.
+func (m *MockInterface) DeleteExpiredPostTrainingImports(ctx context.Context, before time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteExpiredPostTrainingImports", ctx, before)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteExpiredPostTrainingImports indicates an expected call of DeleteExpiredPostTrainingImports.
+func (mr *MockInterfaceMockRecorder) DeleteExpiredPostTrainingImports(ctx, before interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteExpiredPostTrainingImports", reflect.TypeOf((*MockInterface)(nil).DeleteExpiredPostTrainingImports), ctx, before)
 }
 
 // ListPostTrainingImportsOfRuns mocks base method.
@@ -5932,6 +5947,20 @@ func (m *MockPostTrainingImportInterface) GetPostTrainingImportByPathKey(ctx con
 func (mr *MockPostTrainingImportInterfaceMockRecorder) GetPostTrainingImportByPathKey(ctx, pathKey interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPostTrainingImportByPathKey", reflect.TypeOf((*MockPostTrainingImportInterface)(nil).GetPostTrainingImportByPathKey), ctx, pathKey)
+}
+
+// DeleteExpiredPostTrainingImports mocks base method.
+func (m *MockPostTrainingImportInterface) DeleteExpiredPostTrainingImports(ctx context.Context, before time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteExpiredPostTrainingImports", ctx, before)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteExpiredPostTrainingImports indicates an expected call of DeleteExpiredPostTrainingImports.
+func (mr *MockPostTrainingImportInterfaceMockRecorder) DeleteExpiredPostTrainingImports(ctx, before interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteExpiredPostTrainingImports", reflect.TypeOf((*MockPostTrainingImportInterface)(nil).DeleteExpiredPostTrainingImports), ctx, before)
 }
 
 // ListPostTrainingImportsOfRuns mocks base method.
