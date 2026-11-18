@@ -92,7 +92,7 @@ export function fieldStep(field?: string): number {
     return 2
   if (
     ['resources.nodes', 'resources.gpusPerNode'].includes(field) ||
-    /^choices\.(layout|rolloutGpus|gpusPerEngine|tp|pp|cp|ep|sequenceParallel|pd)/.test(field)
+    /^choices\.(layout|rolloutGpus|gpusPerEngine|tp|pp|cp|ep|sequenceParallel)/.test(field)
   )
     return 3
   if (top === 'choices') return 4

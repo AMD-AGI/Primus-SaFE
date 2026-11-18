@@ -22,6 +22,7 @@ describe('fieldStep', () => {
     expect(fieldStep('choices.tp')).toBe(3)
     expect(fieldStep('choices.saveInterval')).toBe(4)
     expect(fieldStep('choices.lora.experts')).toBe(4)
+    expect(fieldStep('choices.pd.prefillGpus')).toBe(4)
     expect(fieldStep('resources.image')).toBe(5)
     expect(fieldStep('evaluation.benchmarks')).toBe(5)
     expect(fieldStep(undefined)).toBe(0)
