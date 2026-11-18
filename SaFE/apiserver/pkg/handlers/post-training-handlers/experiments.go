@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -90,6 +91,10 @@ func variantRequests(req *experimentRequest, seed int) ([]*recipe.SubmitRequest,
 	if name == "" {
 		return nil, nil, commonerrors.NewBadRequest("displayName is required")
 	}
+	if utf8.RuneCountInString(name) > maxDisplayNameLen {
+		return nil, nil, commonerrors.NewBadRequest(fmt.Sprintf("displayName has more than %d characters",
+			maxDisplayNameLen))
+	}
 	if n := len(req.Variants); n < 1 || n > maxVariants {
 		return nil, nil, commonerrors.NewBadRequest(fmt.Sprintf("an experiment has 1 to %d variants", maxVariants))
 	}
@@ -131,6 +136,10 @@ func variantRequests(req *experimentRequest, seed int) ([]*recipe.SubmitRequest,
 				"every variant of an experiment has the baseline's", v.Name))
 		}
 		r.Workspace, r.DisplayName, r.Seed, r.Evaluation = base.Workspace, name+"-"+v.Name, seed, evaluation
+		if utf8.RuneCountInString(r.DisplayName) > maxDisplayNameLen {
+			return nil, nil, commonerrors.NewBadRequest(fmt.Sprintf("the run name %s of variant %s has more than %d "+
+				"characters; shorten the experiment's name", r.DisplayName, v.Name, maxDisplayNameLen))
+		}
 		out = append(out, r)
 	}
 	return out, names, nil

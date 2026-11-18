@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 	corev1 "k8s.io/api/core/v1"
@@ -47,7 +48,9 @@ const (
 	maxRetryLimit   = 3
 	maxRunSlugLen   = 30
 	maxExtBytes     = 16 * 1024
-	rdmaResource    = "1k"
+	// maxDisplayNameLen is what the display name columns of runs and experiments hold.
+	maxDisplayNameLen = 128
+	rdmaResource      = "1k"
 	// nodeInitScript clears stale aiter JIT locks, which hang SGLang after a pod restart, and lets every Python
 	// process on the node, Ray workers included, import the launcher's slime plugins by name: a .pth file adds a
 	// directory that holds only the safe_post_training package.
@@ -132,6 +135,10 @@ func (h *Handler) prepareRun(c *gin.Context, reg *registry.Registry,
 	ctx := c.Request.Context()
 	if strings.TrimSpace(req.DisplayName) == "" {
 		return nil, nil, commonerrors.NewBadRequest("displayName is required")
+	}
+	if utf8.RuneCountInString(req.DisplayName) > maxDisplayNameLen {
+		return nil, nil, commonerrors.NewBadRequest(fmt.Sprintf("displayName has more than %d characters",
+			maxDisplayNameLen))
 	}
 	if r := req.Resources.MaxRetry; r != nil && (*r < 0 || *r > maxRetryLimit) {
 		return nil, nil, commonerrors.NewBadRequest(fmt.Sprintf("maxRetry must be between 0 and %d", maxRetryLimit))

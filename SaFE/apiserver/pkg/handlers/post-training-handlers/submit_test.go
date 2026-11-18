@@ -189,6 +189,15 @@ func TestOnlyTheIssuerCommitsAScan(t *testing.T) {
 		w.Body.String())
 }
 
+func TestANameLongerThanItsColumnIsRefused(t *testing.T) {
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	h, _ := submitHandler(t, db, nil)
+	req := sftExperiment().Baseline
+	req.DisplayName = strings.Repeat("r", 129)
+	code, body := postAs(h.SubmitRun, req)
+	require.Equal(t, http.StatusBadRequest, code, "the run's name column holds 128 characters: %s", body)
+}
+
 // errFromString is an error with message.
 type errFromString string
 

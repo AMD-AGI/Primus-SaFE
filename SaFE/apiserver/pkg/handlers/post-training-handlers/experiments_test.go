@@ -7,6 +7,7 @@ package posttraininghandlers
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/golang/mock/gomock"
@@ -58,6 +59,11 @@ func TestVariantRequests(t *testing.T) {
 		_, _, err = variantRequests(&req, 1)
 		require.Equal(t, http.StatusBadRequest, statusCode(err), "%+v", variants)
 	}
+
+	req.Variants = []experimentVariant{{Name: "lr2e-6"}}
+	req.DisplayName = strings.Repeat("e", 120)
+	_, _, err = variantRequests(&req, 1)
+	require.Equal(t, http.StatusBadRequest, statusCode(err), "a variant's run name holds at most 128 characters")
 }
 
 func TestMergeChanges(t *testing.T) {
