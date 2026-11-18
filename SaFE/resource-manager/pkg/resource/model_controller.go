@@ -18,6 +18,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
@@ -36,6 +37,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/posttraining/registry"
 	commonworkspace "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workspace"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
@@ -78,6 +80,16 @@ const (
 	InspectJobPrefix = "inspect-"
 	inspectDone      = "done"
 	inspectFailed    = "failed"
+	// inspectAttempts is how many times a failed read of a model's config.json is tried before the failure is
+	// recorded; the n-th retry waits n times inspectRetryDelay after the failed job ended.
+	inspectAttempts   = 3
+	inspectRetryDelay = 5 * time.Minute
+	// inspectAttemptsAnnotation counts the failed reads of a model's config.json.
+	inspectAttemptsAnnotation = v1.ModelPrefix + "inspect-attempts"
+	// postTrainingCheckInterval is how long the answer to whether Post Training is on is kept; models are read
+	// only for Post Training, and a model waiting for it looks again after postTrainingWaitInterval.
+	postTrainingCheckInterval = time.Minute
+	postTrainingWaitInterval  = 10 * time.Minute
 
 	// cleanupRetryInterval is how long a failed cleanup waits before it runs again.
 	cleanupRetryInterval = 30 * time.Second
@@ -109,6 +121,10 @@ type ModelReconciler struct {
 	recorder record.EventRecorder
 	// db finds the unfinished Post Training runs that use a model as their base; nil without a database.
 	db dbclient.Interface
+	// ptMu guards whether Post Training is on, as last checked at ptCheckedAt.
+	ptMu        sync.Mutex
+	ptEnabled   bool
+	ptCheckedAt time.Time
 }
 
 // SetupModelController sets up the controller with the Manager.
@@ -832,9 +848,10 @@ func inspectJobName(model *v1.Model) string {
 	return hashedJobName(InspectJobPrefix+model.Name, model.Name)
 }
 
-// inspectModel reads, once, the config.json of a Ready local model that has no structure summary: it runs a
-// model-inspect job in a workspace holding the model, writes the summary to the status and records the
-// outcome, with the reason of a failure, in annotations. Jobs are started within the download limit.
+// inspectModel reads the config.json of a Ready local model that has no structure summary while Post Training is
+// on: it runs a model-inspect job in a workspace holding the model, writes the summary to the status and records
+// the outcome, with the reason of a failure, in annotations. A failed read is tried inspectAttempts times. Jobs
+// are started within the download limit.
 func (r *ModelReconciler) inspectModel(ctx context.Context, model *v1.Model) (ctrl.Result, error) {
 	if model.Status.ModelConfig != nil || v1.GetAnnotation(model, v1.ModelInspectAnnotation) != "" {
 		return ctrl.Result{}, nil
@@ -847,6 +864,13 @@ func (r *ModelReconciler) inspectModel(ctx context.Context, model *v1.Model) (ct
 	err := r.Get(ctx, client.ObjectKey{Name: inspectJobName(model)}, job)
 	switch {
 	case errors.IsNotFound(err):
+		if r.db == nil {
+			// Post Training needs the database.
+			return ctrl.Result{}, nil
+		}
+		if !r.postTrainingEnabled(ctx) {
+			return ctrl.Result{RequeueAfter: postTrainingWaitInterval}, nil
+		}
 		return r.startInspect(ctx, model, workspaceName, dir)
 	case err != nil:
 		return ctrl.Result{}, err
@@ -860,9 +884,46 @@ func (r *ModelReconciler) inspectModel(ctx context.Context, model *v1.Model) (ct
 		}
 		return ctrl.Result{}, r.finishInspect(ctx, model, job, inspectFailed, "config.json has no model structure fields")
 	case job.Status.Phase == v1.OpsJobFailed:
-		return ctrl.Result{}, r.finishInspect(ctx, model, job, inspectFailed, r.extractOpsJobFailureReason(job))
+		attempts, _ := strconv.Atoi(v1.GetAnnotation(model, inspectAttemptsAnnotation))
+		if attempts+1 >= inspectAttempts {
+			return ctrl.Result{}, r.finishInspect(ctx, model, job, inspectFailed, r.extractOpsJobFailureReason(job))
+		}
+		ended := job.CreationTimestamp.Time
+		if job.Status.FinishedAt != nil {
+			ended = job.Status.FinishedAt.Time
+		}
+		if wait := time.Duration(attempts+1)*inspectRetryDelay - time.Since(ended); wait > 0 {
+			return ctrl.Result{RequeueAfter: wait}, nil
+		}
+		patch := client.MergeFrom(model.DeepCopy())
+		v1.SetAnnotation(model, inspectAttemptsAnnotation, strconv.Itoa(attempts+1))
+		if err = r.Patch(ctx, model, patch); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{RequeueAfter: time.Second}, client.IgnoreNotFound(r.Delete(ctx, job))
 	}
 	return ctrl.Result{}, nil
+}
+
+// postTrainingEnabled tells whether Post Training is on, that is whether its registry ConfigMap exists; the
+// answer is kept for postTrainingCheckInterval, and the last one stays while the API server cannot answer.
+func (r *ModelReconciler) postTrainingEnabled(ctx context.Context) bool {
+	r.ptMu.Lock()
+	defer r.ptMu.Unlock()
+	if time.Since(r.ptCheckedAt) < postTrainingCheckInterval {
+		return r.ptEnabled
+	}
+	reader := r.apiReader
+	if reader == nil {
+		reader = r.Client
+	}
+	key := client.ObjectKey{Namespace: common.PrimusSafeNamespace, Name: registry.ConfigMapName}
+	err := reader.Get(ctx, key, &corev1.ConfigMap{})
+	if err != nil && !errors.IsNotFound(err) {
+		return r.ptEnabled
+	}
+	r.ptEnabled, r.ptCheckedAt = err == nil, time.Now()
+	return r.ptEnabled
 }
 
 // inspectTarget returns the workspace and directory from which a model's config.json is read.
@@ -878,16 +939,12 @@ func inspectTarget(model *v1.Model) (string, string) {
 	return "", ""
 }
 
-// startInspect creates the model-inspect job once a download slot is free; a job that cannot be created is
-// recorded as a failed read.
+// startInspect creates the model-inspect job once a download slot is free, counting the jobs in the cache, as a
+// job too many only reads one file; a job that cannot be created yet is tried again with the controller's backoff.
 func (r *ModelReconciler) startInspect(ctx context.Context, model *v1.Model, workspaceName, dir string) (ctrl.Result, error) {
 	if limit := commonconfig.GetModelMaxConcurrentDownloads(); limit > 0 {
-		reader := r.apiReader
-		if reader == nil {
-			reader = r.Client
-		}
 		jobs := &v1.OpsJobList{}
-		if err := reader.List(ctx, jobs, client.MatchingLabels{
+		if err := r.List(ctx, jobs, client.MatchingLabels{
 			v1.OpsJobTypeLabel: string(v1.OpsJobModelInspectType)}); err != nil {
 			return ctrl.Result{}, err
 		}
@@ -911,7 +968,7 @@ func (r *ModelReconciler) startInspect(ctx context.Context, model *v1.Model, wor
 	}
 	if err != nil && !errors.IsAlreadyExists(err) {
 		klog.ErrorS(err, "Failed to start reading the model config", "model", model.Name)
-		return ctrl.Result{}, r.finishInspect(ctx, model, nil, inspectFailed, err.Error())
+		return ctrl.Result{}, err
 	}
 	return ctrl.Result{}, nil
 }

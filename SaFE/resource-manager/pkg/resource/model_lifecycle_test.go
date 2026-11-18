@@ -37,6 +37,7 @@ import (
 	mockclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonopsjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/posttraining/registry"
 	commonsecret "github.com/AMD-AIG-AIMA/SAFE/common/pkg/secret"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
@@ -1510,13 +1511,21 @@ func TestModelInspectScript(t *testing.T) {
 	assert.Equal(t, 36, reportedModelConfig(job).NumHiddenLayers)
 }
 
+// ptRegistry is the ConfigMap whose presence turns Post Training on.
+func ptRegistry() *corev1.ConfigMap {
+	return &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Namespace: common.PrimusSafeNamespace,
+		Name: registry.ConfigMapName}}
+}
+
 func TestInspectModelReadsConfigOnce(t *testing.T) {
 	model := genMockModel("registered", v1.AccessModeLocalPath, "ws1")
 	model.Spec.Source.LocalPath = "/data/models/org--repo"
 	model.Status.Phase = v1.ModelPhaseReady
 	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1"}}
-	cli := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(model, ws).WithStatusSubresource(model).Build()
-	r := &ModelReconciler{ClusterBaseReconciler: &ClusterBaseReconciler{Client: cli}, apiReader: cli}
+	cli := fake.NewClientBuilder().WithScheme(lifecycleScheme(t)).WithObjects(model, ws, ptRegistry()).
+		WithStatusSubresource(model).Build()
+	r := &ModelReconciler{ClusterBaseReconciler: &ClusterBaseReconciler{Client: cli}, apiReader: cli,
+		db: mockclient.NewMockInterface(gomock.NewController(t))}
 	ctx := context.Background()
 
 	_, err := r.inspectModel(ctx, model)
@@ -1540,23 +1549,58 @@ func TestInspectModelReadsConfigOnce(t *testing.T) {
 	failed := genMockModel("broken", v1.AccessModeLocalPath, "ws1")
 	failed.Spec.Source.LocalPath = "/data/models/broken"
 	require.NoError(t, cli.Create(ctx, failed))
-	_, err = r.inspectModel(ctx, failed)
-	require.NoError(t, err)
-	job = &v1.OpsJob{}
-	require.NoError(t, cli.Get(ctx, client.ObjectKey{Name: inspectJobName(failed)}, job))
-	job.Status.Phase = v1.OpsJobFailed
-	job.Status.Conditions = []metav1.Condition{{Type: opsJobCompletedCondition, Reason: opsJobFailedReason,
-		Message: "config.json does not exist"}}
-	require.NoError(t, cli.Update(ctx, job))
-	_, err = r.inspectModel(ctx, failed)
-	require.NoError(t, err)
-	require.NoError(t, cli.Get(ctx, client.ObjectKeyFromObject(failed), got))
+	for attempt := 1; attempt <= inspectAttempts; attempt++ {
+		require.NoError(t, cli.Get(ctx, client.ObjectKeyFromObject(failed), failed))
+		_, err = r.inspectModel(ctx, failed)
+		require.NoError(t, err)
+		job = &v1.OpsJob{}
+		require.NoError(t, cli.Get(ctx, client.ObjectKey{Name: inspectJobName(failed)}, job), "attempt %d", attempt)
+		long := metav1.NewTime(time.Now().Add(-time.Hour))
+		job.Status.Phase, job.Status.FinishedAt = v1.OpsJobFailed, &long
+		job.Status.Conditions = []metav1.Condition{{Type: opsJobCompletedCondition, Reason: opsJobFailedReason,
+			Message: "config.json does not exist"}}
+		require.NoError(t, cli.Update(ctx, job))
+		_, err = r.inspectModel(ctx, failed)
+		require.NoError(t, err)
+		require.NoError(t, cli.Get(ctx, client.ObjectKeyFromObject(failed), got))
+		if attempt < inspectAttempts {
+			assert.Empty(t, got.Annotations[v1.ModelInspectAnnotation], "a failed read is tried again, attempt %d", attempt)
+			assert.True(t, errors.IsNotFound(cli.Get(ctx, client.ObjectKey{Name: inspectJobName(failed)}, &v1.OpsJob{})))
+		}
+	}
 	assert.Equal(t, inspectFailed, got.Annotations[v1.ModelInspectAnnotation])
 	assert.Equal(t, "config.json does not exist", got.Annotations[v1.ModelInspectErrorAnnotation])
 	_, err = r.inspectModel(ctx, got)
 	require.NoError(t, err)
 	assert.True(t, errors.IsNotFound(cli.Get(ctx, client.ObjectKey{Name: inspectJobName(failed)}, &v1.OpsJob{})),
-		"a failed read is not retried")
+		"after the last attempt the failure is kept")
+}
+
+func TestInspectModelWaitsForPostTrainingAndRetriesAFailedStart(t *testing.T) {
+	model := genMockModel("registered", v1.AccessModeLocalPath, "ws1")
+	model.Spec.Source.LocalPath = "/data/models/org--repo"
+	model.Status.Phase = v1.ModelPhaseReady
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
+	cli := fake.NewClientBuilder().WithScheme(lifecycleScheme(t)).WithObjects(model, ws).WithStatusSubresource(model).Build()
+	r := &ModelReconciler{ClusterBaseReconciler: &ClusterBaseReconciler{Client: cli}, apiReader: cli}
+	ctx := context.Background()
+	res, err := r.inspectModel(ctx, model)
+	require.NoError(t, err)
+	assert.Zero(t, res.RequeueAfter, "without a database there is no Post Training to wait for")
+	r.db = mockclient.NewMockInterface(gomock.NewController(t))
+	res, err = r.inspectModel(ctx, model)
+	require.NoError(t, err)
+	assert.Positive(t, res.RequeueAfter, "the model is read once Post Training is turned on")
+	assert.True(t, errors.IsNotFound(cli.Get(ctx, client.ObjectKey{Name: inspectJobName(model)}, &v1.OpsJob{})),
+		"without Post Training no model is read")
+
+	require.NoError(t, cli.Create(ctx, ptRegistry()))
+	r.ptCheckedAt = time.Time{}
+	_, err = r.inspectModel(ctx, model)
+	require.Error(t, err, "a job that cannot be created yet, here for a workspace without a cluster, is retried")
+	got := &v1.Model{}
+	require.NoError(t, cli.Get(ctx, client.ObjectKeyFromObject(model), got))
+	assert.Empty(t, got.Annotations[v1.ModelInspectAnnotation])
 }
 
 func TestNewDirectoryCleanupOpsJob(t *testing.T) {
