@@ -8,7 +8,9 @@ package client
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"gorm.io/gorm/clause"
 )
@@ -17,6 +19,9 @@ const (
 	TPostTrainingRunSample = "post_training_run_sample"
 
 	postTrainingSampleBatchSize = 200
+	// The widths of the dataset and status columns.
+	postTrainingSampleDatasetLen = 128
+	postTrainingSampleStatusLen  = 16
 )
 
 // PostTrainingRunSample is one RL sample of a run, truncated by the launcher: a response to a prompt of a rollout
@@ -76,7 +81,52 @@ func (c *Client) UpsertPostTrainingRunSamples(ctx context.Context, samples []*Po
 			{Name: "group_index"}, {Name: "sample_index"}},
 		DoUpdates: clause.AssignmentColumns([]string{"prompt", "response", "label", "reward", "reward_detail",
 			"status", "response_tokens", "prompt_chars", "response_chars", "wall_time"}),
-	}).CreateInBatches(samples, postTrainingSampleBatchSize).Error
+	}).CreateInBatches(cleanPostTrainingRunSamples(samples), postTrainingSampleBatchSize).Error
+}
+
+// postTrainingSampleKey is the unique key of a stored sample.
+type postTrainingSampleKey struct {
+	runID, kind, dataset     string
+	step, group, sampleIndex int
+}
+
+// cleanPostTrainingRunSamples fits model output to its columns, as one refused sample fails the whole write: NULs,
+// which text columns do not take, are dropped, the dataset and status are cut to their widths, and of the samples
+// that then share a key the last is kept.
+func cleanPostTrainingRunSamples(samples []*PostTrainingRunSample) []*PostTrainingRunSample {
+	index := make(map[postTrainingSampleKey]int, len(samples))
+	out := make([]*PostTrainingRunSample, 0, len(samples))
+	for _, s := range samples {
+		if s == nil {
+			continue
+		}
+		s.Dataset = cutRunes(dropNUL(s.Dataset), postTrainingSampleDatasetLen)
+		s.Status = cutRunes(dropNUL(s.Status), postTrainingSampleStatusLen)
+		s.Prompt, s.Response = dropNUL(s.Prompt), dropNUL(s.Response)
+		s.Label.String, s.RewardDetail.String = dropNUL(s.Label.String), dropNUL(s.RewardDetail.String)
+		key := postTrainingSampleKey{runID: s.RunID, kind: s.Kind, dataset: s.Dataset, step: s.Step,
+			group: s.GroupIndex, sampleIndex: s.SampleIndex}
+		if i, ok := index[key]; ok {
+			out[i] = s
+			continue
+		}
+		index[key] = len(out)
+		out = append(out, s)
+	}
+	return out
+}
+
+// dropNUL removes the NUL characters of s.
+func dropNUL(s string) string {
+	return strings.ReplaceAll(s, "\x00", "")
+}
+
+// cutRunes cuts s to at most n characters.
+func cutRunes(s string, n int) string {
+	if utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	return string([]rune(s)[:n])
 }
 
 // CountPostTrainingRunSamples returns how many samples a run has stored.

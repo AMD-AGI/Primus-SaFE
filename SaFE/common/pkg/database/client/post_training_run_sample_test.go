@@ -7,8 +7,10 @@ package client
 
 import (
 	"context"
+	"strings"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -24,6 +26,23 @@ func TestPostTrainingRunSampleCRUD(t *testing.T) {
 	_, _ = c.ListPostTrainingRunSampleSteps(ctx, "r1", "rollout")
 	_ = c.DeletePostTrainingRunSamples(ctx, "r1", &step)
 	_ = c.DeletePostTrainingRunSamples(ctx, "r1", nil)
+}
+
+func TestSamplesAreCleanedForTheirColumns(t *testing.T) {
+	c, mock := newMockClient(t)
+	dataset := strings.Repeat("d", 130)
+	mock.ExpectQuery(`INSERT INTO "post_training_run_sample" .* VALUES \(\$1,\$2,\$3,\$4,\$5,\$6,\$7,\$8,\$9,\$10,\$11,`+
+		`\$12,\$13,\$14,\$15,\$16\) ON CONFLICT`).
+		WithArgs("r1", "rollout", 1, dataset[:128], 0, 0, "p", "ab", nil, nil, nil, "ok", 0, 0, 0,
+			sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(1)))
+	err := c.UpsertPostTrainingRunSamples(context.Background(), []*PostTrainingRunSample{
+		{RunID: "r1", Kind: "rollout", Step: 1, Dataset: dataset, Prompt: "p", Response: "x", Status: "ok"},
+		{RunID: "r1", Kind: "rollout", Step: 1, Dataset: dataset + "x", Prompt: "p", Response: "a\x00b", Status: "ok"},
+	})
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet(),
+		"a NUL is dropped, the dataset fits its column, and the sample that now shares its key replaces the other")
 }
 
 func TestPostTrainingRunSampleInputs(t *testing.T) {
