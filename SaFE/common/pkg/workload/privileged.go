@@ -13,12 +13,14 @@ import (
 // privilegedTemplateKinds are the workload kinds whose stock templates
 // (charts/primus-safe/templates/configmap) run a privileged container whatever the
 // workload asks for. AutoscalingRunnerSet, EphemeralRunner, and UnifiedJob carry a
-// privileged container. GithubRunner does not: its pod runs the listener without a
-// privileged security context. Code in a privileged pod controls the node.
+// privileged container. GithubRunner's Docker sidecar is privileged when
+// cicd.docker_enabled is set, and that container is part of the chart, so the kind
+// takes the same grant. Code in a privileged pod controls the node.
 // The chart is the source of truth: a test fails when a template and this set disagree.
 var privilegedTemplateKinds = map[string]struct{}{
 	common.CICDScaleRunnerSetKind:  {},
 	common.CICDEphemeralRunnerKind: {},
+	common.CICDGithubRunnerKind:    {},
 	common.UnifiedJobKind:          {},
 }
 
