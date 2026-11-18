@@ -1436,6 +1436,7 @@ func TestModelDownloadSavesFinishedJobOnLaterError(t *testing.T) {
 	}
 }
 
+// The reported model config is parsed with its rope theta and dtype, next to the size line.
 func TestReportedModelConfig(t *testing.T) {
 	lines := `["[SUCCESS] MODEL_CONFIG={\"architectures\":[\"Qwen3ForCausalLM\"],\"model_type\":\"qwen3\",` +
 		`\"num_hidden_layers\":36,\"num_key_value_heads\":8,\"rope_theta\":1000000.0,\"torch_dtype\":\"bfloat16\"}",` +
@@ -1452,6 +1453,7 @@ func TestReportedModelConfig(t *testing.T) {
 		{Name: "result", Value: "[SUCCESS] MODEL_CONFIG={}"}}}}), "a config without model_type or architectures")
 }
 
+// A Post Training output's weights stay while runs train from it, and go with it after.
 func TestPostTrainingOutputCleanupWaitsForBasedRuns(t *testing.T) {
 	model := genMockModel("qwen-sft-out", v1.AccessModeLocalPath, "ws1")
 	model.Spec.PostTrainingRunId = "pt-qwen-abc12"
@@ -1478,6 +1480,7 @@ func TestPostTrainingOutputCleanupWaitsForBasedRuns(t *testing.T) {
 	assert.Contains(t, got.Finalizers, ModelFinalizer, "the weights stay while runs train from them")
 }
 
+// The download and inspect scripts are valid shell.
 func TestModelScriptsAreValidShell(t *testing.T) {
 	for name, script := range map[string]string{"download": hfDownloadScript, "inspect": modelInspectScript} {
 		out, err := exec.Command("sh", "-n", "-c", script).CombinedOutput()
@@ -1486,6 +1489,7 @@ func TestModelScriptsAreValidShell(t *testing.T) {
 	assert.Contains(t, hfDownloadScript, modelConfigShell)
 }
 
+// The inspect script reports the model's config.json, or an error when it cannot.
 func TestModelInspectScript(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 is not installed")
@@ -1517,6 +1521,7 @@ func ptRegistry() *corev1.ConfigMap {
 		Name: registry.ConfigMapName}}
 }
 
+// A model's config is read once, and a failed read is tried again.
 func TestInspectModelReadsConfigOnce(t *testing.T) {
 	model := genMockModel("registered", v1.AccessModeLocalPath, "ws1")
 	model.Spec.Source.LocalPath = "/data/models/org--repo"
@@ -1576,6 +1581,7 @@ func TestInspectModelReadsConfigOnce(t *testing.T) {
 		"after the last attempt the failure is kept")
 }
 
+// A model is inspected once Post Training is on, and a job that cannot start yet is retried.
 func TestInspectModelWaitsForPostTrainingAndRetriesAFailedStart(t *testing.T) {
 	model := genMockModel("registered", v1.AccessModeLocalPath, "ws1")
 	model.Spec.Source.LocalPath = "/data/models/org--repo"
@@ -1603,6 +1609,7 @@ func TestInspectModelWaitsForPostTrainingAndRetriesAFailedStart(t *testing.T) {
 	assert.Empty(t, got.Annotations[v1.ModelInspectAnnotation])
 }
 
+// A directory cleanup job refuses a path outside the workspace volume.
 func TestNewDirectoryCleanupOpsJob(t *testing.T) {
 	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1",
 		Volumes: []v1.WorkspaceVolume{{Type: v1.PFS, MountPath: "/wekafs"}}}}
