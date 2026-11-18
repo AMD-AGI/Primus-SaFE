@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 
+	"golang.org/x/net/idna"
+
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/post-training-handlers/recipe"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/posttraining/registry"
@@ -108,11 +110,23 @@ func trackingRules(ctx *recipe.Context) []recipe.Diagnostic {
 // metadataHosts are cloud metadata endpoints outside the link-local range.
 var metadataHosts = map[string]bool{"metadata.google.internal": true, "fd00:ec2::254": true, "100.100.100.200": true}
 
+// loopbackNames are the names of the pod itself, as the /etc/hosts kubelet writes maps them.
+var loopbackNames = map[string]bool{"localhost": true, "ip6-localhost": true, "ip6-loopback": true}
+
 // blockedRewardHost tells whether a reward address names the pod itself, a link-local or metadata endpoint, or an
-// unspecified or multicast address. Only names and literals are checked; a name that resolves to one passes.
+// unspecified or multicast address. Only names and literals are checked; a name that resolves to one passes. A name
+// is first mapped to ASCII the way an IDNA lookup does, so full-width digits or ideographic full stops read as the
+// address they spell; a name that cannot be mapped is refused.
 func blockedRewardHost(host string) bool {
 	h := strings.TrimSuffix(strings.ToLower(host), ".")
-	if h == "localhost" || strings.HasSuffix(h, ".localhost") || metadataHosts[h] {
+	if _, err := netip.ParseAddr(h); err != nil {
+		ascii, err := idna.Lookup.ToASCII(h)
+		if err != nil {
+			return true
+		}
+		h = strings.TrimSuffix(strings.ToLower(ascii), ".")
+	}
+	if loopbackNames[h] || strings.HasSuffix(h, ".localhost") || metadataHosts[h] {
 		return true
 	}
 	ip, err := netip.ParseAddr(h)
@@ -169,7 +183,7 @@ func rewardRules(ctx *recipe.Context, c recipe.Choices) []recipe.Diagnostic {
 		}
 		u, err := url.Parse(remote.URL)
 		switch {
-		case err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "":
+		case err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "":
 			fail("choices.rewardRemote.url", "Give the http or https address of the reward service")
 		case u.User != nil:
 			fail("choices.rewardRemote.url", "Keep credentials out of the address; put the key in a secret")

@@ -237,10 +237,14 @@ func TestCompileRewards(t *testing.T) {
 		"http://[::1]:8000/s", "http://0.0.0.0:8000/s", "http://169.254.169.254/latest/meta-data",
 		"http://[fe80::1%25eth0]/s", "http://metadata.google.internal/computeMetadata/v1", "http://[fd00:ec2::254]/s",
 		"http://100.100.100.200/s", "http://[::ffff:169.254.169.254]/s", "http://2130706433/s", "http://0x7f.1/s",
-		"http://0177.0.0.1/s", "http://224.0.0.1/s"} {
+		"http://0177.0.0.1/s", "http://224.0.0.1/s", "http://ip6-localhost/s", "http://ip6-loopback:8000/s",
+		"http://127\u30020\u30020\u30021:8000/s", "http://169\u3002254\u3002169\u3002254/latest/meta-data",
+		"http://\uff11\uff12\uff17.0.0.1/s", "http://\uff4c\uff4f\uff43\uff41\uff4c\uff48\uff4f\uff53\uff54/s"} {
 		in.Request.Choices = recipe.Choices{RewardType: "remote", RewardRemote: &recipe.RewardRemote{URL: u}}
 		require.Contains(t, errorsOf(in), "cannot be on a loopback, link-local, metadata", u)
 	}
+	in.Request.Choices = recipe.Choices{RewardType: "remote", RewardRemote: &recipe.RewardRemote{URL: "http://:8000/s"}}
+	require.Contains(t, errorsOf(in), "http or https address", "an address needs a host")
 	for _, u := range []string{"http://10.0.0.5:8000/score", "https://cafe.babe/score", "http://0x7f.svc/s",
 		"http://rm.ws.svc.cluster.local:8000/score"} {
 		args, _ = argsOf(recipe.Choices{RewardType: "remote", RewardRemote: &recipe.RewardRemote{URL: u}})
