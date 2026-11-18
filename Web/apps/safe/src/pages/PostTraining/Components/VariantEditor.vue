@@ -227,7 +227,7 @@ const options = (key: string): Choice[] | undefined => {
       ]
     case 'choices.correction':
       return [
-        { label: 'Off', value: 'none' },
+        { label: 'Off', value: '' },
         { label: 'TIS', value: 'tis' },
       ]
     case 'datasetId':
