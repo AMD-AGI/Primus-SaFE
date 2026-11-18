@@ -17,6 +17,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/lib/pq"
 
@@ -31,6 +32,8 @@ const (
 	importCluster = "spur"
 	// importSparkPoints caps the sparkline of an imported run, as the controller's does.
 	importSparkPoints = 60
+	// maxImportStep is the largest step a float holds exactly, which an integer column takes.
+	maxImportStep = 1 << 53
 )
 
 var (
@@ -182,6 +185,17 @@ func parseImportSummary(data []byte, reg *registry.Registry) (*importSummary, er
 			return nil, fail(t.field, "%s is not an RFC 3339 time: %q", t.field, t.value)
 		}
 	}
+	// The limits of the columns the fields are stored in.
+	for _, f := range []struct {
+		field, value string
+		max          int
+	}{{"name", s.Name, 128}, {"slurmJobId", s.SlurmJobID, 32}, {"verdict", s.Verdict, 16}, {"method", s.Method, 16},
+		{"algorithm", s.Algorithm, 32}, {"failedStage", s.FailedStage, 32}, {"baseModel", s.BaseModel, 256},
+		{"dataset", s.Dataset, 256}} {
+		if utf8.RuneCountInString(f.value) > f.max {
+			return nil, fail(f.field, "%s has more than %d characters", f.field, f.max)
+		}
+	}
 	total := 0
 	for name, series := range s.Metrics {
 		if series.Axis != "train" && series.Axis != "rollout" {
@@ -191,8 +205,9 @@ func parseImportSummary(data []byte, reg *registry.Registry) (*importSummary, er
 			return nil, fail("metrics."+name, "count %d is below the %d points", series.Count, len(series.Points))
 		}
 		for _, p := range series.Points {
-			if len(p) < 2 || p[0] == nil || p[1] == nil || *p[0] < 0 || *p[0] != math.Trunc(*p[0]) ||
-				math.IsNaN(*p[1]) || math.IsInf(*p[1], 0) {
+			if len(p) < 2 || p[0] == nil || p[1] == nil || *p[0] < 0 || *p[0] > maxImportStep ||
+				*p[0] != math.Trunc(*p[0]) || math.IsNaN(*p[1]) || math.IsInf(*p[1], 0) ||
+				(len(p) > 2 && p[2] != nil && (math.IsNaN(*p[2]) || math.IsInf(*p[2], 0))) {
 				return nil, fail("metrics."+name, "a point is not [step, value, time]")
 			}
 		}
