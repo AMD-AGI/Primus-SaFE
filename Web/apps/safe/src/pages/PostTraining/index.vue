@@ -7,7 +7,7 @@
     <template #description>
       <div class="text-[16px] font-500">Post Training is not enabled on this cluster</div>
       <div class="mt-2 text-[13px] text-[var(--safe-muted)] max-w-[560px]">
-        The cluster admin hasn't turned Post Training on (postTraining.enabled is off), so its API
+        The cluster admin hasn't turned Post Training on (post_training.enabled is off), so its API
         returns 404. Use Post Train for SFT and RL on cluster {{ clusterName }}.
       </div>
     </template>
@@ -760,6 +760,12 @@ const fetchAvailability = async () => {
   }
 }
 
+/** Reads whether Post Training is on, then lists the runs where it is. */
+const loadPage = async () => {
+  await fetchAvailability()
+  if (!notEnabled.value) fetchData()
+}
+
 const onSearch = (resetPage: boolean) => {
   if (resetPage) pagination.page = 1
   fetchData()
@@ -1014,17 +1020,17 @@ watch(
   () => {
     knownBaseModels.clear()
     pagination.page = 1
-    fetchAvailability()
-    fetchData()
+    loadPage()
   },
 )
 
-onMounted(() => {
-  const way = router.currentRoute.value.query.import
-  if (way === 'mount' || way === 'cli') openImport(way)
+onMounted(async () => {
   readQuery()
-  fetchAvailability()
-  fetchData()
+  await loadPage()
+  const way = router.currentRoute.value.query.import
+  if ((way === 'mount' || way === 'cli') && !notEnabled.value && !importBlocked.value) {
+    openImport(way)
+  }
 })
 
 onBeforeUnmount(() => {

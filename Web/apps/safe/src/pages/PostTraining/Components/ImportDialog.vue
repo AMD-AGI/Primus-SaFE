@@ -49,7 +49,7 @@
               <el-button
                 v-if="mode === 'mount'"
                 :loading="scanning"
-                :disabled="!dir.trim() || !!result"
+                :disabled="!dir.trim() || !!result || !config?.canImport"
                 @click="scan"
               >
                 {{ scanning ? 'Scanning…' : 'Scan' }}
@@ -140,6 +140,7 @@
         v-else-if="mode === 'mount' && canCommit"
         type="primary"
         :loading="committing"
+        :disabled="!config?.canImport"
         @click="commit"
       >
         Import

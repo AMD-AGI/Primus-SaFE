@@ -326,7 +326,7 @@ export function deletePostTrainingExperiment(experimentId: string, deleteModel =
   })
 }
 
-/** Lists a workspace's templates, optionally of one train type. */ /** Lists a workspace's templates, optionally of one train type. */
+/** Lists a workspace's templates, optionally of one train type. */
 export function listPostTrainingTemplates(params: { workspace: string; trainType?: string }) {
   return request.get<TemplateListResp>('/post-training/templates', { params })
 }
