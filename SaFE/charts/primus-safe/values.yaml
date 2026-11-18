@@ -140,6 +140,9 @@ cicd:
   controller_name: "gha-runner-scale-set-gha-rs-controller"
   github_runner_image: "ghcr.io/actions/actions-runner:2.328.0"
   github_runner_dind_image: "docker:28.3.3-dind"
+  # When true, the hosted GitHub runner pod runs a Docker daemon sidecar and
+  # shares its socket with the runner for workflow steps that start containers.
+  docker_enabled: false
   # Cluster-wide proxy bypass list merged into every CI/CD workload's proxy
   # configuration, for hosts a workload cannot know about (package mirrors,
   # internal registries). In-cluster targets are always bypassed.
