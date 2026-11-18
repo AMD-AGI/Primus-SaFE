@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -31,6 +32,7 @@ import (
 	mockclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/posttraining/registry"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
 
 const testRegistry = `
@@ -56,6 +58,14 @@ gpuArch: {MI355X: gfx950}
 network:
   ainic: {env: {USING_AINIC: "1"}}
 `
+
+// requireDisplayName checks a workload's display name against the workload webhook's DNS rule for maxLen.
+func requireDisplayName(t *testing.T, w *v1.Workload, maxLen int) {
+	t.Helper()
+	name := w.Labels[v1.DisplayNameLabel]
+	require.Regexp(t, fmt.Sprintf("^[a-z][-a-z0-9]{0,%d}[a-z0-9]$", maxLen), name)
+	require.LessOrEqual(t, len(name), maxLen)
+}
 
 // testContext returns a gin context with a signed-in user.
 func testContext() *gin.Context {
@@ -107,6 +117,8 @@ func TestBuildWorkload(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, "pt-x", w.Name)
+	requireDisplayName(t, w, commonutils.MaxRayJobNameLen)
+	require.Equal(t, "pt-qwen3-sft-demo", w.Labels[v1.DisplayNameLabel], "the label is the slug of the name")
 	require.Equal(t, "pt-x", w.Labels[v1.PostTrainingRunIdLabel])
 	require.Equal(t, v1.PostTrainingRoleTrain, w.Labels[v1.PostTrainingRoleLabel])
 	require.Equal(t, "u1", w.Labels[v1.UserIdLabel])

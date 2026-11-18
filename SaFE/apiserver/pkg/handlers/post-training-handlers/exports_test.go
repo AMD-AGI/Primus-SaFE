@@ -22,6 +22,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/posttraining/registry"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
 
 // exportRun is a finished SFT run that saved every 10 steps up to step 30 and keeps the last checkpoint and the best.
@@ -52,6 +53,8 @@ func TestExportWorkload(t *testing.T) {
 
 	w, err := h.exportWorkload(c, reg, exportRun("Stopped"), &exportRequest{Step: 20})
 	require.NoError(t, err)
+	requireDisplayName(t, w, commonutils.MaxRayJobNameLen)
+	require.Equal(t, "export-20-qwen-sft", w.Labels[v1.DisplayNameLabel])
 	require.Equal(t, "20", w.Labels[v1.PostTrainingExportStepLabel])
 	require.Equal(t, v1.PostTrainingRoleExport, w.Labels[v1.PostTrainingRoleLabel])
 	require.Equal(t, []string{"img:1"}, w.Spec.Images, "the run's image reads its checkpoint format")

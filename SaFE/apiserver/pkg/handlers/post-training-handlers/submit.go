@@ -325,7 +325,7 @@ func buildWorkload(c *gin.Context, reg *registry.Registry, req *recipe.SubmitReq
 	w := &v1.Workload{}
 	w.Name = runID
 	w.Labels = map[string]string{
-		v1.DisplayNameLabel:       req.DisplayName,
+		v1.DisplayNameLabel:       commonutils.DNSDisplayName("pt-", req.DisplayName, commonutils.MaxRayJobNameLen),
 		v1.UserIdLabel:            c.GetString(common.UserId),
 		v1.PostTrainingRunIdLabel: runID,
 		v1.PostTrainingRoleLabel:  v1.PostTrainingRoleTrain,

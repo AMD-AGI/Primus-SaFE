@@ -179,6 +179,8 @@ func (h *Handler) exportWorkload(c *gin.Context, reg *registry.Registry, run *db
 	w := &v1.Workload{}
 	w.Name = commonutils.GenerateName(fmt.Sprintf("%s-x%d", run.RunID, req.Step))
 	w.Labels = map[string]string{
+		v1.DisplayNameLabel: commonutils.DNSDisplayName(fmt.Sprintf("export-%d-", req.Step), run.DisplayName,
+			commonutils.MaxRayJobNameLen),
 		v1.UserIdLabel:                 c.GetString(common.UserId),
 		v1.PostTrainingRunIdLabel:      run.RunID,
 		v1.PostTrainingRoleLabel:       v1.PostTrainingRoleExport,
