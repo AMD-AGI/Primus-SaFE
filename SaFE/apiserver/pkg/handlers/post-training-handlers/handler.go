@@ -30,6 +30,7 @@ import (
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/posttraining/registry"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	commonworkspace "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workspace"
 )
@@ -189,7 +190,10 @@ func (h *Handler) getWorkspace(ctx context.Context, name string) (*workspaceInfo
 		nf := &v1.NodeFlavor{}
 		if err := h.client.Get(ctx, ctrlclient.ObjectKey{Name: ws.Spec.NodeFlavor}, nf); err == nil {
 			info.flavor = nf
-			info.HostMemoryBytes = nf.Spec.Memory.Value()
+			if q, ok := quantity.GetAvailableResource(nf.ToResourceList(""))[corev1.ResourceMemory]; ok {
+				info.HostMemoryBytes = q.Value()
+			}
+			info.NodeGPUs = nf.GetGpuCount()
 			if nf.Spec.Gpu != nil {
 				info.GPUModel = string(nf.Spec.Gpu.Product)
 			}

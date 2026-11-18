@@ -727,10 +727,16 @@ func TestGLMNeedsItsHostMemoryOnEveryNode(t *testing.T) {
 			errs = append(errs, d.Field+": "+d.Message)
 		}
 	}
-	require.Equal(t, []string{"resources.nodes: glm5.3-744B-A40B needs 2.1 TB of host memory per node, and this " +
-		"workspace's nodes have 2.00 TB"}, errs)
+	require.Equal(t, []string{"resources.nodes: glm5.3-744B-A40B needs 2.1 TB of host memory per node, and a run " +
+		"with 8 GPUs per node gets 2.00 TB in this workspace"}, errs)
 
-	in.Workspace.HostMemoryBytes = 3_000_000_000_000
+	in.Workspace.HostMemoryBytes, in.Workspace.NodeGPUs = 3_000_000_000_000, 8
+	in.Request.Resources.GpusPerNode = 4
+	half := recipe.Compile(in)
+	require.Contains(t, fmt.Sprint(half.Diagnostics), "a run with 4 GPUs per node gets 1.50 TB",
+		"a run on half of each node gets half of its memory")
+
+	in.Request.Resources.GpusPerNode = 8
 	res = compile(t, in)
 	require.Equal(t, 2.1, res.Recipe.MinHostMemoryTB, "the check stage measures every node against it")
 	require.Contains(t, warningsOf(res), "has not been verified", "full training without frozen layers")

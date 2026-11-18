@@ -233,8 +233,11 @@ type WorkspaceInfo struct {
 	Cluster  string
 	GPUModel string
 	Nodes    int
-	// HostMemoryBytes is the host memory of the workspace's nodes, from its node flavor; zero when unknown.
+	// HostMemoryBytes is the host memory a pod that takes a whole node requests, after the workspace reserves, from
+	// its node flavor; zero when unknown. A pod on part of a node requests its GPUs' share of it.
 	HostMemoryBytes int64
+	// NodeGPUs is the GPU count of the workspace's nodes; zero when unknown.
+	NodeGPUs int
 }
 
 // Input is everything one compilation needs; the API handlers gather it.
@@ -914,10 +917,15 @@ func platformRules(ctx *Context, res *Result) {
 	if in.Workspace.Nodes > 0 && nodes > in.Workspace.Nodes {
 		res.errorf("resources.nodes", "The workspace has only %d nodes", in.Workspace.Nodes)
 	}
-	if need := fs.MinHostMemoryTB; need > 0 && in.Workspace.HostMemoryBytes > 0 &&
-		float64(in.Workspace.HostMemoryBytes) < need*1e12 {
-		res.errorf("resources.nodes", "%s needs %.1f TB of host memory per node, and this workspace's nodes have "+
-			"%.2f TB", ctx.Spec.Name, need, float64(in.Workspace.HostMemoryBytes)/1e12)
+	if need, have := fs.MinHostMemoryTB, in.Workspace.HostMemoryBytes; need > 0 && have > 0 {
+		gpus := req.Resources.GpusPerNode
+		if total := in.Workspace.NodeGPUs; total > 0 && gpus < total {
+			have = have * int64(gpus) / int64(total)
+		}
+		if float64(have) < need*1e12 {
+			res.errorf("resources.nodes", "%s needs %.1f TB of host memory per node, and a run with %d GPUs per "+
+				"node gets %.2f TB in this workspace", ctx.Spec.Name, need, gpus, float64(have)/1e12)
+		}
 	}
 	if ctx.CustomImage && !fs.HFDirect && fs.ConvertNodes > nodes {
 		res.errorf("resources.nodes", "A run with an image outside the table converts weights in its own workload "+

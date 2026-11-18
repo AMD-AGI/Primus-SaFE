@@ -203,6 +203,22 @@ func TestNodeResource(t *testing.T) {
 	require.Equal(t, "75Gi", nodeResource(nf, 1).EphemeralStorage, "the maximum is shared by the GPUs")
 }
 
+func TestWorkspaceHostMemory(t *testing.T) {
+	viper.Set("workspace.mem_reserve_percent", 0.1)
+	t.Cleanup(func() { viper.Set("workspace.mem_reserve_percent", nil) })
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1.AddToScheme(scheme))
+	nf := flavor()
+	nf.Name = "mi355x"
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws"}, Spec: v1.WorkspaceSpec{NodeFlavor: nf.Name}}
+	h := NewHandler(fake.NewClientBuilder().WithScheme(scheme).WithObjects(nf, ws).Build(), nil)
+	info, err := h.getWorkspace(context.Background(), "ws")
+	require.NoError(t, err)
+	mem := resource.MustParse(nodeResource(nf, 8).Memory)
+	require.Equal(t, mem.Value(), info.HostMemoryBytes, "the memory a whole-node pod requests, after the reserve")
+	require.Equal(t, 8, info.NodeGPUs)
+}
+
 func TestModelPathIn(t *testing.T) {
 	m := &v1.Model{Spec: v1.ModelSpec{Source: v1.ModelSource{AccessMode: v1.AccessModeLocal}},
 		Status: v1.ModelStatus{Phase: v1.ModelPhaseReady, LocalPaths: []v1.ModelLocalPath{
