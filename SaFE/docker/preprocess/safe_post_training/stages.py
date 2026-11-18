@@ -53,11 +53,20 @@ WANDB_RUN_URL = re.compile(r"View run\b.*?(https?://\S+)")
 LOCK_POLL_SECONDS = 30
 
 
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuses redirects, so credentials go only to the address they were meant for."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        """Return no new request, which makes the redirect an HTTPError."""
+        return None
+
+
 def http_status(url, timeout, headers=None):
-    """Return the status of a HEAD request to url within timeout seconds, or None when no HTTP server answers."""
+    """Return the status of a HEAD request to url within timeout seconds, or None when no HTTP server answers. A
+    redirect is answered as its status, not followed."""
+    opener = urllib.request.build_opener(NoRedirect)
     try:
-        with urllib.request.urlopen(urllib.request.Request(url, method="HEAD", headers=headers or {}),
-                                    timeout=timeout) as resp:
+        with opener.open(urllib.request.Request(url, method="HEAD", headers=headers or {}), timeout=timeout) as resp:
             return resp.status
     except urllib.error.HTTPError as e:
         return e.code

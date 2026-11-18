@@ -130,6 +130,34 @@ def test_check_reward(monkeypatch, tmp_path):
     check(custom, tmp_path)
 
 
+def test_the_reward_probe_does_not_follow_redirects():
+    hits = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_HEAD(self):
+            if self.path == "/elsewhere":
+                hits.append(self.headers.get("Authorization"))
+                self.send_response(200)
+            else:
+                self.send_response(302)
+                self.send_header("Location", "http://127.0.0.1:%d/elsewhere" % self.server.server_port)
+            self.end_headers()
+
+        do_GET = do_HEAD
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        status = stages.http_status("http://127.0.0.1:%d/score" % server.server_port, 5,
+                                    {"Authorization": "Bearer good"})
+    finally:
+        server.shutdown()
+    assert status == 302 and hits == [], "the key goes only to the configured address"
+
+
 class RejectedAdapter(FakeAdapter):
     """Trains like the remote_rm plugin does when the reward service refuses the key."""
 

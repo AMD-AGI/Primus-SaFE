@@ -30,6 +30,7 @@ if __package__ in (None, ""):
 
 from safe_post_training import metrics  # noqa: E402
 from safe_post_training.frameworks.slime.adapter import Adapter  # noqa: E402
+from safe_post_training.stages import NoRedirect  # noqa: E402
 
 SCHEMA = "slime-rocm-run/1"
 PARSER_VERSION = "1"
@@ -609,14 +610,6 @@ def read_token():
     if not token:
         raise RunDirError("set %s to the token the import dialog gave" % TOKEN_ENV)
     return token
-
-
-class NoRedirect(urllib.request.HTTPRedirectHandler):
-    """Refuses redirects, so the one-time token goes only to the address it names."""
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        """Return no new request, which makes the redirect an HTTPError."""
-        return None
 
 
 def upload(data, token, stage=False, opener=None):
