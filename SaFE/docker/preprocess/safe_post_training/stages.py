@@ -375,6 +375,10 @@ class Runner:
                 continue
             if stage == "convert" and self.reuse_conversion():
                 continue
+            if stage == "export" and not self.exports_hf():
+                self.emitter.stage(stage, state="skipped")
+                result = self.no_export_result()
+                continue
             mark = self.done_mark(stage)
             if mark and os.path.exists(mark):
                 self.emitter.stage(stage, state="skipped")
@@ -712,6 +716,18 @@ class Runner:
                 raise StageError("export", "the PEFT adapter lacks %s" % ", ".join(lacking), retry=False)
             result["adapter"] = adapter
         self.write_result(result, os.path.join(only["dir"], "result.json") if only else None)
+        self.report_disk()
+        return result
+
+    def exports_hf(self):
+        """Report whether the run exports a Hugging Face model, which it does unless the recipe turns it off."""
+        return (self.recipe.get("output") or {}).get("exportHf", True) is not False
+
+    def no_export_result(self):
+        """Return and write the result of a run that exports no model: the latest checkpoint and no output."""
+        result = {"stage": "export", "output": "", "iteration": self.adapter.latest_checkpoint(self.run_dir),
+                  "lastMetrics": self.emitter.last_metrics()}
+        self.write_result(result)
         self.report_disk()
         return result
 

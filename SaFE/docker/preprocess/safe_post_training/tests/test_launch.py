@@ -199,6 +199,18 @@ def test_checkpoint_export_runs_only_the_export(monkeypatch, tmp_path):
         "an export that names only the step reads the iteration before it"
 
 
+def test_a_run_without_the_hf_export_exports_nothing(monkeypatch, tmp_path):
+    recipe = recipe_for(tmp_path)
+    recipe["output"]["exportHf"] = False
+    adapter = FakeAdapter()
+    code, _, ms = run(monkeypatch, recipe, adapter)
+    assert code == 0 and getattr(adapter, "exported", None) is None, "no checkpoint is converted"
+    states = [m[1]["state"] for m in ms if m[0] == "[STAGE]" and m[1]["stage"] == "export"]
+    assert states[0] == "skipped" and "running" not in states, states
+    assert ms[-1][0] == "[SUCCESS]" and ms[-1][1]["output"] == ""
+    assert json.loads((tmp_path / "run" / "result.json").read_text())["output"] == ""
+
+
 class PPOAdapter(FakeAdapter):
     """A fake adapter whose actor and critic checkpoints end at the given steps."""
 
