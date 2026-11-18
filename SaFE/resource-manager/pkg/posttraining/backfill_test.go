@@ -11,8 +11,11 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -70,4 +73,30 @@ func TestBackfillWorkload(t *testing.T) {
 	reconcileRun(t, r)
 	require.Error(t, r.Get(ctx, client.ObjectKey{Name: backfillWorkloadName(testRun)}, &v1.Workload{}),
 		"the finished backfill is removed even when its log cannot be read")
+}
+
+func TestAPendingBackfillDoesNotHoldExportsAndEndsInTime(t *testing.T) {
+	run := testRunRow("Stopped", "train")
+	run.OutputPath = testRunDir
+	backfill := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: backfillWorkloadName(testRun),
+		CreationTimestamp: metav1.NewTime(time.Now().Add(-time.Minute)),
+		Labels:            map[string]string{v1.PostTrainingRunIdLabel: testRun, v1.PostTrainingRoleLabel: v1.PostTrainingRoleBackfill}}}
+	backfill.Status.Phase = v1.WorkloadPending
+	export := exportJob("pt-x20-g", v1.WorkloadSucceeded)
+	r, db, updates := newTestReconciler(t, run, backfill, export)
+	db.EXPECT().ListWorkloadPods(gomock.Any(), export.Name, string(export.UID)).Return(exportPods(export,
+		`[SUCCESS] {"run":"`+testRun+`","attempt":"x20","pv":1,"stage":"export","output":"`+testRunDir+
+			`/exports/step-20"}`), nil)
+	ctx := context.Background()
+	require.Equal(t, pendingRequeue, reconcileRun(t, r).RequeueAfter)
+	models := &v1.ModelList{}
+	require.NoError(t, r.List(ctx, models))
+	require.Len(t, models.Items, 1, "the export of a stopped run registers while its backfill waits in the queue")
+
+	require.NoError(t, r.Get(ctx, client.ObjectKeyFromObject(backfill), backfill))
+	backfill.CreationTimestamp = metav1.NewTime(time.Now().Add(-2 * backfillWait))
+	require.NoError(t, r.Update(ctx, backfill))
+	reconcileRun(t, r)
+	require.Error(t, r.Get(ctx, client.ObjectKeyFromObject(backfill), &v1.Workload{}), "a backfill that never ran is given up")
+	require.Contains(t, (*updates)[len(*updates)-1]["stage_history"], "did not finish within")
 }

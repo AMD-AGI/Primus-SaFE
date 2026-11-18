@@ -43,6 +43,10 @@ const (
 	backfilledEvent    = "backfilled"
 	backfillEntrypoint = "python3 /shared-data/safe_post_training/backfill.py"
 	backfillTTLSeconds = 3600
+	// backfillTimeoutSeconds bounds the backfill job once it runs, and backfillWait the backfill from its creation,
+	// queueing included.
+	backfillTimeoutSeconds = 1800
+	backfillWait           = time.Hour
 )
 
 // backfillSpec is the PT_BACKFILL of the end-of-run backfill.
@@ -118,7 +122,8 @@ func backfillPending(run *dbclient.PostTrainingRun, history []stageEntry) bool {
 
 // reconcileBackfill runs the end-of-run backfill of a finished run: a read-only workload re-prints the missing
 // points from metrics/metrics.jsonl and the run directory's usage, and the controller reads its log like the
-// submitter's. A failed backfill only leaves the gaps; the run's status does not change.
+// submitter's. A failed backfill, or one that did not finish within backfillWait, only leaves the gaps; the run's
+// status does not change. It writes the run only once the backfill is over, and then returns no requeue.
 func (r *RunReconciler) reconcileBackfill(ctx context.Context, run *dbclient.PostTrainingRun) (ctrlruntime.Result, error) {
 	cur := loadCursor(run.MetricCursor)
 	w := &v1.Workload{}
@@ -130,7 +135,15 @@ func (r *RunReconciler) reconcileBackfill(ctx context.Context, run *dbclient.Pos
 		return ctrlruntime.Result{}, err
 	}
 	if !w.IsEnd() {
-		return ctrlruntime.Result{RequeueAfter: pendingRequeue}, nil
+		if time.Since(w.CreationTimestamp.Time) < backfillWait {
+			return ctrlruntime.Result{RequeueAfter: pendingRequeue}, nil
+		}
+		u := newRunUpdate(run)
+		u.event(backfilledEvent, fmt.Sprintf("the backfill did not finish within %s", backfillWait))
+		if err = r.save(ctx, u); err != nil {
+			return ctrlruntime.Result{}, err
+		}
+		return ctrlruntime.Result{}, client.IgnoreNotFound(r.Delete(ctx, w))
 	}
 	u := newRunUpdate(run)
 	in := r.newIngestion(ctx, u, cur)
@@ -191,6 +204,7 @@ func newBackfillWorkload(run *dbclient.PostTrainingRun, cur *logCursor) *v1.Work
 		Env:                     map[string]string{"PT_BACKFILL": base64.StdEncoding.EncodeToString(data)},
 		Resources:               []v1.WorkloadResource{{Replica: 1, CPU: "1", Memory: "2Gi", EphemeralStorage: "1Gi"}},
 		Priority:                common.LowPriorityInt,
+		Timeout:                 ptr.To(backfillTimeoutSeconds),
 		TTLSecondsAfterFinished: ptr.To(backfillTTLSeconds),
 	}
 	return w

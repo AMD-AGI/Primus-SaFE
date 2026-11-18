@@ -355,7 +355,21 @@ func (r *RunReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) 
 	}
 	if finished(run) && backfillPending(run, newRunUpdate(run).history) {
 		res, err := r.reconcileBackfill(ctx, run)
-		return res, reconcileError("backfill", err)
+		if err != nil || res.RequeueAfter == 0 {
+			return res, reconcileError("backfill", err)
+		}
+		// A backfill that still runs wrote nothing, so the exports and evaluations go on meanwhile.
+		if err = r.reconcileExports(ctx, run); err != nil {
+			return ctrlruntime.Result{}, reconcileError("export", err)
+		}
+		evalRes, err := r.reconcileEvaluations(ctx, run)
+		if err != nil {
+			return ctrlruntime.Result{}, reconcileError("evaluate", err)
+		}
+		if evalRes.RequeueAfter > 0 && evalRes.RequeueAfter < res.RequeueAfter {
+			res.RequeueAfter = evalRes.RequeueAfter
+		}
+		return res, nil
 	}
 	if finished(run) {
 		if err := r.reconcileExports(ctx, run); err != nil {
