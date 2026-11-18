@@ -110,6 +110,14 @@ def load_val_losses(path):
     return out
 
 
+def export_iteration(only):
+    """Return the checkpoint iteration a checkpoint export reads: the one it names, or, when it names only the step,
+    the iteration before it, as slime saves the checkpoint after N steps as iter_<N-1>."""
+    if "iteration" in only:
+        return int(only["iteration"])
+    return int(only["step"]) - 1
+
+
 class StageError(Exception):
     """A stage failure; retry is False when running the workload again would fail the same way."""
 
@@ -335,7 +343,8 @@ class Runner:
         return True
 
     def export_only(self):
-        """Return the checkpoint export the recipe asks for instead of a run, {"step": N, "dir": ...}, or None."""
+        """Return the checkpoint export the recipe asks for instead of a run, {"step": N, "iteration": N-1,
+        "dir": ...}, or None."""
         return self.recipe.get("exportOnly")
 
     def run(self):
@@ -672,7 +681,7 @@ class Runner:
         """Export the final model, or the checkpoint a checkpoint export names, and return the result the launcher
         reports."""
         only = self.export_only()
-        iteration = only["step"] if only else self.adapter.latest_checkpoint(self.run_dir)
+        iteration = export_iteration(only) if only else self.adapter.latest_checkpoint(self.run_dir)
         output = self.adapter.export(self.recipe, self.run_dir, self.run_command, iteration=iteration,
                                      out=only["dir"] if only else None)
         missing = [n for n in ("config.json",) if not os.path.exists(os.path.join(output, n))]

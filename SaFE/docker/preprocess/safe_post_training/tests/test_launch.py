@@ -177,19 +177,26 @@ def test_checkpoint_export_runs_only_the_export(monkeypatch, tmp_path):
     assert code == 0
     status = (tmp_path / "run" / "status.json").read_text()
 
-    export_dir = tmp_path / "run" / "exports" / "step-1"
-    recipe["exportOnly"] = {"step": 1, "dir": str(export_dir)}
+    export_dir = tmp_path / "run" / "exports" / "step-2"
+    recipe["exportOnly"] = {"step": 2, "iteration": 1, "dir": str(export_dir)}
     adapter = FakeAdapter()
     code, _, ms = run(monkeypatch, recipe, adapter)
     assert code == 0 and adapter.exported == 1
     assert {m[1]["stage"] for m in ms if m[0] == "[STAGE]"} == {"start", "export"}, "no other stage runs"
-    assert ms[-1][0] == "[SUCCESS]" and ms[-1][1]["output"] == str(export_dir) and ms[-1][1]["attempt"] == "x1"
-    assert (export_dir / ".done").exists() and json.loads((export_dir / "result.json").read_text())["iteration"] == 1
+    assert ms[-1][0] == "[SUCCESS]" and ms[-1][1]["output"] == str(export_dir) and ms[-1][1]["attempt"] == "x2"
+    assert (export_dir / ".done").exists() and json.loads((export_dir / "result.json").read_text())["iteration"] == 1, \
+        "slime saves the checkpoint after step 2 as iter_0000001"
     assert (tmp_path / "run" / "status.json").read_text() == status, "the run's attempts stay as they were"
     assert json.loads((tmp_path / "run" / "result.json").read_text())["output"] == str(tmp_path / "run" / "final_model")
 
     code, _, ms = run(monkeypatch, recipe, FakeAdapter())
     assert code == 0 and ms[-1][1]["output"] == str(export_dir), "a finished export is reported again"
+
+    old_dir = tmp_path / "run" / "exports" / "step-4"
+    recipe["exportOnly"] = {"step": 4, "dir": str(old_dir)}
+    code, _, _ = run(monkeypatch, recipe, FakeAdapter())
+    assert code == 0 and json.loads((old_dir / "result.json").read_text())["iteration"] == 3, \
+        "an export that names only the step reads the iteration before it"
 
 
 class PPOAdapter(FakeAdapter):
