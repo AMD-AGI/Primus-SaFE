@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// A notice takes the run's columns written in the same update over the stored ones.
 func TestRunInfoPrefersWrittenColumns(t *testing.T) {
 	run := testRunRow("Running", "train")
 	start := time.Date(2026, 11, 3, 8, 0, 0, 0, time.UTC)
@@ -29,6 +30,7 @@ func TestRunInfoPrefersWrittenColumns(t *testing.T) {
 	require.Equal(t, "Qwen3-8B", info.BaseModel)
 }
 
+// Without a notification manager the run's changes send nothing.
 func TestNotifyWithoutManagerIsNoop(t *testing.T) {
 	r, _, _ := newTestReconciler(t, testRunRow("Running", "train"))
 	r.notifyChanges(context.Background(), testRunRow("Running", "train"),

@@ -18,6 +18,7 @@ import (
 	rmmetrics "github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/metrics"
 )
 
+// The run gauges count the runs by status and stage, and the stalled ones.
 func TestRefreshGauges(t *testing.T) {
 	r, db, _ := newTestReconciler(t, testRunRow("Running", "train"))
 	stalled := testRunRow("Running", "train")
@@ -30,6 +31,7 @@ func TestRefreshGauges(t *testing.T) {
 	require.Equal(t, 1.0, testutil.ToFloat64(rmmetrics.PostTrainingRunsStalled))
 }
 
+// Read counters grow only by what a read added, and a known gap is not counted again.
 func TestCountReadAddsGrowthOnly(t *testing.T) {
 	before := testutil.ToFloat64(rmmetrics.PostTrainingMetricParseFailuresTotal)
 	gaps := testutil.ToFloat64(rmmetrics.PostTrainingMetricGapsTotal)

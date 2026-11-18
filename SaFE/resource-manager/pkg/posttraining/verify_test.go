@@ -27,6 +27,7 @@ func runVerify(t *testing.T, dir string) (string, *verifyResult) {
 	return parseVerifyJob(job)
 }
 
+// The verify script finds a complete output by its weights and .done mark.
 func TestRunVerifyScript(t *testing.T) {
 	out, err := exec.Command("sh", "-n", "-c", runVerifyScript).CombinedOutput()
 	require.NoError(t, err, string(out))
@@ -57,6 +58,7 @@ func TestRunVerifyScript(t *testing.T) {
 	require.Equal(t, final, res.Output)
 }
 
+// A verify job name is short and the same for a run every time.
 func TestVerifyJobName(t *testing.T) {
 	name := verifyJobName("pt-a-very-long-display-name-of-a-post-training-run-abc12")
 	require.Len(t, name, len("pt-verify-")+16)

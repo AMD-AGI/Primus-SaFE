@@ -72,6 +72,7 @@ func newTestReconciler(t *testing.T, run *dbclient.PostTrainingRun, objs ...clie
 	return r, db, updates
 }
 
+// A submitter log the controller cannot read does not mark the launcher lost.
 func TestAnUnreadableLogDoesNotMarkTheLauncherLost(t *testing.T) {
 	run := testRunRow("Running", "train")
 	data, err := json.Marshal(&logCursor{Pod: "sub-1", LastStage: time.Now().Add(-11 * time.Minute).Unix()})
@@ -111,6 +112,7 @@ func reconcileRun(t *testing.T, r *RunReconciler) ctrlruntime.Result {
 	return res
 }
 
+// A run's output is registered as a Model, and the run finishes once the Model is ready.
 func TestRegisterCreatesModelAndFinishes(t *testing.T) {
 	base := &v1.Model{ObjectMeta: metav1.ObjectMeta{Name: "qwen3-8b"}}
 	base.Status.ModelConfig = &v1.ModelConfig{ModelType: "qwen3"}
@@ -150,6 +152,7 @@ func TestRegisterCreatesModelAndFinishes(t *testing.T) {
 	require.Equal(t, "Succeeded", last["status"])
 }
 
+// Registration records the run's PEFT adapter path.
 func TestRegisterRecordsTheAdapter(t *testing.T) {
 	for adapter, want := range map[string]string{testRunDir + "/final_adapter": "register", "/tmp/a": "Failed"} {
 		r, db, updates := newTestReconciler(t, testRunRow("Running", "export"), endedWorkload(v1.WorkloadSucceeded))
@@ -167,6 +170,7 @@ func TestRegisterRecordsTheAdapter(t *testing.T) {
 	}
 }
 
+// A run without the HF export succeeds without registering a model.
 func TestARunWithoutTheHFExportFinishesWithoutAModel(t *testing.T) {
 	run := testRunRow("Running", "export")
 	run.Recipe = `{"output":{"base":"` + testRunDir + `","exportHf":false}}`
@@ -182,6 +186,7 @@ func TestARunWithoutTheHFExportFinishesWithoutAModel(t *testing.T) {
 	require.Empty(t, models.Items, "there is no model to register")
 }
 
+// An output outside the run directory fails the registration.
 func TestRegisterRejectsOutputOutsideRunDir(t *testing.T) {
 	r, db, updates := newTestReconciler(t, testRunRow("Running", "export"), endedWorkload(v1.WorkloadSucceeded))
 	db.EXPECT().ListWorkloadPods(gomock.Any(), testRun, "uid1").Return(submitterPods(
@@ -193,6 +198,7 @@ func TestRegisterRejectsOutputOutsideRunDir(t *testing.T) {
 	require.Contains(t, last["message"], "not under the run directory")
 }
 
+// A run whose workload is gone takes its result from the stored submitter pod.
 func TestLostWorkloadUsesWorkloadPodResult(t *testing.T) {
 	r, db, updates := newTestReconciler(t, testRunRow("Running", "train"))
 	db.EXPECT().GetWorkload(gomock.Any(), testRun).Return(
@@ -206,6 +212,7 @@ func TestLostWorkloadUsesWorkloadPodResult(t *testing.T) {
 	require.Equal(t, "tokenizer mismatch", last["message"])
 }
 
+// A result line of an earlier attempt does not finish the run; its output is verified instead.
 func TestResultOfOlderAttemptIsIgnored(t *testing.T) {
 	run := testRunRow("Running", "train")
 	run.OutputPath = testRunDir
@@ -232,6 +239,7 @@ func TestResultOfOlderAttemptIsIgnored(t *testing.T) {
 	require.Equal(t, `{"total":5}`, last["disk_usage"])
 }
 
+// A complete output found by verification is registered for a run without a result line.
 func TestVerifyRegistersCompleteOutputOfLostWorkload(t *testing.T) {
 	run := testRunRow("Running", "export")
 	run.OutputPath = testRunDir
@@ -252,6 +260,7 @@ func TestVerifyRegistersCompleteOutputOfLostWorkload(t *testing.T) {
 	require.NotEmpty(t, last["output_model_id"])
 }
 
+// A preempted run stays running while it waits to be rescheduled.
 func TestPreemptedRunKeepsRunning(t *testing.T) {
 	w := endedWorkload(v1.WorkloadPending)
 	w.Status.EndTime = nil
@@ -267,6 +276,7 @@ func TestPreemptedRunKeepsRunning(t *testing.T) {
 	require.Contains(t, last["stage_history"], `"event":"preempted"`)
 }
 
+// A stage that refuses retry turns failover off once and records the event once.
 func TestDisableFailoverOnNoRetry(t *testing.T) {
 	w := endedWorkload(v1.WorkloadRunning)
 	r, _, _ := newTestReconciler(t, testRunRow("Running", "train"), w)
@@ -282,6 +292,7 @@ func TestDisableFailoverOnNoRetry(t *testing.T) {
 	require.Len(t, u.history, 1, "the event is recorded once")
 }
 
+// A registration whose Model is not ready in time fails the run at register.
 func TestRegisterTimesOut(t *testing.T) {
 	run := testRunRow("Running", "register")
 	run.StageHistory = `[{"stage":"register","time":"` + time.Now().Add(-31*time.Minute).UTC().Format(time.RFC3339) + `"}]`
@@ -295,6 +306,7 @@ func TestRegisterTimesOut(t *testing.T) {
 	require.Equal(t, "register", last["failed_stage"])
 }
 
+// Samples past the run's cap stay in the run directory only.
 func TestSaveSamplesStopsAtTheCap(t *testing.T) {
 	run := testRunRow("Running", "train")
 	run.Recipe = `{"output":{"base":"` + testRunDir + `"},"metrics":{"samples":{"maxRows":3}}}`
@@ -320,6 +332,7 @@ func TestSaveSamplesStopsAtTheCap(t *testing.T) {
 	require.NoError(t, r.saveSamples(context.Background(), run, in, rows(1)), "a full run stores nothing more")
 }
 
+// A stopped run says who stopped it.
 func TestStoppedRunSaysWhoStoppedIt(t *testing.T) {
 	w := endedWorkload(v1.WorkloadStopped)
 	w.Status.Conditions = []metav1.Condition{{Type: string(v1.AdminStopped), Status: metav1.ConditionTrue,
@@ -332,6 +345,7 @@ func TestStoppedRunSaysWhoStoppedIt(t *testing.T) {
 	require.Equal(t, "Stopped by alice", last["message"], "the detail page says who stopped the run")
 }
 
+// Imported runs get no backfill, verification or disk recount.
 func TestImportedRunsAreLeftAlone(t *testing.T) {
 	run := testRunRow("Stopped", "done")
 	run.Source, run.OutputPath = dbclient.PostTrainingSourceSpur, "/shared_nfs/runs/j2"

@@ -61,6 +61,7 @@ func pointKeys(points []*dbclient.PostTrainingRunMetric) []string {
 	return out
 }
 
+// A marker is read behind an actor's color codes and Ray prefix, and only for its run.
 func TestParseMarker(t *testing.T) {
 	actor := "\x1b[36m(MegatronTrainRayActor pid=2414, ip=10.245.153.145)\x1b[0m " + metricLine("a1", 3, 2, `{"train/loss":0.5}`)
 	m, ok := parseMarker(actor, testRun)
@@ -81,6 +82,7 @@ func TestParseMarker(t *testing.T) {
 	}
 }
 
+// The log is read from where it was left, skipping only the lines read before.
 func TestScanLogCursor(t *testing.T) {
 	cur := loadCursor("")
 	var got []string
@@ -112,6 +114,7 @@ func TestScanLogCursor(t *testing.T) {
 	require.Equal(t, 4, cut.SinceN)
 }
 
+// Lines over the limit are skipped and counted, and the marker after them is still read.
 func TestScanLogSkipsLongLines(t *testing.T) {
 	long := "2026-11-03T10:00:00Z " + strings.Repeat("x", maxLineBytes+10) + "\n"
 	marker := "2026-11-03T10:00:01Z " + stageLine("a1", "train", "running", "") + "\n"
@@ -126,6 +129,7 @@ func TestScanLogSkipsLongLines(t *testing.T) {
 	require.Equal(t, int64(2), cur.Skipped, "an unfinished line that is already too long is skipped too")
 }
 
+// Skipped seqs become gaps with the times around them until they are read.
 func TestAttemptCursorGaps(t *testing.T) {
 	now := time.Unix(1000, 0)
 	a := &attemptCursor{}
@@ -147,6 +151,7 @@ func TestAttemptCursorGaps(t *testing.T) {
 	require.False(t, cur.hasGap(now.Add(time.Hour)))
 }
 
+// The log search spans an hour of the current pod's gaps and leaves unfilled ones to the backfill.
 func TestTheLogSearchWindowIsBounded(t *testing.T) {
 	now := time.Unix(100000, 0)
 	cur := &logCursor{Pod: "p1", Attempts: map[string]*attemptCursor{}}
@@ -177,6 +182,7 @@ func TestTheLogSearchWindowIsBounded(t *testing.T) {
 	require.True(t, cur.hasGap(later), "they are still gaps for the end-of-run backfill")
 }
 
+// A resumed attempt replaces the points after its resume step.
 func TestIngestionResumeDropsReplacedPoints(t *testing.T) {
 	in := newTestIngestion(100)
 	feed(in,
@@ -204,6 +210,7 @@ func TestIngestionResumeDropsReplacedPoints(t *testing.T) {
 	require.Equal(t, []string{"a2@9"}, resumes, "the first attempt starting at step 0 is not a resume")
 }
 
+// A resume without new points still rewinds the summary and its sparkline.
 func TestResumeWithoutPointsStoresTheRewoundSummary(t *testing.T) {
 	first := newTestIngestion(100)
 	feed(first, stageLine("a1", "train", "running", `{"resumeStep":0}`),
@@ -221,6 +228,7 @@ func TestResumeWithoutPointsStoresTheRewoundSummary(t *testing.T) {
 	require.Contains(t, summary, `{"step":9,"value":1}`)
 }
 
+// Stages only move forward, and metrics of an attempt with no stage yet are ignored.
 func TestIngestionStageOrderAndResult(t *testing.T) {
 	in := newTestIngestion(100)
 	feed(in,
@@ -235,6 +243,7 @@ func TestIngestionStageOrderAndResult(t *testing.T) {
 	require.Equal(t, markerSuccess, in.result.Kind)
 }
 
+// Invalid points are rejected, NaN is stored, and the summary goes on past the point cap.
 func TestIngestionValidationCapAndSummary(t *testing.T) {
 	in := newTestIngestion(3)
 	feed(in, stageLine("a1", "train", "running", ""),
@@ -251,6 +260,7 @@ func TestIngestionValidationCapAndSummary(t *testing.T) {
 	require.Equal(t, 3.0, in.sum.Main.Value, "the summary keeps updating past the point cap")
 }
 
+// The sparkline keeps a bounded number of points from the first step on.
 func TestSparklineStaysBounded(t *testing.T) {
 	m := &mainMetric{Name: "train/loss"}
 	for i := 0; i < 1000; i++ {
@@ -262,6 +272,7 @@ func TestSparklineStaysBounded(t *testing.T) {
 	require.Equal(t, int64(999), m.Step)
 }
 
+// Stall warnings, disk usage and a stage that refuses retry are read from the log.
 func TestIngestionStallDiskAndNoRetry(t *testing.T) {
 	in := newTestIngestion(100)
 	feed(in, stageLine("a1", "train", "running", ""),
@@ -285,6 +296,7 @@ func TestIngestionStallDiskAndNoRetry(t *testing.T) {
 	require.True(t, in.noRetry)
 }
 
+// A launcher silent for too long is marked lost, and any stage from it clears the mark.
 func TestLostLauncherIsMarkedAndCleared(t *testing.T) {
 	in := newTestIngestion(100)
 	in.cur.LastStage = time.Now().Add(-11 * time.Minute).Unix()
@@ -302,6 +314,7 @@ func TestLostLauncherIsMarkedAndCleared(t *testing.T) {
 	require.Equal(t, "", in.u.fields["message"])
 }
 
+// Links are recorded apart from points, and only changed http(s) links count.
 func TestLinkMarkers(t *testing.T) {
 	in := newTestIngestion(100)
 	link := func(v string) string {
@@ -322,6 +335,7 @@ func TestLinkMarkers(t *testing.T) {
 	require.Len(t, again.sum.Links, 1)
 }
 
+// Samples are kept per attempt up to the later attempt's resume, and unknown kinds are dropped.
 func TestSampleMarkers(t *testing.T) {
 	in := newTestIngestion(100)
 	sample := func(attempt string, step int, kind string) string {
