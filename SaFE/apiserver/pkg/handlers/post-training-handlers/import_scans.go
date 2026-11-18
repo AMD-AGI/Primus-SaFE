@@ -310,7 +310,8 @@ func (h *Handler) CommitImportScan(c *gin.Context) {
 		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("the Post Training registry is not loaded: "+err.Error()))
 		return
 	}
-	t, err := h.scanToken(c, v1.CreateVerb)
+	// The create verb would not compare the owner; update grants the scan to its issuer and administrators only.
+	t, err := h.scanToken(c, v1.UpdateVerb)
 	if err != nil {
 		apiutils.AbortWithApiError(c, err)
 		return
