@@ -277,9 +277,13 @@ export function createWizard(workspace: string, nodeFlavor?: string) {
   const fieldValues = (name: string): OptionValue[] =>
     config.value?.options?.fields?.[name]?.values ?? []
 
+  // Set while a template is edited: its train type, method and framework are the template's own.
+  const templateEdit = ref(false)
+
   return {
     workspace,
     form,
+    templateEdit,
     models,
     config,
     trainDatasets,

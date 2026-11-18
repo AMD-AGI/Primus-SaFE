@@ -381,6 +381,7 @@ const useTemplate = async (templateId: string) => {
     : ''
   if (route.query.mode === 'template') {
     editingTemplate.value = tpl
+    w.templateEdit.value = true
     w.form.templateId = undefined
     w.form.displayName = tpl.name
   } else {

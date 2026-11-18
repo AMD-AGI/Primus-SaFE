@@ -14,6 +14,7 @@
         v-if="frameworks.length > 1"
         v-model="w.form.framework"
         style="width: 240px"
+        :disabled="w.templateEdit.value"
         @change="emit('changed', 'framework')"
       >
         <el-option v-for="f in frameworks" :key="f.name" :label="f.name" :value="f.name" />
@@ -31,6 +32,7 @@
       <el-segmented
         v-model="w.form.trainType"
         class="form-seg"
+        :disabled="w.templateEdit.value"
         :options="[
           { label: 'SFT', value: 'sft' },
           { label: 'RL', value: 'rl' },
@@ -43,6 +45,7 @@
       <el-segmented
         v-model="w.form.method"
         class="form-seg"
+        :disabled="w.templateEdit.value"
         :options="[
           { label: 'Full', value: 'full' },
           { label: 'LoRA', value: 'lora' },
@@ -51,6 +54,10 @@
       />
       <div class="pt-help">
         Full trains every weight that is not frozen. LoRA trains small adapters on a frozen base.
+      </div>
+      <div v-if="w.templateEdit.value" class="pt-help">
+        A template keeps its training type, method and framework; save a run as a new template to
+        change them.
       </div>
     </el-form-item>
 
@@ -95,7 +102,7 @@
       </el-select>
     </el-form-item>
 
-    <el-form-item v-if="templates.length" label="Start from template">
+    <el-form-item v-if="templates.length && !w.templateEdit.value" label="Start from template">
       <el-select
         :model-value="w.form.templateId"
         placeholder="Pick a template of this workspace"
