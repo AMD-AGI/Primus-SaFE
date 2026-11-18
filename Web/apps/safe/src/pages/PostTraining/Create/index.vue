@@ -23,6 +23,15 @@
         show-icon
         :title="`New runs are paused on this cluster. ${w.models.value.pausedReason}`"
       />
+      <el-alert
+        v-for="e in loadErrors"
+        :key="e"
+        class="mb-3"
+        type="error"
+        :closable="false"
+        show-icon
+        :title="e"
+      />
       <el-alert v-if="prefill" class="mb-3" type="info" :closable="false" show-icon>
         <template #title>
           {{ prefill }}
@@ -204,6 +213,8 @@ const scrollTo = (s: number) =>
 const visible = ref(true)
 // The sections render once the URL's prefill is in the request.
 const ready = ref(false)
+// What failed while the wizard opened; the form still opens with the rest.
+const loadErrors = ref<string[]>([])
 // Bumped when the request is replaced as a whole, so that the sections read it again.
 const formKey = ref(0)
 let pristine = ''
@@ -413,15 +424,30 @@ const applyQuery = async () => {
   }
 }
 
-onMounted(async () => {
+/** Runs one step of opening the wizard and shows why it failed, so that the next steps still run. */
+const openStep = async (what: string, run: () => Promise<unknown>) => {
   try {
-    await Promise.all([w.loadModels(), w.loadNodeGpus()])
-    await applyQuery()
-    await Promise.all([w.loadDatasets(), w.loadConfig()])
-  } finally {
-    pristine = JSON.stringify(w.form)
-    ready.value = true
+    await run()
+  } catch (err) {
+    const reason =
+      (err as { response?: { data?: { errorMessage?: string } } })?.response?.data?.errorMessage ??
+      String(err)
+    loadErrors.value.push(`Couldn't ${what}: ${reason}`)
   }
+}
+
+onMounted(async () => {
+  await Promise.all([
+    openStep('load the models', w.loadModels),
+    openStep('read the GPUs of a node', w.loadNodeGpus),
+  ])
+  await openStep('apply the prefill', applyQuery)
+  await Promise.all([
+    openStep('load the datasets', w.loadDatasets),
+    openStep('load the options', w.loadConfig),
+  ])
+  pristine = JSON.stringify(w.form)
+  ready.value = true
   w.runPreview()
 })
 </script>
