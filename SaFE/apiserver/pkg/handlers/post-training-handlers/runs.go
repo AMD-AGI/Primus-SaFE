@@ -25,6 +25,7 @@ import (
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/post-training-handlers/recipe"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -465,6 +466,21 @@ func (h *Handler) checkpointMarkers(ctx context.Context, run *dbclient.PostTrain
 	return buildMarkers(run, points), nil
 }
 
+// authorizeModelDelete checks the caller may delete a model the way the model API does: its owner, or a role that
+// grants model deletion; a missing model needs no check.
+func (h *Handler) authorizeModelDelete(c *gin.Context, name string) error {
+	m := &v1.Model{}
+	if err := h.client.Get(c.Request.Context(), ctrlclient.ObjectKey{Name: name}, m); err != nil {
+		return ctrlclient.IgnoreNotFound(err)
+	}
+	in := authority.AccessInput{Context: c.Request.Context(), ResourceKind: v1.ModelKind, Verb: v1.DeleteVerb,
+		UserId: c.GetString(common.UserId), ResourceOwner: v1.GetUserId(m)}
+	if m.Spec.Workspace != "" {
+		in.Workspaces = []string{m.Spec.Workspace}
+	}
+	return h.access.Authorize(in)
+}
+
 // stopRun stops the run's training workload, its evaluation services except kept ones whose evaluation is over,
 // and its checkpoint exports; the controller then cancels the evaluation jobs and records the run. It reports
 // whether anything was still running.
@@ -589,6 +605,11 @@ func (h *Handler) DeleteRun(c *gin.Context) {
 // points.
 func (h *Handler) deleteRun(c *gin.Context, run *dbclient.PostTrainingRun, deleteModel bool) error {
 	ctx := c.Request.Context()
+	if deleteModel && run.OutputModelID != "" && !imported(run) {
+		if err := h.authorizeModelDelete(c, run.OutputModelID); err != nil {
+			return err
+		}
+	}
 	if imported(run) {
 		// Only SaFE's record goes: the run directory on Spur is not touched, and the directory can be imported again.
 		if err := h.db.DeletePostTrainingImportOfRun(ctx, run.RunID); err != nil {

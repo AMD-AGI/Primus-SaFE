@@ -141,6 +141,35 @@ func TestAnExperimentWhoseWorkloadIsRefusedIsRolledBack(t *testing.T) {
 	require.Empty(t, workloads.Items, "the baseline that started is stopped with the experiment")
 }
 
+func TestDeletingARunDeletesItsModelOnlyForWhoMayDeleteTheModel(t *testing.T) {
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	h, cli := submitHandler(t, db, nil)
+	ctx := context.Background()
+	for _, owner := range []string{"u2", "u1"} {
+		model := &v1.Model{ObjectMeta: metav1.ObjectMeta{Name: "m-out-" + owner,
+			Labels: map[string]string{v1.UserIdLabel: owner}}, Spec: v1.ModelSpec{Workspace: "ws1"}}
+		require.NoError(t, cli.Create(ctx, model))
+		run := &dbclient.PostTrainingRun{RunID: "pt-" + owner, WorkloadID: "pt-" + owner, Workspace: "ws1",
+			OutputModelID: model.Name, Status: string(v1.WorkloadSucceeded)}
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodDelete, "/", nil)
+		c.Set(common.UserId, "u1")
+		if owner == "u2" {
+			err := h.deleteRun(c, run, true)
+			require.Error(t, err, "a member may not delete another member's model through a run")
+			require.Equal(t, http.StatusForbidden, statusCode(err))
+			require.NoError(t, cli.Get(ctx, ctrlclient.ObjectKeyFromObject(model), &v1.Model{}))
+			continue
+		}
+		db.EXPECT().SetPostTrainingRunDeleted(gomock.Any(), run.RunID).Return(nil)
+		db.EXPECT().DeletePostTrainingRunMetrics(gomock.Any(), run.RunID).Return(nil)
+		db.EXPECT().DeletePostTrainingRunSamples(gomock.Any(), run.RunID, gomock.Any()).Return(nil)
+		require.NoError(t, h.deleteRun(c, run, true))
+		require.Error(t, cli.Get(ctx, ctrlclient.ObjectKeyFromObject(model), &v1.Model{}), "the owner deletes it")
+	}
+}
+
 // errFromString is an error with message.
 type errFromString string
 
