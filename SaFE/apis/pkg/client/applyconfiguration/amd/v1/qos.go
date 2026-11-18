@@ -24,10 +24,9 @@ type QosApplyConfiguration struct {
 
 // Qos constructs a declarative configuration of the Qos type for use with
 // apply.
-func Qos(name, namespace string) *QosApplyConfiguration {
+func Qos(name string) *QosApplyConfiguration {
 	b := &QosApplyConfiguration{}
 	b.WithName(name)
-	b.WithNamespace(namespace)
 	b.WithKind("Qos")
 	b.WithAPIVersion("amd.com/v1")
 	return b

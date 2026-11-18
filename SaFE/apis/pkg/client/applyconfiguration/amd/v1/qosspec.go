@@ -12,7 +12,9 @@ package v1
 // QosSpec is the ceiling for one cluster. The object name is the cluster id.
 type QosSpecApplyConfiguration struct {
 	MaxResources *ResourceCapApplyConfiguration `json:"maxResources,omitempty"`
-	MaxRuntime   map[string]int                 `json:"maxRuntime,omitempty"`
+	// MaxRuntime is the timeout ceiling in seconds, keyed by workspace scope
+	// (Train, Infer, Authoring, CICD, Ray, Sandbox). A missing or non-positive entry is unset.
+	MaxRuntime map[string]int `json:"maxRuntime,omitempty"`
 }
 
 // QosSpecApplyConfiguration constructs a declarative configuration of the QosSpec type for use with

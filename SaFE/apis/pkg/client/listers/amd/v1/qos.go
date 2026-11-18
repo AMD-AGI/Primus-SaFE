@@ -19,8 +19,9 @@ type QosLister interface {
 	// List lists all Qoses in the indexer.
 	// Objects returned here must be treated as read-only.
 	List(selector labels.Selector) (ret []*amdv1.Qos, err error)
-	// Qoses returns an object that can list and get Qoses.
-	Qoses(namespace string) QosNamespaceLister
+	// Get retrieves the Qos from the index for a given name.
+	// Objects returned here must be treated as read-only.
+	Get(name string) (*amdv1.Qos, error)
 	QosListerExpansion
 }
 
@@ -32,27 +33,4 @@ type qosLister struct {
 // NewQosLister returns a new QosLister.
 func NewQosLister(indexer cache.Indexer) QosLister {
 	return &qosLister{listers.New[*amdv1.Qos](indexer, amdv1.Resource("qos"))}
-}
-
-// Qoses returns an object that can list and get Qoses.
-func (s *qosLister) Qoses(namespace string) QosNamespaceLister {
-	return qosNamespaceLister{listers.NewNamespaced[*amdv1.Qos](s.ResourceIndexer, namespace)}
-}
-
-// QosNamespaceLister helps list and get Qoses.
-// All objects returned here must be treated as read-only.
-type QosNamespaceLister interface {
-	// List lists all Qoses in the indexer for a given namespace.
-	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*amdv1.Qos, err error)
-	// Get retrieves the Qos from the indexer for a given namespace and name.
-	// Objects returned here must be treated as read-only.
-	Get(name string) (*amdv1.Qos, error)
-	QosNamespaceListerExpansion
-}
-
-// qosNamespaceLister implements the QosNamespaceLister
-// interface.
-type qosNamespaceLister struct {
-	listers.ResourceIndexer[*amdv1.Qos]
 }

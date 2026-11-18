@@ -12,9 +12,11 @@ package v1
 // UserQos is stored on the User. Clusters holds the ceilings keyed by cluster id.
 // The top-level MaxResources and MaxRuntime are not used.
 type UserQosApplyConfiguration struct {
-	MaxResources *ResourceCapApplyConfiguration            `json:"maxResources,omitempty"`
-	MaxRuntime   map[string]int                            `json:"maxRuntime,omitempty"`
-	Clusters     map[string]UserQosScopeApplyConfiguration `json:"clusters,omitempty"`
+	MaxResources *ResourceCapApplyConfiguration `json:"maxResources,omitempty"`
+	// MaxRuntime is the timeout ceiling in seconds, keyed by workspace scope
+	// (Train, Infer, Authoring, CICD, Ray, Sandbox). A missing or non-positive entry is unset.
+	MaxRuntime map[string]int                            `json:"maxRuntime,omitempty"`
+	Clusters   map[string]UserQosScopeApplyConfiguration `json:"clusters,omitempty"`
 }
 
 // UserQosApplyConfiguration constructs a declarative configuration of the UserQos type for use with

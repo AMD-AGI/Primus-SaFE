@@ -222,6 +222,10 @@ func TestUserQosPatchKeepsClustersOnly(t *testing.T) {
 	if assert.NotNil(t, target.Spec.Qos) {
 		assert.Equal(t, "1", target.Spec.Qos.Clusters["c1"].MaxResources.GPU)
 	}
+	applyUserPatch(target, &view.PatchUserRequest{Qos: &v1.UserQos{Clusters: map[string]v1.UserQosScope{
+		"c1": {MaxResources: &v1.ResourceCap{Memory: "64", GPU: "1"}},
+	}}})
+	assert.Equal(t, "64Gi", target.Spec.Qos.Clusters["c1"].MaxResources.Memory)
 	applyUserPatch(target, &view.PatchUserRequest{Qos: &v1.UserQos{}})
 	assert.Nil(t, target.Spec.Qos)
 	_, err = f.h.authUserUpdate(f.ctx(userAdmin, userDefault, ""), target, &view.PatchUserRequest{

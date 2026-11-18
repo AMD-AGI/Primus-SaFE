@@ -637,6 +637,22 @@ func TestRememberRunningResourcesKeepsTheOriginalSize(t *testing.T) {
 	}
 }
 
+func TestQueuedResizeAboveCeilingIsRejected(t *testing.T) {
+	scheme := newScheme(t)
+	qos := &v1.Qos{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+		Spec:       v1.QosSpec{MaxResources: &v1.ResourceCap{GPU: "8"}},
+	}
+	queued := scaleQuotaWorkload("queued", "1", false)
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(qos, queued).Build()
+	v := &WorkloadValidator{Client: c}
+	ctx := context.Background()
+
+	err := v.validateScaleQuota(ctx, scaleQuotaWorkload("queued", "16", false), queued, false)
+	assert.Assert(t, err != nil)
+	assert.NilError(t, v.validateScaleQuota(ctx, scaleQuotaWorkload("queued", "8", false), queued, false))
+}
+
 func TestUnscheduledScaleSkipsQuota(t *testing.T) {
 	scheme := newScheme(t)
 	qos := &v1.Qos{

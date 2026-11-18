@@ -74,8 +74,8 @@ func (c *AmdV1Client) OpsJobs(namespace string) OpsJobInterface {
 	return newOpsJobs(c, namespace)
 }
 
-func (c *AmdV1Client) Qoses(namespace string) QosInterface {
-	return newQoses(c, namespace)
+func (c *AmdV1Client) Qoses() QosInterface {
+	return newQoses(c)
 }
 
 func (c *AmdV1Client) ResourceTemplates(namespace string) ResourceTemplateInterface {

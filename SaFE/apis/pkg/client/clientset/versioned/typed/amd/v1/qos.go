@@ -21,7 +21,7 @@ import (
 // QosesGetter has a method to return a QosInterface.
 // A group's client should implement this interface.
 type QosesGetter interface {
-	Qoses(namespace string) QosInterface
+	Qoses() QosInterface
 }
 
 // QosInterface has methods to work with Qos resources.
@@ -44,13 +44,13 @@ type qoses struct {
 }
 
 // newQoses returns a Qoses
-func newQoses(c *AmdV1Client, namespace string) *qoses {
+func newQoses(c *AmdV1Client) *qoses {
 	return &qoses{
 		gentype.NewClientWithListAndApply[*amdv1.Qos, *amdv1.QosList, *applyconfigurationamdv1.QosApplyConfiguration](
-			"qoses",
+			"qos",
 			c.RESTClient(),
 			scheme.ParameterCodec,
-			namespace,
+			"",
 			func() *amdv1.Qos { return &amdv1.Qos{} },
 			func() *amdv1.QosList { return &amdv1.QosList{} },
 		),

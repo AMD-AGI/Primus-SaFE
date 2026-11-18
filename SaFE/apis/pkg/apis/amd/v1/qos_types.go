@@ -50,6 +50,8 @@ type QosSpec struct {
 }
 
 // +genclient
+// +genclient:nonNamespaced
+// +resourceName=qos
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Cluster,path=qos,singular=qos

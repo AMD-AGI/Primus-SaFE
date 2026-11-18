@@ -52,8 +52,8 @@ func (c *FakeAmdV1) OpsJobs(namespace string) v1.OpsJobInterface {
 	return newFakeOpsJobs(c, namespace)
 }
 
-func (c *FakeAmdV1) Qoses(namespace string) v1.QosInterface {
-	return newFakeQoses(c, namespace)
+func (c *FakeAmdV1) Qoses() v1.QosInterface {
+	return newFakeQoses(c)
 }
 
 func (c *FakeAmdV1) ResourceTemplates(namespace string) v1.ResourceTemplateInterface {

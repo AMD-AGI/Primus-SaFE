@@ -12,7 +12,9 @@ package v1
 // UserQosScope is one user's ceiling on one cluster.
 type UserQosScopeApplyConfiguration struct {
 	MaxResources *ResourceCapApplyConfiguration `json:"maxResources,omitempty"`
-	MaxRuntime   map[string]int                 `json:"maxRuntime,omitempty"`
+	// MaxRuntime is the timeout ceiling in seconds, keyed by workspace scope
+	// (Train, Infer, Authoring, CICD, Ray, Sandbox). A missing or non-positive entry is unset.
+	MaxRuntime map[string]int `json:"maxRuntime,omitempty"`
 }
 
 // UserQosScopeApplyConfiguration constructs a declarative configuration of the UserQosScope type for use with

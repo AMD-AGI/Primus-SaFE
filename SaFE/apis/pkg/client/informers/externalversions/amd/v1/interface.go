@@ -102,7 +102,7 @@ func (v *version) OpsJobs() OpsJobInformer {
 
 // Qoses returns a QosInformer.
 func (v *version) Qoses() QosInformer {
-	return &qosInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+	return &qosInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
 // ResourceTemplates returns a ResourceTemplateInformer.

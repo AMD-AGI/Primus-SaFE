@@ -19,12 +19,12 @@ type fakeQoses struct {
 	Fake *FakeAmdV1
 }
 
-func newFakeQoses(fake *FakeAmdV1, namespace string) typedamdv1.QosInterface {
+func newFakeQoses(fake *FakeAmdV1) typedamdv1.QosInterface {
 	return &fakeQoses{
 		gentype.NewFakeClientWithListAndApply[*v1.Qos, *v1.QosList, *amdv1.QosApplyConfiguration](
 			fake.Fake,
-			namespace,
-			v1.SchemeGroupVersion.WithResource("qoses"),
+			"",
+			v1.SchemeGroupVersion.WithResource("qos"),
 			v1.SchemeGroupVersion.WithKind("Qos"),
 			func() *v1.Qos { return &v1.Qos{} },
 			func() *v1.QosList { return &v1.QosList{} },

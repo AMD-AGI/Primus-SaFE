@@ -1201,14 +1201,16 @@ func runtimeCeiling(ctx context.Context, c client.Reader, workload *v1.Workload,
 	return limits.RuntimeSeconds, nil
 }
 
-// validateScaleQuota rejects an update of a scheduled workload that grows CPU, memory or GPU
-// past the user's ceiling. Queued work ahead of this workload counts. A queued workload's own
-// update is left to the scheduler, which holds it instead of rejecting the update.
-// A shrink or an unchanged dimension is left alone.
+// validateScaleQuota rejects an update that grows CPU, memory or GPU past the user's ceiling.
+// A queued workload is checked on its own request. A scheduled workload also counts other
+// usage. A shrink or an unchanged dimension is left alone.
 func (v *WorkloadValidator) validateScaleQuota(ctx context.Context, newWorkload, oldWorkload *v1.Workload, dryRun bool) error {
-	if newWorkload == nil || oldWorkload == nil || !v1.IsWorkloadScheduled(oldWorkload) ||
+	if newWorkload == nil || oldWorkload == nil ||
 		reflect.DeepEqual(newWorkload.Spec.Resources, oldWorkload.Spec.Resources) {
 		return nil
+	}
+	if !v1.IsWorkloadScheduled(oldWorkload) {
+		return v.validateCreateQuota(ctx, newWorkload)
 	}
 	oldTotal, err := commonworkload.GetTotalResourceList(oldWorkload)
 	if err != nil {
