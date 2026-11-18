@@ -550,12 +550,11 @@ export interface ImportConfig {
   mountPrefixes?: string[]
 }
 
-/** A one-time token of the import command, with the command that uses it. */
+/** A one-time token of the import command. */
 export interface ImportToken {
   tokenId: string
   token: string
   expiresAt: string
-  command: string
 }
 
 /** A gate result of an imported run directory. */

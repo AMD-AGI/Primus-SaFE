@@ -206,12 +206,7 @@ const tokenExpired = computed(
     (tokenState.value?.state === 'expired' ||
       now.value.getTime() >= dayjs(token.value.expiresAt).valueOf()),
 )
-const command = computed(() =>
-  importCommandFor(
-    token.value?.command ?? 'SAFE_IMPORT_TOKEN=… safe-post-training-import <run-dir>',
-    dir.value,
-  ),
-)
+const command = computed(() => importCommandFor(token.value?.token, dir.value))
 const expiresAt = computed(() => (token.value ? dayjs(token.value.expiresAt).format('HH:mm') : ''))
 
 const scanId = ref('')

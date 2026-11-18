@@ -464,13 +464,17 @@ describe('imports', () => {
     expect(hints[1].text).toBe('b6_grpo-h1.log is 2.7 GB; only its metric lines are kept.')
   })
 
-  it('puts the directory in the command, quoted when a shell would split it', () => {
-    const command = 'SAFE_IMPORT_TOKEN=sst_a.b safe-post-training-import <run-dir>'
-    expect(importCommandFor(command, '  ')).toBe(command)
-    expect(importCommandFor(command, '/shared_nfs/runs/j2r5-229357')).toBe(
+  it('builds the command from the token, with the directory quoted when a shell would split it', () => {
+    expect(importCommandFor(undefined, '')).toBe(
+      'SAFE_IMPORT_TOKEN=… safe-post-training-import <run-dir>',
+    )
+    expect(importCommandFor('sst_a.b', '  ')).toBe(
+      'SAFE_IMPORT_TOKEN=sst_a.b safe-post-training-import <run-dir>',
+    )
+    expect(importCommandFor('sst_a.b', '/shared_nfs/runs/j2r5-229357')).toBe(
       'SAFE_IMPORT_TOKEN=sst_a.b safe-post-training-import /shared_nfs/runs/j2r5-229357',
     )
-    expect(importCommandFor(command, "/shared_nfs/it's $HOME")).toBe(
+    expect(importCommandFor('sst_a.b', "/shared_nfs/it's $HOME")).toBe(
       "SAFE_IMPORT_TOKEN=sst_a.b safe-post-training-import '/shared_nfs/it'\\''s $HOME'",
     )
     expect(shortSpurPath('/shared_nfs/zhanglei/glm53-kernel/slime-rocm/runs/j2r7-242118')).toBe(

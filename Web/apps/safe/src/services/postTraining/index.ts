@@ -836,10 +836,11 @@ export function shellQuote(word: string): string {
   return /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replace(/'/g, `'\\''`)}'`
 }
 
-/** The import command with the run directory in place of <run-dir>, which stays while none is entered. */
-export function importCommandFor(command: string, dir: string): string {
+/** The import command for a one-time token, … before one is issued, and the run directory, <run-dir> while none
+ * is entered. */
+export function importCommandFor(token: string | undefined, dir: string): string {
   const d = dir.trim()
-  return d ? command.replace('<run-dir>', shellQuote(d)) : command
+  return `SAFE_IMPORT_TOKEN=${token ?? '…'} safe-post-training-import ${d ? shellQuote(d) : '<run-dir>'}`
 }
 
 /** Shortens a Spur path to its first and last directories, as /shared_nfs/…/j2r7-242118. */
