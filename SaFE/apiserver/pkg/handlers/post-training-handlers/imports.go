@@ -42,8 +42,6 @@ const (
 	importPurposeScan = "scan"
 	importViaCLI      = "cli"
 	importViaScan     = "scan"
-	// importCommand is the command the import dialog shows; the dialog puts the run directory in place of <run-dir>.
-	importCommand = "SAFE_IMPORT_TOKEN=%s safe-post-training-import <run-dir>"
 	// tokenStates are the states GET /imports/tokens/:id reports.
 	tokenWaiting = "waiting"
 	tokenUsed    = "used"
@@ -121,12 +119,12 @@ type importTokenRequest struct {
 	Workspace string `json:"workspace"`
 }
 
-// importTokenResponse carries a new token, which appears only in this response, and the command that uses it.
+// importTokenResponse carries a new token, which appears only in this response; the console builds the command
+// that uses it, as the audit log keeps the response with only the token field redacted.
 type importTokenResponse struct {
 	TokenID   string    `json:"tokenId"`
 	Token     string    `json:"token"`
 	ExpiresAt time.Time `json:"expiresAt"`
-	Command   string    `json:"command"`
 }
 
 // IssueImportToken issues a one-time token to upload one run directory into a workspace the caller may create
@@ -153,8 +151,7 @@ func (h *Handler) IssueImportToken(c *gin.Context) {
 		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to issue an import token: "+err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, importTokenResponse{TokenID: t.TokenID, Token: token, ExpiresAt: t.ExpiresAt,
-		Command: fmt.Sprintf(importCommand, token)})
+	c.JSON(http.StatusOK, importTokenResponse{TokenID: t.TokenID, Token: token, ExpiresAt: t.ExpiresAt})
 }
 
 // newImportToken stores a token of a purpose for the caller and returns it with its plain text, which is
@@ -275,6 +272,9 @@ func (h *Handler) UploadImport(c *gin.Context) {
 		apiutils.AbortWithApiError(c, commonerrors.NewUnauthorized(importSpentMessage))
 		return
 	}
+	// The audit of the upload names the token's owner.
+	c.Set(common.UserId, t.UserID)
+	c.Set(common.UserName, t.UserName)
 	stage := c.Query("stage") == "true"
 	if stage != (t.Purpose == importPurposeScan) {
 		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("this token cannot be used for that upload"))

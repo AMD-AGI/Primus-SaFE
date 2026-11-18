@@ -51,5 +51,6 @@ func InitRoutes(engine *gin.Engine, h *Handler) {
 	group.GET("/imports/scans/:id", h.GetImportScan)
 	group.POST("/imports/scans/:id/commit", middleware.Audit("post-training"), h.CommitImportScan)
 	// The command upload authenticates with its one-time import token, not a session.
-	engine.POST(common.PrimusRouterCustomRootPath+"/post-training/imports", h.UploadImport)
+	engine.POST(common.PrimusRouterCustomRootPath+"/post-training/imports", middleware.Audit("post-training"),
+		h.UploadImport)
 }

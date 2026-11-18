@@ -84,6 +84,12 @@ func importHandler(t *testing.T) (*Handler, *mockclient.MockInterface) {
 
 // upload posts a summary with a token to UploadImport and returns the response.
 func upload(h *Handler, token string, summary []byte) *httptest.ResponseRecorder {
+	w, _ := uploadContext(h, token, summary)
+	return w
+}
+
+// uploadContext is upload that also returns the request's context.
+func uploadContext(h *Handler, token string, summary []byte) (*httptest.ResponseRecorder, *gin.Context) {
 	var body bytes.Buffer
 	gz := gzip.NewWriter(&body)
 	_, _ = gz.Write(summary)
@@ -94,7 +100,24 @@ func upload(h *Handler, token string, summary []byte) *httptest.ResponseRecorder
 	c.Request.Header.Set("Authorization", "Bearer "+token)
 	c.Request.Header.Set("Content-Encoding", "gzip")
 	h.UploadImport(c)
-	return w
+	return w, c
+}
+
+func TestTheTokenStaysOutOfWhatTheAuditKeeps(t *testing.T) {
+	data, err := json.Marshal(importTokenResponse{TokenID: "pti-1", Token: "sst_a.b", ExpiresAt: time.Now()})
+	require.NoError(t, err)
+	require.NotContains(t, string(data), "command", "the audit log keeps the response body, and only the token "+
+		"field is redacted there")
+
+	h, db := importHandler(t)
+	token := "sst_aHR0cHM6Ly9zYWZl.secret"
+	db.EXPECT().GetPostTrainingImportTokenByHash(gomock.Any(), tokenHash(token)).Return(cliToken(), nil)
+	db.EXPECT().GetPostTrainingRun(gomock.Any(), "spur-j2r5-229357").Return(nil, gorm.ErrRecordNotFound)
+	db.EXPECT().SavePostTrainingImport(gomock.Any(), gomock.Any()).Return(nil)
+	w, c := uploadContext(h, token, importSummaryJSON(t, nil))
+	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
+	require.Equal(t, "u1", c.GetString(common.UserId), "the audit of the upload names the token's owner")
+	require.Equal(t, "alice", c.GetString(common.UserName))
 }
 
 // cliToken is an unused command upload token of alice in workspace ws.
