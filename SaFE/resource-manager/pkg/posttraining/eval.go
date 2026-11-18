@@ -144,8 +144,14 @@ func (r *RunReconciler) advanceEvaluation(ctx context.Context, run *dbclient.Pos
 		if !apierrors.IsNotFound(err) {
 			return 0, err
 		}
-		// The evaluation job was deleted: the evaluation is cancelled.
-		return 0, r.finishEvaluation(ctx, run, s, true)
+		// The cache may not show a job created a moment ago; the API server tells whether it was deleted.
+		if err = r.reader.Get(ctx, client.ObjectKey{Name: jobName}, job); err != nil {
+			if !apierrors.IsNotFound(err) {
+				return 0, err
+			}
+			// The evaluation job was deleted: the evaluation is cancelled.
+			return 0, r.finishEvaluation(ctx, run, s, true)
+		}
 	}
 	if job.Status.Phase != v1.OpsJobSucceeded && job.Status.Phase != v1.OpsJobFailed {
 		return evalRequeue, nil
@@ -259,7 +265,17 @@ func (r *RunReconciler) startAutoEvaluation(ctx context.Context, run *dbclient.P
 	rec := parseRecipe(run)
 	switch {
 	case hasEvent(u.history, evalStartedEvent):
-		// The service of the automatic evaluation is gone without finishing it, e.g. the user deleted it.
+		// The service of the automatic evaluation is gone without finishing it, e.g. the user deleted it, unless the
+		// cache does not show the one started a moment ago yet.
+		if name := lastEvalService(u.history); name != "" {
+			err := r.reader.Get(ctx, client.ObjectKey{Name: name}, &v1.Workload{})
+			if err == nil {
+				return ctrlruntime.Result{RequeueAfter: evalRequeue}, nil
+			}
+			if !apierrors.IsNotFound(err) {
+				return ctrlruntime.Result{}, err
+			}
+		}
 	case rec.Evaluation == nil || len(rec.Evaluation.Benchmarks) == 0 || run.OutputModelID == "":
 	default:
 		req := evalRequest{Benchmarks: rec.Evaluation.Benchmarks, KeepService: rec.Evaluation.KeepService}
@@ -319,6 +335,16 @@ func hasEvent(history []stageEntry, event string) bool {
 		}
 	}
 	return false
+}
+
+// lastEvalService returns the service the latest automatic evaluation of the history started, or "".
+func lastEvalService(history []stageEntry) string {
+	for i := len(history) - 1; i >= 0; i-- {
+		if e := history[i]; e.Event == evalStartedEvent || e.Event == evalRepeatedEvent {
+			return e.Message
+		}
+	}
+	return ""
 }
 
 // startEvaluation creates the inference service that evaluates modelID and returns its name.
@@ -514,7 +540,7 @@ func evalTaskID(service string) string {
 // and creates its OpsJob; it returns the job name.
 func (r *RunReconciler) createEvalJob(ctx context.Context, run *dbclient.PostTrainingRun, s *v1.Workload) (string, error) {
 	name := evalJobName(s.Name)
-	if err := r.Get(ctx, client.ObjectKey{Name: name}, &v1.OpsJob{}); err == nil {
+	if err := r.reader.Get(ctx, client.ObjectKey{Name: name}, &v1.OpsJob{}); err == nil {
 		return name, nil
 	}
 	port := 0

@@ -21,8 +21,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/yaml"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -175,6 +177,30 @@ func TestAnEvaluationWhoseTaskCannotBeBuiltEnds(t *testing.T) {
 	reconcileRun(t, r)
 	require.Empty(t, evalServices(t, r), "a benchmark deleted during training ends the evaluation and frees its GPUs")
 	require.Equal(t, "done", (*updates)[len(*updates)-1]["stage"])
+}
+
+func TestAnEvaluationIsNotCancelledForWhatTheCacheDoesNotShowYet(t *testing.T) {
+	run, objs := evalFixtures("eval")
+	s := autoService("svc-3")
+	s.Status.Phase = v1.WorkloadRunning
+	s.Annotations[evalJobAnnotation] = evalJobName("svc-3")
+	job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: evalJobName("svc-3"),
+		Labels: map[string]string{v1.PostTrainingRunIdLabel: testRun}}}
+	job.Status.Phase = v1.OpsJobRunning
+	r, _, updates := newTestReconciler(t, run, append(objs, s)...)
+	loadChartRegistry(t, r)
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1.AddToScheme(scheme))
+	r.reader = ctrlfake.NewClientBuilder().WithScheme(scheme).WithObjects(job, s.DeepCopy()).Build()
+	reconcileRun(t, r)
+	require.Len(t, evalServices(t, r), 1, "a job the cache does not show yet was not deleted")
+
+	require.NoError(t, r.Delete(context.Background(), s))
+	run.StageHistory = `[{"stage":"eval","time":"2026-01-01T00:00:00Z","event":"evaluate","message":"svc-3"}]`
+	reconcileRun(t, r)
+	for _, u := range *updates {
+		require.NotEqual(t, "done", u["stage"], "the service the evaluation started is still there")
+	}
 }
 
 func TestEvaluationServiceNotReadyInTime(t *testing.T) {
