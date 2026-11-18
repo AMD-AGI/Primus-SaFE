@@ -175,6 +175,8 @@ func isWorkspaceVolumeName(name string) bool {
 // Every kind maps to its scope: the scoped volume reaches Authoring, CICD, Train, Infer and Ray
 // kinds and never a Sandbox; with no scopes every kind gets it.
 func TestWorkspaceVolumeScopesPerKind(t *testing.T) {
+	commonconfig.SetValue("crypto.enable", "false")
+	t.Cleanup(func() { commonconfig.SetValue("crypto.enable", "") })
 	kinds := map[string]bool{
 		common.AuthoringKind:           true,
 		common.CICDScaleRunnerSetKind:  true,
@@ -191,9 +193,12 @@ func TestWorkspaceVolumeScopesPerKind(t *testing.T) {
 		for _, scopes := range [][]v1.WorkspaceScope{everyScopeButSandbox, nil} {
 			expected := want || scopes == nil
 			workload := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
-				Name:        "w",
-				Labels:      map[string]string{v1.UserIdLabel: "user-1"},
-				Annotations: map[string]string{v1.UseWorkspaceStorageAnnotation: v1.TrueStr},
+				Name:   "w",
+				Labels: map[string]string{v1.UserIdLabel: "user-1"},
+				Annotations: map[string]string{
+					v1.UseWorkspaceStorageAnnotation: v1.TrueStr,
+					v1.UserEncryptedAPIKeyAnnotation: "test-api-key",
+				},
 			}}
 			workload.Spec.GroupVersionKind.Kind = kind
 			ws := scopedWorkspace(scopes)
@@ -218,7 +223,9 @@ func TestWorkspaceVolumeScopesPerKind(t *testing.T) {
 			assert.Equal(t, hasVolume, expected, "volume, kind %s scopes %v", kind, scopes)
 
 			hasEnv := false
-			for _, env := range buildEnvironment(workload, ws, 0) {
+			envs, err := buildEnvironment(workload, ws, 0)
+			assert.NilError(t, err)
+			for _, env := range envs {
 				if env.(map[string]interface{})["name"] == jobutils.UserDataEnv {
 					hasEnv = true
 				}

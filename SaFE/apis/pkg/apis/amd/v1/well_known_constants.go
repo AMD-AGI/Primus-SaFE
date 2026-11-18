@@ -321,7 +321,10 @@ const (
 	UserPreferredNameAnnotation = UserPrefix + "preferred.name"
 	// UserAccountAnnotation carries the submitter's NTID (local part of preferred name).
 	// External execution uses it as the workload identity for container runAs mapping.
-	UserAccountAnnotation            = UserPrefix + "account"
+	UserAccountAnnotation = UserPrefix + "account"
+	// UserEncryptedAPIKeyAnnotation holds the caller's API key ciphertext (AES via crypto secret).
+	// Set on CICD create; job-manager decrypts it into USER_APIKEY.
+	UserEncryptedAPIKeyAnnotation    = UserPrefix + "encrypted-api-key"
 	UserEnableNotificationAnnotation = UserPrefix + "enable.notification"
 
 	// secret

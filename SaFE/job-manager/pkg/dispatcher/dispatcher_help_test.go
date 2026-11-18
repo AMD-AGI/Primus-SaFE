@@ -1482,7 +1482,8 @@ func TestBuildPodAnnotations(t *testing.T) {
 func TestBuildEnvironmentBasic(t *testing.T) {
 	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
 	w.Spec.Workspace = "ws"
-	envs := buildEnvironment(w, nil, -1)
+	envs, err := buildEnvironment(w, nil, -1)
+	assert.NilError(t, err)
 	// Core env vars are always present (WORKLOAD_ID, WORKSPACE, etc).
 	assert.Assert(t, len(envs) > 0)
 }
@@ -1492,7 +1493,8 @@ func TestBuildEnvironmentGpuAndSupervised(t *testing.T) {
 	w.Spec.Workspace = "ws"
 	w.Spec.IsSupervised = true
 	w.Spec.Resources = []v1.WorkloadResource{{Replica: 1, GPU: "8", GPUName: "amd.com/gpu"}}
-	envs := buildEnvironment(w, nil, 0)
+	envs, err := buildEnvironment(w, nil, 0)
+	assert.NilError(t, err)
 	// GPU + supervised paths add more env vars than the basic case.
 	assert.Assert(t, len(envs) > 5)
 }
@@ -1506,7 +1508,9 @@ func TestBuildEnvironmentSkipsSupervisionForExternal(t *testing.T) {
 	w.Spec.Workspace = "ws"
 	w.Spec.IsSupervised = true
 	w.Status.ExternalExecution = &v1.WorkloadExternalExecution{ClaimId: "claim-1"}
-	for _, raw := range buildEnvironment(w, nil, -1) {
+	envs, err := buildEnvironment(w, nil, -1)
+	assert.NilError(t, err)
+	for _, raw := range envs {
 		name := raw.(map[string]interface{})["name"]
 		assert.Assert(t, name != "ENABLE_SUPERVISE" && name != "HANG_CHECK_INTERVAL",
 			"external pod rendered %v", name)
@@ -1614,13 +1618,15 @@ func TestBuildEnvironment_InjectsUserIdAndApiKey(t *testing.T) {
 	workload.Spec.GroupVersionKind.Kind = common.UnifiedJobKind
 	workload.Spec.Workspace = "ws"
 
-	envs := buildEnvironment(workload, nil, -1)
+	envs, err := buildEnvironment(workload, nil, -1)
+	assert.NilError(t, err)
 	assert.Equal(t, true, findEnv(envs, jobutils.UserIdEnv, "user-1"))
 	assert.Equal(t, true, findEnv(envs, jobutils.UserApiKeyEnv, "injected-user-api-key"))
 }
 
 func TestUpdateCICDScaleSetEnvs_InjectsUserApiKey(t *testing.T) {
-	stubPlatformKey(t, "injected-user-api-key")
+	commonconfig.SetValue("crypto.enable", "false")
+	t.Cleanup(func() { commonconfig.SetValue("crypto.enable", "") })
 
 	workspace := jobutils.TestWorkspaceData.DeepCopy()
 	workload := jobutils.TestWorkloadData.DeepCopy()
@@ -1629,7 +1635,9 @@ func TestUpdateCICDScaleSetEnvs_InjectsUserApiKey(t *testing.T) {
 	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, "test-github-secret")
 	v1.SetAnnotation(workload, v1.AdminControlPlaneAnnotation, "10.0.0.1")
 	v1.SetAnnotation(workload, v1.MainContainerAnnotation, "runner")
+	v1.SetAnnotation(workload, v1.UserEncryptedAPIKeyAnnotation, "injected-user-api-key")
 	workload.Spec.Workspace = workspace.Name
+	workload.Spec.GroupVersionKind.Kind = common.CICDScaleRunnerSetKind
 
 	obj := &unstructured.Unstructured{Object: map[string]interface{}{
 		"spec": map[string]interface{}{
@@ -1652,6 +1660,38 @@ func TestUpdateCICDScaleSetEnvs_InjectsUserApiKey(t *testing.T) {
 
 	envs := getEnvs(t, obj, workload, &resourceSpec)
 	assert.Equal(t, true, findEnv(envs, jobutils.UserApiKeyEnv, "injected-user-api-key"))
+}
+
+func TestUpdateCICDScaleSetEnvs_MissingEncryptedAPIKeyFails(t *testing.T) {
+	workspace := jobutils.TestWorkspaceData.DeepCopy()
+	workload := jobutils.TestWorkloadData.DeepCopy()
+	workload.Labels[v1.UserIdLabel] = "user-cicd"
+	workload.Spec.Env[common.GithubConfigUrl] = "https://github.com/test/repo"
+	v1.SetAnnotation(workload, v1.GithubSecretIdAnnotation, "test-github-secret")
+	v1.SetAnnotation(workload, v1.AdminControlPlaneAnnotation, "10.0.0.1")
+	v1.SetAnnotation(workload, v1.MainContainerAnnotation, "runner")
+	workload.Spec.Workspace = workspace.Name
+	workload.Spec.GroupVersionKind.Kind = common.CICDScaleRunnerSetKind
+
+	obj := &unstructured.Unstructured{Object: map[string]interface{}{
+		"spec": map[string]interface{}{
+			"template": map[string]interface{}{
+				"spec": map[string]interface{}{
+					"containers": []interface{}{
+						map[string]interface{}{
+							"name": "runner",
+							"env":  []interface{}{},
+						},
+					},
+				},
+			},
+		},
+	}}
+
+	resourceSpec := jobutils.TestCICDScaleSetResourceTemplate.Spec.ResourceSpecs[0]
+	err := updateCICDScaleSetEnvs(obj, workload, workspace, resourceSpec)
+	assert.Assert(t, err != nil)
+	assert.Assert(t, strings.Contains(err.Error(), "encrypted API key"))
 }
 
 // --- merged from dispatcher_help_pure_test.go ---
