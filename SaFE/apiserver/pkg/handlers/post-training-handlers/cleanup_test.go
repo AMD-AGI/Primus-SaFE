@@ -74,6 +74,16 @@ func TestPlanCleanup(t *testing.T) {
 	require.Equal(t, http.StatusConflict, statusCode(err), "a running export still reads its checkpoint")
 }
 
+func TestOnlyOneCleanupRequestIsTaken(t *testing.T) {
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	h := NewHandler(nil, db)
+	db.EXPECT().RequestPostTrainingRunCleanup(gomock.Any(), "pt-1", `{"keep":"none"}`).Return(true, nil)
+	require.NoError(t, h.requestCleanup(context.Background(), "pt-1", `{"keep":"none"}`))
+	db.EXPECT().RequestPostTrainingRunCleanup(gomock.Any(), "pt-1", `{"keep":"best"}`).Return(false, nil)
+	err := h.requestCleanup(context.Background(), "pt-1", `{"keep":"best"}`)
+	require.Equal(t, http.StatusConflict, statusCode(err), "a request made meanwhile keeps the cleanup")
+}
+
 func TestMarkersShowCleanedCheckpoints(t *testing.T) {
 	h := cleanupHandler(t)
 	rows, err := h.db.ListPostTrainingRunMetrics(context.Background(), "pt-1", nil)

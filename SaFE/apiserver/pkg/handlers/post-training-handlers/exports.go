@@ -116,6 +116,9 @@ func (h *Handler) exportWorkload(c *gin.Context, reg *registry.Registry, run *db
 	default:
 		return nil, commonerrors.NewConflict("export becomes available when the run ends")
 	}
+	if run.CleanupRequest != "" {
+		return nil, commonerrors.NewConflict("a checkpoint cleanup of the run is queued; export after it finished")
+	}
 	if req.PeftAdapter && run.Method != registry.MethodLora {
 		return nil, commonerrors.NewBadRequest("only LoRA runs have a PEFT adapter to export")
 	}

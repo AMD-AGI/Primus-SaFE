@@ -384,13 +384,25 @@ func (h *Handler) CleanupCheckpoints(c *gin.Context) {
 		apiutils.AbortWithApiError(c, err)
 		return
 	}
-	if err = h.db.UpdatePostTrainingRun(ctx, run.RunID, map[string]interface{}{"cleanup_request": plan}); err != nil {
-		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to request the cleanup: "+err.Error()))
+	if err = h.requestCleanup(ctx, run.RunID, plan); err != nil {
+		apiutils.AbortWithApiError(c, err)
 		return
 	}
 	klog.Infof("clean up the checkpoints of post training run %s (keep %s) by user %s", run.RunID, body.Keep,
 		c.GetString(common.UserName))
 	c.JSON(http.StatusAccepted, gin.H{"runId": run.RunID, "keep": body.Keep})
+}
+
+// requestCleanup records a checkpoint cleanup unless the run got one since it was read.
+func (h *Handler) requestCleanup(ctx context.Context, runID, plan string) error {
+	taken, err := h.db.RequestPostTrainingRunCleanup(ctx, runID, plan)
+	if err != nil {
+		return commonerrors.NewInternalError("failed to request the cleanup: " + err.Error())
+	}
+	if !taken {
+		return commonerrors.NewConflict(fmt.Sprintf("a checkpoint cleanup of run %s is in progress", runID))
+	}
+	return nil
 }
 
 // planCleanup checks that the checkpoints of run can be cleaned up and returns the cleanup_request value: both

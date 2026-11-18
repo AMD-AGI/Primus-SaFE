@@ -80,6 +80,10 @@ func TestExportWorkload(t *testing.T) {
 		_, err = h.exportWorkload(c, reg, exportRun("Succeeded"), &req)
 		require.Equal(t, code, statusCode(err), "%+v", req)
 	}
+	cleaning := exportRun("Succeeded")
+	cleaning.CleanupRequest = `{"keep":"none","paths":["/w/pt-1/checkpoints"]}`
+	_, err = h.exportWorkload(c, reg, cleaning, &exportRequest{Step: 20})
+	require.Equal(t, http.StatusConflict, statusCode(err), "the checkpoint may be gone by the time the export reads it")
 	_, err = h.exportWorkload(c, reg, exportRun("Running"), &exportRequest{Step: 20})
 	require.Equal(t, http.StatusConflict, statusCode(err))
 
