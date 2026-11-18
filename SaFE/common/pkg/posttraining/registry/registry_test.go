@@ -158,7 +158,9 @@ func TestCheckRemovedImages(t *testing.T) {
 	require.NoError(t, err)
 	next, err := Parse([]byte(strings.Replace(minimal, "img:1", "img:2", 1)))
 	require.NoError(t, err)
-	require.NoError(t, CheckRemovedImages(nil, next, []string{"img:1"}))
+	require.ErrorContains(t, CheckRemovedImages(nil, next, []string{"img:1"}), "still use the removed images img:1",
+		"after a restart there is no previous version, and the images in use still have to stay listed")
+	require.NoError(t, CheckRemovedImages(nil, next, []string{"img:2"}))
 	require.NoError(t, CheckRemovedImages(prev, next, []string{"custom:1"}))
 	require.ErrorContains(t, CheckRemovedImages(prev, next, []string{"img:1"}), "still use the removed images img:1")
 }

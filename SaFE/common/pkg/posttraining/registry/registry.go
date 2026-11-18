@@ -758,20 +758,19 @@ func (img *Image) HasFeature(feature string) bool {
 // ErrRemovedImagesInUse is the CheckRemovedImages rejection; the version becomes valid once those runs finish.
 var ErrRemovedImagesInUse = errors.New("invalid registry: unfinished runs still use the removed images")
 
-// CheckRemovedImages rejects a new version that drops an image of the previous version which unfinished runs
-// still use; inUse lists those runs' images.
+// CheckRemovedImages rejects a new version that drops an image which unfinished runs still use; inUse lists the
+// images those runs took from the image table. Without the previous version, as after a restart, every image in use
+// has to stay listed; with it, only the images it listed.
 func CheckRemovedImages(prev, next *Registry, inUse []string) error {
-	if prev == nil {
-		return nil
-	}
-	used := map[string]bool{}
-	for _, img := range inUse {
-		used[img] = true
-	}
+	seen := map[string]bool{}
 	var removed []string
-	for _, img := range prev.Images {
-		if used[img.Image] && next.ImageByName(img.Image) == nil {
-			removed = append(removed, img.Image)
+	for _, img := range inUse {
+		if seen[img] {
+			continue
+		}
+		seen[img] = true
+		if next.ImageByName(img) == nil && (prev == nil || prev.ImageByName(img) != nil) {
+			removed = append(removed, img)
 		}
 	}
 	if len(removed) > 0 {

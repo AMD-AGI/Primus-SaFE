@@ -79,7 +79,7 @@ func (h *Handler) registry(ctx context.Context) (*registry.Registry, error) {
 			if err := recipe.CheckRegistry(next); err != nil {
 				return err
 			}
-			return registry.CheckRemovedImages(prev, next, h.imagesInUse(ctx))
+			return registry.CheckRemovedImages(prev, next, h.imagesInUse(ctx, prev != nil))
 		}
 		err := h.store.Load([]byte(cm.Data[registry.DataKey]), check)
 		h.loadedRV, h.retryAt = cm.ResourceVersion, time.Time{}
@@ -94,8 +94,10 @@ func (h *Handler) registry(ctx context.Context) (*registry.Registry, error) {
 	return h.store.Get()
 }
 
-// imagesInUse lists the images of the runs that have not finished.
-func (h *Handler) imagesInUse(ctx context.Context) []string {
+// imagesInUse lists the images of the runs that have not finished. Unless all is set, only the runs whose recipe
+// records an image from the image table count, as a custom image or an older recipe cannot be told apart from a
+// removed image without the previous registry version.
+func (h *Handler) imagesInUse(ctx context.Context, all bool) []string {
 	if h.db == nil {
 		return nil
 	}
@@ -107,7 +109,10 @@ func (h *Handler) imagesInUse(ctx context.Context) []string {
 	}
 	images := make([]string, 0, len(runs))
 	for _, r := range runs {
-		images = append(images, r.Image)
+		var rec recipe.Recipe
+		if all || (json.Unmarshal([]byte(r.Recipe), &rec) == nil && rec.Provenance.TableImage) {
+			images = append(images, r.Image)
+		}
 	}
 	return images
 }
