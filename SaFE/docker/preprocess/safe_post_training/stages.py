@@ -16,11 +16,14 @@ import math
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
+import uuid
 
 from safe_post_training import dataset
 
@@ -35,8 +38,11 @@ CONVERT_LOCK = ".lock"
 # FP8_DIR holds the FP8 HF weights next to a conversion, made when an FP8 rollout needs them.
 FP8_DIR = "fp8_hf"
 SOURCE_FILE = "source.json"
-# A conversion lock older than this was left by a conversion that died; the next run takes it over.
-LOCK_STALE_SECONDS = 6 * 3600
+# The holder of a conversion lock refreshes it every LOCK_HEARTBEAT_SECONDS; a lock not refreshed for
+# LOCK_STALE_SECONDS was left by a launcher that died, and the next run takes it over.
+LOCK_HEARTBEAT_SECONDS = 60
+LOCK_STALE_SECONDS = 10 * 60
+LOCK_OWNER = "owner.json"
 ITER_DIR = re.compile(r"^iter_(\d{7})$")
 SAMPLES_DIR = "samples"
 SAMPLE_FILE = re.compile(r"^(rollout|eval)-(\d+)\.jsonl$")
@@ -174,12 +180,25 @@ def weights_fingerprint(model_dir):
     return digest.hexdigest()
 
 
+def lock_owner(lock):
+    """Return the owner record of a conversion lock, {} when it has none yet or it cannot be read."""
+    try:
+        with open(os.path.join(lock, LOCK_OWNER)) as f:
+            owner = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return owner if isinstance(owner, dict) else {}
+
+
 @contextlib.contextmanager
-def cache_lock(root, sleep=time.sleep, clock=time.time):
+def cache_lock(root, owner=None, sleep=time.sleep, clock=time.time):
     """Hold the conversion lock of a cache directory. mkdir is atomic on the shared storage, so one run converts
-    while the others wait; a lock older than LOCK_STALE_SECONDS is taken over."""
+    while the others wait. The holder records owner and a token in the lock and refreshes it every
+    LOCK_HEARTBEAT_SECONDS; a lock not refreshed for LOCK_STALE_SECONDS, or left by an earlier attempt of the same
+    run, is taken over, and a holder removes the lock only while its token is still there."""
     os.makedirs(root, exist_ok=True)
     lock = os.path.join(root, CONVERT_LOCK)
+    me = dict(owner or {}, token=uuid.uuid4().hex)
     while True:
         try:
             os.mkdir(lock)
@@ -189,14 +208,35 @@ def cache_lock(root, sleep=time.sleep, clock=time.time):
                 age = clock() - os.path.getmtime(lock)
             except OSError:
                 continue
-            if age > LOCK_STALE_SECONDS:
+            held = lock_owner(lock)
+            earlier = me.get("run") and held.get("run") == me["run"] and held.get("attempt") != me.get("attempt")
+            if age > LOCK_STALE_SECONDS or earlier:
                 shutil.rmtree(lock, ignore_errors=True)
                 continue
             sleep(LOCK_POLL_SECONDS)
+    with open(os.path.join(lock, LOCK_OWNER), "w") as f:
+        json.dump(me, f)
+    stop = threading.Event()
+
+    def heartbeat():
+        """Refresh the lock's mtime until the holder is done or another run took the lock over."""
+        while not stop.wait(LOCK_HEARTBEAT_SECONDS):
+            if lock_owner(lock).get("token") != me["token"]:
+                return
+            try:
+                os.utime(lock)
+            except OSError:
+                pass
+
+    beat = threading.Thread(target=heartbeat, daemon=True)
+    beat.start()
     try:
         yield
     finally:
-        shutil.rmtree(lock, ignore_errors=True)
+        stop.set()
+        beat.join()
+        if lock_owner(lock).get("token") == me["token"]:
+            shutil.rmtree(lock, ignore_errors=True)
 
 
 def weights_size(model_dir):
@@ -421,7 +461,9 @@ class Runner:
         _, root, complete = self.convert_paths()
         fp8_out, fp8_complete = self.fp8_paths()
         run_command = functools.partial(self.run_command, watch="convert")
-        with cache_lock(root, sleep=self.sleep):
+        owner = {"run": self.emitter.run_id, "attempt": self.emitter.attempt, "host": socket.gethostname(),
+                 "pid": os.getpid()}
+        with cache_lock(root, owner=owner, sleep=self.sleep):
             if self.hf_direct():
                 if not os.path.exists(os.path.join(root, SOURCE_FILE)):
                     self.write_source(root)

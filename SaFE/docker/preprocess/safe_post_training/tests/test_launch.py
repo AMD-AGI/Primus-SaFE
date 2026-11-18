@@ -8,6 +8,8 @@ import io
 import json
 import os
 import re
+import signal
+import subprocess
 import sys
 import threading
 
@@ -128,6 +130,22 @@ def test_dataset_errors_are_not_retried(monkeypatch, tmp_path):
     code, _, ms = run(monkeypatch, recipe, FakeAdapter())
     assert code == 1 and len(ms) == 2, "the next attempt reports the stored error before doing any work"
     assert ms[-1][1]["retry"] is False
+
+
+def test_sigterm_releases_the_conversion_lock(tmp_path):
+    code = ("import sys, time\n"
+            "from safe_post_training import launch, stages\n"
+            "launch.exit_on_sigterm()\n"
+            "with stages.cache_lock(sys.argv[1], owner={'run': 'pt-x', 'attempt': 'a1'}):\n"
+            "    print('locked', flush=True)\n"
+            "    time.sleep(60)\n")
+    root = os.path.dirname(os.path.dirname(os.path.abspath(stages.__file__)))
+    proc = subprocess.Popen([sys.executable, "-c", code, str(tmp_path)], stdout=subprocess.PIPE, text=True,
+                            env=dict(os.environ, PYTHONPATH=root))
+    assert proc.stdout.readline().strip() == "locked"
+    proc.send_signal(signal.SIGTERM)
+    assert proc.wait(timeout=30) == 128 + signal.SIGTERM
+    assert not (tmp_path / stages.CONVERT_LOCK).exists(), "a stopped run does not leave its lock behind"
 
 
 def test_too_few_gpus(monkeypatch, tmp_path):

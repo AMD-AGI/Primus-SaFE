@@ -269,6 +269,11 @@ def run(recipe, out=None, gpus=stages.ray_gpus, sleep=time.sleep, watchdog=None,
     return 0
 
 
+def exit_on_sigterm():
+    """Turn SIGTERM into SystemExit, so a stopped run still releases its conversion lock and ends its children."""
+    signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(128 + signum))
+
+
 def main(argv=None):
     """Parse the command line and run the recipe, or print its plan with --dry-run."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -281,6 +286,7 @@ def main(argv=None):
         print(json.dumps({"stages": list(stages.STAGES), "train": cmd, "env": env, "files": sorted(files or {})},
                          indent=2))
         return 0
+    exit_on_sigterm()
     return run(recipe)
 
 
