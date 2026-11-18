@@ -14,18 +14,18 @@ import (
 	"strings"
 )
 
-// primaryKeyResponse is the JSON body of GET /api/v1/apikeys/primary.
-type primaryKeyResponse struct {
+// platformKeyResponse is the JSON body of GET /api/v1/apikeys/platform.
+type platformKeyResponse struct {
 	APIKey string `json:"apiKey"`
 }
 
-// FetchPrimaryAPIKey returns the caller's sealed primary API key from the identity service.
+// FetchPlatformAPIKey returns the caller's sealed platform API key from the identity service.
 // The call uses the introspection service client and the user's session (cookie Token or Bearer).
-func FetchPrimaryAPIKey(ctx context.Context, sessionBearer, cookieToken, userType string) (string, error) {
+func FetchPlatformAPIKey(ctx context.Context, sessionBearer, cookieToken, userType string) (string, error) {
 	sessionBearer = strings.TrimSpace(sessionBearer)
 	cookieToken = strings.TrimSpace(cookieToken)
 	if sessionBearer == "" && cookieToken == "" {
-		return "", badGateway("no session credential to fetch the primary API key")
+		return "", badGateway("no session credential to fetch the platform API key")
 	}
 	base, err := ResolveBase()
 	if err != nil {
@@ -35,9 +35,9 @@ func FetchPrimaryAPIKey(ctx context.Context, sessionBearer, cookieToken, userTyp
 	if err != nil {
 		return "", err
 	}
-	endpoint, err := url.JoinPath(base, "api/v1/apikeys/primary")
+	endpoint, err := url.JoinPath(base, "api/v1/apikeys/platform")
 	if err != nil {
-		return "", &ConfigError{Msg: "cannot build the primary API key URL"}
+		return "", &ConfigError{Msg: "cannot build the platform API key URL"}
 	}
 	cli, err := httpClient()
 	if err != nil {
@@ -69,14 +69,14 @@ func FetchPrimaryAPIKey(ctx context.Context, sessionBearer, cookieToken, userTyp
 		return "", err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", mapCall("fetching the primary API key", resp.StatusCode, nil)
+		return "", mapCall("fetching the platform API key", resp.StatusCode, nil)
 	}
-	var out primaryKeyResponse
+	var out platformKeyResponse
 	if err = json.Unmarshal(body, &out); err != nil {
-		return "", badGateway("identity returned an invalid primary API key body")
+		return "", badGateway("identity returned an invalid platform API key body")
 	}
 	if strings.TrimSpace(out.APIKey) == "" {
-		return "", badGateway("identity returned an empty primary API key")
+		return "", badGateway("identity returned an empty platform API key")
 	}
 	return out.APIKey, nil
 }

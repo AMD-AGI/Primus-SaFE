@@ -26,7 +26,7 @@ import (
 // attachCICDEncryptedAPIKey resolves the caller's API key for ScaleSet/GithubRunner CICD
 // workloads, encrypts it with the shared crypto secret, and stores the ciphertext on the
 // workload annotation. Ephemeral runners inherit USER_APIKEY from the scale-set template.
-// Bearer ak-... is used as-is; a session/token is exchanged for a primary/platform key
+// Bearer ak-... is used as-is; a session/token is exchanged for a platform key
 // (identity in external mode, SaFE DB in builtin mode).
 func (h *Handler) attachCICDEncryptedAPIKey(c *gin.Context, workload *v1.Workload, requestUser *v1.User) error {
 	if !commonworkload.IsCICDScalingRunnerSet(workload) && !commonworkload.IsCICDGithubRunner(workload) {
@@ -62,7 +62,7 @@ func resolveCICDAPIKeyPlain(c *gin.Context, requestUser *v1.User) (string, error
 		}
 	}
 	if commonconfig.GetAuthMode() == commonconfig.AuthModeExternal {
-		return identity.FetchPrimaryAPIKey(c.Request.Context(), bearer, cookieToken, userType)
+		return identity.FetchPlatformAPIKey(c.Request.Context(), bearer, cookieToken, userType)
 	}
 	if requestUser == nil || requestUser.Name == "" {
 		return "", commonerrors.NewUnauthorized("the request user is unknown")
