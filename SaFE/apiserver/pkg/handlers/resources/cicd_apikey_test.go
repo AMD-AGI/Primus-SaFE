@@ -23,6 +23,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	safecrypto "github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
 )
 
 // cicdTestContext returns a gin context for POST /api/v1/workloads with the given Authorization header.
@@ -99,7 +100,7 @@ func fakeIdentityPlatform(t *testing.T) *http.Request {
 	got := &http.Request{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		*got = *r.Clone(context.Background())
-		_, _ = w.Write([]byte(`{"apiKey":"ak-platform-u1"}`))
+		_, _ = w.Write([]byte(`{"userId":"u1","apiKey":"ak-platform-u1"}`))
 	}))
 	t.Cleanup(srv.Close)
 	secret := filepath.Join(t.TempDir(), "client_secret")
@@ -117,6 +118,7 @@ func TestResolveCICDAPIKeyPlainExternalAPIKeyFetchesPlatformKey(t *testing.T) {
 	setAuthMode(t, "external")
 	got := fakeIdentityPlatform(t)
 	c := cicdTestContext("Bearer ak-user-key")
+	c.Set(common.UserType, "external")
 
 	key, err := resolveCICDAPIKeyPlain(c, cicdTestWorkload("cicd-1", common.CICDScaleRunnerSetKind, "u1"), cicdTestUser("u1"))
 	require.NoError(t, err)
@@ -124,6 +126,64 @@ func TestResolveCICDAPIKeyPlainExternalAPIKeyFetchesPlatformKey(t *testing.T) {
 	assert.Equal(t, "/api/v1/apikeys/platform", got.URL.Path)
 	assert.Equal(t, "Bearer ak-user-key", got.Header.Get("Authorization"))
 	assert.Equal(t, "svc:secret", got.Header.Get("X-Internal-Token"))
+}
+
+// A key the built-in mode at the end of the external chain accepted is SaFE's own: the owner's platform key comes
+// from SaFE's database, and identity is not asked.
+func TestResolveCICDAPIKeyPlainExternalBuiltinUsesOwnerPlatformKey(t *testing.T) {
+	setAuthMode(t, "external")
+	got := fakeIdentityPlatform(t)
+	seen := stubCICDPlatformKey(t, "ak-db-u1")
+	c := cicdTestContext("Bearer ak-safe-issued")
+	c.Set(common.UserType, "apikey")
+
+	key, err := resolveCICDAPIKeyPlain(c, cicdTestWorkload("cicd-1", common.CICDScaleRunnerSetKind, "u1"), cicdTestUser("u1"))
+	require.NoError(t, err)
+	assert.Equal(t, "ak-db-u1", key)
+	assert.Equal(t, []string{"u1"}, *seen)
+	assert.Empty(t, got.URL, "identity was asked")
+}
+
+// The bearer the external chain authenticated is the credential sent to identity, not a cookie of another session.
+func TestResolveCICDAPIKeyPlainExternalPrefersBearerOverCookie(t *testing.T) {
+	setAuthMode(t, "external")
+	got := fakeIdentityPlatform(t)
+	c := cicdTestContext("Bearer sso-token-u1")
+	c.Request.AddCookie(&http.Cookie{Name: "Token", Value: "stale-cookie-u2"})
+	c.Request.Header.Set("UserType", "sso")
+	c.Set(common.UserType, "external")
+
+	_, err := resolveCICDAPIKeyPlain(c, cicdTestWorkload("cicd-1", common.CICDScaleRunnerSetKind, "u1"), cicdTestUser("u1"))
+	require.NoError(t, err)
+	assert.Equal(t, "Bearer sso-token-u1", got.Header.Get("Authorization"))
+	assert.Empty(t, got.Header.Get("Cookie"))
+	assert.Equal(t, "sso", got.Header.Get("UserType"))
+}
+
+// A platform key identity answers for another user is refused.
+func TestResolveCICDAPIKeyPlainExternalRefusesAnotherUsersKey(t *testing.T) {
+	setAuthMode(t, "external")
+	fakeIdentityPlatform(t)
+	c := cicdTestContext("Bearer sso-token")
+	c.Set(common.UserType, "external")
+
+	_, err := resolveCICDAPIKeyPlain(c, cicdTestWorkload("cicd-1", common.CICDScaleRunnerSetKind, "u2"), cicdTestUser("u2"))
+	require.Error(t, err)
+}
+
+// An unavailable crypto client is an internal error, not a panic.
+func TestAttachCICDEncryptedAPIKeyWithoutCrypto(t *testing.T) {
+	setAuthMode(t, "builtin")
+	stubCICDPlatformKey(t, "ak-cicd-key")
+	orig := cicdCrypto
+	cicdCrypto = func() *safecrypto.Crypto { return nil }
+	t.Cleanup(func() { cicdCrypto = orig })
+
+	workload := cicdTestWorkload("cicd-1", common.CICDScaleRunnerSetKind, "u1")
+	err := (&Handler{}).attachCICDEncryptedAPIKey(cicdTestContext(""), workload, cicdTestUser("u1"))
+	require.Error(t, err)
+	assert.True(t, apierrors.IsInternalError(err))
+	assert.Empty(t, v1.GetAnnotation(workload, v1.UserEncryptedAPIKeyAnnotation))
 }
 
 func TestResolveCICDAPIKeyPlainExternalSSOTokenFetchesPlatformKey(t *testing.T) {
@@ -145,6 +205,7 @@ func TestResolveCICDAPIKeyPlainExternalSSOTokenFetchesPlatformKey(t *testing.T) 
 func TestResolveCICDAPIKeyPlainExternalNeedsSession(t *testing.T) {
 	setAuthMode(t, "external")
 	c := cicdTestContext("")
+	c.Set(common.UserType, "external")
 
 	_, err := resolveCICDAPIKeyPlain(c, cicdTestWorkload("cicd-1", common.CICDScaleRunnerSetKind, "u1"), cicdTestUser("u1"))
 	require.Error(t, err)

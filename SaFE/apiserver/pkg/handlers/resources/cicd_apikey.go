@@ -13,6 +13,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/identity"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/apikey"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
@@ -36,7 +37,11 @@ func (h *Handler) attachCICDEncryptedAPIKey(c *gin.Context, workload *v1.Workloa
 	if plain == "" {
 		return commonerrors.NewBadRequest("failed to resolve an API key for the CICD workload")
 	}
-	ciphertext, err := safecrypto.NewCrypto().Encrypt([]byte(plain))
+	cryptoClient := cicdCrypto()
+	if cryptoClient == nil {
+		return commonerrors.NewInternalError("the crypto client is not available")
+	}
+	ciphertext, err := cryptoClient.Encrypt([]byte(plain))
 	if err != nil {
 		klog.ErrorS(err, "failed to encrypt CICD API key", "workload", workload.Name)
 		return commonerrors.NewInternalError("failed to encrypt the CICD API key")
@@ -46,28 +51,33 @@ func (h *Handler) attachCICDEncryptedAPIKey(c *gin.Context, workload *v1.Workloa
 }
 
 // resolveCICDAPIKeyPlain returns the workload owner's platform API key for the runners. Only the
-// owner may create or resume the workload. Builtin mode reads or creates the owner's platform key
-// in the SaFE database. External mode exchanges the owner's credential (session, SSO token or
-// ak- key) with identity for the platform key.
+// owner may create or resume the workload. Builtin mode, and a request the built-in mode at the end
+// of the external chain authenticated, read or create the owner's platform key in the SaFE database.
+// Otherwise external mode exchanges the credential the chain authenticated (the bearer, else the
+// cookie) with identity for the owner's platform key.
 func resolveCICDAPIKeyPlain(c *gin.Context, workload *v1.Workload, requestUser *v1.User) (string, error) {
 	ownerId := v1.GetUserId(workload)
 	if ownerId == "" || requestUser == nil || requestUser.Name != ownerId {
 		return "", commonerrors.NewForbidden("only the owner can create or resume a CICD runner set")
 	}
-	if commonconfig.GetAuthMode() != commonconfig.AuthModeExternal {
+	if commonconfig.GetAuthMode() != commonconfig.AuthModeExternal || !authenticatedByExternalChain(c) {
 		return cicdPlatformKeyForUser(c.Request.Context(), ownerId, v1.GetUserName(workload))
 	}
-	bearer := authority.GetBearerToken(c)
-	// The user type identity judges is the one the request carried (cookie or UserType header),
+	// The user type identity judges is the one the request carried with that credential,
 	// not the one the external chain recorded on the context.
-	var userType string
-	cookieToken, err := c.Cookie(authority.CookieToken)
-	if err == nil {
-		userType, _ = c.Cookie(authority.CookieUserType)
-	} else {
-		userType = c.GetHeader("UserType")
+	if bearer := authority.GetBearerToken(c); bearer != "" {
+		return identity.FetchPlatformAPIKey(c.Request.Context(), ownerId, bearer, "", c.GetHeader("UserType"))
 	}
-	return identity.FetchPlatformAPIKey(c.Request.Context(), bearer, cookieToken, userType)
+	cookieToken, _ := c.Cookie(authority.CookieToken)
+	userType, _ := c.Cookie(authority.CookieUserType)
+	return identity.FetchPlatformAPIKey(c.Request.Context(), ownerId, "", cookieToken, userType)
+}
+
+// authenticatedByExternalChain reports whether an authenticator of the external chain, not the
+// built-in mode at its end, accepted the request.
+func authenticatedByExternalChain(c *gin.Context) bool {
+	userType := c.GetString(common.UserType)
+	return userType == authority.UserTypeExternal || userType == authority.UserTypeDelegated
 }
 
 // cicdPlatformKeyForUser reads or creates a user's platform key in the SaFE database.
@@ -82,3 +92,7 @@ var cicdPlatformKeyForUser = func(ctx context.Context, userId, userName string) 
 	}
 	return apikey.GetOrCreatePlatformKey(ctx, db, userId, userName, true)
 }
+
+// cicdCrypto returns the shared crypto client, nil when the crypto key is unusable.
+// A package var so tests can replace it.
+var cicdCrypto = safecrypto.NewCrypto

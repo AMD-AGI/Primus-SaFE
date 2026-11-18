@@ -27,7 +27,7 @@ func fakePlatformIdentity(t *testing.T) *[]*http.Request {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
-		_, _ = w.Write([]byte(`{"apiKey":"ak-platform"}`))
+		_, _ = w.Write([]byte(`{"userId":"u1","apiKey":"ak-platform"}`))
 	}))
 	t.Cleanup(srv.Close)
 	viper.Set("auth.scim.identity_url", srv.URL)
@@ -39,7 +39,7 @@ func fakePlatformIdentity(t *testing.T) *[]*http.Request {
 
 func TestFetchPlatformAPIKeySSOBearer(t *testing.T) {
 	seen := fakePlatformIdentity(t)
-	key, err := FetchPlatformAPIKey(context.Background(), "sso-access-token", "", "sso")
+	key, err := FetchPlatformAPIKey(context.Background(), "u1", "sso-access-token", "", "sso")
 	require.NoError(t, err)
 	require.Equal(t, "ak-platform", key)
 	require.Len(t, *seen, 1)
@@ -51,7 +51,7 @@ func TestFetchPlatformAPIKeySSOBearer(t *testing.T) {
 
 func TestFetchPlatformAPIKeyCookie(t *testing.T) {
 	seen := fakePlatformIdentity(t)
-	key, err := FetchPlatformAPIKey(context.Background(), "", "cookie-token", "sso")
+	key, err := FetchPlatformAPIKey(context.Background(), "u1", "", "cookie-token", "sso")
 	require.NoError(t, err)
 	require.Equal(t, "ak-platform", key)
 	r := (*seen)[0]
@@ -65,6 +65,18 @@ func TestFetchPlatformAPIKeyCookie(t *testing.T) {
 }
 
 func TestFetchPlatformAPIKeyWithoutSession(t *testing.T) {
-	_, err := FetchPlatformAPIKey(context.Background(), "", "", "")
+	_, err := FetchPlatformAPIKey(context.Background(), "u1", "", "", "")
 	require.True(t, apierrors.IsUnauthorized(err))
+}
+
+func TestFetchPlatformAPIKeyPrefersBearerAndRefusesAnotherUser(t *testing.T) {
+	seen := fakePlatformIdentity(t)
+	_, err := FetchPlatformAPIKey(context.Background(), "u1", "bearer-token", "cookie-token", "sso")
+	require.NoError(t, err)
+	r := (*seen)[0]
+	require.Equal(t, "Bearer bearer-token", r.Header.Get("Authorization"))
+	require.Empty(t, r.Header.Get("Cookie"))
+
+	_, err = FetchPlatformAPIKey(context.Background(), "u2", "bearer-token", "", "")
+	require.Error(t, err)
 }

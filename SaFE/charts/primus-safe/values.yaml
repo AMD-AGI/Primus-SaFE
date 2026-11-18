@@ -316,12 +316,12 @@ auth:
   # Name of the Secret in this namespace that holds the client credentials of an `introspection`
   # authenticator. It is mounted into the apiserver at client_secret_path, empty while the Secret is
   # absent. Leave empty when unused.
-  # The operator creates the Secret here, or the identity service does from its SERVICE_CLIENTS
-  # entry, with keys `client_id` and `client_secret`.
+  # With identity_service_account set the chart creates it empty and the identity service fills it
+  # from its SERVICE_CLIENTS entry; otherwise the operator creates it. Keys `client_id` and `client_secret`.
   client_secret: ""
   client_secret_path: /etc/secrets/auth
   # <namespace>/<name> of the identity service's ServiceAccount. With client_secret set, the chart
-  # grants it get on that Secret and create on Secrets in this namespace. Empty grants nothing.
+  # grants it get, update and patch on that Secret only. Empty grants nothing.
   identity_service_account: primus-identity/primus-identity
   # Identity groups mapped to SaFE roles on every request; never stored on the user.
   #   - group: platform-admins

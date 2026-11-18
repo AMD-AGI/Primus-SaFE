@@ -18,13 +18,15 @@ import (
 
 // platformKeyResponse is the JSON body of GET /api/v1/apikeys/platform.
 type platformKeyResponse struct {
+	UserID string `json:"userId"`
 	APIKey string `json:"apiKey"`
 }
 
-// FetchPlatformAPIKey returns the caller's sealed platform API key from the identity service.
-// The call uses the introspection service client and the user's credential (cookie Token, or a Bearer
-// session, SSO token or ak- key; an ak- key needs the client to hold identity.platform_keys).
-func FetchPlatformAPIKey(ctx context.Context, sessionBearer, cookieToken, userType string) (string, error) {
+// FetchPlatformAPIKey returns userId's sealed platform API key from the identity service.
+// The call uses the introspection service client and the user's credential: the Bearer (session,
+// SSO token or ak- key; an ak- key needs the client to hold identity.platform_keys) when set,
+// else the cookie Token. A key identity answers for another user is refused.
+func FetchPlatformAPIKey(ctx context.Context, userId, sessionBearer, cookieToken, userType string) (string, error) {
 	sessionBearer = strings.TrimSpace(sessionBearer)
 	cookieToken = strings.TrimSpace(cookieToken)
 	if sessionBearer == "" && cookieToken == "" {
@@ -53,17 +55,17 @@ func FetchPlatformAPIKey(ctx context.Context, sessionBearer, cookieToken, userTy
 		return "", err
 	}
 	req.Header.Set("X-Internal-Token", clientID+":"+secret)
-	if cookieToken != "" {
+	if sessionBearer != "" {
+		req.Header.Set("Authorization", "Bearer "+sessionBearer)
+		if userType != "" {
+			req.Header.Set("UserType", userType)
+		}
+	} else {
 		cookie := "Token=" + cookieToken
 		if userType != "" {
 			cookie += "; userType=" + userType
 		}
 		req.Header.Set("Cookie", cookie)
-	} else {
-		req.Header.Set("Authorization", "Bearer "+sessionBearer)
-		if userType != "" {
-			req.Header.Set("UserType", userType)
-		}
 	}
 	resp, err := cli.Do(req)
 	if err != nil {
@@ -83,6 +85,9 @@ func FetchPlatformAPIKey(ctx context.Context, sessionBearer, cookieToken, userTy
 	}
 	if strings.TrimSpace(out.APIKey) == "" {
 		return "", badGateway("identity returned an empty platform API key")
+	}
+	if out.UserID != userId {
+		return "", badGateway("identity returned the platform API key of another user")
 	}
 	return out.APIKey, nil
 }
