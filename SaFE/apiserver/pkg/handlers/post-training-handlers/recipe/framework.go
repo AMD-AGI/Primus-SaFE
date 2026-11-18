@@ -91,7 +91,7 @@ type Choices struct {
 	PP               int               `json:"pp,omitempty"`
 	CP               int               `json:"cp,omitempty"`
 	EP               int               `json:"ep,omitempty"`
-	SequenceParallel bool              `json:"sequenceParallel,omitempty"`
+	SequenceParallel *bool             `json:"sequenceParallel,omitempty"`
 	Lora             *LoraChoice       `json:"lora,omitempty"`
 	Freeze           *FreezeChoice     `json:"freeze,omitempty"`
 

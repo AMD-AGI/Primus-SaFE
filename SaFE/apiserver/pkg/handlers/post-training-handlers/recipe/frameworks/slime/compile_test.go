@@ -451,6 +451,27 @@ func TestSlimeRules(t *testing.T) {
 	}
 }
 
+func TestSequenceParallelFollowsTheChoice(t *testing.T) {
+	in := qwen3Input(t, registry.TrainTypeSFT)
+	require.Contains(t, strings.Join(compile(t, in).Recipe.FrameworkArgs, " "), "--sequence-parallel",
+		"on by default with TP above 1")
+	off := false
+	in.Request.Choices.SequenceParallel = &off
+	require.NotContains(t, strings.Join(compile(t, in).Recipe.FrameworkArgs, " "), "--sequence-parallel")
+}
+
+func TestTheRecipeHashIgnoresChoicesThatDoNotApply(t *testing.T) {
+	sft := qwen3Input(t, registry.TrainTypeSFT)
+	want := compile(t, sft).Recipe.Provenance.RecipeHash
+	sft.Request.Choices.NSamplesPerPrompt, sft.Request.Choices.MaxResponseLen = 16, 4096
+	require.Equal(t, want, compile(t, sft).Recipe.Provenance.RecipeHash, "RL options leave an SFT recipe alone")
+
+	rl := qwen3Input(t, registry.TrainTypeRL)
+	want = compile(t, rl).Recipe.Provenance.RecipeHash
+	rl.Request.Choices.MinLr, rl.Request.Choices.ValSplit = 1e-7, 0.1
+	require.Equal(t, want, compile(t, rl).Recipe.Provenance.RecipeHash, "SFT options leave an RL recipe alone")
+}
+
 func TestOnlyLoRAExportsAPeftAdapter(t *testing.T) {
 	in := qwen3Input(t, registry.TrainTypeSFT)
 	in.Request.Export.PeftAdapter = true

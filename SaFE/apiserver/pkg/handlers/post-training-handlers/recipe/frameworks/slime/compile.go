@@ -72,6 +72,7 @@ const (
 	expertModeShared  = "shared"
 )
 
+// init registers the slime compiler plugin.
 func init() {
 	recipe.Register(plugin{})
 }
@@ -175,6 +176,8 @@ func (plugin) normalize(ctx *recipe.Context) recipe.Choices {
 	fill(&c.PP, d["pp"])
 	fill(&c.CP, d["cp"])
 	fill(&c.EP, d["ep"])
+	sp := c.TP > 1 && (c.SequenceParallel == nil || *c.SequenceParallel)
+	c.SequenceParallel = &sp
 	if d["maxTokensPerGpu"] > 0 {
 		fill(&c.MaxTokensPerGpu, d["maxTokensPerGpu"])
 	}
@@ -199,7 +202,7 @@ func (plugin) normalize(ctx *recipe.Context) recipe.Choices {
 			fill(&c.ValInterval, c.SaveInterval)
 			fill(&c.ValMaxSamples, max(defaultValSamples, c.BatchSize))
 		}
-		return c
+		return withoutRL(c)
 	}
 	fill(&c.NumRollout, 3)
 	fill(&c.BatchSize, 32)
@@ -250,6 +253,29 @@ func (plugin) normalize(ctx *recipe.Context) recipe.Choices {
 	}
 	if len(c.FieldMap) == 0 {
 		c.FieldMap = map[string]string{"prompt": "prompt", "label": "label"}
+	}
+	return withoutSFT(c)
+}
+
+// withoutRL returns SFT choices without the RL options a form may still carry, so equal runs hash equally.
+func withoutRL(c recipe.Choices) recipe.Choices {
+	c.EvalInterval, c.AdvantageEstimator, c.RewardType, c.RewardHook, c.RewardRemote = 0, "", "", "", nil
+	c.GenerateHook, c.NSamplesPerPrompt, c.MaxPromptLen, c.MaxResponseLen = "", 0, 0, 0
+	c.Layout, c.RolloutGpus, c.GpusPerEngine, c.UseKlLoss, c.KlLossCoef = "", 0, 0, nil, 0
+	c.Correction, c.RolloutPrecision, c.KvCacheDtype, c.Schedule, c.Concurrency = "", "", "", "", 0
+	c.PD, c.CriticLr, c.CriticWarmupRollouts = nil, 0, nil
+	return c
+}
+
+// withoutSFT returns RL choices without the SFT options and without the options its layout leaves unused, so equal
+// runs hash equally.
+func withoutSFT(c recipe.Choices) recipe.Choices {
+	c.NumEpoch, c.MinLr, c.WarmupIters, c.ValInterval, c.ValMaxSamples, c.ValSplit = 0, 0, 0, 0, 0, 0
+	if c.Layout != recipe.LayoutSeparate {
+		c.RolloutGpus = 0
+	}
+	if c.PD != nil && !c.PD.Enabled {
+		c.PD = nil
 	}
 	return c
 }
@@ -447,7 +473,7 @@ func (p plugin) Compile(ctx *recipe.Context) (*recipe.FrameworkPlan, error) {
 	a.add("--tensor-model-parallel-size", itoa(c.TP), "--pipeline-model-parallel-size", itoa(c.PP),
 		"--context-parallel-size", itoa(c.CP), "--expert-model-parallel-size", itoa(c.EP),
 		"--expert-tensor-parallel-size", "1")
-	if c.TP > 1 {
+	if c.SequenceParallel != nil && *c.SequenceParallel {
 		a.add("--sequence-parallel")
 	}
 	a.add("--recompute-granularity", "full", "--recompute-method", "uniform", "--recompute-num-layers", "1",
