@@ -307,6 +307,17 @@ render_preflight() {
   fi
 }
 
+# replace_or_create_each replaces every manifest in a directory, and creates a manifest
+# whose object is not in the cluster yet. One kubectl call on the whole directory
+# stops when the directory contains both.
+replace_or_create_each() {
+  local dir="$1" f
+  for f in "$dir"/*; do
+    [[ -f "$f" ]] || continue
+    kubectl replace -f "$f" -n "$NAMESPACE" || kubectl create -f "$f" -n "$NAMESPACE"
+  done
+}
+
 # check_cd_cluster_objects stops a console deployment before it changes the cluster when a
 # cluster-scoped RBAC, admission policy or webhook object of the chart does not exist, or cannot be
 # updated by the deployment account. The account updates such objects but does not create them;
@@ -919,7 +930,7 @@ if [[ "${CALLED_BY_CD:-false}" == "true" ]]; then
 fi
 sync_console_scim_route
 if helm -n "$NAMESPACE" list | grep -q "^$chart_name "; then
-  kubectl replace -f $chart_name/crds/ -n "$NAMESPACE" || kubectl create -f $chart_name/crds/ -n "$NAMESPACE"
+  replace_or_create_each "$chart_name/crds"
   mkdir -p output
   helm template "$chart_name" -f "$values_yaml" -n "$NAMESPACE" "$chart_name" --output-dir ./output 1>/dev/null
   kubectl replace -f output/$chart_name/templates/rbac/role.yaml || kubectl create -f output/$chart_name/templates/rbac/role.yaml

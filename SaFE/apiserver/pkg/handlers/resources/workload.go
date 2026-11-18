@@ -41,6 +41,7 @@ import (
 	dbutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/utils"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonnodes "github.com/AMD-AIG-AIMA/SAFE/common/pkg/nodes"
+	commonqos "github.com/AMD-AIG-AIMA/SAFE/common/pkg/qos"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
@@ -608,13 +609,14 @@ func (h *Handler) authWorkloadUpdate(c *gin.Context, adminWorkload *v1.Workload,
 		}
 	}
 	if request.Timeout != nil && (adminWorkload.Spec.Timeout == nil || *request.Timeout != *adminWorkload.Spec.Timeout) {
-		workspace, err := h.getAdminWorkspace(c.Request.Context(), adminWorkload.Spec.Workspace)
+		scope := string(commonworkload.GetScope(adminWorkload))
+		limits, err := commonqos.Ceiling(c.Request.Context(), h.Client, v1.GetUserId(adminWorkload),
+			v1.GetClusterId(adminWorkload), scope)
 		if err != nil {
 			return err
 		}
-		// Modifying timeouts that exceed the workspace limit or setting no timeout requires the highest-priority permission.
-		maxRunTime := workspace.GetMaxRunTime(commonworkload.GetScope(adminWorkload))
-		if maxRunTime > 0 && (*request.Timeout > maxRunTime || *request.Timeout <= 0) {
+		// A timeout above the qos limit for the scope, or no timeout, requires the highest-priority permission.
+		if limits.RuntimeSeconds > 0 && (*request.Timeout > limits.RuntimeSeconds || *request.Timeout <= 0) {
 			priorityKind := generatePriority(common.HighPriorityInt)
 			if err = h.authWorkloadAction(c, adminWorkload, v1.UpdateVerb, priorityKind, requestUser, roles); err != nil {
 				return err

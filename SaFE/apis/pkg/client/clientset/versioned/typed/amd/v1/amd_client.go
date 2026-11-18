@@ -25,6 +25,7 @@ type AmdV1Interface interface {
 	NodeFlavorsGetter
 	NodeTemplatesGetter
 	OpsJobsGetter
+	QosesGetter
 	ResourceTemplatesGetter
 	RolesGetter
 	UsersGetter
@@ -71,6 +72,10 @@ func (c *AmdV1Client) NodeTemplates(namespace string) NodeTemplateInterface {
 
 func (c *AmdV1Client) OpsJobs(namespace string) OpsJobInterface {
 	return newOpsJobs(c, namespace)
+}
+
+func (c *AmdV1Client) Qoses() QosInterface {
+	return newQoses(c)
 }
 
 func (c *AmdV1Client) ResourceTemplates(namespace string) ResourceTemplateInterface {

@@ -1,3 +1,5 @@
+import type { UserQos } from '../qos/type'
+
 export interface RegisterReq {
   name: string
   type: string
@@ -28,6 +30,7 @@ export interface EditUserResp {
   workspaces?: string[]
   managedWorkspaces?: string[]
   restrictedType?: number
+  qos?: UserQos
 }
 
 export interface LoginResp extends BaseUserResp {
@@ -44,6 +47,7 @@ export interface UserSelfData extends BaseUserResp {
   managedWorkspaces?: Workspace[]
   creationTime: string
   restrictedType: number
+  qos?: UserQos
 }
 
 // GET /users/self/workspaces: the workspaces the user can access and the ones the user manages

@@ -162,6 +162,17 @@ EOF
   echo "✅ TLS secret($tls_secret) created for ${console_host} and ${apiserver_host}"
 }
 
+# replace_or_create_each replaces every manifest in a directory, and creates a manifest
+# whose object is not in the cluster yet. One kubectl call on the whole directory
+# stops when the directory contains both.
+replace_or_create_each() {
+  local dir="$1" f
+  for f in "$dir"/*; do
+    [[ -f "$f" ]] || continue
+    kubectl replace -f "$f" -n "$NAMESPACE" || kubectl create -f "$f" -n "$NAMESPACE"
+  done
+}
+
 install_or_upgrade_helm_chart() {
   local chart_name="$1"
   local values_yaml="$2"
@@ -462,7 +473,7 @@ chart_name="primus-safe"
 if helm list -n "$NAMESPACE" -q | grep -qx "$chart_name"; then
   status=$(helm status "$chart_name" -n "$NAMESPACE" -o json 2>/dev/null | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
   if [ "$status" = "deployed" ]; then
-    kubectl replace -f $chart_name/crds/ -n "$NAMESPACE"
+    replace_or_create_each "$chart_name/crds"
     mkdir -p output
     helm template "$chart_name" -f "$values_yaml" -n "$NAMESPACE" "$chart_name" --output-dir ./output 1>/dev/null
     kubectl replace -f output/$chart_name/templates/rbac/role.yaml

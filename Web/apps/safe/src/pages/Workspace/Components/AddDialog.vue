@@ -108,33 +108,6 @@
             </el-checkbox-group>
           </el-form-item>
 
-          <el-form-item label="Max Runtime" v-if="selectedScopes.length">
-            <div class="limit-entries">
-              <div v-for="scope in runtimeConfiguredScopes" :key="scope" class="limit-row">
-                <el-tag closable effect="plain" @close="removeRuntimeScope(scope)">{{ scope }}</el-tag>
-                <el-input-number
-                  v-model="form.maxRuntime[scope]"
-                  :min="0"
-                  :step="1"
-                  :precision="0"
-                  controls-position="right"
-                  placeholder="hours"
-                  size="small"
-                  class="limit-input"
-                />
-                <span class="limit-unit">h</span>
-              </div>
-              <el-dropdown v-if="runtimeAvailableScopes.length" trigger="click" @command="addRuntimeScope">
-                <el-button size="small" text type="primary">+ Add</el-button>
-                <template #dropdown>
-                  <el-dropdown-menu>
-                    <el-dropdown-item v-for="s in runtimeAvailableScopes" :key="s" :command="s">{{ s }}</el-dropdown-item>
-                  </el-dropdown-menu>
-                </template>
-              </el-dropdown>
-            </div>
-          </el-form-item>
-
           <el-form-item label="Idle Time" v-if="selectedScopes.length">
             <div class="limit-entries">
               <div v-for="scope in idleTimeConfiguredScopes" :key="scope" class="limit-row">
@@ -412,7 +385,6 @@ const initialForm = reactive({
   managers: [],
   volumes: [] as Volume[],
   scopes: ['Train', 'Infer', 'Authoring'],
-  maxRuntime: {} as Record<string, number | undefined>,
   idleTime: {} as Record<string, number | undefined>,
 })
 
@@ -506,14 +478,6 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       return clone
     }) as unknown as Volume[]
 
-    const maxRuntime: Record<string, number> = {}
-    runtimeConfiguredScopes.value.forEach((scope) => {
-      const value = form.maxRuntime?.[scope]
-      if (typeof value === 'number' && Number.isFinite(value)) {
-        maxRuntime[scope] = value
-      }
-    })
-
     const idleTime: Record<string, string> = {}
     idleTimeConfiguredScopes.value.forEach((scope) => {
       const value = form.idleTime?.[scope]
@@ -528,14 +492,13 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       await addWorkspace({
         ...payload,
         volumes: volumesPayload,
-        maxRuntime,
         idleTime,
       })
       ElMessage({ message: 'Create successful', type: 'success' })
     } else {
       const { name: _n, ...payload } = form
       if (!props.wsid) return
-      await editWorkspace(props.wsid, { ...payload, volumes: volumesPayload, maxRuntime, idleTime })
+      await editWorkspace(props.wsid, { ...payload, volumes: volumesPayload, idleTime })
       ElMessage({ message: 'Edit successful', type: 'success' })
     }
 
@@ -589,7 +552,6 @@ const setInitialFormValues = async () => {
   form.external = !!res.external
   form.isDefault = res.isDefault
   form.managers = res.managers?.map((v: any) => v.id)
-  form.maxRuntime = res.maxRuntime ?? {}
 
   // Parse idleTime from Go duration strings to minutes
   const rawIdleTime = (res as any).idleTime ?? {}
@@ -699,20 +661,6 @@ const onOpen = async () => {
 }
 
 const selectedScopes = computed(() => form.scopes ?? [])
-
-// Max Runtime: append-style helpers
-const runtimeConfiguredScopes = computed(() =>
-  selectedScopes.value.filter((s) => s in form.maxRuntime),
-)
-const runtimeAvailableScopes = computed(() =>
-  selectedScopes.value.filter((s) => !(s in form.maxRuntime)),
-)
-const addRuntimeScope = (scope: string) => {
-  form.maxRuntime[scope] = undefined
-}
-const removeRuntimeScope = (scope: string) => {
-  delete form.maxRuntime[scope]
-}
 
 // Idle Time: append-style helpers
 const idleTimeConfiguredScopes = computed(() =>

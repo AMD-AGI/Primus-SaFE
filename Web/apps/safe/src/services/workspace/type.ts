@@ -71,7 +71,6 @@ export interface BaseSubmitWsData {
   isDefault?: boolean
   managers?: string[]
   volumes?: Volume[]
-  maxRuntime?: Record<string, number>
   idleTime?: Record<string, string>
 }
 

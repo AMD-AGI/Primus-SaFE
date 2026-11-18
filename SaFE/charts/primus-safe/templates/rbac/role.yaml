@@ -26,6 +26,7 @@ rules:
   - nodes
   - nodetemplates
   - opsjobs
+  - qos
   - resourcetemplates
   - roles
   - users

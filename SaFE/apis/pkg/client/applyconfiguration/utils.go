@@ -126,8 +126,14 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.PhaseExpressionApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("PolicyRule"):
 		return &amdv1.PolicyRuleApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("Qos"):
+		return &amdv1.QosApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("QosSpec"):
+		return &amdv1.QosSpecApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("ReplicatedSpec"):
 		return &amdv1.ReplicatedSpecApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("ResourceCap"):
+		return &amdv1.ResourceCapApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("ResourceSpec"):
 		return &amdv1.ResourceSpecApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("ResourceStatus"):
@@ -148,6 +154,10 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.StorageStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("User"):
 		return &amdv1.UserApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("UserQos"):
+		return &amdv1.UserQosApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("UserQosScope"):
+		return &amdv1.UserQosScopeApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("UserSpec"):
 		return &amdv1.UserSpecApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("Workload"):

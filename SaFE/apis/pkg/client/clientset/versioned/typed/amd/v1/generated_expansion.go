@@ -24,6 +24,8 @@ type NodeTemplateExpansion interface{}
 
 type OpsJobExpansion interface{}
 
+type QosExpansion interface{}
+
 type ResourceTemplateExpansion interface{}
 
 type RoleExpansion interface{}

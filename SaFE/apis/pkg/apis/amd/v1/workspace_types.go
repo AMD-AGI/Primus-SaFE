@@ -75,8 +75,6 @@ type WorkspaceSpec struct {
 	IsDefault bool `json:"isDefault,omitempty"`
 	// Workspace image secret ID, used for downloading images
 	ImageSecrets []corev1.ObjectReference `json:"imageSecrets,omitempty"`
-	// The maximum workload runtime of each scope, Unit: hours
-	MaxRuntime map[WorkspaceScope]int `json:"maxRuntime,omitempty"`
 	// Trigger workload processing after a period of workspace inactivity. The idletime of each scope, Unit: "12h0m0s"
 	// only for sandbox workload
 	IdleTime map[WorkspaceScope]string `json:"idleTime,omitempty"`
@@ -262,16 +260,6 @@ func (w *Workspace) SandboxScopeLabelValue() string {
 		return TrueStr
 	}
 	return ""
-}
-
-// GetMaxRunTime Return the maximum allowed runtime(unit second) for specified workload under the workspace.
-// If no configuration is found, return 0, indicating no limit.
-func (w *Workspace) GetMaxRunTime(scope WorkspaceScope) int {
-	maxRunTime, ok := w.Spec.MaxRuntime[scope]
-	if !ok {
-		return 0
-	}
-	return maxRunTime * 3600
 }
 
 func (w *Workspace) GetIdleTime(scope WorkspaceScope) string {

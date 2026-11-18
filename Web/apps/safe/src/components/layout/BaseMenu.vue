@@ -235,6 +235,7 @@ const router = useRouter()
 const userStore = useUserStore()
 const wsStore = useWorkspaceStore()
 const hasManagerAccess = computed(() => userStore.hasManagerAccess)
+const isManager = computed(() => userStore.isManager)
 const menuRef = ref()
 
 // Elegant permission check function
@@ -527,6 +528,12 @@ watchEffect(() => {
       name: 'Users',
       icon: menuIcons.usermanage,
       canAccess: hasManagerAccess.value, // Admin only
+    },
+    {
+      index: '/qos',
+      name: 'QoS',
+      icon: menuIcons.flavors,
+      canAccess: isManager.value,
     },
     {
       index: '/user-group',

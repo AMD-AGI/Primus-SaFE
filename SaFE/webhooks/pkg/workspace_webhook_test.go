@@ -62,15 +62,6 @@ func TestWorkspaceMutateVolumes(t *testing.T) {
 	assert.Equal(t, ws.Spec.Volumes[0].AccessMode, corev1.ReadWriteMany)
 }
 
-// TestIsMaxRuntimeEqual verifies max runtime comparison.
-func TestIsMaxRuntimeEqual(t *testing.T) {
-	a := map[v1.WorkspaceScope]int{v1.TrainScope: 1}
-	b := map[v1.WorkspaceScope]int{v1.TrainScope: 1}
-	assert.Assert(t, isMaxRuntimeEqual(a, b))
-	assert.Assert(t, !isMaxRuntimeEqual(a, map[v1.WorkspaceScope]int{v1.TrainScope: 2}))
-	assert.Assert(t, !isMaxRuntimeEqual(a, map[v1.WorkspaceScope]int{}))
-}
-
 // TestWorkspaceMutateByNodeFlavor verifies replica reset and gpu annotation.
 func TestWorkspaceMutateByNodeFlavor(t *testing.T) {
 	scheme := newScheme(t)
@@ -539,9 +530,6 @@ func TestMutateWorkloadsOfWorkspace_SetTimeout(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "ws1"},
 		Spec: v1.WorkspaceSpec{
 			Cluster: "cluster1",
-			MaxRuntime: map[v1.WorkspaceScope]int{
-				v1.TrainScope: 2, // 2 hours = 7200 seconds
-			},
 		},
 	}
 
@@ -552,9 +540,8 @@ func TestMutateWorkloadsOfWorkspace_SetTimeout(t *testing.T) {
 	err = k8sClient.Get(ctx, client.ObjectKey{Name: "w1"}, updated)
 	assert.NilError(t, err)
 
-	// Should set timeout (2 hours = 7200 seconds)
-	assert.Assert(t, updated.Spec.Timeout != nil)
-	assert.Equal(t, *updated.Spec.Timeout, 7200)
+	// Workspace no longer assigns a timeout. The qos ceiling does that at workload admission.
+	assert.Assert(t, updated.Spec.Timeout == nil)
 }
 
 // --- merged from workspace2_test.go ---
