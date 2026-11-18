@@ -130,13 +130,43 @@ func TestAttemptCursorGaps(t *testing.T) {
 	cur := &logCursor{Attempts: map[string]*attemptCursor{"a1": a}}
 	require.False(t, cur.hasGap(now.Add(gapGrace)))
 	require.True(t, cur.hasGap(now.Add(gapGrace+time.Second)))
-	from, to, ok := cur.gapWindow(now.Add(gapGrace + time.Second))
-	require.True(t, ok)
+	from, to, gaps := cur.gapWindow(now.Add(gapGrace + time.Second))
+	require.Len(t, gaps, 2)
 	require.Equal(t, []int64{10, 50}, []int64{from.Unix(), to.Unix()})
 	a.accept(2, 20, now)
 	a.accept(4, 40, now)
 	require.Empty(t, a.Gaps)
 	require.False(t, cur.hasGap(now.Add(time.Hour)))
+}
+
+func TestTheLogSearchWindowIsBounded(t *testing.T) {
+	now := time.Unix(100000, 0)
+	cur := &logCursor{Pod: "p1", Attempts: map[string]*attemptCursor{}}
+	cur.register("a1")
+	a := cur.Attempts["a1"]
+	require.True(t, a.accept(5, 50000, now), "the first seqs of the attempt are missing")
+	later := now.Add(gapGrace + time.Second)
+	from, to, gaps := cur.gapWindow(later)
+	require.Len(t, gaps, 1)
+	require.Equal(t, []int64{50000 - 3600, 50000}, []int64{from.Unix(), to.Unix()},
+		"a gap before the attempt's first point is searched an hour back")
+
+	a.accept(6, 60000, now)
+	a.accept(9, 70000, now)
+	_, _, gaps = cur.gapWindow(later)
+	require.Len(t, gaps, 1, "a gap more than an hour after the first waits for a later search")
+	gaps[0].Searches = backfillSearches
+	from, to, gaps = cur.gapWindow(later)
+	require.Len(t, gaps, 1, "a gap the searches did not fill is left to the end-of-run backfill")
+	require.Equal(t, []int64{60000, 63600}, []int64{from.Unix(), to.Unix()}, "a search spans an hour at most")
+	gaps[0].Searches = 1
+	a.accept(8, 65000, now)
+	require.Equal(t, 1, a.Gaps[1].Searches, "what is left of a gap keeps its searches")
+
+	cur.setPod("p2")
+	_, _, gaps = cur.gapWindow(later)
+	require.Empty(t, gaps, "the gaps of an attempt read from another pod are not in this pod's log")
+	require.True(t, cur.hasGap(later), "they are still gaps for the end-of-run backfill")
 }
 
 func TestIngestionResumeDropsReplacedPoints(t *testing.T) {

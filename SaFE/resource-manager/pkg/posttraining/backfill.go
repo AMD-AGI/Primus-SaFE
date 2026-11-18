@@ -38,6 +38,10 @@ const (
 	backfillInterval = 5 * time.Minute
 	backfillMargin   = time.Minute
 	backfillLimit    = 10000
+	// backfillSpan caps a search, which returns the earliest backfillLimit lines; a gap that backfillSearches
+	// searches did not fill is left to the end-of-run backfill.
+	backfillSpan     = time.Hour
+	backfillSearches = 3
 
 	// backfilledEvent is the stage_history event of the end-of-run backfill, which runs once.
 	backfilledEvent    = "backfilled"
@@ -63,8 +67,9 @@ type backfillSpec struct {
 // search, without gaps, or within backfillInterval of the previous search.
 func (r *RunReconciler) backfillFromLogSearch(ctx context.Context, w *v1.Workload, cur *logCursor, in *ingestion) {
 	now := in.u.now
-	since, until, ok := cur.gapWindow(now)
-	if !ok || cur.Pod == "" || now.Sub(time.Unix(cur.Backfilled, 0)) < backfillInterval || !commonconfig.IsOpenSearchEnable() {
+	since, until, gaps := cur.gapWindow(now)
+	if len(gaps) == 0 || cur.Pod == "" || now.Sub(time.Unix(cur.Backfilled, 0)) < backfillInterval ||
+		!commonconfig.IsOpenSearchEnable() {
 		return
 	}
 	search := commonsearch.GetOpensearchClient(v1.GetClusterId(w))
@@ -72,6 +77,9 @@ func (r *RunReconciler) backfillFromLogSearch(ctx context.Context, w *v1.Workloa
 		return
 	}
 	cur.Backfilled = now.Unix()
+	for _, g := range gaps {
+		g.Searches++
+	}
 	query := cicdlog.Query{
 		ListLogInput: cicdlog.ListLogInput{Keywords: []string{markerMetric}, PodNames: cur.Pod, Limit: backfillLimit, Order: "asc"},
 		SinceTime:    since.Add(-backfillMargin),

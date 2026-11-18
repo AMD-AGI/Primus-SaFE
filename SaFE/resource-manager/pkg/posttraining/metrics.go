@@ -169,7 +169,9 @@ type logCursor struct {
 
 // attemptCursor tracks the metric seqs of one attempt and where it resumed training.
 type attemptCursor struct {
-	MaxSeq int64 `json:"maxSeq"`
+	// Pod is the submitter pod the attempt was last read from; the log search finds its gaps there only.
+	Pod    string `json:"pod,omitempty"`
+	MaxSeq int64  `json:"maxSeq"`
 	// LastT is the launcher time of the point with MaxSeq.
 	LastT      float64    `json:"lastT,omitempty"`
 	Gaps       []seqRange `json:"gaps,omitempty"`
@@ -186,6 +188,8 @@ type seqRange struct {
 	Since    int64   `json:"since"`
 	TimeFrom float64 `json:"timeFrom,omitempty"`
 	TimeTo   float64 `json:"timeTo,omitempty"`
+	// Searches counts the log searches that covered the range without finding all of it.
+	Searches int `json:"searches,omitempty"`
 }
 
 // loadCursor decodes the metric_cursor column; an empty or unreadable value starts from scratch.
@@ -218,7 +222,7 @@ func (c *logCursor) register(attempt string) bool {
 	if _, ok := c.Attempts[attempt]; ok {
 		return false
 	}
-	c.Attempts[attempt] = &attemptCursor{}
+	c.Attempts[attempt] = &attemptCursor{Pod: c.Pod}
 	c.Order = append(c.Order, attempt)
 	return true
 }
@@ -250,29 +254,54 @@ func (c *logCursor) resumedAfter(attempt string) *int64 {
 
 // hasGap reports whether any attempt has had a seq missing for longer than gapGrace.
 func (c *logCursor) hasGap(now time.Time) bool {
-	_, _, ok := c.gapWindow(now)
-	return ok
-}
-
-// gapWindow returns the launcher time span that holds every gap missing for longer than gapGrace.
-func (c *logCursor) gapWindow(now time.Time) (time.Time, time.Time, bool) {
-	var from, to float64
-	found := false
 	for _, a := range c.Attempts {
 		for _, g := range a.Gaps {
-			if now.Sub(time.Unix(g.Since, 0)) <= gapGrace {
-				continue
+			if now.Sub(time.Unix(g.Since, 0)) > gapGrace {
+				return true
 			}
-			if !found || g.TimeFrom < from {
-				from = g.TimeFrom
-			}
-			if !found || g.TimeTo > to {
-				to = g.TimeTo
-			}
-			found = true
 		}
 	}
-	return unixTime(from), unixTime(to), found
+	return false
+}
+
+// gapWindow returns the next log search: from the earliest gap of the current pod's attempts missing for longer
+// than gapGrace and searched fewer than backfillSearches times, for at most backfillSpan, and the gaps it covers.
+// The other gaps are left to the end-of-run backfill.
+func (c *logCursor) gapWindow(now time.Time) (time.Time, time.Time, []*seqRange) {
+	var gaps []*seqRange
+	var from, to float64
+	for _, a := range c.Attempts {
+		if a.Pod != "" && a.Pod != c.Pod {
+			continue
+		}
+		for i := range a.Gaps {
+			g := &a.Gaps[i]
+			if now.Sub(time.Unix(g.Since, 0)) <= gapGrace || g.Searches >= backfillSearches || g.TimeTo <= 0 {
+				continue
+			}
+			if len(gaps) == 0 || gapFrom(g) < from {
+				from = gapFrom(g)
+			}
+			gaps = append(gaps, g)
+		}
+	}
+	var covered []*seqRange
+	for _, g := range gaps {
+		if gapFrom(g) <= from+backfillSpan.Seconds() {
+			covered = append(covered, g)
+			to = max(to, min(g.TimeTo, from+backfillSpan.Seconds()))
+		}
+	}
+	return unixTime(from), unixTime(to), covered
+}
+
+// gapFrom is where the search for a gap starts: the time of the point before it, or backfillSpan before the point
+// after it when the attempt's first points are missing.
+func gapFrom(g *seqRange) float64 {
+	if g.TimeFrom > 0 {
+		return g.TimeFrom
+	}
+	return g.TimeTo - backfillSpan.Seconds()
 }
 
 // unixTime converts launcher seconds to a time.
@@ -296,10 +325,12 @@ func (a *attemptCursor) accept(seq int64, t float64, now time.Time) bool {
 		}
 		var rest []seqRange
 		if seq > g.From {
-			rest = append(rest, seqRange{From: g.From, To: seq - 1, Since: g.Since, TimeFrom: g.TimeFrom, TimeTo: t})
+			rest = append(rest, seqRange{From: g.From, To: seq - 1, Since: g.Since, TimeFrom: g.TimeFrom, TimeTo: t,
+				Searches: g.Searches})
 		}
 		if seq < g.To {
-			rest = append(rest, seqRange{From: seq + 1, To: g.To, Since: g.Since, TimeFrom: t, TimeTo: g.TimeTo})
+			rest = append(rest, seqRange{From: seq + 1, To: g.To, Since: g.Since, TimeFrom: t, TimeTo: g.TimeTo,
+				Searches: g.Searches})
 		}
 		a.Gaps = append(a.Gaps[:i], append(rest, a.Gaps[i+1:]...)...)
 		return true
@@ -669,9 +700,11 @@ func (in *ingestion) addMetric(m *marker) {
 		in.sum.Rejected += int64(max(len(b.V), 1))
 		return
 	}
-	if !in.cur.Attempts[b.Attempt].accept(b.Seq, b.T, in.u.now) {
+	a := in.cur.Attempts[b.Attempt]
+	if !a.accept(b.Seq, b.T, in.u.now) {
 		return
 	}
+	a.Pod = in.cur.Pod
 	if b.Kind == "step" || b.Kind == "rollout" || b.Kind == "eval" {
 		in.stall, in.unstalled = nil, true
 	}
