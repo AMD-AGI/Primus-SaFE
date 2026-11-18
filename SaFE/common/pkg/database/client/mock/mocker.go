@@ -1260,6 +1260,21 @@ func (mr *MockInterfaceMockRecorder) GetPostTrainingImportByPathKey(ctx, pathKey
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPostTrainingImportByPathKey", reflect.TypeOf((*MockInterface)(nil).GetPostTrainingImportByPathKey), ctx, pathKey)
 }
 
+// ListPostTrainingImportsOfRuns mocks base method.
+func (m *MockInterface) ListPostTrainingImportsOfRuns(ctx context.Context, runIDs []string) (map[string]*client.PostTrainingImport, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListPostTrainingImportsOfRuns", ctx, runIDs)
+	ret0, _ := ret[0].(map[string]*client.PostTrainingImport)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListPostTrainingImportsOfRuns indicates an expected call of ListPostTrainingImportsOfRuns.
+func (mr *MockInterfaceMockRecorder) ListPostTrainingImportsOfRuns(ctx, runIDs interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPostTrainingImportsOfRuns", reflect.TypeOf((*MockInterface)(nil).ListPostTrainingImportsOfRuns), ctx, runIDs)
+}
+
 // GetPostTrainingImportByRun mocks base method.
 func (m *MockInterface) GetPostTrainingImportByRun(ctx context.Context, runID string) (*client.PostTrainingImport, error) {
 	m.ctrl.T.Helper()
@@ -5887,6 +5902,21 @@ func (m *MockPostTrainingImportInterface) GetPostTrainingImportByPathKey(ctx con
 func (mr *MockPostTrainingImportInterfaceMockRecorder) GetPostTrainingImportByPathKey(ctx, pathKey interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPostTrainingImportByPathKey", reflect.TypeOf((*MockPostTrainingImportInterface)(nil).GetPostTrainingImportByPathKey), ctx, pathKey)
+}
+
+// ListPostTrainingImportsOfRuns mocks base method.
+func (m *MockPostTrainingImportInterface) ListPostTrainingImportsOfRuns(ctx context.Context, runIDs []string) (map[string]*client.PostTrainingImport, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListPostTrainingImportsOfRuns", ctx, runIDs)
+	ret0, _ := ret[0].(map[string]*client.PostTrainingImport)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListPostTrainingImportsOfRuns indicates an expected call of ListPostTrainingImportsOfRuns.
+func (mr *MockPostTrainingImportInterfaceMockRecorder) ListPostTrainingImportsOfRuns(ctx, runIDs interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPostTrainingImportsOfRuns", reflect.TypeOf((*MockPostTrainingImportInterface)(nil).ListPostTrainingImportsOfRuns), ctx, runIDs)
 }
 
 // GetPostTrainingImportByRun mocks base method.

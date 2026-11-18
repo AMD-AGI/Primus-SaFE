@@ -321,6 +321,7 @@ type PostTrainingImportInterface interface {
 	SavePostTrainingImport(ctx context.Context, w PostTrainingImportWrite) error
 	GetPostTrainingImport(ctx context.Context, importID string) (*PostTrainingImport, error)
 	GetPostTrainingImportByRun(ctx context.Context, runID string) (*PostTrainingImport, error)
+	ListPostTrainingImportsOfRuns(ctx context.Context, runIDs []string) (map[string]*PostTrainingImport, error)
 	GetPostTrainingImportByPathKey(ctx context.Context, pathKey string) (*PostTrainingImport, error)
 	DeletePostTrainingImportOfRun(ctx context.Context, runID string) error
 }

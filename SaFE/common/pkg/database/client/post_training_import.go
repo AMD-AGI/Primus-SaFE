@@ -224,6 +224,31 @@ func (c *Client) GetPostTrainingImportByPathKey(ctx context.Context, pathKey str
 	return c.getPostTrainingImport(ctx, "path_key = ?", pathKey)
 }
 
+// listImportColumns are the columns a run list shows of an import; the per-node resources stay out.
+var listImportColumns = []string{"run_id", "source_path", "slurm_job_id", "via", "verdict", "summary", "created_at"}
+
+// ListPostTrainingImportsOfRuns fetches, with one query, the imports of runs keyed by run id, with only the columns
+// a run list shows.
+func (c *Client) ListPostTrainingImportsOfRuns(ctx context.Context, runIDs []string) (map[string]*PostTrainingImport, error) {
+	out := map[string]*PostTrainingImport{}
+	if len(runIDs) == 0 {
+		return out, nil
+	}
+	db, err := c.GetGormDB()
+	if err != nil {
+		return nil, err
+	}
+	var imports []*PostTrainingImport
+	if err = db.WithContext(ctx).Select(listImportColumns).Where("run_id IN ? AND state = ? AND is_deleted = ?",
+		runIDs, PostTrainingImportImported, false).Find(&imports).Error; err != nil {
+		return nil, err
+	}
+	for _, imp := range imports {
+		out[imp.RunID] = imp
+	}
+	return out, nil
+}
+
 // getPostTrainingImport fetches the non-deleted import matching a condition.
 func (c *Client) getPostTrainingImport(ctx context.Context, cond string, args ...interface{}) (*PostTrainingImport, error) {
 	db, err := c.GetGormDB()
