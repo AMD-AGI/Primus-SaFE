@@ -644,8 +644,9 @@ func (r *RunReconciler) readLog(ctx context.Context, w *v1.Workload, u *runUpdat
 			return false, err
 		}
 	}
+	// Samples the database refuses must not hold up the metrics, stages and cursor read with them.
 	if err := r.saveSamples(ctx, run, in, in.finishSamples()); err != nil {
-		return false, err
+		klog.ErrorS(err, "failed to save the samples of a post training run", "run", run.RunID)
 	}
 	switch {
 	case in.result != nil:
