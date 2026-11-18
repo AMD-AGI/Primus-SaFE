@@ -78,6 +78,12 @@ func TestParseRejects(t *testing.T) {
 		"bad method":         {"sft: [full, lora]", "sft: [full, qlora]", "unknown method qlora"},
 		"missing max points": {"maxPointsPerRun: 1000", "maxPointsPerRun: 0", "positive metrics.maxPointsPerRun"},
 		"freeze default":     {"minNodes: {", "freeze: {default: [experts]}\n        minNodes: {", "freeze.default needs freeze.allowed"},
+		"repeated image": {"gpuArch:", "  - {image: img:1, framework: slime, arch: [gfx950], frameworkCommit: abc, " +
+			"validated: true, features: [full]}\ngpuArch:", "image img:1 is listed twice"},
+		"no commit":          {"frameworkCommit: abc, ", "", "validated image img:1 has no frameworkCommit"},
+		"text default":       {"minNodes: {", "defaults: {tp: \"2\"}\n        minNodes: {", "default tp must be a positive whole number"},
+		"zero default":       {"minNodes: {", "defaults: {gfx950: {tp: 0}}\n        minNodes: {", "default gfx950.tp must be a positive whole number"},
+		"unknown unverified": {"minNodes: {", "unverified: [sft-qlora]\n        minNodes: {", "unverified names no combination sft-qlora"},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {

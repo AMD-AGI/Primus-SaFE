@@ -11,6 +11,7 @@ package registry
 import (
 	"errors"
 	"fmt"
+	"math"
 	"path"
 	"sort"
 	"strconv"
@@ -427,11 +428,18 @@ func (r *Registry) Validate() error {
 		}
 	}
 
-	validated, defaultImages := map[string]int{}, map[string][]string{}
+	validated, defaultImages, images := map[string]int{}, map[string][]string{}, map[string]bool{}
 	for _, img := range r.Images {
 		if img.Image == "" {
 			add("an image has no name")
 			continue
+		}
+		if images[img.Image] {
+			add("image %s is listed twice", img.Image)
+		}
+		images[img.Image] = true
+		if img.Validated && img.FrameworkCommit == "" {
+			add("validated image %s has no frameworkCommit, which keys its conversion caches", img.Image)
 		}
 		if !frameworks[img.Framework] {
 			add("image %s refers to unknown framework %q", img.Image, img.Framework)
@@ -500,6 +508,19 @@ func (fs *FrameworkSpec) validate() []string {
 			}
 		}
 	}
+	keys := map[string]bool{}
+	for trainType := range fs.Methods {
+		for _, c := range fs.Combinations(trainType) {
+			keys[MinNodesKey(trainType, c.Variant, c.Separate)] = true
+			keys[MinNodesKey(trainType, "", c.Separate)] = true
+		}
+	}
+	for _, k := range fs.Unverified {
+		if !keys[k] {
+			errs = append(errs, fmt.Sprintf("unverified names no combination %s", k))
+		}
+	}
+	errs = append(errs, defaultErrors(fs.Defaults, "")...)
 	if fs.Lora != nil && len(fs.Lora.Targets) == 0 {
 		errs = append(errs, "lora.targets is empty")
 	}
@@ -511,6 +532,27 @@ func (fs *FrameworkSpec) validate() []string {
 			errs = append(errs, "freeze.trainableB exceeds freeze.totalB")
 		}
 	}
+	return errs
+}
+
+// defaultErrors checks that every parallel default, and every default under an architecture, is a positive whole
+// number, as the compilers read only those.
+func defaultErrors(defaults map[string]interface{}, arch string) []string {
+	var errs []string
+	for k, v := range defaults {
+		name := k
+		if arch != "" {
+			name = arch + "." + k
+		}
+		if sub, ok := v.(map[string]interface{}); ok && arch == "" {
+			errs = append(errs, defaultErrors(sub, k)...)
+			continue
+		}
+		if n, ok := v.(float64); !ok || n < 1 || n != math.Trunc(n) {
+			errs = append(errs, fmt.Sprintf("default %s must be a positive whole number", name))
+		}
+	}
+	sort.Strings(errs)
 	return errs
 }
 
