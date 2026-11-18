@@ -31,6 +31,7 @@ func noSecret(context.Context, string) (*corev1.Secret, error) {
 	return nil, errors.New("no secret")
 }
 
+// An evaluation task needs a service, its type and valid benchmarks with datasets.
 func TestBuildTaskValidation(t *testing.T) {
 	cli := fake.NewClientBuilder().Build()
 	for name, req := range map[string]TaskRequest{
@@ -45,6 +46,7 @@ func TestBuildTaskValidation(t *testing.T) {
 	}
 }
 
+// A task of a local workload evaluates its service with the model name its entry point serves.
 func TestBuildTaskLocalWorkload(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1.AddToScheme(scheme))
@@ -91,6 +93,7 @@ func TestBuildTaskLocalWorkload(t *testing.T) {
 	assert.Equal(t, dbclient.EvaluationTaskStatusPending, stored.Status)
 }
 
+// A task keeps the ID it is given, so a retry upserts it, and reaches the service's own port.
 func TestBuildTaskNamedAndOnAPort(t *testing.T) {
 	cli := fake.NewClientBuilder().Build()
 	db := mockclient.NewMockInterface(gomock.NewController(t))
@@ -109,6 +112,7 @@ func TestBuildTaskNamedAndOnAPort(t *testing.T) {
 	}
 }
 
+// A deleted benchmark is a bad request, and a failed dataset read an internal error.
 func TestBuildTaskTellsAMissingDatasetFromAFailedRead(t *testing.T) {
 	cli := fake.NewClientBuilder().Build()
 	req := TaskRequest{ServiceID: "pt-eval-1", ServiceType: ServiceTypeLocalWorkload, Benchmarks: `[{"datasetId":"gsm8k"}]`}
@@ -123,12 +127,14 @@ func TestBuildTaskTellsAMissingDatasetFromAFailedRead(t *testing.T) {
 	assert.False(t, commonerrors.IsBadRequest(err), "a database that failed to answer may answer the next time")
 }
 
+// The served model name is read from either form of the --served-model-name flag.
 func TestServedModelNameFromCmd(t *testing.T) {
 	assert.Equal(t, "my-model", ServedModelNameFromCmd("vllm serve --served-model-name my-model --port 8000"))
 	assert.Equal(t, "m2", ServedModelNameFromCmd("cmd --served-model-name=m2"))
 	assert.Equal(t, "", ServedModelNameFromCmd("vllm serve --port 8000"))
 }
 
+// The served model name comes from the entry point, or else from the entry point list.
 func TestServedModelName(t *testing.T) {
 	ep := base64.StdEncoding.EncodeToString([]byte("vllm serve --served-model-name my-model"))
 	assert.Equal(t, "my-model", servedModelName(ep, sql.NullString{}))
@@ -142,6 +148,7 @@ func TestServedModelName(t *testing.T) {
 	assert.Equal(t, "", servedModelName("", sql.NullString{}))
 }
 
+// The model name is read from the source model or model name variable of the environment.
 func TestModelNameFromEnv(t *testing.T) {
 	assert.Equal(t, "", modelNameFromEnv(sql.NullString{}))
 	assert.Equal(t, "", modelNameFromEnv(sql.NullString{String: "not-json", Valid: true}))

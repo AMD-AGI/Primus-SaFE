@@ -55,6 +55,7 @@ func TestFilterResultLog(t *testing.T) {
 	assert.Equal(t, "", FilterResultLog(nil))
 }
 
+// Only the result markers that start a line and name the run are kept.
 func TestFilterRunResultLog(t *testing.T) {
 	success := `[SUCCESS] {"run":"pt-1","attempt":"a1","output":"/w/pt-1/final_model"}`
 	log := "\x1b[36m(TrainActor pid=692)\x1b[0m " + `[ERROR] {"run":"pt-1","attempt":"a1","stage":"train"}` + "\n" +

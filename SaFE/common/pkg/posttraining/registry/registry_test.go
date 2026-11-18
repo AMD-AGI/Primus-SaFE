@@ -51,6 +51,7 @@ images:
 gpuArch: {MI355X: gfx950}
 `
 
+// The chart's registry parses, and its specs match the models they are written for.
 func TestChartRegistryIsValid(t *testing.T) {
 	r, err := Parse(chartRegistry(t))
 	require.NoError(t, err)
@@ -67,6 +68,7 @@ func TestChartRegistryIsValid(t *testing.T) {
 	require.Nil(t, r.MatchSpec(qwen4b))
 }
 
+// Parse refuses each kind of invalid registry with the reason.
 func TestParseRejects(t *testing.T) {
 	cases := map[string]struct{ from, to, want string }{
 		"unknown field":      {"evalTp: 1", "evalTp: 1\n    bogus: 1", "unknown field"},
@@ -95,6 +97,7 @@ func TestParseRejects(t *testing.T) {
 	}
 }
 
+// Two specs that can match the same model are refused.
 func TestOverlappingSpecsAreRejected(t *testing.T) {
 	second := `
   - name: b
@@ -113,6 +116,7 @@ images:`
 	require.NoError(t, err)
 }
 
+// Each framework and architecture needs exactly one validated default image.
 func TestDefaultImages(t *testing.T) {
 	image := func(attrs string) string {
 		return "  - {image: img:2, framework: slime, arch: [gfx950], frameworkCommit: def" + attrs + "}\ngpuArch:"
@@ -133,6 +137,7 @@ func TestDefaultImages(t *testing.T) {
 	require.Nil(t, r.DefaultImage("slime", "gfx950"))
 }
 
+// The combinations of a framework follow its methods and freeze, and a missing minNodes entry falls back.
 func TestCombinationsAndMinNodes(t *testing.T) {
 	fs := &FrameworkSpec{
 		Methods:  map[string][]string{TrainTypeSFT: {MethodFull, MethodLora}, TrainTypeRL: {MethodFull, MethodLora}},
@@ -153,6 +158,7 @@ func TestCombinationsAndMinNodes(t *testing.T) {
 	require.Contains(t, fs.validate()[0], "rl-full")
 }
 
+// A registry may not drop an image that runs use, also after a restart with no previous version.
 func TestCheckRemovedImages(t *testing.T) {
 	prev, err := Parse([]byte(minimal))
 	require.NoError(t, err)
@@ -165,6 +171,7 @@ func TestCheckRemovedImages(t *testing.T) {
 	require.ErrorContains(t, CheckRemovedImages(prev, next, []string{"img:1"}), "still use the removed images img:1")
 }
 
+// The store keeps the last valid registry when an invalid one is loaded.
 func TestStoreKeepsLastValidVersion(t *testing.T) {
 	s := &Store{}
 	_, err := s.Get()
@@ -182,6 +189,7 @@ func TestStoreKeepsLastValidVersion(t *testing.T) {
 	require.Error(t, s.LastError())
 }
 
+// An import mount needs an approved cluster, a clean absolute root and a workspace, and expands the user's prefix.
 func TestImportMounts(t *testing.T) {
 	r := &Registry{Imports: Imports{Mounts: []ImportMount{{Cluster: "spur", Workspace: "spur-import", Root: "/shared_nfs"}}}}
 	require.Equal(t, "/shared_nfs", r.Imports.MountFor("spur").Root)

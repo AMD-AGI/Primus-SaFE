@@ -25,6 +25,7 @@ func payload(t *testing.T, d TopicData) map[string]interface{} {
 	return out
 }
 
+// The Post Training run topic takes only the events it mails.
 func TestFilter(t *testing.T) {
 	topic := &Topic{}
 	require.True(t, topic.Filter(map[string]interface{}{"event": EventFailed}))
@@ -32,6 +33,7 @@ func TestFilter(t *testing.T) {
 	require.False(t, topic.Filter(map[string]interface{}{}))
 }
 
+// A run failure mail goes to the user with the run, its failed stage and a link, its message escaped.
 func TestBuildMessage(t *testing.T) {
 	user := &v1.User{ObjectMeta: metav1.ObjectMeta{Name: "u1",
 		Annotations: map[string]string{v1.UserEmailAnnotation: "u1@amd.com"}}}
