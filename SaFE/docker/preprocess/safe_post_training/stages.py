@@ -613,9 +613,10 @@ class Runner:
         saved = [s for s in saved_iterations(self.path("checkpoints")) if s <= latest]
         keep = set(saved[-keep_last:])
         if policy.get("keepBest") and self.recipe.get("trainType") != "rl":
-            scored = [s for s in saved if s in self.val_losses]
+            # The validation after rollout s, which slime saves as iter_s, is recorded at step s + 1.
+            scored = [s for s in saved if s + 1 in self.val_losses]
             if scored:
-                keep.add(min(scored, key=lambda s: self.val_losses[s]))
+                keep.add(min(scored, key=lambda s: self.val_losses[s + 1]))
         deleted = [s for s in saved if s not in keep]
         for step in deleted:
             for sub in ("checkpoints", "critic_checkpoints"):

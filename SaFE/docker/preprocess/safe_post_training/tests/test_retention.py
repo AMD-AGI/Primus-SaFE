@@ -28,13 +28,14 @@ def kept(tmp_path, sub="checkpoints"):
 
 def test_keep_last_two_and_the_best(tmp_path):
     r, out = runner(tmp_path, {"trainType": "sft", "checkpoint": {"keepLast": 2, "keepBest": True}})
-    save(tmp_path, 4, 8, 12, 16, 20, 24)
+    save(tmp_path, 3, 7, 11, 15, 19, 23)
+    # The validation after rollout i, saved as iter_i, is recorded at step i + 1.
     r.val_losses = {4: 1.2, 8: 1.1, 12: 1.15, 16: 1.3, 20: 1.25, 24: 1.0}
-    r.apply_retention(20)
-    assert kept(tmp_path) == [8, 16, 20, 24], "24 is still being written past the latest saved iteration"
-    assert kept(tmp_path, "critic_checkpoints") == [8, 16, 20, 24], "critic checkpoints go at the same steps"
+    r.apply_retention(19)
+    assert kept(tmp_path) == [7, 15, 19, 23], "23 is still being written past the latest saved iteration"
+    assert kept(tmp_path, "critic_checkpoints") == [7, 15, 19, 23], "critic checkpoints go at the same steps"
     notice = [m[1] for m in markers(out) if m[0] == "[STAGE]"][-1]
-    assert notice["state"] == "retention" and notice["detail"] == {"deleted": [4, 12], "kept": [8, 16, 20]}
+    assert notice["state"] == "retention" and notice["detail"] == {"deleted": [3, 11], "kept": [7, 15, 19]}
 
 
 def test_rl_and_keep_all(tmp_path):
