@@ -463,7 +463,7 @@
           </template>
           <SamplesTab
             :run-id="run.runId"
-            :active="isActive"
+            :active="isActive && tab === 'samples'"
             :eval-off="evalOff"
             @count="sampleSteps = $event"
           />

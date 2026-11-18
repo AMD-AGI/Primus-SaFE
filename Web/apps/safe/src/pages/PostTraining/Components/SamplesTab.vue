@@ -173,6 +173,7 @@ import { copyText } from '@/utils/index'
 
 const props = defineProps<{
   runId: string
+  /** Whether to keep the samples fresh: the run runs and the tab shows. */
   active: boolean
   /** Why the run has no evaluation samples, such as no evaluation set; empty when it has them. */
   evalOff?: string
@@ -294,6 +295,10 @@ watch(
   { immediate: true },
 )
 
+watch(
+  () => props.active,
+  (on) => on && load(true),
+)
 useIntervalFn(() => {
   if (props.active && visibility.value === 'visible' && !loading.value) load(true)
 }, 10000)
