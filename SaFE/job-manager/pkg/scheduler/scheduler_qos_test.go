@@ -131,3 +131,24 @@ func TestConcurrentQuotaReserveAdmitsOne(t *testing.T) {
 		t.Fatalf("releasing the reservation frees the quota, reason %q", reason)
 	}
 }
+
+func TestQuotaReservationDropsWhenWorkloadIsGone(t *testing.T) {
+	qos := &v1.Qos{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+		Spec:       v1.QosSpec{MaxResources: &v1.ResourceCap{GPU: "8"}},
+	}
+	first := qosWorkload("first", "alice", "8")
+	second := qosWorkload("second", "alice", "8")
+	cl := ctrlfake.NewClientBuilder().WithScheme(ttlScheme(t)).WithObjects(qos, first, second).Build()
+	r := &SchedulerReconciler{Client: cl}
+	ctx := context.Background()
+	if reason := r.reserveUserQuota(ctx, first); reason != "" {
+		t.Fatalf("first fits the empty quota, reason %q", reason)
+	}
+	if err := cl.Delete(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	if reason := r.reserveUserQuota(ctx, second); reason != "" {
+		t.Fatalf("a deleted workload must not keep its reservation, reason %q", reason)
+	}
+}

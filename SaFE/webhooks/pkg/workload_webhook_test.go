@@ -471,6 +471,20 @@ func TestConcurrentScaleReservesOne(t *testing.T) {
 	}
 }
 
+func TestUnscheduledScaleSkipsQuota(t *testing.T) {
+	scheme := newScheme(t)
+	qos := &v1.Qos{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+		Spec:       v1.QosSpec{MaxResources: &v1.ResourceCap{GPU: "8"}},
+	}
+	running := scaleQuotaWorkload("running", "4", true)
+	queued := scaleQuotaWorkload("queued", "4", false)
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(qos, running, queued).Build()
+	v := &WorkloadValidator{Client: c}
+	grown := scaleQuotaWorkload("queued", "8", false)
+	assert.NilError(t, v.validateScaleQuota(context.Background(), grown, queued))
+}
+
 // TestWorkloadMutateMeta verifies labels and finalizer on workload.
 func TestWorkloadMutateMeta(t *testing.T) {
 	scheme := newScheme(t)

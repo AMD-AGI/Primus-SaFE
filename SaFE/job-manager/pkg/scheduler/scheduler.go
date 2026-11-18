@@ -558,17 +558,19 @@ func (r *SchedulerReconciler) reservedWorkloads(userID, clusterID string) []*v1.
 	return out
 }
 
-// dropQuotaReservations removes reservations the cache already shows as scheduled or ended.
-// Caller holds quotaMu.
+// dropQuotaReservations removes a reservation once the cache shows the workload scheduled
+// or ended, and when the workload is no longer listed. A queued workload is already in
+// the cache before it is reserved, so a missing object has been deleted. Caller holds quotaMu.
 func (r *SchedulerReconciler) dropQuotaReservations(userID, clusterID string, items []v1.Workload) {
 	bucket := r.quotaReserved[quotaReservationKey(userID, clusterID)]
+	seen := make(map[string]*v1.Workload, len(items))
 	for i := range items {
-		item := &items[i]
-		if _, ok := bucket[item.Name]; !ok {
-			continue
-		}
-		if item.IsEnd() || v1.IsWorkloadScheduled(item) {
-			delete(bucket, item.Name)
+		seen[items[i].Name] = &items[i]
+	}
+	for name := range bucket {
+		item, ok := seen[name]
+		if !ok || item.IsEnd() || v1.IsWorkloadScheduled(item) {
+			delete(bucket, name)
 		}
 	}
 }
