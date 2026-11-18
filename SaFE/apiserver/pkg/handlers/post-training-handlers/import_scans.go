@@ -92,7 +92,8 @@ func (h *Handler) CreateImportScan(c *gin.Context) {
 		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest(reason))
 		return
 	}
-	// The scan job reads Spur's storage in the import workspace, so the caller must be able to run workloads there.
+	// The scan job reads Spur's storage in the import workspace, so the caller must be able to run workloads there;
+	// as those see the whole mount, the user's prefixes below guide the dialog and are no boundary.
 	if err = h.authorize(c, v1.CreateVerb, m.Workspace, "", "", 0); err != nil {
 		apiutils.AbortWithApiError(c, err)
 		return
@@ -102,7 +103,12 @@ func (h *Handler) CreateImportScan(c *gin.Context) {
 		apiutils.AbortWithApiError(c, err)
 		return
 	}
-	t, token, err := h.newImportToken(c, req.Workspace, importPurposeScan, externalAddress(c.Request))
+	address := externalAddress(c.Request)
+	if address == "" {
+		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("the request's host is no address to upload to"))
+		return
+	}
+	t, token, err := h.newImportToken(c, req.Workspace, importPurposeScan, address)
 	if err != nil {
 		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to issue the scan's token: "+err.Error()))
 		return

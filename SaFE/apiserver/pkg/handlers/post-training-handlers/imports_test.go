@@ -103,6 +103,18 @@ func uploadContext(h *Handler, token string, summary []byte) (*httptest.Response
 	return w, c
 }
 
+func TestTheUploadAddressTakesOnlyAHost(t *testing.T) {
+	r := httptest.NewRequest(http.MethodPost, "http://safe.example.com:30080/api/v1/post-training/imports/tokens", nil)
+	r.Header.Set("X-Forwarded-Host", "safe.example.com")
+	r.Header.Set("X-Forwarded-Proto", "https")
+	require.Equal(t, "https://safe.example.com", externalAddress(r))
+	r.Header.Set("X-Forwarded-Host", "internal.svc:8080/admin#")
+	require.Equal(t, "https://safe.example.com:30080", externalAddress(r),
+		"a forwarded host with a path does not choose where the scan job posts")
+	r.Host = "safe.example.com/evil"
+	require.Empty(t, externalAddress(r))
+}
+
 func TestTheTokenStaysOutOfWhatTheAuditKeeps(t *testing.T) {
 	data, err := json.Marshal(importTokenResponse{TokenID: "pti-1", Token: "sst_a.b", ExpiresAt: time.Now()})
 	require.NoError(t, err)

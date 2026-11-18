@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -146,7 +147,12 @@ func (h *Handler) IssueImportToken(c *gin.Context) {
 		apiutils.AbortWithApiError(c, err)
 		return
 	}
-	t, token, err := h.newImportToken(c, req.Workspace, importPurposeCLI, externalAddress(c.Request))
+	address := externalAddress(c.Request)
+	if address == "" {
+		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("the request's host is no address to upload to"))
+		return
+	}
+	t, token, err := h.newImportToken(c, req.Workspace, importPurposeCLI, address)
 	if err != nil {
 		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("failed to issue an import token: "+err.Error()))
 		return
@@ -190,11 +196,18 @@ func externalAddress(r *http.Request) string {
 		scheme = p
 	}
 	host := r.Host
-	if fh := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Host"), ",")[0]); fh != "" {
+	if fh := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Host"), ",")[0]); hostOnly.MatchString(fh) {
 		host = fh
+	}
+	if !hostOnly.MatchString(host) {
+		return ""
 	}
 	return scheme + "://" + host
 }
+
+// hostOnly matches a host with an optional port and nothing else, so a request header cannot add a path, a query or
+// a fragment to where the import command and the scan job post.
+var hostOnly = regexp.MustCompile(`^(([A-Za-z0-9-]+\.)*[A-Za-z0-9-]+|\[[0-9A-Fa-f:.]+\])(:[0-9]{1,5})?$`)
 
 // importTokenStatus is GET /post-training/imports/tokens/:id: the token's state and, once used, the import it made.
 type importTokenStatus struct {
