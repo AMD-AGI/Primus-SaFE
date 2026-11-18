@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// The imports of a page of runs are read in one query of the columns the list shows.
 func TestListPostTrainingImportsOfRunsReadsOnlyWhatTheListShows(t *testing.T) {
 	c, mock := newMockClient(t)
 	ctx := context.Background()
@@ -32,6 +33,7 @@ func TestListPostTrainingImportsOfRunsReadsOnlyWhatTheListShows(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+// Expired import tokens and scan records are deleted, and imported records are kept.
 func TestExpiredImportTokensAndScanRecordsAreDeleted(t *testing.T) {
 	c, mock := newMockClient(t)
 	before := time.Now().UTC().Add(-24 * time.Hour)

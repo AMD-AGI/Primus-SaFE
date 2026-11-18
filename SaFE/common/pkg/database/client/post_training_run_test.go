@@ -17,6 +17,7 @@ import (
 	"gorm.io/gorm"
 )
 
+// Each run method runs its query.
 func TestPostTrainingRunCRUD(t *testing.T) {
 	c, mock := newLooseMockClient(t)
 	arm(mock, 40)
@@ -35,6 +36,7 @@ func TestPostTrainingRunCRUD(t *testing.T) {
 	_ = c.DeletePostTrainingRunMetrics(ctx, "r1")
 }
 
+// The run search matches a pasted run ID as well as the display name.
 func TestARunIsFoundByItsIDToo(t *testing.T) {
 	c, mock := newMockClient(t)
 	mock.ExpectQuery(`SELECT count\(\*\) FROM "post_training_run" WHERE is_deleted = \$1 AND `+
@@ -49,6 +51,7 @@ func TestARunIsFoundByItsIDToo(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet(), "a pasted run ID finds its run")
 }
 
+// A limited curve read takes the newest points and returns them by name and step.
 func TestACurveRequestReadsTheNewestPoints(t *testing.T) {
 	c, mock := newMockClient(t)
 	mock.ExpectQuery(`SELECT \* FROM "post_training_run_metric" WHERE run_id = \$1 AND name IN \(\$2,\$3\) `+
@@ -66,6 +69,7 @@ func TestACurveRequestReadsTheNewestPoints(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+// The run methods fail without a database.
 func TestPostTrainingRunInputs(t *testing.T) {
 	c := &Client{}
 	ctx := context.Background()
@@ -78,6 +82,7 @@ func TestPostTrainingRunInputs(t *testing.T) {
 	require.Error(t, c.DeletePostTrainingRunMetrics(ctx, "r1"))
 }
 
+// A checkpoint cleanup request is taken only while the run has none.
 func TestRequestPostTrainingRunCleanupTakesOneRequest(t *testing.T) {
 	c, mock := newMockClient(t)
 	ctx := context.Background()
@@ -93,6 +98,7 @@ func TestRequestPostTrainingRunCleanupTakesOneRequest(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+// Updating a missing run is record not found.
 func TestUpdatePostTrainingRunNotFound(t *testing.T) {
 	c, mock := newMockClient(t)
 	mock.ExpectExec(`UPDATE "post_training_run" SET`).WillReturnResult(sqlmock.NewResult(0, 0))
@@ -102,6 +108,7 @@ func TestUpdatePostTrainingRunNotFound(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+// Metric points and run columns are written in one transaction, a repeated point once.
 func TestSavePostTrainingRunMetricsCommits(t *testing.T) {
 	c, mock := newMockClient(t)
 	mock.ExpectBegin()
@@ -123,6 +130,7 @@ func TestSavePostTrainingRunMetricsCommits(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+// Metric points are rolled back when the run they update is missing.
 func TestSavePostTrainingRunMetricsRollsBackWhenRunMissing(t *testing.T) {
 	c, mock := newMockClient(t)
 	mock.ExpectBegin()
@@ -138,6 +146,7 @@ func TestSavePostTrainingRunMetricsRollsBackWhenRunMissing(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+// Rewinding a run deletes the points after a step but keeps the system series.
 func TestDeletePostTrainingRunMetricsAfterStepKeepsSystemSeries(t *testing.T) {
 	c, mock := newMockClient(t)
 	mock.ExpectExec(`DELETE FROM "post_training_run_metric" WHERE run_id = \$1 AND step > \$2 AND name NOT LIKE \$3`).
@@ -148,6 +157,7 @@ func TestDeletePostTrainingRunMetricsAfterStepKeepsSystemSeries(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+// Of the points of one name and step the last is kept, and every point gets the run ID.
 func TestDedupePostTrainingRunMetrics(t *testing.T) {
 	first := &PostTrainingRunMetric{Name: "train/loss", Step: 1, Value: 1}
 	other := &PostTrainingRunMetric{Name: "train/loss", Step: 2, Value: 2}
@@ -160,6 +170,7 @@ func TestDedupePostTrainingRunMetrics(t *testing.T) {
 	}
 }
 
+// Succeeded SaFE runs are counted per recipe hash with the latest of them.
 func TestCountPostTrainingRunsByRecipe(t *testing.T) {
 	c, mock := newMockClient(t)
 	mock.ExpectQuery(`SELECT recipe_hash, COUNT\(\*\) AS succeeded, .*FROM "post_training_run" WHERE .*recipe_hash IN .*GROUP BY "recipe_hash"`).

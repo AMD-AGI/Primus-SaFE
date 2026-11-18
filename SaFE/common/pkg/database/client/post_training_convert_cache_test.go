@@ -14,6 +14,7 @@ import (
 	"gorm.io/gorm"
 )
 
+// Each conversion cache method runs its query.
 func TestPostTrainingConvertCacheCRUD(t *testing.T) {
 	c, mock := newLooseMockClient(t)
 	arm(mock, 20)
@@ -25,6 +26,7 @@ func TestPostTrainingConvertCacheCRUD(t *testing.T) {
 	_ = c.DeletePostTrainingConvertCache(ctx, 1)
 }
 
+// Saving a conversion cache updates the record of the same workspace and cache key.
 func TestUpsertPostTrainingConvertCacheOnKey(t *testing.T) {
 	c, mock := newMockClient(t)
 	mock.ExpectQuery(`INSERT INTO "post_training_convert_cache" .* ON CONFLICT \("workspace","cache_key"\) DO UPDATE SET ` +
@@ -36,6 +38,7 @@ func TestUpsertPostTrainingConvertCacheOnKey(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+// Updating a missing conversion cache record is record not found, and no fields write nothing.
 func TestUpdatePostTrainingConvertCacheNotFound(t *testing.T) {
 	c, mock := newMockClient(t)
 	mock.ExpectExec(`UPDATE "post_training_convert_cache" SET`).WillReturnResult(sqlmock.NewResult(0, 0))
@@ -44,6 +47,7 @@ func TestUpdatePostTrainingConvertCacheNotFound(t *testing.T) {
 	require.NoError(t, c.UpdatePostTrainingConvertCache(context.Background(), 7, nil))
 }
 
+// The conversion cache methods fail without a database.
 func TestPostTrainingConvertCacheInputs(t *testing.T) {
 	c := &Client{}
 	require.Error(t, c.UpsertPostTrainingConvertCache(context.Background(), nil))

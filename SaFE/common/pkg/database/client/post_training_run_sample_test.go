@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Each run sample method runs its query.
 func TestPostTrainingRunSampleCRUD(t *testing.T) {
 	c, mock := newLooseMockClient(t)
 	arm(mock, 20)
@@ -28,6 +29,7 @@ func TestPostTrainingRunSampleCRUD(t *testing.T) {
 	_ = c.DeletePostTrainingRunSamples(ctx, "r1", nil)
 }
 
+// Samples lose their NULs, fit their columns, and the last of a key is kept.
 func TestSamplesAreCleanedForTheirColumns(t *testing.T) {
 	c, mock := newMockClient(t)
 	dataset := strings.Repeat("d", 130)
@@ -45,6 +47,7 @@ func TestSamplesAreCleanedForTheirColumns(t *testing.T) {
 		"a NUL is dropped, the dataset fits its column, and the sample that now shares its key replaces the other")
 }
 
+// Writing no samples needs no database, and reading them fails without one.
 func TestPostTrainingRunSampleInputs(t *testing.T) {
 	c := &Client{}
 	require.NoError(t, c.UpsertPostTrainingRunSamples(context.Background(), nil), "no samples need no write")

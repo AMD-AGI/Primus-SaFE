@@ -14,6 +14,7 @@ import (
 	"gorm.io/gorm"
 )
 
+// Each template and experiment method runs its query.
 func TestPostTrainingTemplateAndExperimentCRUD(t *testing.T) {
 	c, mock := newLooseMockClient(t)
 	arm(mock, 40)
@@ -32,6 +33,7 @@ func TestPostTrainingTemplateAndExperimentCRUD(t *testing.T) {
 	_ = c.SetPostTrainingExperimentDeleted(ctx, "exp-1")
 }
 
+// Counting runs of no templates needs no database, and the other methods fail without one.
 func TestPostTrainingTemplateInputs(t *testing.T) {
 	c := &Client{}
 	ctx := context.Background()
@@ -44,6 +46,7 @@ func TestPostTrainingTemplateInputs(t *testing.T) {
 	require.Error(t, err, "expected error when gorm not initialized")
 }
 
+// A template update writes the next version only over the version it was read at.
 func TestUpdatePostTrainingTemplateBumpsVersion(t *testing.T) {
 	c, mock := newMockClient(t)
 	ctx := context.Background()
