@@ -101,14 +101,7 @@
         >
           <el-option v-for="m in baseModelOptions" :key="m.id" :label="m.name" :value="m.id" />
         </el-select>
-        <el-input
-          v-model="filters.owner"
-          placeholder="Owner"
-          clearable
-          style="width: 120px"
-          @keyup.enter="onSearch(true)"
-          @clear="onSearch(true)"
-        />
+        <el-segmented v-model="scope" :options="['All', 'My Runs']" @change="onSearch(true)" />
         <el-tooltip content="Reset" placement="top">
           <el-button :icon="RefreshIcon" @click="resetFilters" />
         </el-tooltip>
@@ -610,7 +603,12 @@ const filters = reactive({
   status: [] as string[],
   q: '',
   baseModel: '',
-  owner: '',
+  mine: false,
+})
+// The All and My Runs switch over filters.mine.
+const scope = computed({
+  get: () => (filters.mine ? 'My Runs' : 'All'),
+  set: (v: string) => (filters.mine = v === 'My Runs'),
 })
 
 const typeFilters = [
@@ -648,7 +646,7 @@ const hasFilters = computed(
       filters.status.length ||
       filters.q ||
       filters.baseModel ||
-      filters.owner
+      filters.mine
     ),
 )
 const filterSummary = computed(() => {
@@ -658,7 +656,7 @@ const filterSummary = computed(() => {
   if (filters.status.length) parts.push(`Status: ${filters.status.join(', ')}`)
   if (filters.q) parts.push(`Search: ${filters.q}`)
   if (filters.baseModel) parts.push(`Base Model: ${filters.baseModel}`)
-  if (filters.owner) parts.push(`Owner: ${filters.owner}`)
+  if (filters.mine) parts.push('My Runs')
   return parts.join(' · ')
 })
 
@@ -674,7 +672,7 @@ const readQuery = () => {
   filters.status = q.status ? String(q.status).split(',').filter(Boolean) : []
   filters.q = (q.q as string) || ''
   filters.baseModel = (q.baseModel as string) || ''
-  filters.owner = (q.owner as string) || ''
+  filters.mine = q.mine === '1'
   pagination.page = Number(q.page || 1)
   pagination.pageSize = Number(q.pageSize || pagination.pageSize)
 }
@@ -688,7 +686,7 @@ const writeQuery = () => {
   if (filters.status.length) query.status = filters.status.join(',')
   if (filters.q) query.q = filters.q
   if (filters.baseModel) query.baseModel = filters.baseModel
-  if (filters.owner) query.owner = filters.owner
+  if (filters.mine) query.mine = '1'
   if (pagination.page > 1) query.page = String(pagination.page)
   if (pagination.pageSize !== 20) query.pageSize = String(pagination.pageSize)
   router.replace({ query })
@@ -719,7 +717,7 @@ const fetchData = async (quiet = false) => {
   if (filters.status.length) params.status = filters.status.join(',')
   if (filters.q) params.search = filters.q
   if (filters.baseModel) params.baseModelId = filters.baseModel
-  if (filters.owner) params.owner = filters.owner
+  if (filters.mine) params.owner = userStore.userId
   try {
     const res = (await listPostTrainingRuns(params, quiet)) as unknown as {
       total: number
@@ -772,7 +770,7 @@ const onSearch = (resetPage: boolean) => {
 }
 
 const resetFilters = () => {
-  Object.assign(filters, { type: '', method: '', status: [], q: '', baseModel: '', owner: '' })
+  Object.assign(filters, { type: '', method: '', status: [], q: '', baseModel: '', mine: false })
   tableRef.value?.clearFilter()
   pagination.page = 1
   fetchData()
