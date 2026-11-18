@@ -484,7 +484,7 @@ describe('formatCommand', () => {
 describe('imports', () => {
   const preview: ImportPreview = {
     name: 'j2r3-229263',
-    path: '/shared_nfs/zhanglei/glm53-kernel/slime-rocm/runs/j2r3-229263',
+    path: '/shared_nfs/alice/glm53-kernel/slime-rocm/runs/j2r3-229263',
     verdict: 'FAIL',
     failedGate: { gate: 'b2_sft', node: 'm2m-022', result: 'fail(1)' },
     status: 'Failed',
@@ -553,7 +553,7 @@ describe('imports', () => {
     expect(importCommandFor('sst_a.b', "/shared_nfs/it's $HOME")).toBe(
       "SAFE_IMPORT_TOKEN=sst_a.b safe-post-training-import '/shared_nfs/it'\\''s $HOME'",
     )
-    expect(shortSpurPath('/shared_nfs/zhanglei/glm53-kernel/slime-rocm/runs/j2r7-242118')).toBe(
+    expect(shortSpurPath('/shared_nfs/alice/glm53-kernel/slime-rocm/runs/j2r7-242118')).toBe(
       '/shared_nfs/…/j2r7-242118',
     )
   })
@@ -593,7 +593,7 @@ describe('imports', () => {
       'No verdict in the run directory',
     )
     const info = {
-      sourcePath: '/shared_nfs/zhanglei/runs/j2r7-242118',
+      sourcePath: '/shared_nfs/alice/runs/j2r7-242118',
       via: 'cli' as const,
       slurmJobId: '242118',
     }
@@ -608,7 +608,7 @@ describe('imports', () => {
 
 describe('imported run detail', () => {
   const failed = {
-    path: '/shared_nfs/zhanglei/glm53-kernel/slime-rocm/runs/j2r5-229357',
+    path: '/shared_nfs/alice/glm53-kernel/slime-rocm/runs/j2r5-229357',
     name: 'j2r5-229357',
     verdict: 'FAIL',
     status: 'Failed',
@@ -704,7 +704,7 @@ describe('imported run detail', () => {
       text: 'Gate b2_sft failed on crsuse2-m2m-001. Check failed: VRAM still rising over steps 10-20.',
       evidence: 'FAIL: VRAM still rising over steps 10-20',
       logPath:
-        '/shared_nfs/zhanglei/glm53-kernel/slime-rocm/runs/j2r5-229357/logs/b2_sft-crsuse2-m2m-001.log',
+        '/shared_nfs/alice/glm53-kernel/slime-rocm/runs/j2r5-229357/logs/b2_sft-crsuse2-m2m-001.log',
     })
     expect(importBanner({ ...failed, status: 'Stopped', verdict: '' }).text).toMatch(
       /^No verdict\. The run directory has no PASS or FAIL file\. The last marker is done_1 at \d\d:53:54, and the log was last written at \d\d:54:03\. Curves and resources stop there\.$/,

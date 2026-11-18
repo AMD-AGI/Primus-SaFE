@@ -181,7 +181,7 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; imported: [runId: string] }>()
 
-const EXAMPLE_DIR = '/shared_nfs/zhanglei/glm53-kernel/slime-rocm/runs/j2r7-242118'
+const EXAMPLE_DIR = '/shared_nfs/alice/glm53-kernel/slime-rocm/runs/j2r7-242118'
 const POLL_MS = 3000
 
 const router = useRouter()
