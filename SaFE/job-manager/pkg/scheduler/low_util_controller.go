@@ -201,7 +201,7 @@ func (r *LowUtilizationController) evaluate(ctx context.Context, q lowUtilQuery,
 		byUID[windows[i].UID] = &windows[i]
 	}
 	for _, c := range candidates {
-		d := decideLowUtil(c.policy, byUID[string(c.workload.UID)], workloadNodeCount(c.workload))
+		d := decideLowUtil(c.policy, byUID[string(c.workload.UID)])
 		if err = r.apply(ctx, q.cluster, c, d); err != nil {
 			klog.ErrorS(err, "[low-util] failed to apply the decision", "workload", c.workload.Name)
 		}
@@ -209,8 +209,10 @@ func (r *LowUtilizationController) evaluate(ctx context.Context, q lowUtilQuery,
 }
 
 // decideLowUtil judges one workload. Without enough samples, or in Min mode
-// without every node reported, the state is unknown.
-func decideLowUtil(policy *v1.LowUtilizationPolicy, w *robustclient.WorkloadGPUWindow, nodeCount int) lowUtilDecision {
+// without any covered node, the state is unknown. Robust reports Min nodes per
+// physical host and leaves out hosts without an exporter, so a missing node
+// cannot make the workload active.
+func decideLowUtil(policy *v1.LowUtilizationPolicy, w *robustclient.WorkloadGPUWindow) lowUtilDecision {
 	unknown := lowUtilDecision{state: lowUtilUnknown}
 	if w == nil || !lowUtilCovered(w.Overall.Samples, w.Overall.ExpectedSamples) {
 		return unknown
@@ -223,24 +225,17 @@ func decideLowUtil(policy *v1.LowUtilizationPolicy, w *robustclient.WorkloadGPUW
 		}
 		return lowUtilDecision{state: lowUtilActive, observed: w.Overall.Max}
 	case v1.LowUtilizationMin:
-		if nodeCount == 0 || len(w.Nodes) != nodeCount {
-			return unknown
-		}
-		seen := make(map[string]struct{}, len(w.Nodes))
-		for _, n := range w.Nodes {
-			if !lowUtilCovered(n.Samples, w.Overall.ExpectedSamples) {
-				return unknown
-			}
-			seen[n.Node] = struct{}{}
-		}
-		if len(seen) != nodeCount {
-			return unknown
-		}
-		lowest := 0
+		lowest := -1
 		for i := range w.Nodes {
-			if w.Nodes[i].Max < w.Nodes[lowest].Max {
+			if !lowUtilCovered(w.Nodes[i].Samples, w.Overall.ExpectedSamples) {
+				continue
+			}
+			if lowest < 0 || w.Nodes[i].Max < w.Nodes[lowest].Max {
 				lowest = i
 			}
+		}
+		if lowest < 0 {
+			return unknown
 		}
 		d := lowUtilDecision{state: lowUtilActive, observed: w.Nodes[lowest].Max}
 		if d.observed < threshold {
@@ -254,25 +249,6 @@ func decideLowUtil(policy *v1.LowUtilizationPolicy, w *robustclient.WorkloadGPUW
 
 func lowUtilCovered(samples, expected int) bool {
 	return expected > 0 && float64(samples) >= lowUtilMinCoverage*float64(expected)
-}
-
-// workloadNodeCount counts the distinct nodes the workload runs on, read from
-// the NodeUsage aggregate and falling back to the latest dispatch's nodes.
-func workloadNodeCount(w *v1.Workload) int {
-	nodes := make(map[string]struct{})
-	for _, u := range w.Status.NodeUsage {
-		if u.Node != "" {
-			nodes[u.Node] = struct{}{}
-		}
-	}
-	if len(nodes) == 0 && len(w.Status.Nodes) > 0 {
-		for _, n := range w.Status.Nodes[len(w.Status.Nodes)-1] {
-			if n != "" {
-				nodes[n] = struct{}{}
-			}
-		}
-	}
-	return len(nodes)
 }
 
 func (r *LowUtilizationController) apply(ctx context.Context,

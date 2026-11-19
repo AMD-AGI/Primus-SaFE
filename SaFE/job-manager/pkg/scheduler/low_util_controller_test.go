@@ -122,18 +122,18 @@ func TestDecideLowUtilAverage(t *testing.T) {
 	noExpected.Overall.ExpectedSamples = 0
 	edge := gpuWindow("u", 3, 54)
 
-	d := decideLowUtil(&policy, &idle, 1)
+	d := decideLowUtil(&policy, &idle)
 	assert.Equal(t, d.state, lowUtilIdle)
 	assert.Equal(t, d.observed, 3.0)
-	assert.Equal(t, decideLowUtil(&policy, &busy, 1).state, lowUtilActive)
-	assert.Equal(t, decideLowUtil(&policy, &sparse, 1).state, lowUtilUnknown)
-	assert.Equal(t, decideLowUtil(&policy, &noExpected, 1).state, lowUtilUnknown)
-	assert.Equal(t, decideLowUtil(&policy, &edge, 1).state, lowUtilIdle)
-	assert.Equal(t, decideLowUtil(&policy, nil, 1).state, lowUtilUnknown)
+	assert.Equal(t, decideLowUtil(&policy, &busy).state, lowUtilActive)
+	assert.Equal(t, decideLowUtil(&policy, &sparse).state, lowUtilUnknown)
+	assert.Equal(t, decideLowUtil(&policy, &noExpected).state, lowUtilUnknown)
+	assert.Equal(t, decideLowUtil(&policy, &edge).state, lowUtilIdle)
+	assert.Equal(t, decideLowUtil(&policy, nil).state, lowUtilUnknown)
 
 	// The threshold is exclusive.
 	at := gpuWindow("u", 5, 60)
-	assert.Equal(t, decideLowUtil(&policy, &at, 1).state, lowUtilActive)
+	assert.Equal(t, decideLowUtil(&policy, &at).state, lowUtilActive)
 }
 
 func TestDecideLowUtilMin(t *testing.T) {
@@ -143,39 +143,44 @@ func TestDecideLowUtilMin(t *testing.T) {
 	}
 
 	oneIdle := gpuWindow("u", 80, 60, n("a", 80, 60), n("b", 2, 60))
-	d := decideLowUtil(&policy, &oneIdle, 2)
+	d := decideLowUtil(&policy, &oneIdle)
 	assert.Equal(t, d.state, lowUtilIdle)
 	assert.Equal(t, d.node, "b")
 	assert.Equal(t, d.observed, 2.0)
 
 	allBusy := gpuWindow("u", 80, 60, n("a", 80, 60), n("b", 60, 60))
-	assert.Equal(t, decideLowUtil(&policy, &allBusy, 2).state, lowUtilActive)
+	d = decideLowUtil(&policy, &allBusy)
+	assert.Equal(t, d.state, lowUtilActive)
+	assert.Equal(t, d.observed, 60.0)
 
-	missingNode := gpuWindow("u", 80, 60, n("b", 2, 60))
-	assert.Equal(t, decideLowUtil(&policy, &missingNode, 2).state, lowUtilUnknown)
+	// One SaFE virtual node spread over several hosts: Robust reports each host key.
+	spread := gpuWindow("u", 80, 60, n("host-1", 80, 60), n("host-2", 70, 60), n("host-3", 1, 60))
+	d = decideLowUtil(&policy, &spread)
+	assert.Equal(t, d.state, lowUtilIdle)
+	assert.Equal(t, d.node, "host-3")
 
-	sparseNode := gpuWindow("u", 80, 60, n("a", 80, 60), n("b", 2, 40))
-	assert.Equal(t, decideLowUtil(&policy, &sparseNode, 2).state, lowUtilUnknown)
+	// A host without an exporter is absent and cannot make the workload active.
+	missingHost := gpuWindow("u", 80, 60, n("host-2", 2, 60))
+	assert.Equal(t, decideLowUtil(&policy, &missingHost).state, lowUtilIdle)
+	missingHostBusy := gpuWindow("u", 80, 60, n("host-1", 80, 60))
+	assert.Equal(t, decideLowUtil(&policy, &missingHostBusy).state, lowUtilActive)
 
-	duplicated := gpuWindow("u", 80, 60, n("b", 2, 60), n("b", 2, 60))
-	assert.Equal(t, decideLowUtil(&policy, &duplicated, 2).state, lowUtilUnknown)
+	// Nodes below the coverage threshold are ignored, whatever their value.
+	sparseIdle := gpuWindow("u", 80, 60, n("a", 80, 60), n("b", 2, 40))
+	d = decideLowUtil(&policy, &sparseIdle)
+	assert.Equal(t, d.state, lowUtilActive)
+	assert.Equal(t, d.observed, 80.0)
+	sparseBusy := gpuWindow("u", 80, 60, n("a", 80, 40), n("b", 2, 60))
+	assert.Equal(t, decideLowUtil(&policy, &sparseBusy).node, "b")
+
+	// No covered node, or none reported at all.
+	noneCovered := gpuWindow("u", 80, 60, n("a", 2, 40), n("b", 2, 10))
+	assert.Equal(t, decideLowUtil(&policy, &noneCovered).state, lowUtilUnknown)
+	noNodes := gpuWindow("u", 80, 60)
+	assert.Equal(t, decideLowUtil(&policy, &noNodes).state, lowUtilUnknown)
 
 	sparseOverall := gpuWindow("u", 80, 30, n("a", 80, 60), n("b", 2, 60))
-	assert.Equal(t, decideLowUtil(&policy, &sparseOverall, 2).state, lowUtilUnknown)
-
-	// Without known nodes, coverage cannot be checked.
-	assert.Equal(t, decideLowUtil(&policy, &oneIdle, 0).state, lowUtilUnknown)
-}
-
-func TestWorkloadNodeCount(t *testing.T) {
-	w := lowUtilTestWorkload("w", "a", "b", "")
-	assert.Equal(t, workloadNodeCount(w), 2)
-
-	legacy := lowUtilTestWorkload("legacy")
-	legacy.Status.Nodes = [][]string{{"x", "y", "z"}, {"a", "b", "a"}}
-	assert.Equal(t, workloadNodeCount(legacy), 2)
-
-	assert.Equal(t, workloadNodeCount(lowUtilTestWorkload("none")), 0)
+	assert.Equal(t, decideLowUtil(&policy, &sparseOverall).state, lowUtilUnknown)
 }
 
 func TestLowUtilFirstDetectionMarksAndNotifies(t *testing.T) {
@@ -301,11 +306,27 @@ func TestLowUtilUnknownKeepsState(t *testing.T) {
 	assert.Equal(t, v1.GetAnnotation(got, v1.WorkloadLowUtilDetectedAtAnnotation), detectedAt)
 }
 
-func TestLowUtilMinModeUnknownWithoutAllNodes(t *testing.T) {
+func TestLowUtilMinModeStopsSpreadNodeWithAHostMissing(t *testing.T) {
+	w := lowUtilTestWorkload("w", "vk-spur-1")
+	v1.SetAnnotation(w, v1.WorkloadLowUtilDetectedAtAnnotation, lowUtilTestNow.Add(-time.Hour).Format(time.RFC3339))
+	src := &fakeGPUWindow{windows: map[string]robustclient.WorkloadGPUWindow{
+		"w-uid": gpuWindow("w-uid", 90, 60,
+			robustclient.GPUWindowNode{Node: "host-1", Max: 90, Samples: 60},
+			robustclient.GPUWindowNode{Node: "host-2", Max: 0, Samples: 60}),
+	}}
+	r, cl, _ := newLowUtilTestController(t, src, lowUtilTestWorkspace(lowUtilPolicy(v1.LowUtilizationMin)), w)
+
+	r.runOnce(context.Background())
+
+	_, err := getLowUtilWorkload(t, cl, "w")
+	assert.Assert(t, apierrors.IsNotFound(err), err)
+}
+
+func TestLowUtilMinModeUnknownWithoutCoveredNodes(t *testing.T) {
 	w := lowUtilTestWorkload("w", "a", "b")
 	v1.SetAnnotation(w, v1.WorkloadLowUtilDetectedAtAnnotation, lowUtilTestNow.Add(-time.Hour).Format(time.RFC3339))
 	src := &fakeGPUWindow{windows: map[string]robustclient.WorkloadGPUWindow{
-		"w-uid": gpuWindow("w-uid", 1, 60, robustclient.GPUWindowNode{Node: "b", Max: 0, Samples: 60}),
+		"w-uid": gpuWindow("w-uid", 1, 60, robustclient.GPUWindowNode{Node: "b", Max: 0, Samples: 20}),
 	}}
 	r, cl, _ := newLowUtilTestController(t, src, lowUtilTestWorkspace(lowUtilPolicy(v1.LowUtilizationMin)), w)
 
