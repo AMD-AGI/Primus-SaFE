@@ -9,14 +9,7 @@
     <div v-else-if="!run" v-loading="true" class="h-[240px]" />
 
     <template v-else>
-      <ImportedHeader
-        v-if="imported"
-        :run="run"
-        :info="importInfo"
-        :step="run.metricSummary?.main?.step"
-        @tab="(t: string) => (tab = t)"
-      />
-      <div v-else class="flex items-start justify-between gap-4">
+      <div class="flex items-start justify-between gap-4">
         <div class="min-w-0">
           <div class="flex items-center gap-2">
             <el-button link :icon="ArrowLeft" @click="backToRuns(router)" />
@@ -139,7 +132,7 @@
       </div>
 
       <el-alert
-        v-if="banner && !imported"
+        v-if="banner"
         :type="banner.type"
         :closable="false"
         show-icon
@@ -173,7 +166,7 @@
         </div>
       </el-alert>
 
-      <el-card v-if="!imported" class="safe-card mt-3" shadow="never">
+      <el-card class="safe-card mt-3" shadow="never">
         <div class="flex justify-end mb-2">
           <el-button link type="primary" :disabled="!run.workloadId" @click="viewLogs">
             View logs
@@ -184,14 +177,7 @@
 
       <el-tabs v-model="tab" class="mt-3">
         <el-tab-pane label="Overview" name="overview">
-          <ImportedTabs
-            v-if="imported && importInfo"
-            tab="overview"
-            :run="run"
-            :info="importInfo"
-            :metrics="metrics"
-          />
-          <div v-else-if="!imported" class="pt-cards">
+          <div class="pt-cards">
             <div v-for="c in cards" :key="c.label" class="pt-stat">
               <div class="text-[12px] text-[var(--safe-muted)]">{{ c.label }}</div>
               <div class="text-[20px] font-600 truncate" :title="c.value">{{ c.value }}</div>
@@ -206,33 +192,31 @@
               </el-button>
             </div>
           </div>
-          <template v-if="!imported">
-            <div class="pt-grid mt-3">
-              <MetricsPanel
-                v-for="p in overviewPanels"
-                :key="p.title"
-                :title="p.title"
-                :series="p.series"
-                :markers="metrics?.markers"
-                :smoothing="smoothing"
-              />
-            </div>
-            <el-empty v-if="!overviewPanels.length" description="No metrics yet" :image-size="60" />
-            <GpuPanel
-              v-if="systemSeries.length"
-              class="mt-3"
-              :series="systemSeries"
-              :layout="runLayout"
-              :workload-id="run.workloadId"
+          <div class="pt-grid mt-3">
+            <MetricsPanel
+              v-for="p in overviewPanels"
+              :key="p.title"
+              :title="p.title"
+              :series="p.series"
+              :markers="metrics?.markers"
+              :smoothing="smoothing"
             />
-            <RunSummary
-              class="mt-3"
-              :run="run"
-              :metrics="metrics"
-              :checkpoints="checkpoints"
-              :now="now.getTime()"
-            />
-          </template>
+          </div>
+          <el-empty v-if="!overviewPanels.length" description="No metrics yet" :image-size="60" />
+          <GpuPanel
+            v-if="systemSeries.length"
+            class="mt-3"
+            :series="systemSeries"
+            :layout="runLayout"
+            :workload-id="run.workloadId"
+          />
+          <RunSummary
+            class="mt-3"
+            :run="run"
+            :metrics="metrics"
+            :checkpoints="checkpoints"
+            :now="now.getTime()"
+          />
         </el-tab-pane>
 
         <el-tab-pane label="Metrics" name="metrics">
@@ -275,7 +259,7 @@
             </div>
           </div>
           <GpuPanel
-            v-if="metrics?.series.length && !imported"
+            v-if="metrics?.series.length"
             class="mb-4"
             :series="systemSeries"
             :layout="runLayout"
@@ -291,25 +275,7 @@
           <el-empty v-else description="No metrics yet" :image-size="60" />
         </el-tab-pane>
 
-        <template v-if="imported">
-          <el-tab-pane
-            v-for="t in IMPORTED_TABS"
-            :key="t.name"
-            :label="t.label"
-            :name="t.name"
-            :lazy="true"
-          >
-            <ImportedTabs
-              v-if="importInfo"
-              :tab="t.name"
-              :run="run"
-              :info="importInfo"
-              :metrics="metrics"
-            />
-          </el-tab-pane>
-        </template>
-
-        <el-tab-pane v-if="!imported" label="Checkpoints" name="checkpoints">
+        <el-tab-pane label="Checkpoints" name="checkpoints">
           <div class="flex items-center justify-between mb-1">
             <div class="text-[13px]">
               Retention {{ retention }} · {{ checkpoints.length }} saved
@@ -384,7 +350,7 @@
           </div>
         </el-tab-pane>
 
-        <el-tab-pane v-if="!imported" label="Outputs" name="outputs">
+        <el-tab-pane label="Outputs" name="outputs">
           <el-table :data="outputs" size="small">
             <el-table-column label="Model">
               <template #default="{ row }">
@@ -431,7 +397,7 @@
           </div>
         </el-tab-pane>
 
-        <el-tab-pane v-if="!imported" label="Evaluation" name="evaluation">
+        <el-tab-pane label="Evaluation" name="evaluation">
           <EvalByCheckpoint :run="run" :metrics="metrics" />
           <el-table :data="run.evaluations" size="small">
             <el-table-column label="Task">
@@ -454,7 +420,7 @@
           </el-table>
         </el-tab-pane>
 
-        <el-tab-pane v-if="hasSamples && !imported" name="samples">
+        <el-tab-pane v-if="hasSamples" name="samples">
           <template #label>
             Samples
             <span v-if="sampleSteps" class="text-[12px] text-[var(--safe-muted)] ml-1">
@@ -470,7 +436,7 @@
           />
         </el-tab-pane>
 
-        <el-tab-pane v-if="!imported" label="Recipe" name="recipe">
+        <el-tab-pane label="Recipe" name="recipe">
           <div class="flex items-center gap-4 mb-1 text-[13px]">
             <span>
               Recipe hash
@@ -640,8 +606,6 @@ import {
   formatDuration,
   getPostTrainingMetrics,
   getPostTrainingRun,
-  getRunImport,
-  isImportedRun,
   metricsCsvUrl,
   panelsOf,
   parseJSON,
@@ -654,12 +618,9 @@ import {
   type MetricSeries,
   type MetricsResp,
   type RunDetail,
-  type RunImport,
   type RunStage,
 } from '@/services/postTraining'
 import StageTimeline from './Components/StageTimeline.vue'
-import ImportedHeader from './Components/ImportedHeader.vue'
-import ImportedTabs from './Components/ImportedTabs.vue'
 import MetricsPanel from './Components/MetricsPanel.vue'
 import AllMetricsTable from './Components/AllMetricsTable.vue'
 import EvalByCheckpoint from './Components/EvalByCheckpoint.vue'
@@ -674,13 +635,6 @@ import { requestFromRun, specOfRun } from './Create/wizard'
 defineOptions({ name: 'PostTrainingDetailPage' })
 
 const TABS = ['overview', 'metrics', 'checkpoints', 'outputs', 'evaluation', 'samples', 'recipe']
-/** The tabs only an imported run has, after Metrics; Overview and Metrics are shared. */
-const IMPORTED_TABS = [
-  { name: 'gates', label: 'Gates' },
-  { name: 'resources', label: 'Resources' },
-  { name: 'checkpoints', label: 'Checkpoints' },
-  { name: 'config', label: 'Config' },
-] as const
 const VAL_LOSS = 'eval/val/loss'
 const DISK_FULL = /out of space|No space left on device/i
 const readOnlyTip = 'Read-only access'
@@ -693,18 +647,11 @@ const now = useNow({ interval: 1000 })
 const visibility = useDocumentVisibility()
 
 const runId = computed(() => String(route.query.runId ?? ''))
-const tab = ref(
-  [...TABS, ...IMPORTED_TABS.map((t) => t.name)].includes(String(route.query.tab))
-    ? String(route.query.tab)
-    : 'overview',
-)
+const tab = ref(TABS.includes(String(route.query.tab)) ? String(route.query.tab) : 'overview')
 watch(tab, (t) => router.replace({ query: { ...route.query, tab: t } }))
 
 const run = ref<RunDetail>()
 const notFound = ref(false)
-/** Whether the run was imported from Spur, which shows its own header and tabs. */
-const imported = computed(() => !!run.value && isImportedRun(run.value))
-const importInfo = ref<RunImport>()
 // Replaced as a whole on every load; its points stay plain arrays for the charts.
 const metrics = shallowRef<MetricsResp>()
 const smoothing = ref(0.6)
@@ -714,9 +661,7 @@ const isActive = computed(() => run.value?.status === 'Pending' || run.value?.st
 const saveTemplate = ref(false)
 const abDrawer = ref(false)
 /** The request the run's recipe snapshot gives a template. */
-const templateRequest = computed(() =>
-  run.value && !imported.value ? requestFromRun(run.value) : undefined,
-)
+const templateRequest = computed(() => (run.value ? requestFromRun(run.value) : undefined))
 
 type Recipe = {
   choices?: { numRollout?: number; saveInterval?: number; schedule?: string }
@@ -740,10 +685,6 @@ const evalOff = computed(() => {
 })
 watch(run, (r) => {
   if (r && tab.value === 'samples' && !hasSamples.value) tab.value = 'overview'
-  const tabs: readonly string[] = imported.value
-    ? ['overview', 'metrics', ...IMPORTED_TABS.map((t) => t.name)]
-    : TABS
-  if (r && !tabs.includes(tab.value)) tab.value = 'overview'
 })
 const recipeText = computed(() => JSON.stringify(run.value?.recipe ?? {}, null, 2))
 const recipeTab = ref('args')
@@ -778,10 +719,6 @@ const fetchRun = async (quiet = false) => {
     // The page may show another run by now: the answer for the run it left is dropped.
     if (runId.value !== id) return
     run.value = loaded
-    if (imported.value && importInfo.value?.importId === undefined) {
-      const info = (await getRunImport(id)) as unknown as RunImport
-      if (runId.value === id) importInfo.value = info
-    }
   } catch (err) {
     if (runId.value !== id) return
     if ((err as { response?: { status?: number } })?.response?.status === 404) notFound.value = true
@@ -1401,7 +1338,6 @@ const confirmDelete = async () => {
 
 watch(runId, () => {
   run.value = undefined
-  importInfo.value = undefined
   metrics.value = undefined
   notFound.value = false
   exportSucceededAt.clear()
