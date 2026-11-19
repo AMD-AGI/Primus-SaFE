@@ -115,6 +115,19 @@ def test_a_ppo_resume_keeps_the_checkpoints_when_a_tracker_gives_no_iteration(tm
     assert kept(tmp_path) == [9, 19] and kept(tmp_path, "critic_checkpoints") == [9, 19]
 
 
+def test_a_resume_does_not_start_over_when_its_tracker_names_no_iteration(tmp_path):
+    """A run without a critic reads its tracker the same way: one that is there and empty fails the run, and the
+    training does not quietly begin again from the base weights."""
+    r, _ = runner(tmp_path, {"trainType": "sft"})
+    r.adapter = PPOAdapter()
+    os.makedirs(tmp_path / "checkpoints" / "iter_0000009")
+    (tmp_path / "checkpoints" / "latest_checkpointed_iteration.txt").write_text("")
+    with pytest.raises(stages.StageError) as e:
+        r.stage_train()
+    assert not e.value.retry
+    assert kept(tmp_path) == [9]
+
+
 def test_a_ppo_resume_keeps_the_checkpoints_when_a_directory_cannot_be_listed(monkeypatch, tmp_path):
     """A checkpoint directory that cannot be listed is not one without checkpoints: the attempt fails, to be tried
     again, and removes nothing."""

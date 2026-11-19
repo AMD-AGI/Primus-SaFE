@@ -771,7 +771,8 @@ class Runner:
             with open(target, "w") as f:
                 f.write(content)
         self.val_losses.update(load_val_losses(self.emitter.metrics_path))
-        resume = self.checkpoint = self.adapter.latest_checkpoint(self.run_dir)
+        # Read strictly: a tracker that is there and names no iteration must not start the training over.
+        resume = self.checkpoint = self.tracker("checkpoints")
         if resume is not None:
             cmd = cmd + ["--load", self.path("checkpoints")]
             self.emitter.stage("train", state="running", detail={"resumeStep": resume})

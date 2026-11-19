@@ -36,7 +36,7 @@ class FakeAdapter:
                 "sys.exit(%d)\n" % (3 if self.fail_train else 0))
         return [sys.executable, "-c", code], {}, {"plugins.yaml": "a: 1"}
 
-    def latest_checkpoint(self, run_dir):
+    def latest_checkpoint(self, run_dir, sub="checkpoints", strict=False):
         return 1 if os.path.exists(os.path.join(run_dir, ".train.done")) else None
 
     def export(self, recipe, run_dir, run_command, iteration=None, out=None):
