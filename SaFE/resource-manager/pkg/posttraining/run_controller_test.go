@@ -10,10 +10,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/golang/mock/gomock"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -362,8 +364,15 @@ func TestSaveSamplesTellsRefusedDataFromAFailedDatabase(t *testing.T) {
 	r, db, _ := newTestReconciler(t, run)
 	rows := []*dbclient.PostTrainingRunSample{{RunID: testRun, Kind: "rollout", Step: 1}}
 	in := &ingestion{sum: &metricSummary{}}
-	db.EXPECT().UpsertPostTrainingRunSamples(gomock.Any(), gomock.Any()).Return(&pq.Error{Code: "22001"})
-	require.NoError(t, r.saveSamples(context.Background(), run, in, rows), "a value too long stays too long")
+	// The samples are written through GORM, whose driver is pgx: its errors are not pq errors.
+	refusals := []error{&pgconn.PgError{Code: "22001"}, fmt.Errorf("upsert: %w", &pgconn.PgError{Code: "23505"}),
+		&pq.Error{Code: "22001"}}
+	for _, refused := range refusals {
+		db.EXPECT().UpsertPostTrainingRunSamples(gomock.Any(), gomock.Any()).Return(refused)
+		require.NoError(t, r.saveSamples(context.Background(), run, in, rows), "a value too long stays too long")
+	}
+	db.EXPECT().UpsertPostTrainingRunSamples(gomock.Any(), gomock.Any()).Return(&pgconn.PgError{Code: "57P01"})
+	require.Error(t, r.saveSamples(context.Background(), run, in, rows), "a database that shut down is asked again")
 	db.EXPECT().UpsertPostTrainingRunSamples(gomock.Any(), gomock.Any()).Return(errors.New("connection refused"))
 	require.Error(t, r.saveSamples(context.Background(), run, in, rows))
 }

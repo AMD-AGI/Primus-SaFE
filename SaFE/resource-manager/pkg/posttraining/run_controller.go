@@ -15,7 +15,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/lib/pq"
 	"gorm.io/gorm"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -789,14 +788,17 @@ func syncStall(u *runUpdate, in *ingestion, running bool) {
 }
 
 // refusedByDatabase tells whether the database took a statement and refused its data, which another try does not
-// change, as opposed to not having been reached.
+// change, as opposed to not having been reached. The error is asked for its SQLSTATE, which the errors of both
+// PostgreSQL drivers in use give: GORM writes through pgx, the other queries through pq.
 func refusedByDatabase(err error) bool {
-	var refused *pq.Error
+	var refused interface{ SQLState() string }
 	if !errors.As(err, &refused) {
 		return false
 	}
-	switch refused.Code.Class() {
-	case "21", "22", "23":
+	switch state := refused.SQLState(); {
+	case len(state) < 2:
+		return false
+	case state[:2] == "21", state[:2] == "22", state[:2] == "23":
 		// Cardinality violation, data exception, integrity constraint violation.
 		return true
 	}
