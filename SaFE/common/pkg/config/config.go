@@ -248,6 +248,12 @@ func GetWorkloadRobustSyncRetentionDay() int {
 	return getInt(workloadRobustSyncRetention, 7)
 }
 
+// IsWorkloadRobustNodeSyncEnable reports whether resource-manager syncs the
+// nodes SaFE manages to Robust, on the workload sync's reconcile interval.
+func IsWorkloadRobustNodeSyncEnable() bool {
+	return getBool(workloadRobustNodeSync, true)
+}
+
 // IsWorkloadLowUtilizationEnable reports whether job-manager stops running
 // workloads under their workspace's low GPU utilization policy.
 func IsWorkloadLowUtilizationEnable() bool {

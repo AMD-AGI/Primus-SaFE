@@ -78,6 +78,9 @@ func SetupControllers(ctx context.Context, mgr manager.Manager) error {
 	if err := SetupWorkloadRobustSyncer(mgr, rc); err != nil {
 		return fmt.Errorf("failed to set up workload robust syncer: %v", err)
 	}
+	if err := SetupNodeRobustSyncer(mgr, rc); err != nil {
+		return fmt.Errorf("failed to set up node robust syncer: %v", err)
+	}
 
 	return nil
 }

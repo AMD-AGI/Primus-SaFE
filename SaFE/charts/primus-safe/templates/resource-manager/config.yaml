@@ -44,6 +44,8 @@ data:
       robust_sync_interval_second: {{ default 60 (default .Values.workload).robust_sync_interval_second }}
       # Days after its end that a workload kept only in the database is still synced to Robust.
       robust_sync_retention_day: {{ default 7 (default .Values.workload).robust_sync_retention_day }}
+      # Whether the nodes SaFE manages are synced to Robust as well.
+      robust_node_sync_enable: {{ ne (toString (default dict .Values.workload).robust_node_sync_enable) "false" }}
     db:
       # Whether to enable database, The database will store some historical data regarding workloads, faults, and ops jobs.
       enable: {{ .Values.db.enable }}
