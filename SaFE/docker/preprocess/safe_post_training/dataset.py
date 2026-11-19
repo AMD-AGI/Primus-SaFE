@@ -50,6 +50,9 @@ def read_rows(path):
             for batch in pq.ParquetFile(path).iter_batches():
                 yield from batch.to_pylist()
         except Exception as e:  # noqa: BLE001 - pyarrow raises its own error types for a malformed file
+            if isinstance(e, OSError) and e.errno is not None:
+                # The storage failed the read, which is no fault of the file; pyarrow's own OSError has no errno.
+                raise
             raise DatasetError("%s is not a readable Parquet file: %s" % (path, e)) from e
         return
     try:

@@ -2,6 +2,7 @@
 # Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
+import errno
 import json
 
 import pytest
@@ -93,3 +94,20 @@ def test_a_broken_parquet_file_is_a_dataset_error(tmp_path):
     (tmp_path / "train.parquet").write_bytes(b"not parquet")
     with pytest.raises(dataset.DatasetError, match="is not a readable Parquet file"):
         dataset.prepare(str(tmp_path / "train.parquet"), str(tmp_path / "t.jsonl"), "sft", {})
+
+
+def test_a_storage_error_reading_parquet_is_not_a_dataset_error(monkeypatch, tmp_path):
+    """A read error of the storage may pass on the next attempt; what pyarrow says of a damaged file does not."""
+    pq = pytest.importorskip("pyarrow.parquet")
+    path = str(tmp_path / "train.parquet")
+    errors = iter([OSError(errno.EIO, "Input/output error"), OSError("Corrupt snappy compressed data")])
+
+    def parquet_file(_):
+        raise next(errors)
+
+    monkeypatch.setattr(pq, "ParquetFile", parquet_file)
+    with pytest.raises(OSError) as e:
+        list(dataset.read_rows(path))
+    assert e.value.errno == errno.EIO
+    with pytest.raises(dataset.DatasetError, match="is not a readable Parquet file"):
+        list(dataset.read_rows(path))
