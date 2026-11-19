@@ -35,6 +35,8 @@ DISK_DIRS = (("checkpoints", "checkpoints"), ("criticCheckpoints", "critic_check
              ("finalModel", "final_model"), ("finalAdapter", "final_adapter"), ("exports", "exports"))
 PROGRESS_KINDS = ("step", "rollout", "eval")
 ENOSPC_TEXT = "No space left on device"
+# With less than FULL_FREE_BYTES free the storage of a run directory counts as full.
+FULL_FREE_BYTES = 1 << 30
 CONVERT_LOCK = ".lock"
 # FP8_DIR holds the FP8 HF weights next to a conversion, made when an FP8 rollout needs them.
 FP8_DIR = "fp8_hf"
@@ -180,6 +182,14 @@ def stop_group(proc, grace):
             os.killpg(proc.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
+
+
+def storage_full(run_dir):
+    """Tell whether the storage of the run directory has less than FULL_FREE_BYTES free."""
+    try:
+        return shutil.disk_usage(run_dir).free < FULL_FREE_BYTES
+    except OSError:
+        return False
 
 
 def space_reason(run_dir):
@@ -873,7 +883,9 @@ class Runner:
         try:
             for line in proc.stdout:
                 self.emitter.forward(line)
-                if ENOSPC_TEXT in line and self.run_dir in line:
+                # A write to an open file fails without naming it, so a line that does not name the run directory
+                # counts once the storage of the run directory is full.
+                if ENOSPC_TEXT in line and (self.run_dir in line or storage_full(self.run_dir)):
                     self.enospc = True
                 if REWARD_REJECTED_TEXT in line:
                     self.reward_rejected = True

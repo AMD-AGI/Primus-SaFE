@@ -172,6 +172,16 @@ def test_only_running_out_of_space_in_the_run_directory_is_final(monkeypatch, tm
     assert ms[-1][1]["reason"].startswith("shared storage is out of space")
 
 
+def test_running_out_of_space_without_a_path_is_final_on_a_full_storage(monkeypatch, tmp_path):
+    """A failed write to an open file names no path, so the free space of the run directory decides."""
+    for name, full in (("room", False), ("full", True)):
+        (tmp_path / name).mkdir()
+        monkeypatch.setattr(stages, "storage_full", lambda run_dir, full=full: full)
+        code, _, ms = run(monkeypatch, recipe_for(tmp_path / name),
+                          NoSpaceAdapter("OSError: [Errno 28] No space left on device"))
+        assert code == 1 and ms[-1][1]["retry"] is not full, name
+
+
 class ExportFailsAdapter(FakeAdapter):
     """Fails the export with error."""
 
