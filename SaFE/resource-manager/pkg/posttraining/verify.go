@@ -128,6 +128,11 @@ func (r *RunReconciler) verify(ctx context.Context, u *runUpdate, endTime time.T
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
+	if !job.GetDeletionTimestamp().IsZero() {
+		// A job that is being deleted is one that was dropped, and is set failed as it goes: its answer is not
+		// taken, and the directory is checked anew once the job is gone.
+		return ctrlruntime.Result{RequeueAfter: pendingRequeue}, nil
+	}
 	if job.Status.Phase != v1.OpsJobSucceeded && job.Status.Phase != v1.OpsJobFailed {
 		if u.now.Sub(job.CreationTimestamp.Time) > verifyTimeout {
 			u.fail("export", "Unable to verify the output of the run", endTime)

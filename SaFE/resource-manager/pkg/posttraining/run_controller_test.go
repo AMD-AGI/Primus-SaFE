@@ -388,6 +388,25 @@ func TestACheckMadeWhileTheWorkloadWasTakenForLostIsDropped(t *testing.T) {
 	}
 }
 
+// A check that was dropped stays for a while, held by its finalizer and set failed as it is deleted: its answer
+// is not taken, and the run waits for the check to be gone.
+func TestACheckThatIsBeingDeletedDoesNotDecide(t *testing.T) {
+	run := testRunRow("Running", "train")
+	run.OutputPath = testRunDir
+	w := endedWorkload(v1.WorkloadSucceeded)
+	w.Status.EndTime = &metav1.Time{Time: time.Now().Add(-2 * resultWait)}
+	going := newRunDirJob(run, verifyJobName(testRun))
+	going.Finalizers = []string{v1.OpsJobFinalizer}
+	going.DeletionTimestamp = &metav1.Time{Time: time.Now()}
+	going.Status.Phase = v1.OpsJobFailed
+	r, db, updates := newTestReconciler(t, run, w, going)
+	db.EXPECT().ListWorkloadPods(gomock.Any(), testRun, "uid1").Return(submitterPods("log\n"), nil).AnyTimes()
+	require.Equal(t, pendingRequeue, reconcileRun(t, r).RequeueAfter)
+	for _, u := range *updates {
+		require.NotEqual(t, "Failed", u["status"])
+	}
+}
+
 // A workload that the cluster stored after its run ended without one is removed: nothing follows a run that ended,
 // and the workload would train unseen.
 func TestAWorkloadStoredAfterItsRunEndedIsRemoved(t *testing.T) {
