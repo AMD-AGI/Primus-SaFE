@@ -303,6 +303,7 @@ type PostTrainingRunInterface interface {
 	RequestPostTrainingRunCleanup(ctx context.Context, runID, request string) (bool, error)
 	SetPostTrainingRunDeleted(ctx context.Context, runID string) error
 	CountPostTrainingRunsByRecipe(ctx context.Context, hashes []string) (map[string]RecipeRecord, error)
+	ListPostTrainingRecipeRecords(ctx context.Context, workspace string, hashes []string) (map[string]RecipeRecord, error)
 }
 
 // PostTrainingRunSampleInterface defines database operations for the RL samples of Post Training runs.

@@ -246,6 +246,34 @@ func (c *Client) CountPostTrainingRunsByRecipe(ctx context.Context, hashes []str
 	return out, nil
 }
 
+// ListPostTrainingRecipeRecords returns, for each of the hashes with a successful non-deleted run, how many such
+// runs the platform has and the one of workspace that ended last; LatestRun is empty when workspace has none, so
+// a run of another workspace is never named.
+func (c *Client) ListPostTrainingRecipeRecords(ctx context.Context, workspace string,
+	hashes []string) (map[string]RecipeRecord, error) {
+	out := map[string]RecipeRecord{}
+	if len(hashes) == 0 {
+		return out, nil
+	}
+	db, err := c.GetGormDB()
+	if err != nil {
+		return nil, err
+	}
+	var rows []RecipeRecord
+	if err := db.WithContext(ctx).Model(&PostTrainingRun{}).
+		Select("recipe_hash, COUNT(*) AS succeeded, COALESCE((ARRAY_AGG(run_id ORDER BY end_time DESC NULLS LAST) "+
+			"FILTER (WHERE workspace = ?))[1], '') AS latest_run", workspace).
+		Where("recipe_hash IN ? AND status = ? AND source = ? AND is_deleted = ?", hashes, postTrainingRunSucceeded,
+			PostTrainingSourceSafe, false).
+		Group("recipe_hash").Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		out[r.RecipeHash] = r
+	}
+	return out, nil
+}
+
 // UpdatePostTrainingRun sets the given columns on a non-deleted run and refreshes updated_at. It returns
 // gorm.ErrRecordNotFound when no such run exists.
 func (c *Client) UpdatePostTrainingRun(ctx context.Context, runID string, fields map[string]interface{}) error {

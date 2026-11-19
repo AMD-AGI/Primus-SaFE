@@ -185,3 +185,23 @@ func TestCountPostTrainingRunsByRecipe(t *testing.T) {
 	require.NoError(t, err, "no hashes need no query")
 	require.Empty(t, empty)
 }
+
+// A recipe's successful runs are counted on the platform, and the latest one is taken from the workspace only.
+func TestListPostTrainingRecipeRecords(t *testing.T) {
+	c, mock := newMockClient(t)
+	mock.ExpectQuery(`SELECT recipe_hash, COUNT\(\*\) AS succeeded, COALESCE\(\(ARRAY_AGG\(run_id ORDER BY `+
+		`end_time DESC NULLS LAST\) FILTER \(WHERE workspace = \$1\)\)\[1\], ''\) AS latest_run `+
+		`FROM "post_training_run" WHERE .*recipe_hash IN .*GROUP BY "recipe_hash"`).
+		WithArgs("ws1", "h1", "h2", postTrainingRunSucceeded, PostTrainingSourceSafe, false).
+		WillReturnRows(sqlmock.NewRows([]string{"recipe_hash", "succeeded", "latest_run"}).
+			AddRow("h1", 2, "pt-b").AddRow("h2", 5, ""))
+	got, err := c.ListPostTrainingRecipeRecords(context.Background(), "ws1", []string{"h1", "h2"})
+	require.NoError(t, err)
+	require.Equal(t, map[string]RecipeRecord{"h1": {RecipeHash: "h1", Succeeded: 2, LatestRun: "pt-b"},
+		"h2": {RecipeHash: "h2", Succeeded: 5}}, got, "h2 succeeded in other workspaces only")
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	empty, err := (&Client{}).ListPostTrainingRecipeRecords(context.Background(), "ws1", nil)
+	require.NoError(t, err, "no hashes need no query")
+	require.Empty(t, empty)
+}

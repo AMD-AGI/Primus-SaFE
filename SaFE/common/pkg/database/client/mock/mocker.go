@@ -1760,6 +1760,21 @@ func (mr *MockInterfaceMockRecorder) ListPostTrainingExperiments(ctx, filter int
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPostTrainingExperiments", reflect.TypeOf((*MockInterface)(nil).ListPostTrainingExperiments), ctx, filter)
 }
 
+// ListPostTrainingRecipeRecords mocks base method.
+func (m *MockInterface) ListPostTrainingRecipeRecords(ctx context.Context, workspace string, hashes []string) (map[string]client.RecipeRecord, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListPostTrainingRecipeRecords", ctx, workspace, hashes)
+	ret0, _ := ret[0].(map[string]client.RecipeRecord)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListPostTrainingRecipeRecords indicates an expected call of ListPostTrainingRecipeRecords.
+func (mr *MockInterfaceMockRecorder) ListPostTrainingRecipeRecords(ctx, workspace, hashes interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPostTrainingRecipeRecords", reflect.TypeOf((*MockInterface)(nil).ListPostTrainingRecipeRecords), ctx, workspace, hashes)
+}
+
 // ListPostTrainingRunMetricNames mocks base method.
 func (m *MockInterface) ListPostTrainingRunMetricNames(ctx context.Context, runID string) ([]string, error) {
 	m.ctrl.T.Helper()
@@ -5726,6 +5741,21 @@ func (m *MockPostTrainingRunInterface) GetPostTrainingRun(ctx context.Context, r
 func (mr *MockPostTrainingRunInterfaceMockRecorder) GetPostTrainingRun(ctx, runID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPostTrainingRun", reflect.TypeOf((*MockPostTrainingRunInterface)(nil).GetPostTrainingRun), ctx, runID)
+}
+
+// ListPostTrainingRecipeRecords mocks base method.
+func (m *MockPostTrainingRunInterface) ListPostTrainingRecipeRecords(ctx context.Context, workspace string, hashes []string) (map[string]client.RecipeRecord, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListPostTrainingRecipeRecords", ctx, workspace, hashes)
+	ret0, _ := ret[0].(map[string]client.RecipeRecord)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListPostTrainingRecipeRecords indicates an expected call of ListPostTrainingRecipeRecords.
+func (mr *MockPostTrainingRunInterfaceMockRecorder) ListPostTrainingRecipeRecords(ctx, workspace, hashes interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPostTrainingRecipeRecords", reflect.TypeOf((*MockPostTrainingRunInterface)(nil).ListPostTrainingRecipeRecords), ctx, workspace, hashes)
 }
 
 // ListPostTrainingRuns mocks base method.
