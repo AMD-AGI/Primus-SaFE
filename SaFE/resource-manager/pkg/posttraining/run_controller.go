@@ -675,7 +675,21 @@ func (r *RunReconciler) save(ctx context.Context, u *runUpdate) error {
 		return ignoreRecordNotFound(err)
 	}
 	r.notifyChanges(ctx, u.run, fields)
+	r.followEnd(u.run, fields)
 	return nil
+}
+
+// followEnd queues a run that fields ended once more. What follows the end, such as the backfill of its metrics, is
+// done by the next reconcile, which no event of the run's objects would start.
+func (r *RunReconciler) followEnd(run *dbclient.PostTrainingRun, fields map[string]interface{}) {
+	switch fields["status"] {
+	case string(v1.WorkloadFailed), string(v1.WorkloadStopped):
+		r.requeue(run.RunID)
+		return
+	}
+	if fields["stage"] == "done" {
+		r.requeue(run.RunID)
+	}
 }
 
 // ignoreRecordNotFound drops the error of a run deleted in the meantime.
@@ -740,6 +754,7 @@ func (r *RunReconciler) readLog(ctx context.Context, w *v1.Workload, u *runUpdat
 	}
 	countRead(in, rejected, skipped, run.MetricGap, gap)
 	r.notifyChanges(ctx, run, fields)
+	r.followEnd(run, fields)
 	if in.conversion != nil {
 		r.registerConversion(ctx, run, in.conversion)
 	}

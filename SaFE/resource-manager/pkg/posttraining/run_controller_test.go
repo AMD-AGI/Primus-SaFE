@@ -424,6 +424,27 @@ func TestStoppedRunSaysWhoStoppedIt(t *testing.T) {
 	require.Equal(t, "Stopped by alice", last["message"], "the detail page says who stopped the run")
 }
 
+// The reconcile that ends a run queues the run once more: what follows the end, such as the backfill of its
+// metrics, has no event of the run's objects to start it.
+func TestTheReconcileThatEndsARunQueuesItAgain(t *testing.T) {
+	r, db, updates := newTestReconciler(t, testRunRow("Running", "train"), endedWorkload(v1.WorkloadStopped))
+	r.recovered = make(chan event.GenericEvent, 2)
+	db.EXPECT().ListWorkloadPods(gomock.Any(), testRun, "uid1").Return(submitterPods("log\n"), nil).AnyTimes()
+	reconcileRun(t, r)
+	require.Equal(t, "Stopped", (*updates)[len(*updates)-1]["status"])
+	require.Len(t, r.recovered, 1)
+	require.Equal(t, testRun, (<-r.recovered).Object.GetName())
+
+	// A run that goes on has its workload's events.
+	w := endedWorkload(v1.WorkloadRunning)
+	w.Status.EndTime = nil
+	r, db, _ = newTestReconciler(t, testRunRow("Pending", "queued"), w)
+	r.recovered = make(chan event.GenericEvent, 2)
+	db.EXPECT().ListWorkloadPods(gomock.Any(), testRun, "uid1").Return(submitterPods("log\n"), nil).AnyTimes()
+	reconcileRun(t, r)
+	require.Empty(t, r.recovered)
+}
+
 // Imported runs get no backfill, verification or disk recount.
 func TestImportedRunsAreLeftAlone(t *testing.T) {
 	run := testRunRow("Stopped", "done")
