@@ -62,23 +62,11 @@ type listResponse struct {
 }
 
 // listItem is a run of the list with how many runs of its recipe hash succeeded on the platform and the latest of
-// them in the list's workspace, and for an imported run what the list shows of its import.
+// them in the list's workspace.
 type listItem struct {
 	*dbclient.PostTrainingRun
-	VerifiedRuns      int         `json:"verifiedRuns,omitempty"`
-	LatestVerifiedRun string      `json:"latestVerifiedRun,omitempty"`
-	Import            *listImport `json:"import,omitempty"`
-}
-
-// listImport is where and when an imported run ran and was imported, its failed gate and its full --load path.
-type listImport struct {
-	SlurmJobID    string      `json:"slurmJobId,omitempty"`
-	SourcePath    string      `json:"sourcePath"`
-	Via           string      `json:"via"`
-	Verdict       string      `json:"verdict,omitempty"`
-	ImportedAt    *time.Time  `json:"importedAt,omitempty"`
-	FailedGate    *importGate `json:"failedGate,omitempty"`
-	BaseModelPath string      `json:"baseModelPath,omitempty"`
+	VerifiedRuns      int    `json:"verifiedRuns,omitempty"`
+	LatestVerifiedRun string `json:"latestVerifiedRun,omitempty"`
 }
 
 // runDetail is a run with its parsed recipe, stage history, output model and evaluations.
@@ -143,11 +131,9 @@ func (h *Handler) ListRuns(c *gin.Context) {
 		klog.ErrorS(err, "failed to count the successful runs of the listed recipes")
 	}
 	items := make([]listItem, 0, len(runs))
-	imports := h.listImports(c.Request.Context(), runs)
 	for _, r := range runs {
 		rec := records[r.RecipeHash]
-		items = append(items, listItem{PostTrainingRun: r, VerifiedRuns: rec.Succeeded, LatestVerifiedRun: rec.LatestRun,
-			Import: imports[r.RunID]})
+		items = append(items, listItem{PostTrainingRun: r, VerifiedRuns: rec.Succeeded, LatestVerifiedRun: rec.LatestRun})
 	}
 	c.JSON(http.StatusOK, listResponse{Total: total, Items: items})
 }
@@ -158,44 +144,6 @@ func pageLimit(limit, def int) int {
 		return def
 	}
 	return min(limit, maxListLimit)
-}
-
-// listImports reads, with one query, what the list shows of the imports of the imported runs among runs, keyed by
-// run id; a SaFE run, or one whose record cannot be read, has none.
-func (h *Handler) listImports(ctx context.Context, runs []*dbclient.PostTrainingRun) map[string]*listImport {
-	var ids []string
-	for _, r := range runs {
-		if imported(r) {
-			ids = append(ids, r.RunID)
-		}
-	}
-	out := map[string]*listImport{}
-	if len(ids) == 0 {
-		return out
-	}
-	records, err := h.db.ListPostTrainingImportsOfRuns(ctx, ids)
-	if err != nil {
-		klog.ErrorS(err, "failed to read the imports of the listed runs")
-		return out
-	}
-	for id, imp := range records {
-		out[id] = listImportOf(imp)
-	}
-	return out
-}
-
-// listImportOf returns what the list shows of an import.
-func listImportOf(imp *dbclient.PostTrainingImport) *listImport {
-	out := &listImport{SlurmJobID: imp.SlurmJobID, SourcePath: imp.SourcePath, Via: imp.Via, Verdict: imp.Verdict}
-	if imp.CreatedAt.Valid {
-		out.ImportedAt = &imp.CreatedAt.Time
-	}
-	s := &importSummary{}
-	if json.Unmarshal([]byte(imp.Summary), s) == nil {
-		out.FailedGate = previewOf(s).FailedGate
-		_ = json.Unmarshal(s.Arguments.Kept["load"], &out.BaseModelPath)
-	}
-	return out
 }
 
 // getRun loads a run and checks the caller may act on it with verb.
@@ -229,62 +177,6 @@ func (h *Handler) getWritableRun(c *gin.Context, verb v1.RoleVerb) (*dbclient.Po
 // imported tells whether a run was imported rather than trained on the platform.
 func imported(run *dbclient.PostTrainingRun) bool {
 	return run.Source != "" && run.Source != dbclient.PostTrainingSourceSafe
-}
-
-// runImportResponse is GET /post-training/runs/:id/import: the parsed data of an imported run that its row and
-// metric points do not hold, as the import recorded it.
-type runImportResponse struct {
-	ImportID      string          `json:"importId"`
-	SourcePath    string          `json:"sourcePath"`
-	Format        string          `json:"format"`
-	SlurmJobID    string          `json:"slurmJobId,omitempty"`
-	Via           string          `json:"via"`
-	Verdict       string          `json:"verdict,omitempty"`
-	ParserVersion string          `json:"parserVersion,omitempty"`
-	ImportedAt    *time.Time      `json:"importedAt,omitempty"`
-	ImportedBy    string          `json:"importedBy,omitempty"`
-	Summary       json.RawMessage `json:"summary"`
-	Resources     json.RawMessage `json:"resources"`
-	Warnings      json.RawMessage `json:"warnings"`
-}
-
-// GetRunImport returns the gates, markers, check output, resource samples, checkpoints and kept arguments of an
-// imported run.
-func (h *Handler) GetRunImport(c *gin.Context) {
-	if _, _, ok := h.requireEnabled(c); !ok {
-		return
-	}
-	run, err := h.getRun(c, v1.GetVerb)
-	if err != nil {
-		apiutils.AbortWithApiError(c, err)
-		return
-	}
-	if !imported(run) {
-		apiutils.AbortWithApiError(c, commonerrors.NewNotFoundWithMessage(fmt.Sprintf("run %s is not imported",
-			run.RunID)))
-		return
-	}
-	imp, err := h.db.GetPostTrainingImportByRun(c.Request.Context(), run.RunID)
-	if err != nil {
-		apiutils.AbortWithApiError(c, notFoundOr(err, "the import of run "+run.RunID))
-		return
-	}
-	resp := runImportResponse{ImportID: imp.ImportID, SourcePath: imp.SourcePath, Format: imp.Format,
-		SlurmJobID: imp.SlurmJobID, Via: imp.Via, Verdict: imp.Verdict, ParserVersion: imp.ParserVersion,
-		ImportedBy: imp.UserName, Summary: rawOrNull(imp.Summary), Resources: rawOrNull(imp.Resources),
-		Warnings: rawOrNull(imp.Warnings)}
-	if imp.CreatedAt.Valid {
-		resp.ImportedAt = &imp.CreatedAt.Time
-	}
-	c.JSON(http.StatusOK, resp)
-}
-
-// rawOrNull passes stored JSON through, or null when the column is empty.
-func rawOrNull(s string) json.RawMessage {
-	if s == "" {
-		return json.RawMessage("null")
-	}
-	return json.RawMessage(s)
 }
 
 // GetRun returns a run with its recipe snapshot, stage history, output model and evaluations.
