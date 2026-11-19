@@ -9,7 +9,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"strings"
 	"testing"
 	"time"
 
@@ -19,24 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	commonsearch "github.com/AMD-AIG-AIMA/SAFE/common/pkg/opensearch"
 )
-
-// A metric line found by the log search fills the gap it belongs to.
-func TestSearchHitsFillAGap(t *testing.T) {
-	in := newTestIngestion(100)
-	feed(in, stageLine("a1", "train", "running", ""), metricLine("a1", 1, 1, `{"train/loss":1}`),
-		metricLine("a1", 3, 3, `{"train/loss":0.8}`))
-	require.Len(t, in.cur.Attempts["a1"].Gaps, 1)
-
-	resp := &commonsearch.OpenSearchLogResponse{}
-	resp.Hits.Hits = make([]commonsearch.OpenSearchLogDoc, 2)
-	resp.Hits.Hits[0].Source.Log = metricLine("a1", 2, 2, `{"train/loss":0.9}`)
-	resp.Hits.Hits[1].Source.Message = strings.Replace(metricLine("a1", 2, 2, `{}`), testRun, "pt-other", 1)
-	ingestSearchHits(resp, in)
-	require.Empty(t, in.cur.Attempts["a1"].Gaps, "the searched line fills the gap")
-	require.Equal(t, []string{"train/loss@1=1", "train/loss@2=0.9", "train/loss@3=0.8"}, pointKeys(in.finish()))
-}
 
 // A finished run with gaps or a failed run's directory still needs the end-of-run backfill.
 func TestBackfillPending(t *testing.T) {

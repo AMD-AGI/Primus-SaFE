@@ -23,26 +23,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/cicdlog"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
-	commonsearch "github.com/AMD-AIG-AIMA/SAFE/common/pkg/opensearch"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 )
 
 const (
-	// backfillInterval spaces the log searches for a gap; logs reach the search with a delay, so a gap that
-	// is not found yet is searched again.
-	backfillInterval = 5 * time.Minute
-	backfillMargin   = time.Minute
-	backfillLimit    = 10000
-	// backfillSpan caps a search, which returns the earliest backfillLimit lines; a gap that backfillSearches
-	// searches did not fill is left to the end-of-run backfill.
-	backfillSpan     = time.Hour
-	backfillSearches = 3
-
 	// backfilledEvent is the stage_history event of the end-of-run backfill, which runs once.
 	backfilledEvent    = "backfilled"
 	backfillEntrypoint = "python3 /shared-data/safe_post_training/backfill.py"
@@ -60,53 +48,6 @@ type backfillSpec struct {
 	Attempt string                `json:"attempt"`
 	Stage   string                `json:"stage"`
 	Ranges  map[string][][2]int64 `json:"ranges"`
-}
-
-// backfillFromLogSearch reads the [METRIC] lines of the submitter around the run's gaps from the cluster's log
-// search, which keeps the whole log however often the kubelet rotates it. It does nothing without a log
-// search, without gaps, or within backfillInterval of the previous search.
-func (r *RunReconciler) backfillFromLogSearch(ctx context.Context, w *v1.Workload, cur *logCursor, in *ingestion) {
-	now := in.u.now
-	since, until, gaps := cur.gapWindow(now)
-	if len(gaps) == 0 || cur.Pod == "" || now.Sub(time.Unix(cur.Backfilled, 0)) < backfillInterval ||
-		!commonconfig.IsOpenSearchEnable() {
-		return
-	}
-	search := commonsearch.GetOpensearchClient(v1.GetClusterId(w))
-	if search == nil {
-		return
-	}
-	cur.Backfilled = now.Unix()
-	query := cicdlog.Query{
-		ListLogInput: cicdlog.ListLogInput{Keywords: []string{markerMetric}, PodNames: cur.Pod, Limit: backfillLimit, Order: "asc"},
-		SinceTime:    since.Add(-backfillMargin),
-		UntilTime:    until.Add(backfillMargin),
-	}
-	raw, err := search.SearchByTimeRangeContext(ctx, query.SinceTime, query.UntilTime, "", "/_search",
-		cicdlog.BuildSearchBody(&query, w.Name))
-	if err != nil {
-		klog.V(2).InfoS("the log search for a metric gap failed", "run", in.u.run.RunID, "err", err)
-		return
-	}
-	var resp commonsearch.OpenSearchLogResponse
-	if err = json.Unmarshal(raw, &resp); err != nil {
-		klog.V(2).InfoS("the log search for a metric gap returned an unreadable answer", "run", in.u.run.RunID)
-		return
-	}
-	// Only a search that was answered counts toward backfillSearches; one that failed found nothing out.
-	for _, g := range gaps {
-		g.Searches++
-	}
-	ingestSearchHits(&resp, in)
-}
-
-// ingestSearchHits applies the [METRIC] markers found by a log search.
-func ingestSearchHits(resp *commonsearch.OpenSearchLogResponse, in *ingestion) {
-	for i := range resp.Hits.Hits {
-		if m, ok := parseMarker(resp.Hits.Hits[i].EffectiveMessage(), in.u.run.RunID); ok && m.Kind == markerMetric {
-			in.add(m)
-		}
-	}
 }
 
 // backfillWorkloadName names the end-of-run backfill workload of a run.

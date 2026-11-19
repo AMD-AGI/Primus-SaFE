@@ -129,57 +129,22 @@ func TestScanLogSkipsLongLines(t *testing.T) {
 	require.Equal(t, int64(2), cur.Skipped, "an unfinished line that is already too long is skipped too")
 }
 
-// Skipped seqs become gaps with the times around them until they are read.
+// Skipped seqs become gaps until they are read.
 func TestAttemptCursorGaps(t *testing.T) {
 	now := time.Unix(1000, 0)
 	a := &attemptCursor{}
-	require.True(t, a.accept(1, 10, now))
-	require.True(t, a.accept(5, 50, now))
-	require.False(t, a.accept(5, 50, now), "a replayed seq is ignored")
-	require.True(t, a.accept(3, 30, now))
-	require.Equal(t, []seqRange{{From: 2, To: 2, Since: 1000, TimeFrom: 10, TimeTo: 30},
-		{From: 4, To: 4, Since: 1000, TimeFrom: 30, TimeTo: 50}}, a.Gaps, "each gap keeps the times around it")
+	require.True(t, a.accept(1, now))
+	require.True(t, a.accept(5, now))
+	require.False(t, a.accept(5, now), "a replayed seq is ignored")
+	require.True(t, a.accept(3, now))
+	require.Equal(t, []seqRange{{From: 2, To: 2, Since: 1000}, {From: 4, To: 4, Since: 1000}}, a.Gaps)
 	cur := &logCursor{Attempts: map[string]*attemptCursor{"a1": a}}
 	require.False(t, cur.hasGap(now.Add(gapGrace)))
 	require.True(t, cur.hasGap(now.Add(gapGrace+time.Second)))
-	from, to, gaps := cur.gapWindow(now.Add(gapGrace + time.Second))
-	require.Len(t, gaps, 2)
-	require.Equal(t, []int64{10, 50}, []int64{from.Unix(), to.Unix()})
-	a.accept(2, 20, now)
-	a.accept(4, 40, now)
+	a.accept(2, now)
+	a.accept(4, now)
 	require.Empty(t, a.Gaps)
 	require.False(t, cur.hasGap(now.Add(time.Hour)))
-}
-
-// The log search spans an hour of the current pod's gaps and leaves unfilled ones to the backfill.
-func TestTheLogSearchWindowIsBounded(t *testing.T) {
-	now := time.Unix(100000, 0)
-	cur := &logCursor{Pod: "p1", Attempts: map[string]*attemptCursor{}}
-	cur.register("a1")
-	a := cur.Attempts["a1"]
-	require.True(t, a.accept(5, 50000, now), "the first seqs of the attempt are missing")
-	later := now.Add(gapGrace + time.Second)
-	from, to, gaps := cur.gapWindow(later)
-	require.Len(t, gaps, 1)
-	require.Equal(t, []int64{50000 - 3600, 50000}, []int64{from.Unix(), to.Unix()},
-		"a gap before the attempt's first point is searched an hour back")
-
-	a.accept(6, 60000, now)
-	a.accept(9, 70000, now)
-	_, _, gaps = cur.gapWindow(later)
-	require.Len(t, gaps, 1, "a gap more than an hour after the first waits for a later search")
-	gaps[0].Searches = backfillSearches
-	from, to, gaps = cur.gapWindow(later)
-	require.Len(t, gaps, 1, "a gap the searches did not fill is left to the end-of-run backfill")
-	require.Equal(t, []int64{60000, 63600}, []int64{from.Unix(), to.Unix()}, "a search spans an hour at most")
-	gaps[0].Searches = 1
-	a.accept(8, 65000, now)
-	require.Equal(t, 1, a.Gaps[1].Searches, "what is left of a gap keeps its searches")
-
-	cur.setPod("p2")
-	_, _, gaps = cur.gapWindow(later)
-	require.Empty(t, gaps, "the gaps of an attempt read from another pod are not in this pod's log")
-	require.True(t, cur.hasGap(later), "they are still gaps for the end-of-run backfill")
 }
 
 // A resumed attempt replaces the points after its resume step.
