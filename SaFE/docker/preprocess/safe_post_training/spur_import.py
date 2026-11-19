@@ -14,6 +14,7 @@ which other users of a shared login node can read.
 import argparse
 import base64
 import datetime
+import errno
 import getpass
 import gzip
 import json
@@ -121,6 +122,21 @@ def inside(root, path):
     return real == root or real.startswith(root + "/")
 
 
+def open_inside(root, path, **kwargs):
+    """Open path for reading when the file that is opened is in root, and raise OSError otherwise. The opened file
+    is compared with what the path resolves to, so a path swapped for a link out of the run directory between a
+    check and the open is not read."""
+    fd = os.open(path, os.O_RDONLY)
+    try:
+        real = os.path.realpath(path)
+        if not inside(root, real) or not os.path.samestat(os.fstat(fd), os.stat(real)):
+            raise OSError(errno.ELOOP, "the file links out of the run directory", path)
+    except BaseException:
+        os.close(fd)
+        raise
+    return os.fdopen(fd, **kwargs)
+
+
 def links_out(root):
     """List the entries of the run directory and of its known subdirectories that link out of it."""
     out = set()
@@ -143,7 +159,7 @@ def read_rows(root, path):
     if not inside(root, path):
         return rows
     try:
-        with open(path, errors="replace") as f:
+        with open_inside(root, path, errors="replace") as f:
             for line in f:
                 parts = line.rstrip("\n").split("\t")
                 if len(parts) == 4:
@@ -184,7 +200,7 @@ def read_nodes(root):
         if not (name.startswith("node-") and name.endswith(".log")) or not inside(root, os.path.join(root, name)):
             continue
         node = {"host": name[len("node-"):-len(".log")]}
-        with open(os.path.join(root, name), errors="replace") as f:
+        with open_inside(root, os.path.join(root, name), errors="replace") as f:
             for line in f:
                 m = _NODE_HEAD.match(line)
                 if m and "rank" not in node:
@@ -226,7 +242,7 @@ def read_mon(root):
         if not name.endswith(".tsv") or not inside(root, os.path.join(path, name)):
             continue
         samples, mem_peak, vram_peak = [], 0, 0
-        with open(os.path.join(path, name), errors="replace") as f:
+        with open_inside(root, os.path.join(path, name), errors="replace") as f:
             for line in f:
                 parts = line.rstrip("\n").split("\t")
                 if len(parts) < 5:
@@ -268,7 +284,7 @@ def read_checkpoints(root, steps_per_rollout):
         latest = os.path.join(ckpt, "latest_checkpointed_iteration.txt")
         try:
             if inside(root, latest):
-                with open(latest) as f:
+                with open_inside(root, latest) as f:
                     out["latest"] = int(f.read().strip())
         except (OSError, ValueError):
             pass
@@ -302,13 +318,13 @@ def parse_value(text):
     return text
 
 
-def read_main_log(path, adapter):
+def read_main_log(root, path, adapter):
     """Read the main log line by line: the arguments section, the metric points with their wall times, and the
     check output printed without a Ray prefix at its end. NaN and infinite values are counted and dropped."""
     args, in_args, check = {}, False, []
     series = {}
     errors = lines = dropped = 0
-    with open(path, errors="replace") as f:
+    with open_inside(root, path, errors="replace") as f:
         for line in f:
             if "--- arguments ---" in line:
                 in_args = True
@@ -477,7 +493,7 @@ def parse_slime_rocm(root):
         warnings.append("The main log %s links out of the run directory, so it is not read." % os.path.basename(main))
         main = ""
     if main and os.path.exists(main):
-        args, series, check, parse_errors, metric_lines, dropped = read_main_log(main, adapter)
+        args, series, check, parse_errors, metric_lines, dropped = read_main_log(root, main, adapter)
     elif main or not train_gate:
         warnings.append("No main log of a training gate on the head node %s." % head)
     if parse_errors:

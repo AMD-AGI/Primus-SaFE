@@ -258,6 +258,26 @@ def test_a_scan_reads_only_under_the_mount_root(monkeypatch, tmp_path, capsys):
     capsys.readouterr()
 
 
+def test_a_file_swapped_for_a_link_between_the_check_and_the_open_is_not_read(monkeypatch, tmp_path):
+    """The file that was opened decides, not what its path resolves to a moment later."""
+    root = os.path.realpath(str(tmp_path / "run"))
+    write(os.path.join(root, "kept.log"), "kept")
+    write(str(tmp_path / "secret"), "secret")
+    os.symlink(os.path.join(root, "kept.log"), os.path.join(root, "inner.log"))
+    os.symlink(str(tmp_path / "secret"), os.path.join(root, "swapped.log"))
+    with spur_import.open_inside(root, os.path.join(root, "inner.log")) as f:
+        assert f.read() == "kept", "a link that stays in the run directory is read"
+    with pytest.raises(OSError):
+        spur_import.open_inside(root, os.path.join(root, "swapped.log"))
+    real = os.path.realpath
+    with monkeypatch.context() as m:
+        # The path resolves into the run directory again, as when the link was swapped back after the open.
+        m.setattr(spur_import.os.path, "realpath",
+                  lambda p: os.path.join(root, "kept.log") if p.endswith("swapped.log") else real(p))
+        with pytest.raises(OSError):
+            spur_import.open_inside(root, os.path.join(root, "swapped.log"))
+
+
 def test_links_out_of_the_run_directory_are_not_read(tmp_path):
     other = tmp_path / "other"
     write(str(other / "secret.log"), "--- arguments ---\n  load ...... /models/x\n--- end of arguments ---\n"
