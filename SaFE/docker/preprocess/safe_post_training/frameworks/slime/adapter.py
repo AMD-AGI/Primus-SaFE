@@ -179,13 +179,18 @@ class Adapter:
             files[critic["megatronConfig"]] = critic_config(critic, resume)
         return cmd, {"PYTHONPATH": python_path(root, self.env)}, files
 
-    def latest_checkpoint(self, run_dir, sub="checkpoints"):
-        """Return the iteration of the latest checkpoint saved in sub, or None when there is none."""
+    def latest_checkpoint(self, run_dir, sub="checkpoints", strict=False):
+        """Return the iteration of the latest checkpoint saved in sub, or None when there is none. With strict only a
+        missing tracker means none: one that cannot be read raises OSError, an empty or damaged one ValueError."""
         path = os.path.join(run_dir, sub, "latest_checkpointed_iteration.txt")
         try:
             with open(path) as f:
                 return int(f.read().strip())
+        except FileNotFoundError:
+            return None
         except (OSError, ValueError):
+            if strict:
+                raise
             return None
 
     def set_latest_checkpoint(self, run_dir, sub, iteration):

@@ -9,6 +9,8 @@ import os
 import shutil
 import sys
 
+import pytest
+
 from safe_post_training import metrics, stages
 from safe_post_training.frameworks.slime.adapter import Adapter as SlimeAdapter
 from safe_post_training.tests.test_launch import FakeAdapter, markers, recipe_for, run
@@ -89,6 +91,27 @@ def test_a_ppo_resume_falls_back_to_the_iteration_actor_and_critic_share(tmp_pat
     r.stage_train()
     assert r.adapter.latest_checkpoint(str(tmp_path)) is None and kept(tmp_path) == [], \
         "without a shared iteration both start over"
+
+
+def test_a_ppo_resume_keeps_the_checkpoints_when_a_tracker_gives_no_iteration(tmp_path):
+    """A tracker that is there and names no iteration fails the resume and removes no checkpoint."""
+    r, _ = runner(tmp_path, PPO)
+    r.adapter = PPOAdapter()
+    save(tmp_path, 9, 19)
+    track(tmp_path, "checkpoints", 19)
+    tracker = tmp_path / "critic_checkpoints" / "latest_checkpointed_iteration.txt"
+    tracker.write_text("")
+    with pytest.raises(stages.StageError) as e:
+        r.stage_train()
+    assert not e.value.retry, "a crash while the tracker was rewritten leaves it empty for every attempt"
+    assert kept(tmp_path) == [9, 19] and kept(tmp_path, "critic_checkpoints") == [9, 19]
+
+    tracker.unlink()
+    tracker.mkdir()
+    with pytest.raises(stages.StageError) as e:
+        r.stage_train()
+    assert e.value.retry, "a tracker that cannot be read now may be readable on the next attempt"
+    assert kept(tmp_path) == [9, 19] and kept(tmp_path, "critic_checkpoints") == [9, 19]
 
 
 def test_a_resumed_run_does_not_count_its_own_checkpoints_twice(monkeypatch, tmp_path):

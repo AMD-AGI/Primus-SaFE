@@ -638,6 +638,18 @@ class Runner:
         critic = self.recipe.get("critic")
         return (critic.get("checkpoints") or "critic_checkpoints") if critic else None
 
+    def tracker(self, sub):
+        """Return the iteration the checkpoint tracker of sub names, or None when sub never finished a save. A
+        tracker that is there and names none fails the stage before any checkpoint is removed: a read error may
+        pass on the next attempt, an empty or damaged tracker does not."""
+        try:
+            return self.adapter.latest_checkpoint(self.run_dir, sub, strict=True)
+        except OSError as e:
+            raise StageError("train", "the checkpoint tracker of %s cannot be read: %s" % (sub, e))
+        except ValueError:
+            raise StageError("train", "the checkpoint tracker of %s is empty or damaged; its checkpoints are kept"
+                             % sub, retry=False)
+
     def align_critic(self):
         """Point a PPO run's actor and critic at the latest iteration both saved, which a crash between their saves
         or a critic-only step can leave apart, and remove their newer iterations; with none shared both start
@@ -645,7 +657,7 @@ class Runner:
         sub = self.critic_dir()
         if not sub:
             return
-        actor, critic = self.adapter.latest_checkpoint(self.run_dir), self.adapter.latest_checkpoint(self.run_dir, sub)
+        actor, critic = self.tracker("checkpoints"), self.tracker(sub)
         if actor == critic:
             return
         limit = -1 if actor is None or critic is None else min(actor, critic)

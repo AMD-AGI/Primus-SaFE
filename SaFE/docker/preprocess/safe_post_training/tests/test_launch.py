@@ -345,7 +345,7 @@ class PPOAdapter(FakeAdapter):
         super().__init__()
         self.steps = {"checkpoints": actor, "critic_checkpoints": critic}
 
-    def latest_checkpoint(self, run_dir, sub="checkpoints"):
+    def latest_checkpoint(self, run_dir, sub="checkpoints", strict=False):
         return self.steps[sub]
 
     def set_latest_checkpoint(self, run_dir, sub, iteration):
