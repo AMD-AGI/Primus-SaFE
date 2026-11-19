@@ -15,6 +15,7 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -141,6 +142,16 @@ func TestBuildTaskTellsAMissingServiceFromAFailedRead(t *testing.T) {
 	_, err = BuildTask(context.Background(), cli, db, noSecret, req)
 	require.Error(t, err)
 	assert.False(t, commonerrors.IsBadRequest(err), "a database that failed to answer may answer the next time")
+
+	remote := TaskRequest{ServiceID: "m-1", ServiceType: ServiceTypeRemoteAPI, Benchmarks: `[{"datasetId":"gsm8k"}]`}
+	db.EXPECT().GetDataset(gomock.Any(), "gsm8k").Return(&dbclient.Dataset{DatasetType: "evaluation"}, nil).Times(2)
+	db.EXPECT().GetModelByID(gomock.Any(), "m-1").Return(nil, gorm.ErrRecordNotFound)
+	_, err = BuildTask(context.Background(), cli, db, noSecret, remote)
+	assert.True(t, commonerrors.IsBadRequest(err), "a remote model that is gone fails the same way every time")
+	db.EXPECT().GetModelByID(gomock.Any(), "m-1").Return(nil, errors.New("connection reset"))
+	_, err = BuildTask(context.Background(), cli, db, noSecret, remote)
+	require.Error(t, err)
+	assert.False(t, commonerrors.IsBadRequest(err), "the same holds for the read of a remote model")
 }
 
 // The served model name is read from either form of the --served-model-name flag.

@@ -10,12 +10,14 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
+	"gorm.io/gorm"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -138,7 +140,11 @@ func BuildTask(ctx context.Context, cli client.Client, db dbclient.Interface, ge
 	if serviceType == ServiceTypeRemoteAPI {
 		dbModel, err := db.GetModelByID(ctx, serviceId)
 		if err != nil {
-			return nil, commonerrors.NewBadRequest(fmt.Sprintf("model not found: %s", serviceId))
+			if errors.Is(err, gorm.ErrRecordNotFound) || commonerrors.IsNotFound(err) {
+				return nil, commonerrors.NewBadRequest(fmt.Sprintf("model not found: %s", serviceId))
+			}
+			// A database that failed to answer is not a request that can never succeed.
+			return nil, commonerrors.NewInternalError(fmt.Sprintf("failed to read model %s: %v", serviceId, err))
 		}
 		serviceName = dbModel.DisplayName
 		modelEndpoint = dbModel.SourceURL
