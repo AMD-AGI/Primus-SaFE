@@ -447,7 +447,11 @@ func (h *Handler) planCleanup(ctx context.Context, run *dbclient.PostTrainingRun
 			return "", commonerrors.NewBadRequest("the run has no checkpoint with a validation loss to keep")
 		}
 		for _, cp := range m.Checkpoints {
-			if !cp.Deleted && cp.Step != m.BestCheckpoint.Step {
+			switch {
+			case cp.Step == m.BestCheckpoint.Step && cp.Deleted:
+				// Retention or an earlier cleanup removed it: what is left is not the best one.
+				return "", commonerrors.NewBadRequest("the best checkpoint of the run is already deleted")
+			case !cp.Deleted && cp.Step != m.BestCheckpoint.Step:
 				plan.Paths = append(plan.Paths, fmt.Sprintf("%s/checkpoints/iter_%07d", base, checkpointIteration(cp.Step)))
 			}
 		}

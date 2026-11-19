@@ -75,6 +75,24 @@ func TestPlanCleanup(t *testing.T) {
 	require.Equal(t, http.StatusConflict, statusCode(err), "a running export still reads its checkpoint")
 }
 
+// Keeping the best checkpoint is refused once retention removed it, as the plan would delete the ones that are left.
+func TestKeepBestIsRefusedWhenTheBestCheckpointIsGone(t *testing.T) {
+	h := exportHandler(t)
+	ctx := context.Background()
+	run := cleanupRun("Succeeded")
+	run.Recipe = `{"output":{"base":"/w/pt-1"},"choices":{"saveInterval":10},"checkpoint":{"keepLast":1}}`
+	_, err := h.planCleanup(ctx, run, "best")
+	require.Equal(t, http.StatusBadRequest, statusCode(err), "keepLast removed step 20, which has the lowest loss")
+
+	run.Recipe = `{"output":{"base":"/w/pt-1"},"choices":{"saveInterval":10},"checkpoint":{"keepLast":1,"keepBest":true}}`
+	plan, err := h.planCleanup(ctx, run, "best")
+	require.NoError(t, err)
+	var got checkpointCleanup
+	require.NoError(t, json.Unmarshal([]byte(plan), &got))
+	require.Equal(t, []string{"/w/pt-1/checkpoints/iter_0000029"}, got.Paths, "retention kept the best one")
+	require.Equal(t, 20, *got.KeptStep)
+}
+
 // A cleanup request is refused while another one is queued.
 func TestOnlyOneCleanupRequestIsTaken(t *testing.T) {
 	db := mockclient.NewMockInterface(gomock.NewController(t))
