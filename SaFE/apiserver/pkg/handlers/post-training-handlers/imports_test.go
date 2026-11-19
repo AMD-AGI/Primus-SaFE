@@ -258,6 +258,14 @@ func TestImportSummaryChecks(t *testing.T) {
 			s["metrics"] = map[string]interface{}{"train/step_time": map[string]interface{}{"axis": "train",
 				"count": 1, "points": [][]interface{}{{1e300, 1.0}}}}
 		},
+		"metrics.eval/val/loss": func(s map[string]interface{}) {
+			s["metrics"] = map[string]interface{}{"eval/val/loss": map[string]interface{}{"axis": "train",
+				"count": 1, "points": [][]interface{}{{2, 1.2, 1e300}}}}
+		},
+		"metrics.perf/step_time": func(s map[string]interface{}) {
+			s["metrics"] = map[string]interface{}{"perf/step_time": map[string]interface{}{"axis": "train",
+				"count": 1, "points": [][]interface{}{{0, 9.0, -1}}}}
+		},
 		"name":       func(s map[string]interface{}) { s["name"] = strings.Repeat("n", 129) },
 		"slurmJobId": func(s map[string]interface{}) { s["slurmJobId"] = strings.Repeat("9", 33) },
 		"verdict":    func(s map[string]interface{}) { s["verdict"] = "PASS-WITH-WARNINGS" },

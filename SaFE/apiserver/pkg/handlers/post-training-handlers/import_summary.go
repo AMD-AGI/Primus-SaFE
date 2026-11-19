@@ -34,6 +34,8 @@ const (
 	importSparkPoints = 60
 	// maxImportStep is the largest step a float holds exactly, which an integer column takes.
 	maxImportStep = 1 << 53
+	// maxImportWallTime is the last second of year 9999, the latest time of a point a timestamp column takes.
+	maxImportWallTime = 253402300799
 )
 
 var (
@@ -207,7 +209,7 @@ func parseImportSummary(data []byte, reg *registry.Registry) (*importSummary, er
 		for _, p := range series.Points {
 			if len(p) < 2 || p[0] == nil || p[1] == nil || *p[0] < 0 || *p[0] > maxImportStep ||
 				*p[0] != math.Trunc(*p[0]) || math.IsNaN(*p[1]) || math.IsInf(*p[1], 0) ||
-				(len(p) > 2 && p[2] != nil && (math.IsNaN(*p[2]) || math.IsInf(*p[2], 0))) {
+				(len(p) > 2 && p[2] != nil && (math.IsNaN(*p[2]) || *p[2] < 0 || *p[2] > maxImportWallTime)) {
 				return nil, fail("metrics."+name, "a point is not [step, value, time]")
 			}
 		}
