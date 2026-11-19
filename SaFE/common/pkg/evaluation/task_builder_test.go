@@ -127,6 +127,22 @@ func TestBuildTaskTellsAMissingDatasetFromAFailedRead(t *testing.T) {
 	assert.False(t, commonerrors.IsBadRequest(err), "a database that failed to answer may answer the next time")
 }
 
+// A deleted service is a bad request, and a failed read of it an error that may pass the next time.
+func TestBuildTaskTellsAMissingServiceFromAFailedRead(t *testing.T) {
+	cli := fake.NewClientBuilder().Build()
+	req := TaskRequest{ServiceID: "pt-eval-1", ServiceType: ServiceTypeLocalWorkload, Benchmarks: `[{"datasetId":"gsm8k"}]`}
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	db.EXPECT().GetDataset(gomock.Any(), "gsm8k").Return(&dbclient.Dataset{DatasetType: "evaluation"}, nil).Times(2)
+	db.EXPECT().GetWorkload(gomock.Any(), "pt-eval-1").Return(nil, commonerrors.NewNotFound(v1.WorkloadKind, "pt-eval-1"))
+	_, err := BuildTask(context.Background(), cli, db, noSecret, req)
+	assert.True(t, commonerrors.IsBadRequest(err), "a deleted service fails the same way every time")
+
+	db.EXPECT().GetWorkload(gomock.Any(), "pt-eval-1").Return(nil, errors.New("connection reset"))
+	_, err = BuildTask(context.Background(), cli, db, noSecret, req)
+	require.Error(t, err)
+	assert.False(t, commonerrors.IsBadRequest(err), "a database that failed to answer may answer the next time")
+}
+
 // The served model name is read from either form of the --served-model-name flag.
 func TestServedModelNameFromCmd(t *testing.T) {
 	assert.Equal(t, "my-model", ServedModelNameFromCmd("vllm serve --served-model-name my-model --port 8000"))

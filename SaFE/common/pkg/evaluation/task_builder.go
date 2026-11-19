@@ -179,7 +179,11 @@ func BuildTask(ctx context.Context, cli client.Client, db dbclient.Interface, ge
 	} else {
 		workload, err := db.GetWorkload(ctx, serviceId)
 		if err != nil {
-			return nil, commonerrors.NewBadRequest(fmt.Sprintf("workload not found: %s", serviceId))
+			if commonerrors.IsNotFound(err) || commonerrors.IsBadRequest(err) {
+				return nil, commonerrors.NewBadRequest(fmt.Sprintf("workload not found: %s", serviceId))
+			}
+			// A database that failed to answer is not a request that can never succeed.
+			return nil, commonerrors.NewInternalError(fmt.Sprintf("failed to read workload %s: %v", serviceId, err))
 		}
 		serviceName = workload.DisplayName
 		clusterId = workload.Cluster
