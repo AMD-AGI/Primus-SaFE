@@ -296,6 +296,22 @@ func TestAPendingRunWithoutAWorkloadIsQueuedAndEnded(t *testing.T) {
 	require.Empty(t, *updates)
 }
 
+// A pending run whose workload the cache does not show is followed when the API server has the workload: a cache
+// that lags does not make the run lost.
+func TestAPendingRunIsNotLostWhileTheAPIServerHasItsWorkload(t *testing.T) {
+	run := testRunRow("Pending", "queued")
+	run.OutputPath = testRunDir
+	w := endedWorkload(v1.WorkloadRunning)
+	w.Status.EndTime = nil
+	shown, _, _ := newTestReconciler(t, run, w)
+	r, db, _ := newTestReconciler(t, run)
+	r.reader = shown.Client
+	db.EXPECT().ListWorkloadPods(gomock.Any(), testRun, "uid1").Return(submitterPods("log\n"), nil).AnyTimes()
+	require.Equal(t, runningRequeue, reconcileRun(t, r).RequeueAfter, "the run is followed as one that runs")
+	require.Error(t, r.Get(context.Background(), client.ObjectKey{Name: verifyJobName(testRun)}, &v1.OpsJob{}),
+		"nothing is left to look for")
+}
+
 // A run that exports no model and lost its result line ends as succeeded once verification finds its launcher
 // finished; the same finding fails a run that was to export one.
 func TestVerifyEndsALostRunThatExportsNoModel(t *testing.T) {
