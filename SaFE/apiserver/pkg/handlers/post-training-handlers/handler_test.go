@@ -373,39 +373,36 @@ func TestRegistryWaitsWhenTheImagesInUseCannotBeRead(t *testing.T) {
 	require.NotNil(t, reg.ImageByName("img:1"), "a run still uses img:1")
 }
 
-// After a restart only runs on a registry image keep that image listed.
-func TestRegistryChecksTableImagesAfterARestart(t *testing.T) {
+// The first registry version after a restart is taken although it drops an image a run uses, as there is no earlier
+// one to keep serving; a later version that drops an image in use is still refused.
+func TestTheFirstRegistryAfterARestartIsTaken(t *testing.T) {
 	ctx := context.Background()
 	scheme := runtime.NewScheme()
 	require.NoError(t, corev1.AddToScheme(scheme))
-	without := strings.Replace(testRegistry, `"img:1"`, `"img:2"`, 1)
-	for name, c := range map[string]struct {
-		recipe string
-		loads  bool
-	}{
-		"table image":  {`{"provenance":{"image":"img:1","tableImage":true}}`, false},
-		"custom image": {`{"provenance":{"image":"img:1"}}`, true},
-		"older recipe": {`{}`, true},
-	} {
-		t.Run(name, func(t *testing.T) {
-			cli := fake.NewClientBuilder().WithScheme(scheme).Build()
-			db := mockclient.NewMockInterface(gomock.NewController(t))
-			db.EXPECT().ListPostTrainingRuns(gomock.Any(), gomock.Any()).Return(
-				[]*dbclient.PostTrainingRun{{RunID: "r1", Image: "img:1", Recipe: c.recipe}}, int64(1), nil).AnyTimes()
-			h := NewHandler(cli, db)
-			require.NoError(t, cli.Create(ctx, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
-				Namespace: common.PrimusSafeNamespace, Name: registry.ConfigMapName},
-				Data: map[string]string{registry.DataKey: without}}))
-			reg, err := h.registry(ctx)
-			if c.loads {
-				require.NoError(t, err)
-				require.NotNil(t, reg.ImageByName("img:2"))
-				return
-			}
-			require.ErrorIs(t, err, registry.ErrRemovedImagesInUse,
-				"the first version after a restart still may not drop an image that a run took from the table")
-		})
+	cli := fake.NewClientBuilder().WithScheme(scheme).Build()
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	runOf := func(image string) []*dbclient.PostTrainingRun {
+		return []*dbclient.PostTrainingRun{{RunID: "r1", Image: image,
+			Recipe: `{"provenance":{"image":"` + image + `","tableImage":true}}`}}
 	}
+	first := db.EXPECT().ListPostTrainingRuns(gomock.Any(), gomock.Any()).Return(runOf("img:1"), int64(1), nil)
+	db.EXPECT().ListPostTrainingRuns(gomock.Any(), gomock.Any()).Return(runOf("img:2"), int64(1), nil).
+		AnyTimes().After(first)
+	h := NewHandler(cli, db)
+	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Namespace: common.PrimusSafeNamespace,
+		Name: registry.ConfigMapName},
+		Data: map[string]string{registry.DataKey: strings.Replace(testRegistry, `"img:1"`, `"img:2"`, 1)}}
+	require.NoError(t, cli.Create(ctx, cm))
+	reg, err := h.registry(ctx)
+	require.NoError(t, err, "a run still uses img:1, which this version does not list")
+	require.NotNil(t, reg.ImageByName("img:2"))
+
+	cm.Data[registry.DataKey] = strings.Replace(testRegistry, `"img:1"`, `"img:3"`, 1)
+	require.NoError(t, cli.Update(ctx, cm))
+	reg, err = h.registry(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, reg.ImageByName("img:2"), "the version that drops the image a run uses is not taken")
+	require.Nil(t, reg.ImageByName("img:3"))
 }
 
 // A pause of new runs is refused with its reason.

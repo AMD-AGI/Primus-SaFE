@@ -68,7 +68,8 @@ func NewHandler(cli ctrlclient.Client, db dbclient.Interface) *Handler {
 
 // registry returns the current registry. A missing ConfigMap means Post Training is off (404); an invalid one keeps
 // the previous valid version and, before any valid version was seen, returns the validation error. A version rejected
-// for images that unfinished runs use is checked again every registryRetryInterval.
+// for images that unfinished runs use is checked again every registryRetryInterval; the first version after a restart
+// is not rejected for them.
 func (h *Handler) registry(ctx context.Context) (*registry.Registry, error) {
 	cm := &corev1.ConfigMap{}
 	key := ctrlclient.ObjectKey{Namespace: common.PrimusSafeNamespace, Name: registry.ConfigMapName}
@@ -87,9 +88,16 @@ func (h *Handler) registry(ctx context.Context) (*registry.Registry, error) {
 			}
 			inUse, err := h.imagesInUse(prev != nil)
 			if err != nil {
-				return fmt.Errorf("%w: %v", errImagesInUseUnknown, err)
+				err = fmt.Errorf("%w: %v", errImagesInUseUnknown, err)
+			} else {
+				err = registry.CheckRemovedImages(prev, next, inUse)
 			}
-			return registry.CheckRemovedImages(prev, next, inUse)
+			if err != nil && prev == nil {
+				// After a restart there is no earlier version to keep serving, so the first one is taken as it is.
+				klog.Warningf("the first Post Training registry version is taken although: %v", err)
+				return nil
+			}
+			return err
 		}
 		err := h.store.Load([]byte(cm.Data[registry.DataKey]), check)
 		h.loadedRV, h.retryAt = cm.ResourceVersion, time.Time{}
