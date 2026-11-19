@@ -2,6 +2,7 @@
 # Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
 # See LICENSE for license information.
 #
+import errno
 import io
 import json
 import os
@@ -156,6 +157,34 @@ def test_the_holder_keeps_beating_while_its_owner_record_cannot_be_read(monkeypa
         os.utime(lock, (old, old))
         time.sleep(0.5)
         assert time.time() - os.path.getmtime(lock) < stages.LOCK_STALE_SECONDS
+
+
+def test_a_run_that_found_a_lock_stale_leaves_the_lock_another_run_took_meanwhile(tmp_path):
+    """Of the runs that find a lock stale only one takes it, and one that comes late leaves the new holder's."""
+    lock = tmp_path / stages.CONVERT_LOCK
+    lock.mkdir()
+    fresh = {"run": "pt-a", "attempt": "a1", "token": "fresh"}
+    (lock / stages.LOCK_OWNER).write_text(json.dumps(fresh))
+    late = {"run": "pt-b", "attempt": "a1", "token": "late"}
+    assert not stages.take_over(str(lock), {"run": "pt-gone", "token": "stale"}, late)
+    assert json.loads((lock / stages.LOCK_OWNER).read_text()) == fresh, "the holder keeps its record"
+    assert stages.take_over(str(lock), fresh, late), "the record it found stale is the one it takes"
+    assert json.loads((lock / stages.LOCK_OWNER).read_text()) == late
+    assert sorted(os.listdir(lock)) == [stages.LOCK_OWNER], "nothing of the takeover is left in the lock"
+
+
+def test_a_lock_whose_owner_record_cannot_be_written_is_not_left_behind(monkeypatch, tmp_path):
+    """A lock without an owner record would be waited for six hours."""
+    root = str(tmp_path / "cache")
+
+    def full(lock, owner):
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(stages, "write_owner", full)
+    with pytest.raises(OSError):
+        with stages.cache_lock(root, owner={"run": "pt-r1", "attempt": "a1"}):
+            pytest.fail("the lock is not held")
+    assert not os.path.exists(os.path.join(root, stages.CONVERT_LOCK))
 
 
 class Waited(Exception):

@@ -230,6 +230,54 @@ def lock_owner(lock):
     return owner if isinstance(owner, dict) else {}
 
 
+def write_owner(lock, owner):
+    """Write the owner record of a conversion lock in one step, so that a reader never finds half of it."""
+    tmp = os.path.join(lock, LOCK_OWNER + ".tmp")
+    with open(tmp, "w") as f:
+        json.dump(owner, f)
+    os.replace(tmp, os.path.join(lock, LOCK_OWNER))
+
+
+def take_over(lock, held, me):
+    """Take a stale lock whose owner record was held over for me, and return whether me holds it now. The lock
+    stays where it is: the owner record is what is taken, by a rename only one run can win, and a record that is
+    not the one found stale belongs to a run that took the lock meanwhile and goes back. A lock without a record,
+    which a launcher from before the heartbeat left, is moved away as a whole for the next mkdir to win."""
+    if not held:
+        gone = "%s.%s" % (lock, me["token"])
+        try:
+            os.rename(lock, gone)
+        except OSError:
+            return False
+        shutil.rmtree(gone, ignore_errors=True)
+        return False
+    record = os.path.join(lock, LOCK_OWNER)
+    claimed = "%s.%s" % (record, me["token"])
+    try:
+        # Refreshed first, so that no other run finds the lock stale while it has no owner record.
+        os.utime(lock)
+        os.rename(record, claimed)
+    except OSError:
+        return False
+    try:
+        with open(claimed) as f:
+            taken = json.load(f)
+    except (OSError, ValueError):
+        taken = None
+    if not isinstance(taken, dict) or taken.get("token") != held.get("token"):
+        try:
+            os.rename(claimed, record)
+        except OSError:
+            pass
+        return False
+    try:
+        write_owner(lock, me)
+        os.remove(claimed)
+    except OSError:
+        return False
+    return True
+
+
 @contextlib.contextmanager
 def cache_lock(root, owner=None, sleep=time.sleep, clock=time.time):
     """Hold the conversion lock of a cache directory. mkdir is atomic on the shared storage, so one run converts
@@ -243,7 +291,6 @@ def cache_lock(root, owner=None, sleep=time.sleep, clock=time.time):
     while True:
         try:
             os.mkdir(lock)
-            break
         except FileExistsError:
             try:
                 age = clock() - os.path.getmtime(lock)
@@ -252,18 +299,18 @@ def cache_lock(root, owner=None, sleep=time.sleep, clock=time.time):
             held = lock_owner(lock)
             earlier = me.get("run") and held.get("run") == me["run"] and held.get("attempt") != me.get("attempt")
             if age > (LOCK_STALE_SECONDS if held else LOCK_UNOWNED_STALE_SECONDS) or earlier:
-                # Only the run whose rename moves the lock away removes it, so two runs that both found it stale
-                # do not remove the lock the first of them makes next.
-                gone = "%s.%s" % (lock, me["token"])
-                try:
-                    os.rename(lock, gone)
-                except OSError:
-                    continue
-                shutil.rmtree(gone, ignore_errors=True)
+                if take_over(lock, held, me):
+                    break
                 continue
             sleep(LOCK_POLL_SECONDS)
-    with open(os.path.join(lock, LOCK_OWNER), "w") as f:
-        json.dump(me, f)
+            continue
+        try:
+            write_owner(lock, me)
+        except OSError:
+            # A lock without an owner record would be waited for far longer than one whose holder died.
+            shutil.rmtree(lock, ignore_errors=True)
+            raise
+        break
     stop = threading.Event()
 
     def other():
