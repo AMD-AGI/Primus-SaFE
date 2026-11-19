@@ -224,6 +224,9 @@ const (
 	ExternalValidUntilAnnotationLegacy      = ExternalExecutionPrefixLegacy + "valid-until"
 	ExternalAllocationPhaseAnnotation       = ExternalExecutionPrefix + "allocation-phase"
 	ExternalAllocationPhaseAnnotationLegacy = ExternalExecutionPrefixLegacy + "allocation-phase"
+	// ExternalFrontEndIPv4Annotation is the front-end IPv4 of the host behind a virtual
+	// kubelet. SaFE mirrors it onto the admitted Node on every reconcile.
+	ExternalFrontEndIPv4Annotation = ExternalExecutionPrefix + "front-end-ipv4"
 	// ExternalBookingKeyMaxLen is the Kubernetes label/taint value limit. Autopilot
 	// ledger.BookingKey refuses longer <namespace>.<prName> pairs.
 	ExternalBookingKeyMaxLen = 63

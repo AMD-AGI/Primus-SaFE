@@ -312,6 +312,7 @@ func (r *NodeK8sReconciler) nodeEventHandler(k8sClients *commonclient.ClientFact
 					oldNode.Annotations[v1.ExternalValidUntilAnnotationLegacy] != newNode.Annotations[v1.ExternalValidUntilAnnotationLegacy] ||
 					oldNode.Annotations[v1.ExternalHostKeyAnnotation] != newNode.Annotations[v1.ExternalHostKeyAnnotation] ||
 					oldNode.Annotations[v1.ExternalHostKeyAnnotationLegacy] != newNode.Annotations[v1.ExternalHostKeyAnnotationLegacy] ||
+					oldNode.Annotations[v1.ExternalFrontEndIPv4Annotation] != newNode.Annotations[v1.ExternalFrontEndIPv4Annotation] ||
 					oldNode.Annotations[v1.ExternalAllocationPhaseAnnotation] != newNode.Annotations[v1.ExternalAllocationPhaseAnnotation] ||
 					oldNode.Annotations[v1.ExternalAllocationPhaseAnnotationLegacy] != newNode.Annotations[v1.ExternalAllocationPhaseAnnotationLegacy] {
 					klog.Infof("cluster %s watch virtual kubelet %s update, workspace %s",
