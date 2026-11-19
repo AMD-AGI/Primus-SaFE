@@ -255,7 +255,8 @@ func TestCompileRewards(t *testing.T) {
 	in.Request.Choices = recipe.Choices{RewardType: "remote", RewardRemote: &recipe.RewardRemote{URL: "http://:8000/s"}}
 	require.Contains(t, errorsOf(in), "http or https address", "an address needs a host")
 	for _, u := range []string{"http://10.0.0.5:8000/score", "https://cafe.babe/score", "http://0x7f.svc/s",
-		"http://rm.ws.svc.cluster.local:8000/score"} {
+		"http://rm.ws.svc.cluster.local:8000/score", "http://reward_svc.internal:8000/s",
+		"http://ab--cd.example.com/s"} {
 		args, _ = argsOf(recipe.Choices{RewardType: "remote", RewardRemote: &recipe.RewardRemote{URL: u}})
 		require.Contains(t, args, "--rm-url "+u, "private addresses and cluster names stay allowed")
 	}

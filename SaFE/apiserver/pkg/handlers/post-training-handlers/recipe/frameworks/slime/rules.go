@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"golang.org/x/net/idna"
 
@@ -115,11 +116,14 @@ var loopbackNames = map[string]bool{"localhost": true, "ip6-localhost": true, "i
 
 // blockedRewardHost tells whether a reward address names the pod itself, a link-local or metadata endpoint, or an
 // unspecified or multicast address. Only names and literals are checked; a name that resolves to one passes. A name
-// is first mapped to ASCII the way an IDNA lookup does, so full-width digits or ideographic full stops read as the
-// address they spell; a name that cannot be mapped is refused.
+// with characters outside ASCII is first mapped to ASCII the way an IDNA lookup does, so full-width digits or
+// ideographic full stops read as the address they spell; such a name that cannot be mapped is refused. A plain
+// ASCII name is what it spells and is not mapped, as the mapping refuses names a resolver takes, such as one with
+// an underscore.
 func blockedRewardHost(host string) bool {
 	h := strings.TrimSuffix(strings.ToLower(host), ".")
-	if _, err := netip.ParseAddr(h); err != nil {
+	notASCII := func(r rune) bool { return r > unicode.MaxASCII }
+	if _, err := netip.ParseAddr(h); err != nil && strings.IndexFunc(h, notASCII) >= 0 {
 		ascii, err := idna.Lookup.ToASCII(h)
 		if err != nil {
 			return true
