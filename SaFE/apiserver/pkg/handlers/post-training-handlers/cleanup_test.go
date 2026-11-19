@@ -15,6 +15,7 @@ import (
 
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
@@ -219,4 +220,21 @@ func TestTheLookForAnExportIsApartFromItsWithdrawal(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError, statusCode(err), "the cleanup cannot be told safe")
 	require.False(t, lookBy.IsZero())
 	require.True(t, undoBy.After(lookBy.Add(time.Second)), "a look that used up its time leaves the withdrawal its own")
+}
+
+// An export job that is being deleted does not hold a cleanup, as for the controller: its export was refused or
+// dropped. One that runs without the label of its step is named by itself.
+func TestAnExportJobBeingDeletedDoesNotHoldACleanup(t *testing.T) {
+	gone := exportJob("pt-1-x20-b", "Running", 2)
+	gone.Finalizers = []string{"primus-safe/workload"}
+	gone.DeletionTimestamp = &metav1.Time{Time: time.Now()}
+	h := exportHandler(t, gone)
+	require.NoError(t, h.withdrawCleanupIfExporting(context.Background(), "pt-1"))
+
+	unlabelled := exportJob("pt-1-x20-c", "Running", 3)
+	delete(unlabelled.Labels, v1.PostTrainingExportStepLabel)
+	h = exportHandler(t, unlabelled)
+	err := h.exportRunning(context.Background(), h.client, "pt-1")
+	require.Equal(t, http.StatusConflict, statusCode(err))
+	require.Contains(t, err.Error(), "export job pt-1-x20-c of run pt-1")
 }

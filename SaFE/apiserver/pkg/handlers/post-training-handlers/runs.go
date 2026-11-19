@@ -410,11 +410,15 @@ func (h *Handler) exportRunning(ctx context.Context, reader ctrlclient.Reader, r
 		return commonerrors.NewInternalError("failed to list the run's exports: " + err.Error())
 	}
 	for i := range jobs.Items {
-		// A job that is being deleted counts until it is gone: it may still read the checkpoint.
-		if w := &jobs.Items[i]; !v1.IsWorkloadPhaseEnded(w.Status.Phase) {
-			return commonerrors.NewConflict(fmt.Sprintf("step %s of run %s is being exported",
-				w.Labels[v1.PostTrainingExportStepLabel], runID))
+		// A job that is being deleted counts as over, as for the controller: its export was refused or dropped.
+		w := &jobs.Items[i]
+		if w.IsEnd() {
+			continue
 		}
+		if step := w.Labels[v1.PostTrainingExportStepLabel]; step != "" {
+			return commonerrors.NewConflict(fmt.Sprintf("step %s of run %s is being exported", step, runID))
+		}
+		return commonerrors.NewConflict(fmt.Sprintf("export job %s of run %s is running", w.Name, runID))
 	}
 	return nil
 }
