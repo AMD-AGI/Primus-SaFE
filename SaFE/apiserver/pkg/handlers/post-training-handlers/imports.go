@@ -276,12 +276,8 @@ func notFoundOr(err error, what string) error {
 // the summary for the dialog to commit. A refused upload keeps the token, with the reason, so the same command can
 // be run again.
 func (h *Handler) UploadImport(c *gin.Context) {
-	reg, err, ok := h.requireEnabled(c)
+	reg, regErr, ok := h.requireEnabled(c)
 	if !ok {
-		return
-	}
-	if err != nil {
-		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("the Post Training registry is not loaded: "+err.Error()))
 		return
 	}
 	ctx := c.Request.Context()
@@ -294,6 +290,11 @@ func (h *Handler) UploadImport(c *gin.Context) {
 	// The audit of the upload names the token's owner.
 	c.Set(common.UserId, t.UserID)
 	c.Set(common.UserName, t.UserName)
+	// Only the holder of a token is told why the registry did not load.
+	if regErr != nil {
+		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("the Post Training registry is not loaded: "+regErr.Error()))
+		return
+	}
 	stage := c.Query("stage") == "true"
 	if stage != (t.Purpose == importPurposeScan) {
 		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("this token cannot be used for that upload"))

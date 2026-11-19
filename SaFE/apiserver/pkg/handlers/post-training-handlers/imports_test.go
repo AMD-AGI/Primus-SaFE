@@ -221,6 +221,27 @@ func TestUploadImportRefusals(t *testing.T) {
 	require.Contains(t, w.Body.String(), `"runId":"spur-j2r5-229357"`)
 }
 
+// An upload without a valid token is told nothing about a registry that failed to load.
+func TestUploadImportChecksTheTokenBeforeTheRegistry(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Namespace: common.PrimusSafeNamespace,
+		Name: registry.ConfigMapName}, Data: map[string]string{registry.DataKey: "frameworks: [broken"}}
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	db.EXPECT().ListPostTrainingRuns(gomock.Any(), gomock.Any()).Return(nil, int64(0), nil).AnyTimes()
+	h := NewHandler(fake.NewClientBuilder().WithScheme(scheme).WithObjects(cm).Build(), db)
+
+	db.EXPECT().GetPostTrainingImportTokenByHash(gomock.Any(), gomock.Any()).Return(nil, gorm.ErrRecordNotFound)
+	w := upload(h, "sst_unknown.x", importSummaryJSON(t, nil))
+	require.Equal(t, http.StatusUnauthorized, w.Code)
+	require.NotContains(t, w.Body.String(), "registry")
+
+	db.EXPECT().GetPostTrainingImportTokenByHash(gomock.Any(), gomock.Any()).Return(cliToken(), nil)
+	w = upload(h, "sst_a.b", importSummaryJSON(t, nil))
+	require.Equal(t, http.StatusInternalServerError, w.Code, "the holder of a token is told why nothing is imported")
+	require.Contains(t, w.Body.String(), "registry is not loaded")
+}
+
 // An import summary is checked field by field, and its run ID is a slug of the Slurm job.
 func TestImportSummaryChecks(t *testing.T) {
 	reg, err := registry.Parse([]byte(importRegistry))
