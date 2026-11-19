@@ -44,6 +44,8 @@ const (
 	// again.
 	registryRetryInterval = time.Minute
 	imagesInUseTimeout    = 10 * time.Second
+	// detachedTimeout bounds what a handler does apart from its request, such as undoing what it started.
+	detachedTimeout = time.Minute
 )
 
 // errImagesInUseUnknown rejects a registry version while the images of the unfinished runs cannot be read.
@@ -52,6 +54,9 @@ var errImagesInUseUnknown = errors.New("invalid registry: the images that unfini
 // Handler serves the Post Training routes.
 type Handler struct {
 	client ctrlclient.Client
+	// reader reads what must not be stale, such as a job made a moment ago: the API server once UseAPIReader set
+	// it, the client's cache until then.
+	reader ctrlclient.Reader
 	db     dbclient.Interface
 	access *authority.AccessController
 
@@ -63,7 +68,17 @@ type Handler struct {
 
 // NewHandler creates the Post Training handler.
 func NewHandler(cli ctrlclient.Client, db dbclient.Interface) *Handler {
-	return &Handler{client: cli, db: db, access: authority.NewAccessController(cli)}
+	return &Handler{client: cli, reader: cli, db: db, access: authority.NewAccessController(cli)}
+}
+
+// UseAPIReader makes the handler read from r, the API server, where the client's cache may lag.
+func (h *Handler) UseAPIReader(r ctrlclient.Reader) {
+	h.reader = r
+}
+
+// detached returns a context for work that has to finish although its request ended, for at most detachedTimeout.
+func detached(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), detachedTimeout)
 }
 
 // registry returns the current registry. A missing ConfigMap means Post Training is off (404); an invalid one keeps

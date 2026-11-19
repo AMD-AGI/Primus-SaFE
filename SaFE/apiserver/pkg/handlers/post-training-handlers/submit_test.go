@@ -203,6 +203,28 @@ func TestANameLongerThanItsColumnIsRefused(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, code, "the run's name column holds 128 characters: %s", body)
 }
 
+// A run whose workload the cluster refuses is marked failed although its caller left meanwhile.
+func TestARefusedRunIsMarkedFailedAlthoughItsRequestEnded(t *testing.T) {
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	c := testContext()
+	ctx, leave := context.WithCancel(c.Request.Context())
+	c.Request = c.Request.WithContext(ctx)
+	h, _ := submitHandler(t, db, func(*v1.Workload) error {
+		leave()
+		return errFromString("quota exceeded")
+	})
+	db.EXPECT().CreatePostTrainingRun(gomock.Any(), gomock.Any()).Return(nil)
+	db.EXPECT().UpdatePostTrainingRun(gomock.Any(), "pt-1", gomock.Any()).DoAndReturn(
+		func(ctx context.Context, _ string, fields map[string]interface{}) error {
+			require.NoError(t, ctx.Err(), "the mark outlives the request")
+			require.Equal(t, string(v1.WorkloadFailed), fields["status"])
+			return nil
+		})
+	_, err := h.createRun(c, &preparedRun{row: &dbclient.PostTrainingRun{RunID: "pt-1"},
+		workload: &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "pt-1"}}})
+	require.ErrorContains(t, err, "quota exceeded")
+}
+
 // errFromString is an error with message.
 type errFromString string
 

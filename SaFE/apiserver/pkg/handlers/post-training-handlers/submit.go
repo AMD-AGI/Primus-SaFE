@@ -194,7 +194,10 @@ func (h *Handler) createRun(c *gin.Context, p *preparedRun) (*submitResponse, er
 	}
 	if err := h.client.Create(ctx, p.workload); err != nil {
 		klog.ErrorS(err, "failed to create the Post Training workload", "run", p.row.RunID)
-		if uerr := h.db.UpdatePostTrainingRun(ctx, p.row.RunID, map[string]interface{}{
+		// Apart from the request: a caller that left must not leave the run recorded as pending.
+		mark, cancel := detached(ctx)
+		defer cancel()
+		if uerr := h.db.UpdatePostTrainingRun(mark, p.row.RunID, map[string]interface{}{
 			"status": string(v1.WorkloadFailed), "message": "failed to create the workload: " + err.Error(),
 		}); uerr != nil {
 			klog.ErrorS(uerr, "failed to mark the run failed", "run", p.row.RunID)
