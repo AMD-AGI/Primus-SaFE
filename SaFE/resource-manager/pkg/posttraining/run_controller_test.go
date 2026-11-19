@@ -340,11 +340,15 @@ func TestAWorkloadSeenOnlyAtItsEndLeavesItsUID(t *testing.T) {
 	db.EXPECT().GetWorkload(gomock.Any(), testRun).Return(&dbclient.Workload{
 		Phase:       sql.NullString{String: "Failed", Valid: true},
 		WorkloadUId: sql.NullString{String: "uid9", Valid: true}}, nil)
-	db.EXPECT().ListWorkloadPods(gomock.Any(), testRun, gomock.Any()).Return(nil, nil).AnyTimes()
+	// The pod rows are kept by the UID of their workload: the same reconcile reads them by the row's.
+	db.EXPECT().ListWorkloadPods(gomock.Any(), testRun, "uid9").Return(submitterPods(
+		`[ERROR] {"run":"`+testRun+`","attempt":"a1","stage":"check","reason":"tokenizer mismatch"}`), nil).AnyTimes()
 	reconcileRun(t, r)
 	last = (*updates)[len(*updates)-1]
 	require.Equal(t, "Failed", last["status"])
 	require.Equal(t, "uid9", last["workload_uid"])
+	require.Equal(t, "check", last["failed_stage"], "the run ends with what its workload reported")
+	require.Equal(t, "tokenizer mismatch", last["message"])
 	unseen.Status, unseen.WorkloadUID = "Failed", "uid9"
 	require.True(t, backfillPending(unseen, nil), "the workload ran, so its directory is counted")
 }

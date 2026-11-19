@@ -544,9 +544,11 @@ func (r *RunReconciler) reconcileLost(ctx context.Context, run *dbclient.PostTra
 		if row.EndTime.Valid {
 			endTime = row.EndTime.Time
 		}
-		// The workload ran, although the controller did not see it.
+		// The workload ran, although the controller did not see it. What it left is kept by its UID, which this
+		// reconcile reads by as well.
 		if run.WorkloadUID == "" && row.WorkloadUId.Valid {
-			u.fields["workload_uid"] = row.WorkloadUId.String
+			run.WorkloadUID = row.WorkloadUId.String
+			u.fields["workload_uid"] = run.WorkloadUID
 		}
 	}
 	switch phase {
