@@ -8,6 +8,7 @@ package posttraininghandlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"testing"
 	"time"
@@ -133,4 +134,30 @@ func TestACleanupGivesWayToAnExportThatStartedMeanwhile(t *testing.T) {
 		map[string]interface{}{"cleanup_request": ""}).Return(nil)
 	err := h.withdrawCleanupIfExporting(context.Background(), "pt-1")
 	require.Equal(t, http.StatusConflict, statusCode(err), "the export reads a checkpoint the cleanup would delete")
+
+	// The cache may not show a job made a moment ago: the exports are read from the API server.
+	h = exportHandler(t)
+	h.reader = exportHandler(t, exportJob("pt-1-x20-b", "Running", 2)).client
+	h.db.(*mockclient.MockInterface).EXPECT().UpdatePostTrainingRun(gomock.Any(), "pt-1",
+		map[string]interface{}{"cleanup_request": ""}).Return(errors.New("connection reset"))
+	err = h.withdrawCleanupIfExporting(context.Background(), "pt-1")
+	require.Equal(t, http.StatusInternalServerError, statusCode(err),
+		"a request that could not be withdrawn is not answered as a mere conflict")
+}
+
+// The cleanup endpoint takes its request back when the API server shows an export that the cache does not show yet.
+func TestTheCleanupEndpointWithdrawsForAnExportTheCacheMisses(t *testing.T) {
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	h := templateHandler(t, db)
+	h.reader = exportHandler(t, exportJob("pt-1-x20-b", "Running", 2)).client
+	run := cleanupRun("Succeeded")
+	run.Workspace, run.UserID, run.WorkloadID = "ws1", "u1", "pt-1"
+	db.EXPECT().ListPostTrainingRuns(gomock.Any(), gomock.Any()).Return(nil, int64(0), nil).AnyTimes()
+	db.EXPECT().GetPostTrainingRun(gomock.Any(), "pt-1").Return(run, nil)
+	asked := db.EXPECT().RequestPostTrainingRunCleanup(gomock.Any(), "pt-1", gomock.Any()).Return(true, nil)
+	db.EXPECT().UpdatePostTrainingRun(gomock.Any(), "pt-1", map[string]interface{}{"cleanup_request": ""}).
+		Return(nil).After(asked)
+
+	code, body := runCall(h.CleanupCheckpoints, `{"keep":"none"}`)
+	require.Equal(t, http.StatusConflict, code, body)
 }

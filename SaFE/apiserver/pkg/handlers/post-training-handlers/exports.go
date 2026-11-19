@@ -114,12 +114,20 @@ func (h *Handler) checkExportConflict(c *gin.Context, runID string, step int) er
 // delete the checkpoint the job reads, and answers the conflict. The run is read again for it: the cleanup may
 // have been asked for after the run was read and before the job was made.
 func (h *Handler) dropExportIfCleaning(ctx context.Context, runID string, w *v1.Workload) error {
+	// Apart from the request: a caller that left must not leave the job behind unchecked.
+	ctx, cancel := detached(ctx)
+	defer cancel()
 	run, err := h.db.GetPostTrainingRun(ctx, runID)
-	if err != nil || run.CleanupRequest == "" {
+	if err == nil && run.CleanupRequest == "" {
 		return nil
 	}
-	if err = h.client.Delete(ctx, w); err != nil && !apierrors.IsNotFound(err) {
-		klog.ErrorS(err, "failed to remove an export job that a checkpoint cleanup got ahead of", "job", w.Name)
+	// A cleanup is queued, or the run cannot be read to tell: either way the job must not read the checkpoint.
+	if derr := h.client.Delete(ctx, w); derr != nil && !apierrors.IsNotFound(derr) {
+		return commonerrors.NewInternalError(fmt.Sprintf("failed to remove export job %s, which a checkpoint "+
+			"cleanup may run against: %v", w.Name, derr))
+	}
+	if err != nil {
+		return commonerrors.NewInternalError("failed to check the run for a checkpoint cleanup: " + err.Error())
 	}
 	return commonerrors.NewConflict("a checkpoint cleanup of the run is queued; export after it finished")
 }
@@ -234,6 +242,12 @@ type exportItem struct {
 
 // listExports returns the run's checkpoint exports by step, newest step first.
 func (h *Handler) listExports(ctx context.Context, runID string) ([]exportItem, error) {
+	return h.listExportsFrom(ctx, h.client, runID)
+}
+
+// listExportsFrom is listExports read from reader: the client's cache, or the API server for a job made a moment
+// ago.
+func (h *Handler) listExportsFrom(ctx context.Context, reader ctrlclient.Reader, runID string) ([]exportItem, error) {
 	byStep := map[int]*exportItem{}
 	item := func(label string) *exportItem {
 		step, err := strconv.Atoi(label)
@@ -246,7 +260,7 @@ func (h *Handler) listExports(ctx context.Context, runID string) ([]exportItem, 
 		return byStep[step]
 	}
 	jobs := &v1.WorkloadList{}
-	if err := h.client.List(ctx, jobs, ctrlclient.MatchingLabels{v1.PostTrainingRunIdLabel: runID,
+	if err := reader.List(ctx, jobs, ctrlclient.MatchingLabels{v1.PostTrainingRunIdLabel: runID,
 		v1.PostTrainingRoleLabel: v1.PostTrainingRoleExport}); err != nil {
 		return nil, err
 	}
@@ -261,7 +275,7 @@ func (h *Handler) listExports(ctx context.Context, runID string) ([]exportItem, 
 		}
 	}
 	models := &v1.ModelList{}
-	if err := h.client.List(ctx, models, ctrlclient.MatchingLabels{v1.PostTrainingRunIdLabel: runID}); err != nil {
+	if err := reader.List(ctx, models, ctrlclient.MatchingLabels{v1.PostTrainingRunIdLabel: runID}); err != nil {
 		return nil, err
 	}
 	for i := range models.Items {

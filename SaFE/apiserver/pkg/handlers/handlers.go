@@ -173,6 +173,7 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 	if commonconfig.IsDBEnable() {
 		if ptDBClient := dbclient.NewClient(); ptDBClient != nil {
 			routes.postTraining = posttraininghandlers.NewHandler(mgr.GetClient(), ptDBClient)
+			routes.postTraining.UseAPIReader(mgr.GetAPIReader())
 		}
 	}
 

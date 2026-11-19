@@ -398,8 +398,8 @@ func (h *Handler) CleanupCheckpoints(c *gin.Context) {
 }
 
 // exportRunning answers a conflict while a checkpoint export of the run has not finished, as it reads a checkpoint.
-func (h *Handler) exportRunning(ctx context.Context, runID string) error {
-	exports, err := h.listExports(ctx, runID)
+func (h *Handler) exportRunning(ctx context.Context, reader ctrlclient.Reader, runID string) error {
+	exports, err := h.listExportsFrom(ctx, reader, runID)
 	if err != nil {
 		return commonerrors.NewInternalError("failed to list the run's exports: " + err.Error())
 	}
@@ -419,14 +419,20 @@ func (h *Handler) exportRunning(ctx context.Context, runID string) error {
 // request, and answers the conflict: the export and the cleanup each look for the other after they acted, so the
 // one that acted second gives way.
 func (h *Handler) withdrawCleanupIfExporting(ctx context.Context, runID string) error {
-	conflict := h.exportRunning(ctx, runID)
-	if conflict == nil {
+	// Apart from the request, and from the API server: a caller that left must not leave the request behind
+	// unchecked, and the cache may not show an export job made a moment ago.
+	ctx, cancel := detached(ctx)
+	defer cancel()
+	found := h.exportRunning(ctx, h.reader, runID)
+	if found == nil {
 		return nil
 	}
+	// An export runs, or the exports cannot be listed to tell: either way the cleanup must not go ahead.
 	if err := h.db.UpdatePostTrainingRun(ctx, runID, map[string]interface{}{"cleanup_request": ""}); err != nil {
-		klog.ErrorS(err, "failed to withdraw a checkpoint cleanup that an export got ahead of", "run", runID)
+		return commonerrors.NewInternalError(fmt.Sprintf("failed to withdraw the checkpoint cleanup of run %s, "+
+			"which an export may run against: %v", runID, err))
 	}
-	return conflict
+	return found
 }
 
 // requestCleanup records a checkpoint cleanup unless the run got one since it was read.
@@ -452,7 +458,7 @@ func (h *Handler) planCleanup(ctx context.Context, run *dbclient.PostTrainingRun
 	if run.CleanupRequest != "" {
 		return "", commonerrors.NewConflict(fmt.Sprintf("a checkpoint cleanup of run %s is in progress", run.RunID))
 	}
-	if err := h.exportRunning(ctx, run.RunID); err != nil {
+	if err := h.exportRunning(ctx, h.client, run.RunID); err != nil {
 		return "", err
 	}
 	var rec recipe.Recipe
