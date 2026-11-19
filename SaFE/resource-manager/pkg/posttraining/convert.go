@@ -21,6 +21,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/posttraining/registry"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/resource"
 )
 
@@ -93,13 +94,7 @@ func (r *RunReconciler) sweepCaches(ctx context.Context) (ctrlruntime.Result, er
 	if err != nil {
 		return ctrlruntime.Result{}, err
 	}
-	var commits map[string]bool
-	if reg := r.registry.get(ctx, r.reader); reg != nil {
-		commits = map[string]bool{}
-		for _, img := range reg.Images {
-			commits[img.FrameworkCommit] = true
-		}
-	}
+	commits := registryCommits(r.registry.get(ctx, r.reader))
 	pending := false
 	for _, cache := range caches {
 		if !r.cacheReclaimable(ctx, cache, commits) {
@@ -115,6 +110,21 @@ func (r *RunReconciler) sweepCaches(ctx context.Context) (ctrlruntime.Result, er
 		return ctrlruntime.Result{RequeueAfter: cacheSweepRequeue}, nil
 	}
 	return ctrlruntime.Result{}, nil
+}
+
+// registryCommits returns the framework commits the images of a registry name, nil without a registry. An image
+// that names none, as an unverified one may, is left out: with only such images no cache counts as retired.
+func registryCommits(reg *registry.Registry) map[string]bool {
+	if reg == nil {
+		return nil
+	}
+	commits := map[string]bool{}
+	for _, img := range reg.Images {
+		if img.FrameworkCommit != "" {
+			commits[img.FrameworkCommit] = true
+		}
+	}
+	return commits
 }
 
 // cacheReclaimable reports whether a cache can go: its model is deleted, its commit is retired or its

@@ -18,6 +18,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/posttraining/registry"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/resource"
 )
 
@@ -249,6 +250,15 @@ func TestSweepDropsRecordsOutsideTheCacheDirectory(t *testing.T) {
 	jobs := &v1.OpsJobList{}
 	require.NoError(t, r.List(ctx, jobs))
 	require.Empty(t, jobs.Items, "a record whose path is no cache directory loses the record, never the directory")
+}
+
+// The commits a registry builds are those its images name; an image without one names none.
+func TestCommitsOfARegistryLeaveOutImagesWithoutOne(t *testing.T) {
+	require.Nil(t, registryCommits(nil), "without a registry nothing is known to be retired")
+	reg := &registry.Registry{Images: []registry.Image{{Image: "unverified:1"}}}
+	require.Empty(t, registryCommits(reg), "an image that names no commit keeps no cache and retires none")
+	reg.Images = append(reg.Images, registry.Image{Image: "img:1", FrameworkCommit: "abc1234"})
+	require.Equal(t, map[string]bool{"abc1234": true}, registryCommits(reg))
 }
 
 // A cache key is retired only when it ends in none of the listed commits.
