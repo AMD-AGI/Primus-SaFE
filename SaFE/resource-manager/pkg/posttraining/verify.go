@@ -106,6 +106,26 @@ func (r *RunReconciler) dropVerifyJob(ctx context.Context, run *dbclient.PostTra
 	return client.IgnoreNotFound(r.Delete(ctx, job))
 }
 
+// verifyWorkloadGone reports whether no workload of the verify job's name is left. A job that was deleted leaves
+// its workload until that is torn down. One that is not being deleted, as when the job's cleanup failed to delete
+// it, would be left for good: it is deleted here, unless the API server has a job of the name that the cache does
+// not show yet, whose workload it then is.
+func (r *RunReconciler) verifyWorkloadGone(ctx context.Context, run *dbclient.PostTrainingRun) (bool, error) {
+	key := client.ObjectKey{Name: verifyJobName(run.RunID)}
+	w := &v1.Workload{}
+	if err := r.Get(ctx, key, w); err != nil {
+		return apierrors.IsNotFound(err), client.IgnoreNotFound(err)
+	}
+	if !w.GetDeletionTimestamp().IsZero() || v1.GetLabel(w, v1.OpsJobIdLabel) != key.Name {
+		return false, nil
+	}
+	if err := r.reader.Get(ctx, key, &v1.OpsJob{}); err == nil || !apierrors.IsNotFound(err) {
+		return false, err
+	}
+	klog.Infof("delete workload %s, left by a verification job of post training run %s", key.Name, run.RunID)
+	return false, client.IgnoreNotFound(r.Delete(ctx, w))
+}
+
 // verify finishes a run whose result marker is missing by checking its run directory with a model-inspect
 // job: a complete output is registered, and anything else fails the run with the .noretry reason, or with
 // fallbackStage and fallbackReason. The job's run directory usage is recorded either way.
@@ -118,6 +138,13 @@ func (r *RunReconciler) verify(ctx context.Context, u *runUpdate, endTime time.T
 		if run.OutputPath == "" {
 			u.fail(fallbackStage, fallbackReason, endTime)
 			return ctrlruntime.Result{}, r.save(ctx, u)
+		}
+		// A job of this name that was deleted leaves its workload, of the same name, for a while. A new job would
+		// take that workload for its own and never get one: none is made before the workload is gone.
+		if gone, werr := r.verifyWorkloadGone(ctx, run); werr != nil {
+			return ctrlruntime.Result{}, werr
+		} else if !gone {
+			return ctrlruntime.Result{RequeueAfter: pendingRequeue}, nil
 		}
 		if err = r.Create(ctx, newRunDirJob(run, verifyJobName(run.RunID))); err != nil && !apierrors.IsAlreadyExists(err) {
 			return ctrlruntime.Result{}, err

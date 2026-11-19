@@ -407,6 +407,58 @@ func TestACheckThatIsBeingDeletedDoesNotDecide(t *testing.T) {
 	}
 }
 
+// A check that was deleted leaves its workload, of the same name, for a while. A new check made meanwhile would take
+// that workload for its own and never get one, so none is made before the workload is gone; a workload that is not
+// on its way out is deleted.
+func TestNoCheckIsMadeWhileTheWorkloadOfADeletedOneIsLeft(t *testing.T) {
+	ctx := context.Background()
+	key := client.ObjectKey{Name: verifyJobName(testRun)}
+	left := func() *v1.Workload {
+		return &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: key.Name, Labels: map[string]string{
+			v1.OpsJobIdLabel: key.Name, v1.PostTrainingRunIdLabel: testRun}}}
+	}
+	ended := func() *v1.Workload {
+		w := endedWorkload(v1.WorkloadSucceeded)
+		w.Status.EndTime = &metav1.Time{Time: time.Now().Add(-2 * resultWait)}
+		return w
+	}
+	run := testRunRow("Running", "train")
+	run.OutputPath = testRunDir
+
+	going := left()
+	going.Finalizers = []string{"primus-safe/workload"}
+	going.DeletionTimestamp = &metav1.Time{Time: time.Now()}
+	r, db, _ := newTestReconciler(t, run, ended(), going)
+	db.EXPECT().ListWorkloadPods(gomock.Any(), testRun, "uid1").Return(submitterPods("log\n"), nil).AnyTimes()
+	require.Equal(t, pendingRequeue, reconcileRun(t, r).RequeueAfter)
+	require.Error(t, r.Get(ctx, key, &v1.OpsJob{}), "the workload of the deleted check is still there")
+
+	r, db, _ = newTestReconciler(t, run, ended(), left())
+	db.EXPECT().ListWorkloadPods(gomock.Any(), testRun, "uid1").Return(submitterPods("log\n"), nil).AnyTimes()
+	require.Equal(t, pendingRequeue, reconcileRun(t, r).RequeueAfter)
+	require.Error(t, r.Get(ctx, key, &v1.OpsJob{}))
+	require.Error(t, r.Get(ctx, key, &v1.Workload{}), "a workload that nothing deletes is deleted")
+	require.Equal(t, pendingRequeue, reconcileRun(t, r).RequeueAfter)
+	require.NoError(t, r.Get(ctx, key, &v1.OpsJob{}), "the directory is checked once the workload is gone")
+
+	// The cache may not show a check that the API server has: the workload is that check's, and is left alone.
+	shown, _, _ := newTestReconciler(t, run, newRunDirJob(run, key.Name))
+	r, db, _ = newTestReconciler(t, run, ended(), left())
+	r.reader = shown.Client
+	db.EXPECT().ListWorkloadPods(gomock.Any(), testRun, "uid1").Return(submitterPods("log\n"), nil).AnyTimes()
+	require.Equal(t, pendingRequeue, reconcileRun(t, r).RequeueAfter)
+	require.NoError(t, r.Get(ctx, key, &v1.Workload{}))
+
+	// A workload of the name that is not a check's is waited for and not deleted.
+	other := left()
+	delete(other.Labels, v1.OpsJobIdLabel)
+	r, db, _ = newTestReconciler(t, run, ended(), other)
+	db.EXPECT().ListWorkloadPods(gomock.Any(), testRun, "uid1").Return(submitterPods("log\n"), nil).AnyTimes()
+	require.Equal(t, pendingRequeue, reconcileRun(t, r).RequeueAfter)
+	require.NoError(t, r.Get(ctx, key, &v1.Workload{}))
+	require.Error(t, r.Get(ctx, key, &v1.OpsJob{}))
+}
+
 // A workload that the cluster stored after its run ended without one is removed: nothing follows a run that ended,
 // and the workload would train unseen.
 func TestAWorkloadStoredAfterItsRunEndedIsRemoved(t *testing.T) {
