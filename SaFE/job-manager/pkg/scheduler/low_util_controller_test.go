@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -422,4 +423,134 @@ func TestParseLowUtilDuration(t *testing.T) {
 	assert.Equal(t, parseLowUtilDuration("bad"), time.Duration(0))
 	assert.Equal(t, parseLowUtilDuration("-5m"), time.Duration(0))
 	assert.Equal(t, parseLowUtilDuration("1h30m"), 90*time.Minute)
+}
+
+var conditionReasonPattern = regexp.MustCompile(`^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$`)
+
+func lowUtilTimeline(t *testing.T, cl ctrlclient.Client, name string) []metav1.Condition {
+	t.Helper()
+	w, err := getLowUtilWorkload(t, cl, name)
+	assert.NilError(t, err)
+	var out []metav1.Condition
+	for _, c := range w.Status.Conditions {
+		if c.Type == string(v1.AdminLowUtilization) {
+			assert.Assert(t, conditionReasonPattern.MatchString(c.Reason), c.Reason)
+			assert.Equal(t, c.Status, metav1.ConditionTrue)
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func lowUtilReasons(conds []metav1.Condition) []string {
+	reasons := make([]string, 0, len(conds))
+	for _, c := range conds {
+		reasons = append(reasons, c.Reason)
+	}
+	return reasons
+}
+
+func lowUtilDetectedCondition() metav1.Condition {
+	return metav1.Condition{Type: string(v1.AdminLowUtilization), Status: metav1.ConditionTrue,
+		Reason: "Detected_1", Message: "detected", LastTransitionTime: metav1.NewTime(lowUtilTestNow.Add(-2 * time.Hour))}
+}
+
+func TestLowUtilDryRunDetectionAddsTimelineEntry(t *testing.T) {
+	policy := lowUtilPolicy(v1.LowUtilizationAverage)
+	policy.DryRun = true
+	src := &fakeGPUWindow{windows: map[string]robustclient.WorkloadGPUWindow{"w-uid": gpuWindow("w-uid", 1, 60)}}
+	r, cl, _ := newLowUtilTestController(t, src, lowUtilTestWorkspace(policy), lowUtilTestWorkload("w", "a"))
+
+	r.runOnce(context.Background())
+
+	timeline := lowUtilTimeline(t, cl, "w")
+	assert.Equal(t, len(timeline), 1)
+	assert.Equal(t, timeline[0].Reason, "Detected_1")
+	assert.Assert(t, strings.HasPrefix(timeline[0].Message, "low GPU utilization: "), timeline[0].Message)
+	assert.Assert(t, strings.HasSuffix(timeline[0].Message, "; dry run, the workload will not be stopped"), timeline[0].Message)
+	assert.Assert(t, timeline[0].LastTransitionTime.Time.Equal(lowUtilTestNow))
+}
+
+func TestLowUtilDetectionAddsTimelineEntryWithStopTime(t *testing.T) {
+	src := &fakeGPUWindow{windows: map[string]robustclient.WorkloadGPUWindow{"w-uid": gpuWindow("w-uid", 1, 60)}}
+	r, cl, _ := newLowUtilTestController(t, src,
+		lowUtilTestWorkspace(lowUtilPolicy(v1.LowUtilizationAverage)), lowUtilTestWorkload("w", "a"))
+
+	r.runOnce(context.Background())
+	r.runOnce(context.Background())
+
+	timeline := lowUtilTimeline(t, cl, "w")
+	assert.Equal(t, len(timeline), 1)
+	assert.Equal(t, timeline[0].Reason, "Detected_1")
+	want := "; the workload will be stopped at " + lowUtilTestNow.Add(30*time.Minute).Format(time.RFC3339) + " if it stays idle"
+	assert.Assert(t, strings.HasSuffix(timeline[0].Message, want), timeline[0].Message)
+}
+
+func TestLowUtilDryRunWouldStopAddedOncePerEpisode(t *testing.T) {
+	policy := lowUtilPolicy(v1.LowUtilizationAverage)
+	policy.DryRun = true
+	w := lowUtilTestWorkload("w", "a")
+	v1.SetAnnotation(w, v1.WorkloadLowUtilDetectedAtAnnotation, lowUtilTestNow.Add(-2*time.Hour).Format(time.RFC3339))
+	w.Status.Conditions = []metav1.Condition{lowUtilDetectedCondition()}
+	src := &fakeGPUWindow{windows: map[string]robustclient.WorkloadGPUWindow{"w-uid": gpuWindow("w-uid", 1, 60)}}
+	r, cl, _ := newLowUtilTestController(t, src, lowUtilTestWorkspace(policy), w)
+
+	r.runOnce(context.Background())
+	r.runOnce(context.Background())
+
+	timeline := lowUtilTimeline(t, cl, "w")
+	assert.DeepEqual(t, lowUtilReasons(timeline), []string{"Detected_1", "DryRunWouldStop_1"})
+	assert.Assert(t, strings.HasPrefix(timeline[1].Message, "dry run: the workload would be stopped now (low GPU utilization: "),
+		timeline[1].Message)
+	got, err := getLowUtilWorkload(t, cl, "w")
+	assert.NilError(t, err)
+	assert.Equal(t, got.Status.Phase, v1.WorkloadRunning)
+}
+
+func TestLowUtilRecoveryAddsTimelineEntry(t *testing.T) {
+	marked := lowUtilTestWorkload("marked", "a")
+	v1.SetAnnotation(marked, v1.WorkloadLowUtilDetectedAtAnnotation, lowUtilTestNow.Add(-time.Hour).Format(time.RFC3339))
+	marked.Status.Conditions = []metav1.Condition{lowUtilDetectedCondition()}
+	unmarked := lowUtilTestWorkload("unmarked", "a")
+	unmarked.Status.Conditions = []metav1.Condition{lowUtilDetectedCondition()}
+	src := &fakeGPUWindow{windows: map[string]robustclient.WorkloadGPUWindow{
+		"marked-uid":   gpuWindow("marked-uid", 50, 60),
+		"unmarked-uid": gpuWindow("unmarked-uid", 50, 60),
+	}}
+	r, cl, _ := newLowUtilTestController(t, src,
+		lowUtilTestWorkspace(lowUtilPolicy(v1.LowUtilizationAverage)), marked, unmarked)
+
+	r.runOnce(context.Background())
+
+	timeline := lowUtilTimeline(t, cl, "marked")
+	assert.DeepEqual(t, lowUtilReasons(timeline), []string{"Detected_1", "Recovered_1"})
+	assert.Equal(t, timeline[1].Message, "GPU utilization recovered: observed max 50.0%")
+	got, err := getLowUtilWorkload(t, cl, "marked")
+	assert.NilError(t, err)
+	_, stillMarked := got.Annotations[v1.WorkloadLowUtilDetectedAtAnnotation]
+	assert.Assert(t, !stillMarked)
+
+	assert.DeepEqual(t, lowUtilReasons(lowUtilTimeline(t, cl, "unmarked")), []string{"Detected_1"})
+}
+
+// Each idle episode adds its own entries: detect, recover, detect again.
+func TestLowUtilEpisodesAddNewTimelineEntries(t *testing.T) {
+	policy := lowUtilPolicy(v1.LowUtilizationAverage)
+	policy.DryRun = true
+	policy.NotifyBefore = ""
+	idle := map[string]robustclient.WorkloadGPUWindow{"w-uid": gpuWindow("w-uid", 1, 60)}
+	active := map[string]robustclient.WorkloadGPUWindow{"w-uid": gpuWindow("w-uid", 50, 60)}
+	src := &fakeGPUWindow{windows: idle}
+	r, cl, _ := newLowUtilTestController(t, src, lowUtilTestWorkspace(policy), lowUtilTestWorkload("w", "a"))
+
+	r.runOnce(context.Background())
+	src.windows = active
+	r.runOnce(context.Background())
+	r.runOnce(context.Background())
+	src.windows = idle
+	r.runOnce(context.Background())
+	r.runOnce(context.Background())
+
+	assert.DeepEqual(t, lowUtilReasons(lowUtilTimeline(t, cl, "w")), []string{
+		"Detected_1", "DryRunWouldStop_1", "Recovered_1", "Detected_2", "DryRunWouldStop_2"})
 }

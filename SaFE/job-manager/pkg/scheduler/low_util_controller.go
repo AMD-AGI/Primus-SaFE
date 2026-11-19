@@ -9,9 +9,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -31,6 +33,12 @@ const (
 	// Share of the expected samples Robust must return before utilization is judged.
 	lowUtilMinCoverage = 0.9
 	lowUtilEventReason = "LowGPUUtilization"
+
+	// AdminLowUtilization condition reasons, suffixed with the 1-based idle
+	// episode so each episode adds its own timeline entries.
+	lowUtilReasonDetected  = "Detected_"
+	lowUtilReasonWouldStop = "DryRunWouldStop_"
+	lowUtilReasonRecovered = "Recovered_"
 )
 
 var errLowUtilNoClient = errors.New("no Robust client for the cluster")
@@ -259,6 +267,14 @@ func (r *LowUtilizationController) apply(ctx context.Context,
 		jmmetrics.LowUtilSkippedNoDataTotal.WithLabelValues(cluster).Inc()
 		return nil
 	case lowUtilActive:
+		if _, ok := w.GetAnnotations()[v1.WorkloadLowUtilDetectedAtAnnotation]; ok {
+			if episode, open := lowUtilEpisode(w); open {
+				if err := r.addLowUtilCondition(ctx, w, lowUtilReasonRecovered, episode,
+					fmt.Sprintf("GPU utilization recovered: observed max %.1f%%", d.observed)); err != nil {
+					return client.IgnoreNotFound(err)
+				}
+			}
+		}
 		return r.clearDetected(ctx, w)
 	}
 
@@ -266,7 +282,8 @@ func (r *LowUtilizationController) apply(ctx context.Context,
 	notifyBefore := parseLowUtilDuration(c.policy.NotifyBefore)
 	description := describeLowUtil(c.policy, d)
 	detectedAt, err := time.Parse(time.RFC3339, v1.GetAnnotation(w, v1.WorkloadLowUtilDetectedAtAnnotation))
-	if err != nil {
+	firstDetection := err != nil
+	if firstDetection {
 		detectedAt = now
 		if err = r.setDetected(ctx, w, detectedAt); err != nil {
 			return err
@@ -281,12 +298,27 @@ func (r *LowUtilizationController) apply(ctx context.Context,
 				description, detectedAt.Add(notifyBefore).Format(time.RFC3339))
 		}
 	}
+	// The annotation is written before the condition, so an episode marked
+	// without its Detected entry (a failed status patch) gets it on a later round.
+	episode, open := lowUtilEpisode(w)
+	if firstDetection || !open {
+		episode++
+		message := description + "; dry run, the workload will not be stopped"
+		if !c.policy.DryRun {
+			message = fmt.Sprintf("%s; the workload will be stopped at %s if it stays idle",
+				description, detectedAt.Add(notifyBefore).Format(time.RFC3339))
+		}
+		if err = r.addLowUtilCondition(ctx, w, lowUtilReasonDetected, episode, message); err != nil {
+			return err
+		}
+	}
 	if now.Before(detectedAt.Add(notifyBefore)) {
 		return nil
 	}
 	if c.policy.DryRun {
 		klog.Infof("[low-util] dry run, workload %s would be stopped: %s", w.Name, description)
-		return nil
+		return r.addLowUtilCondition(ctx, w, lowUtilReasonWouldStop, episode,
+			fmt.Sprintf("dry run: the workload would be stopped now (%s)", description))
 	}
 	if err = jobutils.MarkWorkloadStopped(ctx, r.Client, w,
 		jobutils.StopReasonLowUtilization, "stopped for "+description); err != nil {
@@ -307,6 +339,45 @@ func describeLowUtil(policy *v1.LowUtilizationPolicy, d lowUtilDecision) string 
 		msg += " on node " + d.node
 	}
 	return msg
+}
+
+// lowUtilEpisode returns the index of the last idle episode on the timeline of
+// w, 0 for none, and whether that episode has not recovered yet.
+func lowUtilEpisode(w *v1.Workload) (int, bool) {
+	episode := 0
+	for _, c := range w.Status.Conditions {
+		if c.Type == string(v1.AdminLowUtilization) && strings.HasPrefix(c.Reason, lowUtilReasonDetected) {
+			episode++
+		}
+	}
+	if episode == 0 {
+		return 0, false
+	}
+	recovered := jobutils.FindCondition(w, &metav1.Condition{
+		Type: string(v1.AdminLowUtilization), Reason: lowUtilReason(lowUtilReasonRecovered, episode)})
+	return episode, recovered == nil
+}
+
+func lowUtilReason(prefix string, episode int) string {
+	return fmt.Sprintf("%s%d", prefix, episode)
+}
+
+// addLowUtilCondition appends an AdminLowUtilization timeline entry unless one
+// with the same reason exists.
+func (r *LowUtilizationController) addLowUtilCondition(ctx context.Context, w *v1.Workload,
+	prefix string, episode int, message string) error {
+	cond := jobutils.NewCondition(string(v1.AdminLowUtilization), message, lowUtilReason(prefix, episode))
+	if jobutils.FindCondition(w, cond) != nil {
+		return nil
+	}
+	cond.LastTransitionTime = metav1.NewTime(r.now().UTC())
+	conditions := append(append([]metav1.Condition(nil), w.Status.Conditions...), *cond)
+	if err := jobutils.PatchWorkloadStatusFields(ctx, r.Client, w,
+		map[string]any{"conditions": conditions}); err != nil {
+		return err
+	}
+	w.Status.Conditions = conditions
+	return nil
 }
 
 func (r *LowUtilizationController) setDetected(ctx context.Context, w *v1.Workload, at time.Time) error {

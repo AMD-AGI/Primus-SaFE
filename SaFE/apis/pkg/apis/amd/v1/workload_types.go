@@ -52,6 +52,8 @@ const (
 	AdminFailover WorkloadConditionType = "AdminFailover"
 	AdminFailed   WorkloadConditionType = "AdminFailed"
 	AdminStopped  WorkloadConditionType = "AdminStopped"
+
+	AdminLowUtilization WorkloadConditionType = "AdminLowUtilization"
 )
 
 type WorkloadResource struct {
