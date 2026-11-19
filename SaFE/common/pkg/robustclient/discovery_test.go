@@ -193,3 +193,87 @@ func TestSyncOnceSelectsTheServiceToken(t *testing.T) {
 	require.NoError(t, rc.ForCluster("crusoe").Get(ctx, "/x", nil, nil))
 	assert.Equal(t, "global", *got)
 }
+
+// A cluster annotated with a CA Secret reaches a Robust API signed by that CA;
+// a malformed reference, a missing Secret or a ca.crt without a certificate
+// leaves it on the system pool, reported once and without re-registering.
+func TestSyncOnceTrustsTheClusterCA(t *testing.T) {
+	srv, caPEM := tlsServer(t)
+	ca := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "primus-safe", Name: "crusoe-ca"},
+		Data:       map[string][]byte{"ca.crt": caPEM},
+	}
+	empty := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "primus-safe", Name: "empty-ca"},
+		Data:       map[string][]byte{"ca.crt": []byte("no certificate here")},
+	}
+	withCA := func(name, ref string) *v1.Cluster {
+		annotations := map[string]string{annotationRobustEndpoint: srv.URL}
+		if ref != "" {
+			annotations[annotationRobustCASecret] = ref
+		}
+		return readyCluster(name, annotations)
+	}
+	d, rc := newTestDiscovery(t, "mgmt",
+		withCA("crusoe", "primus-safe/crusoe-ca"),
+		withCA("plain", ""),
+		withCA("bad-ref", "no-slash"),
+		withCA("missing", "primus-safe/nope"),
+		withCA("empty", "primus-safe/empty-ca"),
+		ca, empty)
+	ctx := context.Background()
+	d.syncOnce(ctx)
+
+	assert.Equal(t, "primus-safe/crusoe-ca", rc.ForCluster("crusoe").CASecret())
+	assert.NoError(t, rc.ForCluster("crusoe").Get(ctx, "/x", nil, nil))
+	assert.ErrorContains(t, rc.ForCluster("plain").Get(ctx, "/x", nil, nil), "certificate")
+	assert.NotContains(t, d.caErrLogged, "plain")
+	assert.NotContains(t, d.caErrLogged, "crusoe")
+
+	degraded := map[string]*ClusterClient{}
+	for _, name := range []string{"bad-ref", "missing", "empty"} {
+		cc := rc.ForCluster(name)
+		require.NotNil(t, cc, name)
+		assert.Equal(t, "", cc.CAHash(), name)
+		assert.ErrorContains(t, cc.Get(ctx, "/x", nil, nil), "certificate", name)
+		assert.Contains(t, d.caErrLogged, name)
+		degraded[name] = cc
+	}
+	assert.Contains(t, d.caErrLogged["bad-ref"], "<namespace>/<name>")
+	assert.Contains(t, d.caErrLogged["missing"], "read secret")
+	assert.Contains(t, d.caErrLogged["empty"], "ca.crt")
+
+	// Nothing changed: the clients stay as they are.
+	crusoe := rc.ForCluster("crusoe")
+	d.syncOnce(ctx)
+	assert.Same(t, crusoe, rc.ForCluster("crusoe"))
+	for name, cc := range degraded {
+		assert.Same(t, cc, rc.ForCluster(name), name)
+	}
+
+	// Fixing the Secret content re-registers the cluster with the CA.
+	empty.Data["ca.crt"] = caPEM
+	require.NoError(t, d.k8sClient.Update(ctx, empty))
+	d.syncOnce(ctx)
+	assert.NotSame(t, degraded["empty"], rc.ForCluster("empty"))
+	assert.Equal(t, CAHash(caPEM), rc.ForCluster("empty").CAHash())
+	assert.NoError(t, rc.ForCluster("empty").Get(ctx, "/x", nil, nil))
+	assert.NotContains(t, d.caErrLogged, "empty")
+
+	// Dropping the annotation moves the cluster back to the system pool.
+	cluster := &v1.Cluster{}
+	require.NoError(t, d.k8sClient.Get(ctx, client.ObjectKey{Name: "crusoe"}, cluster))
+	delete(cluster.Annotations, annotationRobustCASecret)
+	require.NoError(t, d.k8sClient.Update(ctx, cluster))
+	d.syncOnce(ctx)
+	assert.Equal(t, "", rc.ForCluster("crusoe").CASecret())
+	assert.ErrorContains(t, rc.ForCluster("crusoe").Get(ctx, "/x", nil, nil), "certificate")
+
+	// Pointing it at another Secret re-registers it too.
+	require.NoError(t, d.k8sClient.Get(ctx, client.ObjectKey{Name: "crusoe"}, cluster))
+	cluster.Annotations[annotationRobustCASecret] = "primus-safe/empty-ca"
+	require.NoError(t, d.k8sClient.Update(ctx, cluster))
+	d.syncOnce(ctx)
+	assert.Equal(t, "primus-safe/empty-ca", rc.ForCluster("crusoe").CASecret())
+	assert.NoError(t, rc.ForCluster("crusoe").Get(ctx, "/x", nil, nil))
+}

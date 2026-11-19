@@ -7,6 +7,8 @@ package robustclient
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net"
 	"strings"
 	"sync"
@@ -35,6 +37,11 @@ const (
 	// service-token key the cluster's Robust API accepts instead of the
 	// global token.
 	annotationRobustTokenSecret = "primus-safe.amd.com/robust-service-token-secret"
+	// <namespace>/<name> of a Secret in the management cluster whose ca.crt
+	// key holds the PEM certificates the cluster's Robust API is signed by,
+	// trusted on top of the system pool.
+	annotationRobustCASecret = "primus-safe.amd.com/robust-api-ca-secret"
+	robustCASecretKey        = "ca.crt"
 )
 
 // Discovery watches Cluster CRs and auto-registers robust-analyzer endpoints on the Client.
@@ -51,6 +58,9 @@ type Discovery struct {
 	// noEndpointLogged holds the clusters already reported as having no
 	// Robust endpoint, so the report is made once.
 	noEndpointLogged map[string]bool
+	// caErrLogged holds, per cluster, the CA failure last reported, so each
+	// failure is reported once.
+	caErrLogged map[string]string
 }
 
 // NewDiscovery creates a discovery that syncs Cluster CRs to robust client endpoints.
@@ -64,6 +74,7 @@ func NewDiscovery(k8sClient client.Client, rc *Client, interval time.Duration) *
 
 		managementCluster: commonconfig.GetRobustManagementCluster,
 		noEndpointLogged:  make(map[string]bool),
+		caErrLogged:       make(map[string]string),
 	}
 }
 
@@ -133,8 +144,11 @@ func (d *Discovery) syncOnce(ctx context.Context) {
 		delete(d.noEndpointLogged, name)
 
 		tokenSecret := cluster.Annotations[annotationRobustTokenSecret]
+		caSecret := cluster.Annotations[annotationRobustCASecret]
+		caPEM := d.clusterCA(ctx, name, caSecret)
 		existing := d.rc.ForCluster(name)
-		if existing != nil && existing.BaseURL() == endpoint && existing.TokenSecret() == tokenSecret {
+		if existing != nil && existing.BaseURL() == endpoint && existing.TokenSecret() == tokenSecret &&
+			existing.CASecret() == caSecret && existing.CAHash() == CAHash(caPEM) {
 			continue
 		}
 
@@ -142,8 +156,12 @@ func (d *Discovery) syncOnce(ctx context.Context) {
 		if tokenSecret != "" {
 			token = d.secretToken(name, tokenSecret)
 		}
-		d.rc.RegisterClusterWithToken(name, endpoint, tokenSecret, token)
-		klog.Infof("[robustclient] discovered cluster %s -> %s (token secret %q)", name, endpoint, tokenSecret)
+		if err := d.rc.RegisterClusterWithCA(name, endpoint, tokenSecret, token, caSecret, caPEM); err != nil {
+			klog.Errorf("[robustclient] cluster %s: CA from %s: %v; trusting the system pool only", name, caSecret, err)
+			_ = d.rc.RegisterClusterWithCA(name, endpoint, tokenSecret, token, caSecret, nil)
+		}
+		klog.Infof("[robustclient] discovered cluster %s -> %s (token secret %q, CA secret %q)",
+			name, endpoint, tokenSecret, caSecret)
 	}
 
 	for _, name := range d.rc.ClusterNames() {
@@ -157,6 +175,51 @@ func (d *Discovery) syncOnce(ctx context.Context) {
 			delete(d.noEndpointLogged, name)
 		}
 	}
+	for name := range d.caErrLogged {
+		if !seen[name] {
+			delete(d.caErrLogged, name)
+		}
+	}
+}
+
+// clusterCA returns the PEM certificates under key ca.crt of the Secret ref
+// (<namespace>/<name>), read on every sync so a content change is noticed. It
+// returns nil, leaving the cluster on the system pool, when ref is empty or the
+// certificates cannot be used; such a failure is reported once per cluster.
+func (d *Discovery) clusterCA(ctx context.Context, cluster, ref string) []byte {
+	if ref == "" {
+		delete(d.caErrLogged, cluster)
+		return nil
+	}
+	caPEM, err := d.readCA(ctx, ref)
+	if err != nil {
+		if msg := ref + ": " + err.Error(); d.caErrLogged[cluster] != msg {
+			d.caErrLogged[cluster] = msg
+			klog.Errorf("[robustclient] cluster %s: %s %q: %v; trusting the system pool only",
+				cluster, annotationRobustCASecret, ref, err)
+		}
+		return nil
+	}
+	delete(d.caErrLogged, cluster)
+	return caPEM
+}
+
+func (d *Discovery) readCA(ctx context.Context, ref string) ([]byte, error) {
+	namespace, name, ok := strings.Cut(ref, "/")
+	if !ok || namespace == "" || name == "" || strings.Contains(name, "/") {
+		return nil, errors.New("must be <namespace>/<name>")
+	}
+	getCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	secret := &corev1.Secret{}
+	if err := d.k8sClient.Get(getCtx, client.ObjectKey{Namespace: namespace, Name: name}, secret); err != nil {
+		return nil, fmt.Errorf("read secret: %w", err)
+	}
+	caPEM := secret.Data[robustCASecretKey]
+	if _, err := certPoolWithPEM(caPEM); err != nil {
+		return nil, fmt.Errorf("key %s: %w", robustCASecretKey, err)
+	}
+	return caPEM, nil
 }
 
 // fallbackCluster returns the only cluster allowed to use the in-cluster Robust
