@@ -272,6 +272,10 @@ func TestARunTheClusterRefusedIsMarkedFailed(t *testing.T) {
 	refusals := map[string]error{
 		"the request is invalid":     apierrors.NewBadRequest("the priority is out of range"),
 		"a webhook cannot be called": apierrors.NewInternalError(errFromString("failed calling webhook")),
+		// The API server passes a webhook's denial on with the webhook's status, which may name no reason.
+		"a webhook denies without a reason": &apierrors.StatusError{ErrStatus: metav1.Status{
+			Status: metav1.StatusFailure, Code: http.StatusForbidden,
+			Message: `admission webhook "quota.example.com" denied the request: over quota`}},
 	}
 	for name, answer := range refusals {
 		db := mockclient.NewMockInterface(gomock.NewController(t))

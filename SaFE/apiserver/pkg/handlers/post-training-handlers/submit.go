@@ -197,9 +197,15 @@ func refused(err error) bool {
 		return false
 	}
 	switch apierrors.ReasonForError(err) {
-	case metav1.StatusReasonUnknown, metav1.StatusReasonTimeout, metav1.StatusReasonServerTimeout,
-		metav1.StatusReasonServiceUnavailable, metav1.StatusReasonAlreadyExists:
+	case metav1.StatusReasonTimeout, metav1.StatusReasonServerTimeout, metav1.StatusReasonServiceUnavailable,
+		metav1.StatusReasonAlreadyExists:
 		return false
+	case metav1.StatusReasonUnknown:
+		// Without a reason, an answer that blames the request is the denial of a webhook, which the API server
+		// passes on as the webhook worded it; one that blames the server may be an error of its storage.
+		var answer apierrors.APIStatus
+		return errors.As(err, &answer) && answer.Status().Code >= http.StatusBadRequest &&
+			answer.Status().Code < http.StatusInternalServerError
 	}
 	return true
 }
