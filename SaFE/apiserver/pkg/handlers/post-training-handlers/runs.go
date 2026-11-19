@@ -497,6 +497,33 @@ func (h *Handler) authorizeModelDelete(c *gin.Context, name string) error {
 	return h.access.Authorize(in)
 }
 
+// sourceModelEnv is the environment variable by which a workload names the model it runs on.
+const sourceModelEnv = "PRIMUS_SOURCE_MODEL"
+
+// checkModelUnused refuses to delete the run's output model while a running or pending workload other than the
+// run's own still runs on it, the way the model API does.
+func (h *Handler) checkModelUnused(ctx context.Context, run *dbclient.PostTrainingRun) error {
+	workloads := &v1.WorkloadList{}
+	if err := h.client.List(ctx, workloads); err != nil {
+		return commonerrors.NewInternalError("failed to check the workloads of the model: " + err.Error())
+	}
+	var inUse []string
+	for i := range workloads.Items {
+		w := &workloads.Items[i]
+		if w.GetEnv(sourceModelEnv) != run.OutputModelID || v1.GetLabel(w, v1.PostTrainingRunIdLabel) == run.RunID {
+			continue
+		}
+		if w.Status.Phase == v1.WorkloadRunning || w.Status.Phase == v1.WorkloadPending {
+			inUse = append(inUse, w.Name)
+		}
+	}
+	if len(inUse) > 0 {
+		return commonerrors.NewBadRequest(fmt.Sprintf("cannot delete model %s: running/pending workloads exist: %v. "+
+			"Stop or delete these workloads first, or delete the run without its model", run.OutputModelID, inUse))
+	}
+	return nil
+}
+
 // stopRun stops the run's training workload, its evaluation services except kept ones whose evaluation is over,
 // and its checkpoint exports; the controller then cancels the evaluation jobs and records the run. It reports
 // whether anything was still running.
@@ -623,6 +650,9 @@ func (h *Handler) deleteRun(c *gin.Context, run *dbclient.PostTrainingRun, delet
 	ctx := c.Request.Context()
 	if deleteModel && run.OutputModelID != "" && !imported(run) {
 		if err := h.authorizeModelDelete(c, run.OutputModelID); err != nil {
+			return err
+		}
+		if err := h.checkModelUnused(ctx, run); err != nil {
 			return err
 		}
 	}

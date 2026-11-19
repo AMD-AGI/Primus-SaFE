@@ -219,6 +219,41 @@ func TestDeleteRunEndsWhatTheControllerNoLongerFollows(t *testing.T) {
 	}
 }
 
+// Deleting a run with its model is refused while another workload runs on that model, as the model API refuses.
+func TestDeleteRunKeepsAModelThatIsInUse(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1.AddToScheme(scheme))
+	objs := runChildren(v1.WorkloadSucceeded)
+	for _, o := range objs {
+		if w, ok := o.(*v1.Workload); ok && w.Name == "pt-x-eval-kept" {
+			w.Spec.Env = map[string]string{sourceModelEnv: "m-out"}
+		}
+	}
+	objs = append(objs, &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "infer-1"},
+		Spec:   v1.WorkloadSpec{Env: map[string]string{sourceModelEnv: "m-out"}},
+		Status: v1.WorkloadStatus{Phase: v1.WorkloadRunning}})
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).WithStatusSubresource(objs...).Build()
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	h := NewHandler(cli, db)
+	run := &dbclient.PostTrainingRun{RunID: "pt-x", WorkloadID: "pt-x", Status: string(v1.WorkloadSucceeded),
+		OutputModelID: "m-out"}
+	before := remaining(t, cli)
+
+	err := h.deleteRun(testContext(), run, true)
+	require.Equal(t, http.StatusBadRequest, statusCode(err), "infer-1 still runs on the model")
+	require.Contains(t, err.Error(), "infer-1")
+	require.NotContains(t, err.Error(), "pt-x-eval-kept", "the run's own service ends with the run")
+	require.Equal(t, before, remaining(t, cli), "a refused delete stops nothing")
+
+	require.NoError(t, cli.Delete(context.Background(), &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "infer-1"}}))
+	db.EXPECT().UpdateEvaluationTaskStatus(gomock.Any(), "task-1", dbclient.EvaluationTaskStatusCancelled).Return(nil)
+	db.EXPECT().SetPostTrainingRunDeleted(gomock.Any(), "pt-x").Return(nil)
+	db.EXPECT().DeletePostTrainingRunMetrics(gomock.Any(), "pt-x").Return(nil)
+	db.EXPECT().DeletePostTrainingRunSamples(gomock.Any(), "pt-x", gomock.Any()).Return(nil)
+	require.NoError(t, h.deleteRun(testContext(), run, true))
+	require.NotContains(t, remaining(t, cli), "pt-x-eval-kept")
+}
+
 // A run without a framework is a slime run.
 func TestFrameworkOf(t *testing.T) {
 	reg, err := registry.Parse([]byte(testRegistry))
