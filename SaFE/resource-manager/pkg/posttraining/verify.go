@@ -16,7 +16,6 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -92,40 +91,6 @@ func verifyJobName(runID string) string {
 	return "pt-verify-" + hex.EncodeToString(sum[:8])
 }
 
-// dropVerifyJob deletes the job that checked the run's directory while the run's workload was taken for lost. The
-// workload is there and has not ended: what the job found says nothing of how it will end.
-func (r *RunReconciler) dropVerifyJob(ctx context.Context, run *dbclient.PostTrainingRun) error {
-	job := &v1.OpsJob{}
-	if err := r.Get(ctx, client.ObjectKey{Name: verifyJobName(run.RunID)}, job); err != nil {
-		return client.IgnoreNotFound(err)
-	}
-	if !job.GetDeletionTimestamp().IsZero() {
-		return nil
-	}
-	klog.Infof("delete the verification job %s of post training run %s, whose workload is there", job.Name, run.RunID)
-	return client.IgnoreNotFound(r.Delete(ctx, job))
-}
-
-// verifyWorkloadGone reports whether no workload of the verify job's name is left. A job that was deleted leaves
-// its workload until that is torn down. One that is not being deleted, as when the job's cleanup failed to delete
-// it, would be left for good: it is deleted here, unless the API server has a job of the name that the cache does
-// not show yet, whose workload it then is.
-func (r *RunReconciler) verifyWorkloadGone(ctx context.Context, run *dbclient.PostTrainingRun) (bool, error) {
-	key := client.ObjectKey{Name: verifyJobName(run.RunID)}
-	w := &v1.Workload{}
-	if err := r.Get(ctx, key, w); err != nil {
-		return apierrors.IsNotFound(err), client.IgnoreNotFound(err)
-	}
-	if !w.GetDeletionTimestamp().IsZero() || v1.GetLabel(w, v1.OpsJobIdLabel) != key.Name {
-		return false, nil
-	}
-	if err := r.reader.Get(ctx, key, &v1.OpsJob{}); err == nil || !apierrors.IsNotFound(err) {
-		return false, err
-	}
-	klog.Infof("delete workload %s, left by a verification job of post training run %s", key.Name, run.RunID)
-	return false, client.IgnoreNotFound(r.Delete(ctx, w))
-}
-
 // verify finishes a run whose result marker is missing by checking its run directory with a model-inspect
 // job: a complete output is registered, and anything else fails the run with the .noretry reason, or with
 // fallbackStage and fallbackReason. The job's run directory usage is recorded either way.
@@ -139,13 +104,6 @@ func (r *RunReconciler) verify(ctx context.Context, u *runUpdate, endTime time.T
 			u.fail(fallbackStage, fallbackReason, endTime)
 			return ctrlruntime.Result{}, r.save(ctx, u)
 		}
-		// A job of this name that was deleted leaves its workload, of the same name, for a while. A new job would
-		// take that workload for its own and never get one: none is made before the workload is gone.
-		if gone, werr := r.verifyWorkloadGone(ctx, run); werr != nil {
-			return ctrlruntime.Result{}, werr
-		} else if !gone {
-			return ctrlruntime.Result{RequeueAfter: pendingRequeue}, nil
-		}
 		if err = r.Create(ctx, newRunDirJob(run, verifyJobName(run.RunID))); err != nil && !apierrors.IsAlreadyExists(err) {
 			return ctrlruntime.Result{}, err
 		}
@@ -154,11 +112,6 @@ func (r *RunReconciler) verify(ctx context.Context, u *runUpdate, endTime time.T
 	}
 	if err != nil {
 		return ctrlruntime.Result{}, err
-	}
-	if !job.GetDeletionTimestamp().IsZero() {
-		// A job that is being deleted is one that was dropped, and is set failed as it goes: its answer is not
-		// taken, and the directory is checked anew once the job is gone.
-		return ctrlruntime.Result{RequeueAfter: pendingRequeue}, nil
 	}
 	if job.Status.Phase != v1.OpsJobSucceeded && job.Status.Phase != v1.OpsJobFailed {
 		if u.now.Sub(job.CreationTimestamp.Time) > verifyTimeout {

@@ -367,11 +367,6 @@ func (r *RunReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) 
 		// An imported run is written once by the import API and has no workload to follow.
 		return ctrlruntime.Result{}, nil
 	}
-	if finished(run) && run.WorkloadUID == "" {
-		if err = r.removeUnseenWorkload(ctx, run); err != nil {
-			return ctrlruntime.Result{}, reconcileError("workload", err)
-		}
-	}
 	if run.CleanupRequest != "" && finished(run) {
 		res, err := r.reconcileCleanup(ctx, run)
 		return res, reconcileError("cleanup", err)
@@ -414,21 +409,6 @@ func (r *RunReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) 
 		res, err = r.reconcileWorkload(ctx, run, w)
 	}
 	return res, reconcileError("advance", err)
-}
-
-// removeUnseenWorkload deletes the train workload of a run that ended without the controller ever seeing one. The
-// cluster stored it after the run was taken for lost or marked failed, and nothing follows a run that ended: the
-// workload would train unseen.
-func (r *RunReconciler) removeUnseenWorkload(ctx context.Context, run *dbclient.PostTrainingRun) error {
-	w := &v1.Workload{}
-	if err := r.Get(ctx, client.ObjectKey{Name: run.WorkloadID}, w); err != nil {
-		return client.IgnoreNotFound(err)
-	}
-	if w.IsEnd() || v1.GetLabel(w, v1.PostTrainingRunIdLabel) != run.RunID {
-		return nil
-	}
-	klog.Infof("delete workload %s, which was stored after post training run %s ended", w.Name, run.RunID)
-	return client.IgnoreNotFound(r.Delete(ctx, w))
 }
 
 // removeOrphans removes what a deleted run left running: its workloads, except kept evaluation services whose
@@ -487,11 +467,6 @@ func noteWorkload(u *runUpdate, w *v1.Workload) {
 func (r *RunReconciler) reconcileWorkload(ctx context.Context, run *dbclient.PostTrainingRun, w *v1.Workload) (ctrlruntime.Result, error) {
 	u := newRunUpdate(run)
 	noteWorkload(u, w)
-	if !w.IsEnd() {
-		if err := r.dropVerifyJob(ctx, run); err != nil {
-			return ctrlruntime.Result{}, err
-		}
-	}
 	switch {
 	case w.IsPending():
 		syncQueued(u, w)
