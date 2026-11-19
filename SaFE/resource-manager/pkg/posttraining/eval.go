@@ -172,18 +172,18 @@ func (r *RunReconciler) advanceEvaluation(ctx context.Context, run *dbclient.Pos
 // finishEvaluation ends an evaluation: the service is marked done and, unless it is kept, deleted, and the
 // automatic evaluation moves the run to done.
 func (r *RunReconciler) finishEvaluation(ctx context.Context, run *dbclient.PostTrainingRun, s *v1.Workload, removeService bool) error {
-	if s.GetDeletionTimestamp().IsZero() {
-		// The workload webhook's finalizer keeps a deleted service listed for a while; the mark keeps the next
-		// reconcile from taking it for a cancelled evaluation meanwhile.
+	if v1.GetAnnotation(s, v1.PostTrainingEvalDoneAnnotation) != v1.TrueStr {
+		// The workload webhook's finalizer keeps a deleted service listed for a while, whoever deleted it; the
+		// mark keeps the next reconcile from ending its evaluation a second time meanwhile.
 		patch := client.MergeFrom(s.DeepCopy())
 		v1.SetAnnotation(s, v1.PostTrainingEvalDoneAnnotation, v1.TrueStr)
 		if err := r.Patch(ctx, s, patch); client.IgnoreNotFound(err) != nil {
 			return err
 		}
-		if removeService && v1.GetAnnotation(s, evalKeepAnnotation) != v1.TrueStr {
-			if err := r.Delete(ctx, s); client.IgnoreNotFound(err) != nil {
-				return err
-			}
+	}
+	if s.GetDeletionTimestamp().IsZero() && removeService && v1.GetAnnotation(s, evalKeepAnnotation) != v1.TrueStr {
+		if err := r.Delete(ctx, s); client.IgnoreNotFound(err) != nil {
+			return err
 		}
 	}
 	if v1.GetAnnotation(s, evalAutoAnnotation) != v1.TrueStr || run.Stage != "eval" {
