@@ -80,6 +80,36 @@ func TestACleanupStaysInTheRunDirectoryAndWaitsForExports(t *testing.T) {
 	require.Empty(t, jobs.Items, "the cleanup waits for the export that reads a checkpoint")
 }
 
+// A failed cleanup job counts as one failed attempt, however often the run is reconciled while the job is deleted.
+func TestAFailedCleanupJobBeingDeletedIsCountedOnce(t *testing.T) {
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1",
+		Volumes: []v1.WorkspaceVolume{{Type: v1.PFS, MountPath: "/wekafs"}}}}
+	run := testRunRow("Succeeded", "done")
+	run.CleanupRequest = `{"keep":"none","paths":["` + testRunDir + `/checkpoints/iter_0000010"]}`
+	r, _, updates := newTestReconciler(t, run, ws)
+	ctx := context.Background()
+	reconcileRun(t, r)
+	job := &v1.OpsJob{}
+	name := resource.DirectoryCleanupJobName("ws1", testRunDir+"/checkpoints/iter_0000010")
+	require.NoError(t, r.Get(ctx, client.ObjectKey{Name: name}, job))
+	ended := metav1.NewTime(time.Now().Add(-time.Hour))
+	// The OpsJob webhook's finalizer keeps a deleted job listed until its controller let it go.
+	job.Finalizers = append(job.Finalizers, v1.OpsJobFinalizer)
+	job.Status.Phase, job.Status.FinishedAt = v1.OpsJobFailed, &ended
+	require.NoError(t, r.Update(ctx, job))
+
+	reconcileRun(t, r)
+	counted := len(*updates)
+	run.CleanupRequest = (*updates)[counted-1]["cleanup_request"].(string)
+	require.Contains(t, run.CleanupRequest, `"attempts":1`)
+	require.NoError(t, r.Get(ctx, client.ObjectKey{Name: name}, job))
+	require.False(t, job.DeletionTimestamp.IsZero(), "the failed job is being deleted")
+	for i := 0; i < cleanupAttempts; i++ {
+		require.Positive(t, reconcileRun(t, r).RequeueAfter)
+	}
+	require.Len(t, *updates, counted, "the job that is being deleted is the failure already counted")
+}
+
 // A failing cleanup is retried after a wait and dropped after its attempts, so it can be asked again.
 func TestAFailingCheckpointCleanupBacksOffAndGivesUp(t *testing.T) {
 	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1",

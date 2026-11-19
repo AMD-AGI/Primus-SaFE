@@ -125,6 +125,11 @@ func (r *RunReconciler) reconcileCleanup(ctx context.Context, run *dbclient.Post
 		if err != nil {
 			return ctrlruntime.Result{}, err
 		}
+		if !job.GetDeletionTimestamp().IsZero() {
+			// The job's finalizer keeps it listed for a while; its outcome was handled when it was deleted.
+			running = true
+			continue
+		}
 		switch job.Status.Phase {
 		case v1.OpsJobSucceeded:
 			jobs = append(jobs, job)
