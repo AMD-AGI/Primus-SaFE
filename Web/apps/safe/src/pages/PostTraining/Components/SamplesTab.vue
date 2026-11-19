@@ -301,6 +301,11 @@ watch(
   () => props.tabShown,
   (on) => on && load(true),
 )
+// The samples written after the last refresh are read once more when the run ends while the tab shows.
+watch(
+  () => props.active,
+  (on, was) => was && !on && props.tabShown && load(true),
+)
 useIntervalFn(() => {
   if (props.active && visibility.value === 'visible' && !loading.value) load(true)
 }, 10000)
