@@ -6,6 +6,7 @@
 package posttraininghandlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
@@ -35,6 +37,8 @@ const (
 	maxVariants = 4
 	// baselineVariant names the baseline of every experiment.
 	baselineVariant = "baseline"
+	// rollbackTimeout bounds the rollback of an experiment, which does not end with its request.
+	rollbackTimeout = time.Minute
 )
 
 var variantNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
@@ -223,8 +227,14 @@ func (h *Handler) SubmitExperiment(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"experimentId": exp.ExperimentID, "runIds": runIDs})
 }
 
-// rollBackExperiment deletes an experiment whose variants did not all start, with the runs created for it.
+// rollBackExperiment deletes an experiment whose variants did not all start, with the runs created for it. It does
+// not end with the request: a caller that gave up waiting would otherwise leave the started runs running.
 func (h *Handler) rollBackExperiment(c *gin.Context, exp *dbclient.PostTrainingExperiment, created []*preparedRun) {
+	request := c.Request
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(request.Context()), rollbackTimeout)
+	defer cancel()
+	c.Request = request.WithContext(ctx)
+	defer func() { c.Request = request }()
 	for _, p := range created {
 		if err := h.deleteRun(c, p.row, false); err != nil {
 			klog.ErrorS(err, "failed to roll back a run of an experiment", "experiment", exp.ExperimentID,

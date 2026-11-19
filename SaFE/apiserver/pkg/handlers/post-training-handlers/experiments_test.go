@@ -123,3 +123,26 @@ func TestDeleteExperimentChecksEveryModelBeforeItDeletesARun(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), "infer-1")
 }
+
+// An experiment whose variants did not all start is rolled back although its request has ended, as when the caller
+// gave up waiting: the runs that started would otherwise go on.
+func TestAnExperimentIsRolledBackAfterItsRequestEnded(t *testing.T) {
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	h := templateHandler(t, db)
+	live := func(ctx context.Context) { require.NoError(t, ctx.Err(), "the rollback outlives the request") }
+	db.EXPECT().ListPostTrainingRuns(gomock.Any(), gomock.Any()).Return(nil, int64(0), nil).AnyTimes()
+	db.EXPECT().SetPostTrainingRunDeleted(gomock.Any(), "pt-a").DoAndReturn(
+		func(ctx context.Context, _ string) error { live(ctx); return nil })
+	db.EXPECT().DeletePostTrainingRunMetrics(gomock.Any(), "pt-a").Return(nil)
+	db.EXPECT().DeletePostTrainingRunSamples(gomock.Any(), "pt-a", gomock.Any()).Return(nil)
+	db.EXPECT().SetPostTrainingExperimentDeleted(gomock.Any(), "exp-1").DoAndReturn(
+		func(ctx context.Context, _ string) error { live(ctx); return nil })
+
+	ended, cancel := context.WithCancel(context.Background())
+	cancel()
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/", nil).WithContext(ended)
+	h.rollBackExperiment(c, &dbclient.PostTrainingExperiment{ExperimentID: "exp-1"},
+		[]*preparedRun{{row: &dbclient.PostTrainingRun{RunID: "pt-a", WorkloadID: "pt-a"}}})
+	require.Error(t, c.Request.Context().Err(), "the request keeps its own context")
+}
