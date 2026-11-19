@@ -411,7 +411,11 @@ func (r *RunReconciler) removeOrphans(ctx context.Context, runID string) error {
 	}
 	for i := range workloads.Items {
 		w := &workloads.Items[i]
-		if w.IsEnd() || v1.GetAnnotation(w, v1.PostTrainingEvalDoneAnnotation) == v1.TrueStr {
+		// A done service stays only when it was to be kept; one that is done and not kept was not removed when its
+		// evaluation ended, and nothing else would remove it now.
+		kept := v1.GetAnnotation(w, v1.PostTrainingEvalDoneAnnotation) == v1.TrueStr &&
+			v1.GetAnnotation(w, evalKeepAnnotation) == v1.TrueStr
+		if w.IsEnd() || kept {
 			continue
 		}
 		klog.Infof("delete workload %s of deleted post training run %s", w.Name, runID)

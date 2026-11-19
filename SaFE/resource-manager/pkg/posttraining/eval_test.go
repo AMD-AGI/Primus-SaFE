@@ -148,10 +148,13 @@ func TestTheChildrenOfADeletedRunAreRemoved(t *testing.T) {
 	}
 	service := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "pt-gone-eval", Labels: labels(v1.PostTrainingRoleEval)}}
 	kept := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "pt-gone-kept", Labels: labels(v1.PostTrainingRoleEval),
+		Annotations: map[string]string{v1.PostTrainingEvalDoneAnnotation: v1.TrueStr, evalKeepAnnotation: v1.TrueStr}}}
+	// Marked done and then not removed, as when its delete failed, and not asked to be kept.
+	left := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "pt-gone-left", Labels: labels(v1.PostTrainingRoleEval),
 		Annotations: map[string]string{v1.PostTrainingEvalDoneAnnotation: v1.TrueStr}}}
 	job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: "pt-gone-eval-job", Labels: labels("")},
 		Spec: v1.OpsJobSpec{Inputs: []v1.Parameter{{Name: v1.ParameterEvalTaskId, Value: "task-9"}}}}
-	r, db, _ := newTestReconciler(t, testRunRow("Succeeded", "done"), service, kept, job)
+	r, db, _ := newTestReconciler(t, testRunRow("Succeeded", "done"), service, kept, left, job)
 	db.EXPECT().GetPostTrainingRun(gomock.Any(), "pt-gone").Return(nil, gorm.ErrRecordNotFound).Times(2)
 	ctx := context.Background()
 	db.EXPECT().IsPostTrainingRunDeleted(gomock.Any(), "pt-gone").Return(false, nil)
@@ -168,6 +171,8 @@ func TestTheChildrenOfADeletedRunAreRemoved(t *testing.T) {
 		"an evaluation service of a deleted run holds GPUs nothing else frees")
 	require.Error(t, r.Get(ctx, client.ObjectKeyFromObject(job), &v1.OpsJob{}))
 	require.NoError(t, r.Get(ctx, client.ObjectKeyFromObject(kept), &v1.Workload{}), "a kept service goes on serving")
+	require.Error(t, r.Get(ctx, client.ObjectKeyFromObject(left), &v1.Workload{}),
+		"a done service that was not to be kept only stayed because its delete failed")
 }
 
 // An evaluation whose task cannot be built records the failure and frees its GPUs.
