@@ -372,9 +372,20 @@ func (h *Handler) DeleteExperiment(c *gin.Context) {
 		apiutils.AbortWithApiError(c, err)
 		return
 	}
+	deleteModel := c.Query("deleteModel") == "true"
+	if deleteModel {
+		// Every model is checked before any run is deleted, so a refusal does not leave the experiment deleted in
+		// part and is answered with its own reason.
+		for _, r := range runs {
+			if err = h.checkModelDelete(c, r); err != nil {
+				apiutils.AbortWithApiError(c, err)
+				return
+			}
+		}
+	}
 	failed := map[string]string{}
 	for _, r := range runs {
-		if err = h.deleteRun(c, r, c.Query("deleteModel") == "true"); err != nil {
+		if err = h.deleteRun(c, r, deleteModel); err != nil {
 			failed[r.RunID] = err.Error()
 		}
 	}

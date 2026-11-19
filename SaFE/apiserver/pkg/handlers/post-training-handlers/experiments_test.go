@@ -6,14 +6,20 @@
 package posttraininghandlers
 
 import (
+	"context"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/gin-gonic/gin"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/post-training-handlers/recipe"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	mockclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
 )
@@ -89,4 +95,31 @@ func TestExperimentRunsInVariantOrder(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"r1", "r2", "r3"}, []string{runs[0].RunID, runs[1].RunID, runs[2].RunID})
 	require.Empty(t, runs[2].Recipe, "the list leaves the recipes out")
+}
+
+// An experiment is not deleted in part: a model that one of its runs may not lose refuses the delete before any
+// run is deleted, with the reason and not as a server error.
+func TestDeleteExperimentChecksEveryModelBeforeItDeletesARun(t *testing.T) {
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	h := templateHandler(t, db)
+	db.EXPECT().GetPostTrainingExperiment(gomock.Any(), "exp-1").Return(&dbclient.PostTrainingExperiment{
+		ExperimentID: "exp-1", Workspace: "ws1", UserID: "u1", BaselineVariant: "baseline"}, nil)
+	db.EXPECT().ListPostTrainingRuns(gomock.Any(), gomock.Any()).Return([]*dbclient.PostTrainingRun{
+		{RunID: "pt-a", WorkloadID: "pt-a", Workspace: "ws1", UserID: "u1", VariantName: "baseline", Status: "Succeeded"},
+		{RunID: "pt-b", WorkloadID: "pt-b", Workspace: "ws1", UserID: "u1", VariantName: "lr", Status: "Succeeded",
+			OutputModelID: "m-b"},
+	}, int64(2), nil).AnyTimes()
+	require.NoError(t, h.client.Create(context.Background(), &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "infer-1"},
+		Spec:   v1.WorkloadSpec{Env: map[string]string{sourceModelEnv: "m-b"}},
+		Status: v1.WorkloadStatus{Phase: v1.WorkloadRunning}}))
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodDelete, "/?deleteModel=true", nil)
+	c.Params = gin.Params{{Key: "id", Value: "exp-1"}}
+	c.Set(common.UserId, "u1")
+	c.Set(common.UserName, "alice")
+	h.DeleteExperiment(c)
+	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
+	require.Contains(t, w.Body.String(), "infer-1")
 }

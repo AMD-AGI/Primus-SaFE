@@ -524,6 +524,18 @@ func (h *Handler) checkModelUnused(ctx context.Context, run *dbclient.PostTraini
 	return nil
 }
 
+// checkModelDelete checks that the caller may delete the output model of a run together with the run, and that no
+// other workload runs on that model; a run with no model of its own to delete passes.
+func (h *Handler) checkModelDelete(c *gin.Context, run *dbclient.PostTrainingRun) error {
+	if run.OutputModelID == "" || imported(run) {
+		return nil
+	}
+	if err := h.authorizeModelDelete(c, run.OutputModelID); err != nil {
+		return err
+	}
+	return h.checkModelUnused(c.Request.Context(), run)
+}
+
 // stopRun stops the run's training workload, its evaluation services except kept ones whose evaluation is over,
 // and its checkpoint exports; the controller then cancels the evaluation jobs and records the run. It reports
 // whether anything was still running.
@@ -648,11 +660,8 @@ func (h *Handler) DeleteRun(c *gin.Context) {
 // points.
 func (h *Handler) deleteRun(c *gin.Context, run *dbclient.PostTrainingRun, deleteModel bool) error {
 	ctx := c.Request.Context()
-	if deleteModel && run.OutputModelID != "" && !imported(run) {
-		if err := h.authorizeModelDelete(c, run.OutputModelID); err != nil {
-			return err
-		}
-		if err := h.checkModelUnused(ctx, run); err != nil {
+	if deleteModel {
+		if err := h.checkModelDelete(c, run); err != nil {
 			return err
 		}
 	}
