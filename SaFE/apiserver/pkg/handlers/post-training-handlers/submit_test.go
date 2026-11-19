@@ -211,7 +211,8 @@ func TestARefusedRunIsMarkedFailedAlthoughItsRequestEnded(t *testing.T) {
 	c.Request = c.Request.WithContext(ctx)
 	h, _ := submitHandler(t, db, func(*v1.Workload) error {
 		leave()
-		return errFromString("quota exceeded")
+		return apierrors.NewForbidden(v1.SchemeGroupVersion.WithResource("workloads").GroupResource(), "pt-1",
+			errFromString("quota exceeded"))
 	})
 	db.EXPECT().CreatePostTrainingRun(gomock.Any(), gomock.Any()).Return(nil)
 	db.EXPECT().UpdatePostTrainingRun(gomock.Any(), "pt-1", gomock.Any()).DoAndReturn(
@@ -223,6 +224,37 @@ func TestARefusedRunIsMarkedFailedAlthoughItsRequestEnded(t *testing.T) {
 	_, err := h.createRun(c, &preparedRun{row: &dbclient.PostTrainingRun{RunID: "pt-1"},
 		workload: &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "pt-1"}}})
 	require.ErrorContains(t, err, "quota exceeded")
+}
+
+// A run stays pending when the cluster's answer to its workload is lost: the workload may run, and a failed run is
+// not followed.
+func TestARunWhoseWorkloadMayExistIsNotMarkedFailed(t *testing.T) {
+	lost := map[string]error{
+		"the caller left":       context.Canceled,
+		"the request timed out": apierrors.NewTimeoutError("etcd is slow", 1),
+		"the connection broke":  errFromString("connection reset by peer"),
+	}
+	for name, answer := range lost {
+		db := mockclient.NewMockInterface(gomock.NewController(t))
+		var cli ctrlclient.Client
+		var h *Handler
+		stored := false
+		h, cli = submitHandler(t, db, func(w *v1.Workload) error {
+			if stored {
+				return nil
+			}
+			// The cluster stores the workload, and its answer does not arrive.
+			stored = true
+			require.NoError(t, cli.Create(context.Background(), w.DeepCopy()))
+			return answer
+		})
+		// The run is not updated: the controller follows the workload, or fails the run when none shows.
+		db.EXPECT().CreatePostTrainingRun(gomock.Any(), gomock.Any()).Return(nil)
+		_, err := h.createRun(testContext(), &preparedRun{row: &dbclient.PostTrainingRun{RunID: "pt-1"},
+			workload: &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "pt-1"}}})
+		require.ErrorIs(t, err, answer, name)
+		require.NoError(t, cli.Get(context.Background(), ctrlclient.ObjectKey{Name: "pt-1"}, &v1.Workload{}), name)
+	}
 }
 
 // errFromString is an error with message.

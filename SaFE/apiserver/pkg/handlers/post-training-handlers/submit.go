@@ -6,8 +6,10 @@
 package posttraininghandlers
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -185,6 +187,17 @@ func (h *Handler) prepareRun(c *gin.Context, reg *registry.Registry,
 	return &preparedRun{row: row, workload: workload, warnings: res.Diagnostics}, nil, nil
 }
 
+// refused tells whether the cluster answered a creation with a refusal, after which the object does not exist. A
+// cancelled request, a timeout or a broken connection leaves that unknown.
+func refused(err error) bool {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
+		apierrors.IsTimeout(err) || apierrors.IsServerTimeout(err) {
+		return false
+	}
+	var answer apierrors.APIStatus
+	return errors.As(err, &answer)
+}
+
 // createRun records a prepared run and creates its workload; a run whose workload the cluster refuses is
 // recorded as failed.
 func (h *Handler) createRun(c *gin.Context, p *preparedRun) (*submitResponse, error) {
@@ -194,6 +207,11 @@ func (h *Handler) createRun(c *gin.Context, p *preparedRun) (*submitResponse, er
 	}
 	if err := h.client.Create(ctx, p.workload); err != nil {
 		klog.ErrorS(err, "failed to create the Post Training workload", "run", p.row.RunID)
+		if !refused(err) {
+			// The workload may exist, and a failed run is not followed: the run stays pending, so the controller
+			// follows the workload or, when none shows, fails the run.
+			return nil, err
+		}
 		// Apart from the request: a caller that left must not leave the run recorded as pending.
 		mark, cancel := detached(ctx)
 		defer cancel()
