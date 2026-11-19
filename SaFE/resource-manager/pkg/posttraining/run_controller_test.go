@@ -24,6 +24,7 @@ import (
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
@@ -260,6 +261,39 @@ func TestVerifyRegistersCompleteOutputOfLostWorkload(t *testing.T) {
 	require.Equal(t, "register", last["stage"])
 	require.Equal(t, `{"finalModel":9,"total":9}`, last["disk_usage"])
 	require.NotEmpty(t, last["output_model_id"])
+}
+
+// A pending run whose workload was never created gets no event of a workload: the poll queues it, and its
+// reconcile ends it once nothing of a workload is found.
+func TestAPendingRunWithoutAWorkloadIsQueuedAndEnded(t *testing.T) {
+	run := testRunRow("Pending", "queued")
+	run.OutputPath = testRunDir
+	r, db, updates := newTestReconciler(t, run)
+	r.recovered = make(chan event.GenericEvent, 2)
+	db.EXPECT().ListPostTrainingRuns(gomock.Any(), dbclient.PostTrainingRunFilter{
+		Statuses: []string{string(v1.WorkloadPending)}, Limit: recoverPageSize}).Return(
+		[]*dbclient.PostTrainingRun{run}, int64(1), nil)
+	r.queuePending(context.Background())
+	require.Len(t, r.recovered, 1)
+	require.Equal(t, testRun, (<-r.recovered).Object.GetName())
+
+	db.EXPECT().GetWorkload(gomock.Any(), testRun).Return(nil, errors.New("not found")).AnyTimes()
+	db.EXPECT().ListWorkloadPods(gomock.Any(), testRun, "uid1").Return(nil, nil).AnyTimes()
+	reconcileRun(t, r)
+	job := &v1.OpsJob{}
+	require.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: verifyJobName(testRun)}, job),
+		"the run directory is checked for what a workload left")
+	job.Status.Phase = v1.OpsJobFailed
+	require.NoError(t, r.Update(context.Background(), job))
+	reconcileRun(t, r)
+	require.Equal(t, "Failed", (*updates)[len(*updates)-1]["status"])
+
+	// A run that was just recorded is given the time its workload takes to show.
+	fresh := testRunRow("Pending", "queued")
+	fresh.CreatedAt.Time = time.Now()
+	r, _, updates = newTestReconciler(t, fresh)
+	require.Equal(t, runningRequeue, reconcileRun(t, r).RequeueAfter)
+	require.Empty(t, *updates)
 }
 
 // A run that exports no model and lost its result line ends as succeeded once verification finds its launcher
