@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -224,6 +225,8 @@ func TestPlanRobustSync(t *testing.T) {
 		historyRow("h-ended", "Stopped"),
 		historyRow("h-current", "Failed"),
 		historyRow("h-deleted", "Failed"),
+		historyRow("h-ended-unversioned", "Failed"),
+		historyRow("h-ended-opaque", "Failed"),
 		{WorkloadId: "no-uid"},
 	}
 	digest := []robustclient.WorkloadSyncDigestEntry{
@@ -235,20 +238,27 @@ func TestPlanRobustSync(t *testing.T) {
 		digestEntry("h-ended", "7", "Running", false),
 		digestEntry("h-current", "7", "Failed", false),
 		digestEntry("h-deleted", "7", "Running", true),
+		digestEntry("h-ended-unversioned", "", "Running", false),
+		digestEntry("h-ended-opaque", "abc", "Running", false),
 		digestEntry("orphan", "1", "Running", false),
 		digestEntry("orphan-deleted", "1", "Running", true),
 	}
 
 	plan := planRobustSync(workloads, history, digest)
 	assert.Equal(t, map[string]string{
-		"missing":        "missing@5",
-		"stale":          "stale@10",
-		"ended":          "ended@5",
-		"robust-deleted": "missing@5",
-		"h-missing":      "missing@",
-		"h-ended":        "ended@8",
+		"missing":             "missing@5",
+		"stale":               "stale@10",
+		"ended":               "ended@5",
+		"robust-deleted":      "missing@5",
+		"h-missing":           "missing@1",
+		"h-ended":             "ended@8",
+		"h-ended-unversioned": "ended@1",
+		"h-ended-opaque":      "ended@1",
 	}, pushedReasons(plan))
 	assert.Equal(t, []string{"orphan"}, plan.deleteCandidates)
+	for _, p := range plan.push {
+		assert.NotEmpty(t, p.ResourceVersion, p.UID)
+	}
 }
 
 func TestIsNewerVersion(t *testing.T) {
@@ -260,8 +270,9 @@ func TestIsNewerVersion(t *testing.T) {
 	assert.True(t, isNewerVersion("abc", "abd"))
 	assert.False(t, isNewerVersion("abc", "abc"))
 	assert.Equal(t, "8", nextVersion("7"))
-	assert.Equal(t, "", nextVersion(""))
-	assert.Equal(t, "", nextVersion("x"))
+	assert.Equal(t, "1", nextVersion("0"))
+	assert.Equal(t, "1", nextVersion(""))
+	assert.Equal(t, "1", nextVersion("x"))
 }
 
 // fakeRobust answers the workload sync routes of the Robust API.
@@ -269,10 +280,12 @@ type fakeRobust struct {
 	mu       sync.Mutex
 	digest   *robustclient.WorkloadSyncDigest // nil: the digest route is missing
 	failPush bool
-	log      []string
-	batches  [][]robustclient.WorkloadSyncPayload
-	single   []robustclient.WorkloadSyncPayload
-	deleted  []string
+	// batchFailed is the failed count batch pushes answer with.
+	batchFailed int
+	log         []string
+	batches     [][]robustclient.WorkloadSyncPayload
+	single      []robustclient.WorkloadSyncPayload
+	deleted     []string
 }
 
 func (f *fakeRobust) serve(t *testing.T) *httptest.Server {
@@ -292,7 +305,9 @@ func (f *fakeRobust) serve(t *testing.T) *httptest.Server {
 			var batch robustclient.WorkloadSyncBatchPayload
 			_ = json.NewDecoder(r.Body).Decode(&batch)
 			f.batches = append(f.batches, batch.Workloads)
-			_, _ = w.Write([]byte(`{"synced":1,"failed":0}`))
+			_ = json.NewEncoder(w).Encode(robustclient.WorkloadSyncBatchResponse{
+				Synced: len(batch.Workloads) - f.batchFailed, Failed: f.batchFailed,
+			})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/workloads/sync":
 			if f.failPush {
 				w.WriteHeader(http.StatusInternalServerError)
@@ -430,4 +445,24 @@ func TestReconcileClusterBatchesPushes(t *testing.T) {
 	require.Len(t, fr.batches, 2)
 	assert.Len(t, fr.batches[0], robustSyncBatchSize)
 	assert.Len(t, fr.batches[1], 1)
+}
+
+// A history row Robust does not hold is pushed with a version Robust accepts,
+// and items a batch reports as failed are counted.
+func TestReconcileClusterPushesMissingHistoryWithVersion(t *testing.T) {
+	fr := &fakeRobust{digest: &robustclient.WorkloadSyncDigest{}, batchFailed: 1}
+	r := newRobustSyncer(t)
+	r.dbClient = &fakeHistory{ended: []*dbclient.Workload{historyRow("h1", "Failed"), historyRow("h2", "Succeeded")}}
+	r.robustClient.RegisterCluster("c-batch", fr.serve(t).URL)
+	failed := testutil.ToFloat64(robustSyncErrors.WithLabelValues("c-batch", "batch_item"))
+
+	require.NoError(t, r.reconcileCluster(context.Background(), r.robustClient.ForCluster("c-batch"), nil))
+	fr.mu.Lock()
+	defer fr.mu.Unlock()
+	require.Len(t, fr.batches, 1)
+	require.Len(t, fr.batches[0], 2)
+	for _, p := range fr.batches[0] {
+		assert.Equal(t, "1", p.ResourceVersion, p.UID)
+	}
+	assert.Equal(t, failed+1, testutil.ToFloat64(robustSyncErrors.WithLabelValues("c-batch", "batch_item")))
 }

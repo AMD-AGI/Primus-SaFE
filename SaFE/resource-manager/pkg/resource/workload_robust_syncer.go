@@ -339,7 +339,11 @@ func (r *WorkloadRobustSyncer) pushBatches(ctx context.Context, cc *robustclient
 			errs = append(errs, err)
 			continue
 		}
-		if resp.Synced > 0 || resp.Failed > 0 {
+		if resp.Failed > 0 {
+			robustSyncErrors.WithLabelValues(cluster, "batch_item").Add(float64(resp.Failed))
+			klog.V(2).Infof("[workload-robust-syncer] batch push rejected items: cluster=%s synced=%d failed=%d",
+				cluster, resp.Synced, resp.Failed)
+		} else if resp.Synced > 0 {
 			klog.V(4).Infof("[workload-robust-syncer] batch push: cluster=%s synced=%d failed=%d",
 				cluster, resp.Synced, resp.Failed)
 		}
@@ -450,7 +454,7 @@ func planRobustSync(workloads []*v1.Workload, history []*dbclient.Workload,
 		d, ok := held[uid]
 		switch {
 		case !ok:
-			plan.add(buildHistorySyncPayload(row, ""), robustPushMissing)
+			plan.add(buildHistorySyncPayload(row, nextVersion("0")), robustPushMissing)
 		case d.Deleted:
 		case v1.IsWorkloadPhaseEnded(v1.WorkloadPhase(row.Phase.String)) &&
 			!v1.IsWorkloadPhaseEnded(v1.WorkloadPhase(d.Phase)):
@@ -482,11 +486,12 @@ func isNewerVersion(a, b string) bool {
 
 // nextVersion is the version a workload kept only in the database is pushed
 // with: the database has no resourceVersion, and Robust drops a payload that
-// is not newer than the version it holds.
+// is not newer than the version it holds. Robust also rejects an empty
+// version, so a version that is not an integer gives "1".
 func nextVersion(v string) string {
 	n, err := strconv.ParseUint(v, 10, 64)
 	if err != nil {
-		return ""
+		return "1"
 	}
 	return strconv.FormatUint(n+1, 10)
 }
