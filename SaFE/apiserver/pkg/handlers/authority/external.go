@@ -214,7 +214,7 @@ func buildChain(cfgs []commonconfig.AuthenticatorConfig) (*extauth.Chain, error)
 // when the chain reached the built-in mode and the caller must run it.
 func parseExternal(c *gin.Context, st *externalAuth) (handled bool, err error) {
 	cred := extauth.Credentials{ClientIP: c.ClientIP()}
-	cred.Bearer = getBearerToken(c)
+	cred.Bearer = GetBearerToken(c)
 	if cookie, cerr := c.Cookie(CookieToken); cerr == nil {
 		cred.Cookie = cookie
 		cred.UserType, _ = c.Cookie(common.UserType)

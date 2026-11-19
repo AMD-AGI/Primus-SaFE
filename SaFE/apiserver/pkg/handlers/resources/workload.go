@@ -260,6 +260,11 @@ func (h *Handler) createWorkloadImplWithHook(c *gin.Context, workload *v1.Worklo
 	if v1.GetUserName(workload) == "" {
 		v1.SetAnnotation(workload, v1.UserNameAnnotation, v1.GetUserName(requestUser))
 	}
+	if err = h.attachCICDEncryptedAPIKey(c, workload, requestUser); err != nil {
+		klog.ErrorS(err, "failed to attach CICD API key", "workload", workload.Name,
+			"user", c.GetString(common.UserName))
+		return nil, err
+	}
 	if err = h.Create(c.Request.Context(), workload); err != nil {
 		return nil, err
 	}

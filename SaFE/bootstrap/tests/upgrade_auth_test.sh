@@ -143,6 +143,7 @@ auth_login_url=https://idp.example.com/sign-in/start
 auth_allow_oidc_only=false
 auth_provider_client=false
 auth_client_secret=safe-introspection
+auth_identity_service_account=primus-identity/primus-identity
 auth_authenticators='[{\"type\":\"oidc\",\"issuer\":\"https://idp.example.com\",\"audience\":\"primus-safe\"},{\"type\":\"builtin\"}]'
 auth_group_mappings='[{\"group\":\"admins\",\"roles\":[\"system-admin\"]}]'
 auth_key_actors='[\"client-a\"]'
@@ -214,10 +215,12 @@ expect "all auth keys: key_actors" rendered 'key_actors: ["client-a"]'
 expect "all auth keys: the path of the provider's key route is reported" rendered 'api_keys_url: "/api/v1/apikeys"'
 expect "all auth keys: the console's nginx gets the provider's service" grep -qxF '              value: "identity.idns.svc.cluster.local:8080"' "$OUT/rendered.yaml"
 expect "all auth keys: the script prints no auth value" bash -c '! grep -q "idp.example.com" "$1"' _ "$OUT/log"
+expect "all auth keys: the identity service account may write the client secret" grep -qxF '    name: "primus-identity"' "$OUT/rendered.yaml"
 # Rendered with and without: only the auth segment differs.
-cp "$OUT/rendered.yaml" "$W/with-auth.yaml"
+no_rbac() { awk '/^---$/{sep = $0; next} /^# Source: /{rbac = ($0 ~ /identity-client-rbac.yaml$/)} !rbac {if (sep != "") print sep; print} {sep = ""}' "$1"; }
+no_rbac "$OUT/rendered.yaml" > "$W/with-auth.yaml"
 run_upgrade "" ""
-diff_lines="$(diff "$OUT/rendered.yaml" "$W/with-auth.yaml" | grep -E '^[<>]' | grep -vE 'mode:|authenticators:|group_mappings:|login_url:|key_actors:|api_keys_url:|enabled:|API_KEYS_UPSTREAM|nginx proxies /api/v1/apikeys|value: "identity.idns.svc.cluster.local:8080"|env:$|auth-client-secret|mountPath: /etc/secrets/auth|readOnly: true|secretName: safe-introspection|"safe-introspection"|secret:$|checksum/config:' || true)"
+diff_lines="$(diff <(no_rbac "$OUT/rendered.yaml") "$W/with-auth.yaml" | grep -E '^[<>]' | grep -vE 'mode:|authenticators:|group_mappings:|login_url:|key_actors:|api_keys_url:|api_keys_upstream:|enabled:|API_KEYS_UPSTREAM|IDENTITY_URL|nginx proxies /api/v1/apikeys|value: "identity.idns.svc.cluster.local:8080"|env:$|auth-client-secret|mountPath: /etc/secrets/auth|readOnly: true|secretName: safe-introspection|"safe-introspection"|secret:$|optional: true|checksum/config:' || true)"
 expect "rendering with and without the keys differs only in the auth segment" test -z "$diff_lines"
 [[ -z "$diff_lines" ]] || echo "$diff_lines"
 

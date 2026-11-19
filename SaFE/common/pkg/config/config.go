@@ -1170,6 +1170,12 @@ func GetAuthAPIKeysURL() string {
 	return strings.TrimRight(url, "/")
 }
 
+// GetAuthAPIKeysUpstream returns auth.api_keys_upstream: the identity service host[:port] that serves
+// /api/v1/apikeys. Empty when unset. Used to build IDENTITY_URL for CICD pods in external mode.
+func GetAuthAPIKeysUpstream() string {
+	return strings.TrimSpace(getString(authAPIKeysUpstream, ""))
+}
+
 // GetAuthLoginURL returns auth.login_url, where the console sends users to sign in when
 // authentication is external. External mode requires it.
 func GetAuthLoginURL() string { return getString(authLoginURL, "") }

@@ -14,6 +14,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
+import apikey_renew
+
 # Environment variable keys
 NFS_PATH_ENV = "SAFE_NFS_PATH"
 NFS_INPUT_ENV = "SAFE_NFS_INPUT"
@@ -194,6 +196,7 @@ def build_session() -> Tuple[requests.Session, str]:
         raise ValueError("Missing APISERVER_NODE_PORT (NodePort of apiserver pod)")
     base_url = f"http://{admin_ip}:{node_port}".rstrip("/")
 
+    apikey_renew.ensure_user_apikey()
     bearer_token = getenv_str(USER_BEARER_TOKEN_ENV)
     s = requests.Session()
     s.headers.update({"Content-Type": "application/json; charset=utf-8"})
