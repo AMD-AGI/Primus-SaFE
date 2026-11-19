@@ -100,6 +100,8 @@ def test_a_stale_lock_is_taken_over(tmp_path):
     _, root, _ = runner.convert_paths()
     lock = os.path.join(root, stages.CONVERT_LOCK)
     os.makedirs(lock)
+    with open(os.path.join(lock, stages.LOCK_OWNER), "w") as f:
+        json.dump({"run": "pt-r9", "attempt": "a1", "token": "gone"}, f)
     old = time.time() - stages.LOCK_STALE_SECONDS - 60
     os.utime(lock, (old, old))
     runner.sleep = lambda _: pytest.fail("a stale lock is not waited for")
@@ -137,34 +139,72 @@ def test_the_holder_keeps_its_lock_fresh_and_removes_only_its_own(monkeypatch, t
     assert os.path.exists(lock), "a lock that another run took over is left to it"
 
 
-def test_a_lock_left_by_an_earlier_attempt_of_the_run_is_taken_over(tmp_path):
+def test_the_holder_keeps_beating_while_its_owner_record_cannot_be_read(monkeypatch, tmp_path):
+    """One failed read of the owner record does not end the heartbeat, which would hand the lock to a waiting run."""
+    monkeypatch.setattr(stages, "LOCK_HEARTBEAT_SECONDS", 0.05)
+    root = str(tmp_path / "cache")
+    lock = os.path.join(root, stages.CONVERT_LOCK)
+    with stages.cache_lock(root, owner={"run": "pt-r1", "attempt": "a1"}) as held:
+        record = os.path.join(lock, stages.LOCK_OWNER)
+        saved = open(record).read()
+        os.remove(record)
+        time.sleep(0.3)
+        assert held(), "a record that cannot be read is not another run's"
+        with open(record, "w") as f:
+            f.write(saved)
+        old = time.time() - stages.LOCK_STALE_SECONDS - 60
+        os.utime(lock, (old, old))
+        time.sleep(0.5)
+        assert time.time() - os.path.getmtime(lock) < stages.LOCK_STALE_SECONDS
+
+
+class Waited(Exception):
+    """Raised by a runner's sleep, to end a wait for a lock."""
+
+
+def wait(_):
+    """Stand in for a runner's sleep."""
+    raise Waited()
+
+
+def test_a_lock_without_an_owner_record_is_waited_for_longer(tmp_path):
+    """A launcher from before the heartbeat holds a lock without a record, which is not refreshed while it converts."""
     runner, _ = setup(tmp_path, "r1")
-    runner.emitter.attempt = "a2"
     runner.adapter = adapter = CountingAdapter()
     _, root, _ = runner.convert_paths()
     lock = os.path.join(root, stages.CONVERT_LOCK)
     os.makedirs(lock)
-    with open(os.path.join(lock, stages.LOCK_OWNER), "w") as f:
-        json.dump({"run": "pt-r1", "attempt": "a1", "token": "old"}, f)
-    runner.sleep = lambda _: pytest.fail("the run does not wait for its own earlier attempt")
+    old = time.time() - stages.LOCK_STALE_SECONDS - 60
+    os.utime(lock, (old, old))
+    runner.sleep = wait
+    with pytest.raises(Waited):
+        runner.stage_convert()
+    assert adapter.conversions == 0 and os.path.exists(lock)
+    old = time.time() - stages.LOCK_UNOWNED_STALE_SECONDS - 60
+    os.utime(lock, (old, old))
     runner.stage_convert()
     assert adapter.conversions == 1 and not os.path.exists(lock)
 
 
-def test_the_holder_keeps_its_lock_fresh_and_removes_only_its_own(monkeypatch, tmp_path):
-    monkeypatch.setattr(stages, "LOCK_HEARTBEAT_SECONDS", 0.05)
-    root = str(tmp_path / "cache")
-    lock = os.path.join(root, stages.CONVERT_LOCK)
-    with stages.cache_lock(root, owner={"run": "pt-r1", "attempt": "a1"}):
-        owner = json.load(open(os.path.join(lock, stages.LOCK_OWNER)))
-        assert owner["run"] == "pt-r1" and owner["attempt"] == "a1" and owner["token"]
-        old = time.time() - stages.LOCK_STALE_SECONDS - 60
-        os.utime(lock, (old, old))
-        time.sleep(0.5)
-        assert time.time() - os.path.getmtime(lock) < stages.LOCK_STALE_SECONDS, "a live holder refreshes its lock"
-        with open(os.path.join(lock, stages.LOCK_OWNER), "w") as f:
+class TakenOverAdapter(CountingAdapter):
+    """Converts while another run takes the lock over."""
+
+    def convert(self, recipe, run_dir, run_command):
+        super().convert(recipe, run_dir, run_command)
+        with open(os.path.join(self.lock, stages.LOCK_OWNER), "w") as f:
             json.dump({"run": "pt-r2", "attempt": "a1", "token": "other"}, f)
-    assert os.path.exists(lock), "a lock that another run took over is left to it"
+
+
+def test_a_conversion_whose_lock_was_taken_over_is_not_marked_complete(tmp_path):
+    """Two runs then wrote the same cache directory, so neither result is recorded as usable."""
+    runner, _ = setup(tmp_path, "r1")
+    runner.adapter = adapter = TakenOverAdapter()
+    _, root, complete = runner.convert_paths()
+    adapter.lock = os.path.join(root, stages.CONVERT_LOCK)
+    with pytest.raises(stages.StageError) as e:
+        runner.stage_convert()
+    assert e.value.retry and not os.path.exists(complete)
+    assert os.path.exists(adapter.lock), "the lock stays with the run that took it over"
 
 
 class FP8Adapter(CountingAdapter):

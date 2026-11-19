@@ -45,6 +45,9 @@ SOURCE_FILE = "source.json"
 # LOCK_STALE_SECONDS was left by a launcher that died, and the next run takes it over.
 LOCK_HEARTBEAT_SECONDS = 60
 LOCK_STALE_SECONDS = 10 * 60
+# A lock without an owner record is one of a launcher from before the heartbeat, which holds it for a whole
+# conversion without refreshing it.
+LOCK_UNOWNED_STALE_SECONDS = 6 * 3600
 LOCK_OWNER = "owner.json"
 ITER_DIR = re.compile(r"^iter_(\d{7})$")
 SAMPLES_DIR = "samples"
@@ -226,8 +229,9 @@ def lock_owner(lock):
 def cache_lock(root, owner=None, sleep=time.sleep, clock=time.time):
     """Hold the conversion lock of a cache directory. mkdir is atomic on the shared storage, so one run converts
     while the others wait. The holder records owner and a token in the lock and refreshes it every
-    LOCK_HEARTBEAT_SECONDS; a lock not refreshed for LOCK_STALE_SECONDS, or left by an earlier attempt of the same
-    run, is taken over, and a holder removes the lock only while its token is still there."""
+    LOCK_HEARTBEAT_SECONDS; a lock not refreshed for LOCK_STALE_SECONDS, or for LOCK_UNOWNED_STALE_SECONDS when it
+    has no owner record, or left by an earlier attempt of the same run, is taken over, and a holder removes the lock
+    only while its token is still there. It yields a function that tells whether the lock is still the holder's."""
     os.makedirs(root, exist_ok=True)
     lock = os.path.join(root, CONVERT_LOCK)
     me = dict(owner or {}, token=uuid.uuid4().hex)
@@ -242,18 +246,30 @@ def cache_lock(root, owner=None, sleep=time.sleep, clock=time.time):
                 continue
             held = lock_owner(lock)
             earlier = me.get("run") and held.get("run") == me["run"] and held.get("attempt") != me.get("attempt")
-            if age > LOCK_STALE_SECONDS or earlier:
-                shutil.rmtree(lock, ignore_errors=True)
+            if age > (LOCK_STALE_SECONDS if held else LOCK_UNOWNED_STALE_SECONDS) or earlier:
+                # Only the run whose rename moves the lock away removes it, so two runs that both found it stale
+                # do not remove the lock the first of them makes next.
+                gone = "%s.%s" % (lock, me["token"])
+                try:
+                    os.rename(lock, gone)
+                except OSError:
+                    continue
+                shutil.rmtree(gone, ignore_errors=True)
                 continue
             sleep(LOCK_POLL_SECONDS)
     with open(os.path.join(lock, LOCK_OWNER), "w") as f:
         json.dump(me, f)
     stop = threading.Event()
 
+    def other():
+        """Return the token of another run in the lock, None when the lock has none or cannot be read."""
+        token = lock_owner(lock).get("token")
+        return token if token != me["token"] else None
+
     def heartbeat():
         """Refresh the lock's mtime until the holder is done or another run took the lock over."""
         while not stop.wait(LOCK_HEARTBEAT_SECONDS):
-            if lock_owner(lock).get("token") != me["token"]:
+            if other():
                 return
             try:
                 os.utime(lock)
@@ -263,7 +279,7 @@ def cache_lock(root, owner=None, sleep=time.sleep, clock=time.time):
     beat = threading.Thread(target=heartbeat, daemon=True)
     beat.start()
     try:
-        yield
+        yield lambda: os.path.isdir(lock) and not other()
     finally:
         stop.set()
         beat.join()
@@ -486,6 +502,12 @@ class Runner:
             json.dump(stats, f)
         self.emitter.stage("prepare", state="done", detail=stats)
 
+    def keep_conversion(self, held):
+        """Fail the stage instead of marking a conversion complete when another run took the lock over meanwhile,
+        as both then wrote the cache directory; the next attempt converts again under the lock."""
+        if not held():
+            raise StageError("convert", "another run took the conversion lock over; the conversion is not kept")
+
     def stage_convert(self):
         """Convert the base weights for training under the cache lock, unless a run that held the lock first
         converted them, and record the source fingerprint before the completion mark. HF-direct recipes skip
@@ -495,16 +517,18 @@ class Runner:
         run_command = functools.partial(self.run_command, watch="convert")
         owner = {"run": self.emitter.run_id, "attempt": self.emitter.attempt, "host": socket.gethostname(),
                  "pid": os.getpid()}
-        with cache_lock(root, owner=owner, sleep=self.sleep):
+        with cache_lock(root, owner=owner, sleep=self.sleep) as held:
             if self.hf_direct():
                 if not os.path.exists(os.path.join(root, SOURCE_FILE)):
                     self.write_source(root)
             elif not os.path.exists(complete):
                 self.adapter.convert(self.recipe, self.run_dir, run_command)
+                self.keep_conversion(held)
                 self.write_source(root)
                 open(complete, "w").close()
             if self.wants_fp8() and not os.path.exists(fp8_complete):
                 self.adapter.convert_fp8(self.recipe, self.run_dir, run_command, fp8_out)
+                self.keep_conversion(held)
                 open(fp8_complete, "w").close()
         self.check_source(root)
         self.report_conversion("done")
