@@ -829,6 +829,15 @@ watch(isActive, (on, was) => {
   if (was && !on && run.value) fetchMetrics(true)
 })
 
+// So are the points filled into a gap, when the run is read for them no longer: the curves are read less often
+// than the run, which tells that the gap was gone over.
+watch(
+  () => fillsGapsAfterEnd(run.value),
+  (on, was) => {
+    if (was && !on && run.value) fetchMetrics(true)
+  },
+)
+
 /** Training time from the start of the workload to its end, or to now while it runs. */
 const duration = computed(() => {
   const start = timeOf(run.value?.startTime)
