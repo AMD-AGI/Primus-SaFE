@@ -16,6 +16,7 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -89,6 +90,20 @@ type verifyResult struct {
 func verifyJobName(runID string) string {
 	sum := sha256.Sum256([]byte(runID))
 	return "pt-verify-" + hex.EncodeToString(sum[:8])
+}
+
+// dropVerifyJob deletes the job that checked the run's directory while the run's workload was taken for lost. The
+// workload is there and has not ended: what the job found says nothing of how it will end.
+func (r *RunReconciler) dropVerifyJob(ctx context.Context, run *dbclient.PostTrainingRun) error {
+	job := &v1.OpsJob{}
+	if err := r.Get(ctx, client.ObjectKey{Name: verifyJobName(run.RunID)}, job); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	if !job.GetDeletionTimestamp().IsZero() {
+		return nil
+	}
+	klog.Infof("delete the verification job %s of post training run %s, whose workload is there", job.Name, run.RunID)
+	return client.IgnoreNotFound(r.Delete(ctx, job))
 }
 
 // verify finishes a run whose result marker is missing by checking its run directory with a model-inspect

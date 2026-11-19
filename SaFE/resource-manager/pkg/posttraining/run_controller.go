@@ -487,6 +487,11 @@ func noteWorkload(u *runUpdate, w *v1.Workload) {
 func (r *RunReconciler) reconcileWorkload(ctx context.Context, run *dbclient.PostTrainingRun, w *v1.Workload) (ctrlruntime.Result, error) {
 	u := newRunUpdate(run)
 	noteWorkload(u, w)
+	if !w.IsEnd() {
+		if err := r.dropVerifyJob(ctx, run); err != nil {
+			return ctrlruntime.Result{}, err
+		}
+	}
 	switch {
 	case w.IsPending():
 		syncQueued(u, w)

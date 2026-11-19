@@ -357,6 +357,37 @@ func TestAWorkloadSeenOnlyAtItsEndLeavesItsUID(t *testing.T) {
 	require.True(t, backfillPending(unseen, nil), "the workload ran, so its directory is counted")
 }
 
+// A check of the run directory that was made while the run's workload was taken for lost is dropped once the
+// workload is followed: it does not decide how the workload ended later on.
+func TestACheckMadeWhileTheWorkloadWasTakenForLostIsDropped(t *testing.T) {
+	ctx := context.Background()
+	run := testRunRow("Running", "train")
+	run.OutputPath = testRunDir
+	w := endedWorkload(v1.WorkloadRunning)
+	w.Status.EndTime = nil
+	stale := newRunDirJob(run, verifyJobName(testRun))
+	stale.Status.Phase = v1.OpsJobFailed
+	stale.Status.Outputs = []v1.Parameter{{Name: "result", Value: commonopsjob.FilterResultLog([]byte(
+		`[ERROR] VERIFY={"disk":{"total":0}}`))}}
+	r, db, updates := newTestReconciler(t, run, w, stale)
+	db.EXPECT().ListWorkloadPods(gomock.Any(), testRun, "uid1").Return(submitterPods("log\n"), nil).AnyTimes()
+	reconcileRun(t, r)
+	require.Error(t, r.Get(ctx, client.ObjectKey{Name: verifyJobName(testRun)}, &v1.OpsJob{}))
+
+	// The workload then succeeds without a result: its directory is checked anew, after its end.
+	require.NoError(t, r.Get(ctx, client.ObjectKey{Name: testRun}, w))
+	w.Status.Phase = v1.WorkloadSucceeded
+	w.Status.EndTime = &metav1.Time{Time: time.Now().Add(-2 * resultWait)}
+	require.NoError(t, r.Status().Update(ctx, w))
+	reconcileRun(t, r)
+	fresh := &v1.OpsJob{}
+	require.NoError(t, r.Get(ctx, client.ObjectKey{Name: verifyJobName(testRun)}, fresh))
+	require.Empty(t, fresh.Status.Phase)
+	for _, u := range *updates {
+		require.NotEqual(t, "Failed", u["status"], "the earlier check does not end the run")
+	}
+}
+
 // A workload that the cluster stored after its run ended without one is removed: nothing follows a run that ended,
 // and the workload would train unseen.
 func TestAWorkloadStoredAfterItsRunEndedIsRemoved(t *testing.T) {
