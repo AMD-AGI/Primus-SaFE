@@ -792,6 +792,13 @@ func GetRobustServiceToken() string {
 	return strings.TrimSpace(getFromFile(robustSecretPath, RobustServiceTokenKey))
 }
 
+// GetRobustServiceTokenSecret returns the name of the Secret, in the SaFE
+// namespace, that holds the shared service token under RobustServiceTokenKey,
+// for consumers that reference it instead of reading the mount. "" when not configured.
+func GetRobustServiceTokenSecret() string {
+	return strings.TrimSpace(getString(robustServiceTokenSecret, ""))
+}
+
 // GetRobustManagementCluster returns the name of the Cluster CR that SaFE itself
 // runs in, the only cluster allowed to reach Robust through the in-cluster
 // services when its CR has no endpoint annotation. "" when not configured.

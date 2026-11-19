@@ -47,15 +47,17 @@ func TestProxy(t *testing.T) {
 	rc := robustclient.NewClient(robustclient.DefaultClientConfig())
 	h := NewHandler(rc)
 
+	var backendHeaders http.Header
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/gpu" {
-			t.Errorf("backend got path %q, want /api/v1/gpu", r.URL.Path)
+		if r.URL.Path != "/api/v1/workloads" {
+			t.Errorf("backend got path %q, want /api/v1/workloads", r.URL.Path)
 		}
+		backendHeaders = r.Header.Clone()
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	}))
 	defer backend.Close()
-	rc.RegisterCluster("c1", backend.URL)
+	rc.RegisterClusterWithToken("c1", backend.URL, "robust/c1-token", func() string { return "c1-token" })
 
 	// Drive the handler through a real engine so the ResponseWriter is fully
 	// initialized (ReverseProxy requires http.CloseNotifier support).
@@ -70,7 +72,7 @@ func TestProxy(t *testing.T) {
 	defer srv.Close()
 
 	// Missing cluster query parameter -> 400.
-	resp, err := http.Get(srv.URL + "/lens/v1/gpu")
+	resp, err := http.Get(srv.URL + "/lens/v1/workloads")
 	if err != nil {
 		t.Fatalf("request error: %v", err)
 	}
@@ -80,7 +82,7 @@ func TestProxy(t *testing.T) {
 	resp.Body.Close()
 
 	// Cluster not registered -> error (robust addon not installed).
-	resp2, err := http.Get(srv.URL + "/lens/v1/gpu?cluster=unknown")
+	resp2, err := http.Get(srv.URL + "/lens/v1/workloads?cluster=unknown")
 	if err != nil {
 		t.Fatalf("request error: %v", err)
 	}
@@ -89,8 +91,12 @@ func TestProxy(t *testing.T) {
 	}
 	resp2.Body.Close()
 
-	// Registered cluster -> request is proxied to the backend.
-	resp3, err := http.Get(srv.URL + "/lens/v1/gpu?cluster=c1")
+	// Registered cluster -> request is proxied with the cluster token instead of SaFE credentials.
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/lens/v1/workloads?cluster=c1", nil)
+	req.Header.Set("Cookie", "Token=safe-session")
+	req.Header.Set("Authorization", "Bearer safe-key")
+	req.Header.Set(robustclient.ServiceTokenHeader, "forged")
+	resp3, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("request error: %v", err)
 	}
@@ -98,6 +104,96 @@ func TestProxy(t *testing.T) {
 		t.Errorf("proxy: status = %d, want 200", resp3.StatusCode)
 	}
 	resp3.Body.Close()
+	if got := backendHeaders.Get(robustclient.ServiceTokenHeader); got != "c1-token" {
+		t.Errorf("backend service token = %q, want c1-token", got)
+	}
+	if backendHeaders.Get("Cookie") != "" || backendHeaders.Get("Authorization") != "" {
+		t.Errorf("SaFE credentials reached the backend: cookie=%q authorization=%q",
+			backendHeaders.Get("Cookie"), backendHeaders.Get("Authorization"))
+	}
+	if got := backendHeaders.Get(common.UserId); got != "u1" {
+		t.Errorf("backend user id = %q, want u1", got)
+	}
+
+	// Writes and routes outside the allowlist -> 403, never forwarded.
+	backendHeaders = nil
+	resp4, err := http.Post(srv.URL+"/lens/v1/workloads?cluster=c1", "application/json", nil)
+	if err != nil {
+		t.Fatalf("request error: %v", err)
+	}
+	if resp4.StatusCode != http.StatusForbidden {
+		t.Errorf("write: status = %d, want 403", resp4.StatusCode)
+	}
+	resp4.Body.Close()
+	resp5, err := http.Get(srv.URL + "/lens/v1/management/clusters?cluster=c1")
+	if err != nil {
+		t.Fatalf("request error: %v", err)
+	}
+	if resp5.StatusCode != http.StatusForbidden {
+		t.Errorf("unlisted route: status = %d, want 403", resp5.StatusCode)
+	}
+	resp5.Body.Close()
+	if backendHeaders != nil {
+		t.Error("a refused request reached the backend")
+	}
+}
+
+func TestProxyWithoutClusterToken(t *testing.T) {
+	rc := robustclient.NewClient(robustclient.ClientConfig{})
+	h := NewHandler(rc)
+	var token string
+	seen := false
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen, token = true, r.Header.Get(robustclient.ServiceTokenHeader)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+	rc.RegisterCluster("c1", backend.URL)
+	engine := gin.New()
+	engine.Any(Prefix+"/*path", h.proxy)
+	srv := httptest.NewServer(engine)
+	defer srv.Close()
+
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/lens/v1/nodes?cluster=c1", nil)
+	req.Header.Set(robustclient.ServiceTokenHeader, "forged")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request error: %v", err)
+	}
+	resp.Body.Close()
+	if !seen || token != "" {
+		t.Errorf("backend seen=%v token=%q, want a forwarded request without a token", seen, token)
+	}
+}
+
+func TestIsReadOnlyRoute(t *testing.T) {
+	cases := []struct {
+		method, rest string
+		want         bool
+	}{
+		{http.MethodGet, "/workloads", true},
+		{http.MethodHead, "/workloads", true},
+		{http.MethodGet, "/workloads/", true},
+		{http.MethodGet, "/workloads/uid-1/gpuMetrics", true},
+		{http.MethodGet, "/gpu-aggregation/workloads/hourly-stats", true},
+		{http.MethodGet, "/github-workflow-metrics/runs/1/jobs/2/steps/3/logs", true},
+		{http.MethodGet, "/tracelens/sessions/s1/ui/", true},
+		{http.MethodGet, "/tracelens/sessions/s1/ui/assets/app.js", true},
+		{http.MethodPost, "/workloads", false},
+		{http.MethodDelete, "/alerts/a1", false},
+		{http.MethodGet, "/workloads/uid-1/unknown", false},
+		{http.MethodGet, "/management/clusters", false},
+		{http.MethodGet, "/agent/storage/conversations", false},
+		{http.MethodGet, "/workloads/../management/clusters", false},
+		{http.MethodGet, "//workloads", false},
+		{http.MethodGet, "", false},
+		{http.MethodGet, "/", false},
+	}
+	for _, tc := range cases {
+		if got := isReadOnlyRoute(tc.method, tc.rest); got != tc.want {
+			t.Errorf("isReadOnlyRoute(%s, %q) = %v, want %v", tc.method, tc.rest, got, tc.want)
+		}
+	}
 }
 
 func TestGetOrCreateProxy(t *testing.T) {

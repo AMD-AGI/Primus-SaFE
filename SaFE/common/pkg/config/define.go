@@ -200,9 +200,10 @@ const (
 
 	// robust: credentials SaFE presents to the Robust API (robust-api module of
 	// robust-manager / robust-analyzer) on the data clusters.
-	robustPrefix            = "robust."
-	robustSecretPath        = robustPrefix + "secret_path"
-	robustManagementCluster = robustPrefix + "management_cluster"
+	robustPrefix             = "robust."
+	robustSecretPath         = robustPrefix + "secret_path"
+	robustServiceTokenSecret = robustPrefix + "service_token_secret"
+	robustManagementCluster  = robustPrefix + "management_cluster"
 
 	// langfuse_proxy
 	langfuseProxyPrefix     = "langfuse_proxy."

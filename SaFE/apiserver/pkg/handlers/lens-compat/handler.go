@@ -96,6 +96,11 @@ func (h *Handler) Register(engine *gin.Engine) {
 
 // proxy is the single request handler for Lens-compat traffic.
 func (h *Handler) proxy(c *gin.Context) {
+	if !isReadOnlyRoute(c.Request.Method, strings.TrimPrefix(c.Request.URL.Path, Prefix)) {
+		apiutils.AbortWithApiError(c, commonerrors.NewForbidden(
+			fmt.Sprintf("%s %s is not served by lens-compat", c.Request.Method, c.Request.URL.Path)))
+		return
+	}
 	cluster := strings.TrimSpace(c.Query(clusterQueryParam))
 	if cluster == "" {
 		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest(
@@ -134,6 +139,13 @@ func (h *Handler) proxy(c *gin.Context) {
 		if s, ok := userName.(string); ok {
 			c.Request.Header.Set(common.UserName, s)
 		}
+	}
+	// The SaFE credentials stay here; Robust only trusts the cluster's service token.
+	c.Request.Header.Del("Cookie")
+	c.Request.Header.Del("Authorization")
+	c.Request.Header.Del(robustclient.ServiceTokenHeader)
+	if token := cc.ServiceToken(); token != "" {
+		c.Request.Header.Set(robustclient.ServiceTokenHeader, token)
 	}
 
 	start := time.Now()
