@@ -64,6 +64,11 @@ if isinstance(result, dict) and result.get("output") and os.path.exists(os.path.
     out.update(result)
     print("[SUCCESS] VERIFY=" + json.dumps(out, separators=(",", ":")))
     sys.exit(0)
+if isinstance(result, dict) and result.get("output") == "":
+    # The launcher finished a run that exports no model.
+    out.update(result)
+    print("[SUCCESS] VERIFY=" + json.dumps(out, separators=(",", ":")))
+    sys.exit(0)
 noretry = load(".noretry")
 if isinstance(noretry, dict):
     out.update(noretry)
@@ -119,7 +124,9 @@ func (r *RunReconciler) verify(ctx context.Context, u *runUpdate, endTime time.T
 	if res != nil && len(res.Disk) > 0 {
 		u.set("disk_usage", run.DiskUsage, string(res.Disk))
 	}
-	if kind == markerSuccess && res.Output != "" {
+	// A finished launcher reports no output for a run that exports no model, which register ends as succeeded.
+	exports := parseRecipe(run).Output.ExportHF
+	if kind == markerSuccess && (res.Output != "" || (exports != nil && !*exports)) {
 		return r.register(ctx, u, &marker{Kind: markerSuccess, Body: markerBody{Run: run.RunID, Output: res.Output}}, endTime)
 	}
 	stage, reason := fallbackStage, fallbackReason

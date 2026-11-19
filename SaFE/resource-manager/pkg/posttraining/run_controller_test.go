@@ -260,6 +260,29 @@ func TestVerifyRegistersCompleteOutputOfLostWorkload(t *testing.T) {
 	require.NotEmpty(t, last["output_model_id"])
 }
 
+// A run that exports no model and lost its result line ends as succeeded once verification finds its launcher
+// finished; the same finding fails a run that was to export one.
+func TestVerifyEndsALostRunThatExportsNoModel(t *testing.T) {
+	for exportHf, status := range map[string]string{"false": "Succeeded", "true": "Failed"} {
+		run := testRunRow("Running", "export")
+		run.OutputPath = testRunDir
+		run.Recipe = `{"output":{"base":"` + testRunDir + `","exportHf":` + exportHf + `}}`
+		r, db, updates := newTestReconciler(t, run)
+		db.EXPECT().GetWorkload(gomock.Any(), testRun).Return(nil, errors.New("not found")).AnyTimes()
+		db.EXPECT().ListWorkloadPods(gomock.Any(), testRun, "uid1").Return(nil, nil).AnyTimes()
+		reconcileRun(t, r)
+		job := &v1.OpsJob{}
+		require.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: verifyJobName(testRun)}, job))
+		job.Status.Phase = v1.OpsJobSucceeded
+		job.Status.Outputs = []v1.Parameter{{Name: "result", Value: commonopsjob.FilterResultLog([]byte(
+			`[SUCCESS] VERIFY={"stage":"export","output":"","disk":{"checkpoints":9,"total":9}}`))}}
+		require.NoError(t, r.Update(context.Background(), job))
+		reconcileRun(t, r)
+		last := (*updates)[len(*updates)-1]
+		require.Equal(t, status, last["status"], "exportHf=%s", exportHf)
+	}
+}
+
 // A preempted run stays running while it waits to be rescheduled.
 func TestPreemptedRunKeepsRunning(t *testing.T) {
 	w := endedWorkload(v1.WorkloadPending)

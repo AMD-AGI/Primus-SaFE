@@ -56,6 +56,13 @@ func TestRunVerifyScript(t *testing.T) {
 	kind, res = runVerify(t, dir)
 	require.Equal(t, markerSuccess, kind)
 	require.Equal(t, final, res.Output)
+
+	bare := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(bare, "result.json"),
+		[]byte(`{"stage":"export","output":"","iteration":10}`), 0o644))
+	kind, res = runVerify(t, bare)
+	require.Equal(t, markerSuccess, kind, "a launcher that finished without exporting wrote a result with no output")
+	require.Empty(t, res.Output)
 }
 
 // A verify job name is short and the same for a run every time.
