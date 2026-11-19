@@ -361,6 +361,22 @@ func TestBaselineIsEvaluatedTwice(t *testing.T) {
 	require.Equal(t, "done", (*updates)[len(*updates)-1]["stage"], "the baseline is evaluated twice, not more")
 }
 
+// Finishing the baseline's first service once more, as when its delete failed, does not end the repeated evaluation:
+// only the service of the latest automatic evaluation moves the run on.
+func TestFinishingAnEarlierServiceAgainDoesNotEndTheRun(t *testing.T) {
+	run, objs := evalFixtures("eval")
+	run.ExperimentID, run.VariantName = "exp-1", "baseline"
+	run.StageHistory = `[{"stage":"eval","event":"evaluate-repeat","message":"pt-eval-2"}]`
+	first := autoService("pt-eval-1")
+	r, _, updates := newTestReconciler(t, run, append(objs, first)...)
+	loadChartRegistry(t, r)
+	require.NoError(t, r.finishEvaluation(context.Background(), run, first, true))
+	for _, u := range *updates {
+		require.NotEqual(t, "done", u["stage"], "pt-eval-2 still evaluates")
+	}
+	require.Empty(t, evalServices(t, r), "the first service is removed all the same")
+}
+
 // The baseline's first service, still being deleted, does not end the repeated evaluation.
 func TestABaselineServiceStillBeingDeletedDoesNotEndTheRepeat(t *testing.T) {
 	run, objs := evalFixtures("eval")

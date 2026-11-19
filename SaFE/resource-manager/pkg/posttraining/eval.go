@@ -195,6 +195,11 @@ func (r *RunReconciler) finishEvaluation(ctx context.Context, run *dbclient.Post
 		return err
 	}
 	if !repeated {
+		// A service may be finished more than once, as when its delete failed. Only the service of the latest
+		// automatic evaluation moves the run on: an earlier one would end it while the later one evaluates.
+		if last := lastEvalService(u.history); last != "" && last != s.Name {
+			return nil
+		}
 		u.moveTo("done")
 	}
 	return r.save(ctx, u)
