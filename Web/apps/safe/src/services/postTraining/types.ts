@@ -96,10 +96,6 @@ export interface PostTrainingRun {
   /** How many runs of this recipe succeeded on the platform, and the latest of them; list items only. */
   verifiedRuns?: number
   latestVerifiedRun?: string
-  /** safe for a run trained on the platform, spur for a run imported from Spur. */
-  source?: string
-  /** Where and when an imported run ran and was imported; list items only. */
-  import?: RunImportInfo
 }
 
 export interface RunListParams {
@@ -137,9 +133,9 @@ export interface ModelsResp {
 
 export type SegmentState = 'done' | 'active' | 'failed' | 'skipped' | 'stopped' | 'pending'
 
-/** One segment of the stage bar: a SaFE stage, or a stage an imported run's directory shows. */
+/** One segment of the stage bar. */
 export interface StageSegment {
-  stage: string
+  stage: RunStage
   label: string
   state: SegmentState
 }
@@ -537,188 +533,4 @@ export interface ExperimentRequest {
 /** A compile finding of one variant of a refused experiment. */
 export interface VariantDiagnostic extends Diagnostic {
   variant: string
-}
-
-/** GET /post-training/imports/config: whether the mounted-path import works in the workspace's cluster. */
-export interface ImportConfig {
-  mountAvailable: boolean
-  mountRoot?: string
-  mountCluster?: string
-  mountReason?: string
-  canImport: boolean
-  /** The directories the caller may scan. */
-  mountPrefixes?: string[]
-}
-
-/** A one-time token of the import command. */
-export interface ImportToken {
-  tokenId: string
-  token: string
-  expiresAt: string
-}
-
-/** A gate result of an imported run directory. */
-export interface ImportGate {
-  gate: string
-  node: string
-  result: string
-}
-
-/** What the import dialog previews of a run directory. */
-export interface ImportPreview {
-  name: string
-  path: string
-  verdict: string
-  failedGate?: ImportGate
-  status: RunStatus
-  trainType: 'sft' | 'rl'
-  slurmJobId?: string
-  nodes: number
-  startTime?: string
-  mainLog?: { name: string; bytes: number; metricLines: number }
-  /** How many metric series the directory has. */
-  series: number
-  gates: number
-  markers: number
-  arguments: number
-  keptArguments: number
-  samples: number
-  sampleNodes: number
-  checkpoints: number
-  saveSet: boolean
-  warnings?: string[]
-}
-
-/** GET /post-training/imports/tokens/:id: whether the command used the token, and what it imported. */
-export interface ImportTokenStatus {
-  state: 'waiting' | 'used' | 'expired'
-  expiresAt: string
-  importId?: string
-  runId?: string
-  displayName?: string
-  uploadedAt?: string
-  lastError?: string
-  preview?: ImportPreview
-}
-
-/** GET /post-training/imports/scans/:id. */
-export interface ImportScanStatus {
-  state: 'running' | 'ready' | 'failed' | 'imported'
-  workloadId: string
-  message?: string
-  path?: string
-  preview?: ImportPreview
-  /** The run the workspace already imported the directory as. */
-  existingRunId?: string
-  runId?: string
-  expiresAt?: string
-}
-
-/** The run an upload or a scan's commit imported. */
-export interface ImportResult {
-  runId: string
-  importId: string
-  displayName: string
-  workspace: string
-}
-
-/** What the run list shows of an imported run's import. */
-export interface RunImportInfo {
-  slurmJobId?: string
-  sourcePath: string
-  via: 'cli' | 'scan'
-  verdict?: string
-  importedAt?: string
-  failedGate?: ImportGate
-  baseModelPath?: string
-}
-
-/** A stage of an imported run, as its stage history keeps it; a stage without an end has no END line. */
-export interface ImportStage {
-  stage: string
-  label: string
-  gates: string[]
-  start?: string | null
-  end?: string | null
-  result: 'pass' | 'fail' | 'running'
-}
-
-/** A node of an imported run directory. */
-export interface ImportNode {
-  host: string
-  rank?: number
-  ip?: string
-  image?: string
-  head: boolean
-}
-
-/** A gate's result on one node of an imported run directory. */
-export interface ImportGateRow {
-  gate: string
-  node: string
-  result: string
-  seconds?: number | null
-  start?: string | null
-  end?: string | null
-}
-
-/** The parsed summary of an imported run directory, without its metric points and resource samples. */
-export interface ImportSummary {
-  path: string
-  name: string
-  slurmJobId?: string
-  verdict: string
-  status: RunStatus
-  message?: string
-  trainType: 'sft' | 'rl'
-  startTime?: string | null
-  endTime?: string | null
-  nodes: ImportNode[]
-  head: string
-  image?: string
-  saveSet: boolean
-  mainLog?: { name: string; bytes: number; metricLines: number } | null
-  stages: ImportStage[]
-  gates: ImportGateRow[]
-  markers: { name: string; time?: string | null }[]
-  check: string[]
-  failLine?: string
-  /** The check output's trainable line, such as "dense 18.60B …, total 95.91B". */
-  trainable?: string
-  finalEval?: { gate: string; result: string; data: Record<string, unknown> } | null
-  arguments: { kept: Record<string, unknown>; total: number }
-  checkpoints: {
-    latest?: number | null
-    iterations: {
-      iteration: number
-      step: number
-      files: number
-      bytes: number
-      time?: string | null
-    }[]
-    rollout?: { files: number; bytes: number } | null
-  }
-}
-
-/** One node's resource samples, [epoch seconds, host memory used in KB, largest per-GPU VRAM in bytes], with peaks. */
-export interface ImportHostResources {
-  samples: [number, number, number][]
-  hostMemPeakKb: number
-  vramPeakBytes: number
-}
-
-/** GET /post-training/runs/:id/import: what an imported run's import holds beyond its row and metric points. */
-export interface RunImport {
-  importId: string
-  sourcePath: string
-  format: string
-  slurmJobId?: string
-  via: 'cli' | 'scan'
-  verdict?: string
-  parserVersion?: string
-  importedAt?: string
-  importedBy?: string
-  summary: ImportSummary
-  resources: Record<string, ImportHostResources> | null
-  warnings: string[] | null
 }
