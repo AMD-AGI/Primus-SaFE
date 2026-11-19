@@ -554,3 +554,19 @@ func TestLowUtilEpisodesAddNewTimelineEntries(t *testing.T) {
 	assert.DeepEqual(t, lowUtilReasons(lowUtilTimeline(t, cl, "w")), []string{
 		"Detected_1", "DryRunWouldStop_1", "Recovered_1", "Detected_2", "DryRunWouldStop_2"})
 }
+
+// With the first episode trimmed from the history, the next one still gets a new index.
+func TestLowUtilEpisodeSurvivesTrimmedHistory(t *testing.T) {
+	w := lowUtilTestWorkload("w", "a")
+	detected := lowUtilDetectedCondition()
+	detected.Reason = "Detected_2"
+	recovered := detected
+	recovered.Reason = "Recovered_2"
+	w.Status.Conditions = []metav1.Condition{detected, recovered}
+	src := &fakeGPUWindow{windows: map[string]robustclient.WorkloadGPUWindow{"w-uid": gpuWindow("w-uid", 1, 60)}}
+	r, cl, _ := newLowUtilTestController(t, src, lowUtilTestWorkspace(lowUtilPolicy(v1.LowUtilizationAverage)), w)
+
+	r.runOnce(context.Background())
+
+	assert.DeepEqual(t, lowUtilReasons(lowUtilTimeline(t, cl, "w")), []string{"Detected_2", "Recovered_2", "Detected_3"})
+}

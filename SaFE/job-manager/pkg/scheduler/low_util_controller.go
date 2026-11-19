@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -342,12 +343,21 @@ func describeLowUtil(policy *v1.LowUtilizationPolicy, d lowUtilDecision) string 
 }
 
 // lowUtilEpisode returns the index of the last idle episode on the timeline of
-// w, 0 for none, and whether that episode has not recovered yet.
+// w, 0 for none, and whether that episode has not recovered yet. The highest
+// Detected index is used rather than a count, because the condition history
+// may be trimmed.
 func lowUtilEpisode(w *v1.Workload) (int, bool) {
 	episode := 0
 	for _, c := range w.Status.Conditions {
-		if c.Type == string(v1.AdminLowUtilization) && strings.HasPrefix(c.Reason, lowUtilReasonDetected) {
-			episode++
+		if c.Type != string(v1.AdminLowUtilization) {
+			continue
+		}
+		suffix, ok := strings.CutPrefix(c.Reason, lowUtilReasonDetected)
+		if !ok {
+			continue
+		}
+		if n, err := strconv.Atoi(suffix); err == nil && n > episode {
+			episode = n
 		}
 	}
 	if episode == 0 {
