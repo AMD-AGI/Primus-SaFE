@@ -175,6 +175,8 @@ const props = defineProps<{
   runId: string
   /** Whether to keep the samples fresh: the run runs and the tab shows. */
   active: boolean
+  /** Whether the tab shows; the samples are read again each time it does, also once the run ended. */
+  tabShown: boolean
   /** Why the run has no evaluation samples, such as no evaluation set; empty when it has them. */
   evalOff?: string
 }>()
@@ -296,7 +298,7 @@ watch(
 )
 
 watch(
-  () => props.active,
+  () => props.tabShown,
   (on) => on && load(true),
 )
 useIntervalFn(() => {

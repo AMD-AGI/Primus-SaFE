@@ -46,6 +46,7 @@ import {
   trainableText,
   postTrainingEntryReasons,
   exportPhase,
+  curvesDue,
   EXPORT_REGISTER_WAIT,
   backToRuns,
   experimentNamesProblem,
@@ -463,7 +464,26 @@ describe('exportPhase', () => {
     expect(exportPhase({ step: 1, status: 'Succeeded' }, 0, EXPORT_REGISTER_WAIT - 1)).toBe(
       'running',
     )
-    expect(exportPhase({ step: 1, status: 'Succeeded' }, 0, EXPORT_REGISTER_WAIT)).toBe('failed')
+    expect(exportPhase({ step: 1, status: 'Succeeded' }, 0, EXPORT_REGISTER_WAIT)).toBe(
+      'unregistered',
+    )
+  })
+
+  it('tells an export job that failed, which can run again, from one whose model never came', () => {
+    expect(exportPhase({ step: 1, status: 'Failed' })).toBe('failed')
+    expect(exportPhase({ step: 1, status: 'Succeeded' }, 0, EXPORT_REGISTER_WAIT)).not.toBe(
+      'failed',
+    )
+  })
+})
+
+describe('curvesDue', () => {
+  it('reads the curves every third tick on the tabs that show them or their markers', () => {
+    for (const tab of ['overview', 'metrics', 'checkpoints', 'evaluation']) {
+      expect(curvesDue(tab, 0, 20_000)).toBe(false)
+      expect(curvesDue(tab, 0, 29_990)).toBe(true)
+    }
+    expect(curvesDue('recipe', 0, 60_000)).toBe(false)
   })
 })
 

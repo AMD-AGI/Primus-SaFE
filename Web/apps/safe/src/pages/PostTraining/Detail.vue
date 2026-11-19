@@ -413,7 +413,7 @@
                   {{ row.message }}
                 </div>
                 <el-button
-                  v-if="row.failed && row.step !== undefined"
+                  v-if="row.retry && row.step !== undefined"
                   link
                   type="primary"
                   :disabled="!!exportTip"
@@ -464,6 +464,7 @@
           <SamplesTab
             :run-id="run.runId"
             :active="isActive && tab === 'samples'"
+            :tab-shown="tab === 'samples'"
             :eval-off="evalOff"
             @count="sampleSteps = $event"
           />
@@ -629,6 +630,7 @@ import {
   checkpointBytes,
   cleanupHintBytes,
   cleanupPostTrainingCheckpoints,
+  curvesDue,
   deletePostTrainingRun,
   exportPhase,
   exportPostTrainingCheckpoint,
@@ -804,8 +806,7 @@ const exportPhases = computed(() =>
 /** Whether a checkpoint export is still running or its model is not ready yet. */
 const exporting = computed(() => exportPhases.value.includes('running'))
 
-// The run is read every 10 seconds, and its curves every 30 while a tab shows them.
-const CURVE_TABS = ['overview', 'metrics']
+// The run is read every 10 seconds, and its curves every 30 while a tab shows them or their markers.
 useIntervalFn(() => {
   if (
     !isActive.value &&
@@ -816,8 +817,13 @@ useIntervalFn(() => {
     return
   if (visibility.value !== 'visible') return
   fetchRun(true)
-  if (CURVE_TABS.includes(tab.value) && Date.now() - curvesReadAt >= 30000) fetchMetrics(true)
+  if (curvesDue(tab.value, curvesReadAt)) fetchMetrics(true)
 }, 10000)
+
+// The points a run wrote after the last read are read once more when it ends, whichever tab shows.
+watch(isActive, (on, was) => {
+  if (was && !on) fetchMetrics(true)
+})
 
 /** Training time from the start of the workload to its end, or to now while it runs. */
 const duration = computed(() => {
@@ -1166,6 +1172,7 @@ const outputs = computed(() => {
     best: boolean
     status: string
     failed: boolean
+    retry: boolean
     message?: string
   }[] = []
   if (r.outputModel) {
@@ -1176,19 +1183,32 @@ const outputs = computed(() => {
       best: false,
       status: r.outputModel.phase,
       failed: false,
+      retry: false,
     })
   }
   for (const [i, e] of (r.exports ?? []).entries()) {
-    const failed = !e.modelId && exportPhases.value[i] === 'failed'
+    const phase = e.modelId ? undefined : exportPhases.value[i]
+    // A job that failed can run again; one that succeeded without its model would only succeed again.
+    const unregistered = phase === 'unregistered'
+    const failed = phase === 'failed' || unregistered
     rows.push({
       name: e.displayName || `${r.displayName}-step${e.step}`,
       modelId: e.modelId,
       from: `Step ${e.step.toLocaleString()}`,
       step: e.step,
       best: e.step === bestStep,
-      status: e.modelId ? (e.modelPhase ?? '') : failed ? 'Export failed' : 'Exporting',
+      status: e.modelId
+        ? (e.modelPhase ?? '')
+        : unregistered
+          ? 'Model not registered'
+          : failed
+            ? 'Export failed'
+            : 'Exporting',
       failed,
-      message: e.message,
+      retry: phase === 'failed',
+      message: unregistered
+        ? 'The export finished, but its model did not appear. Contact an administrator.'
+        : e.message,
     })
   }
   return rows
@@ -1357,6 +1377,7 @@ watch(runId, () => {
   importInfo.value = undefined
   metrics.value = undefined
   notFound.value = false
+  exportSucceededAt.clear()
   fetchRun()
   fetchMetrics()
 })

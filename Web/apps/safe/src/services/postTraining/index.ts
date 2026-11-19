@@ -263,13 +263,14 @@ export const EXPORT_REGISTER_WAIT = 5 * 60 * 1000
 
 /**
  * Where a checkpoint export stands: running until its model is ready or failed, or until its job ended without a
- * model, which a succeeded job, first seen at succeededAt, waits EXPORT_REGISTER_WAIT for.
+ * model. A job that failed can run again; one that succeeded, first seen at succeededAt, waits
+ * EXPORT_REGISTER_WAIT for its model and is unregistered after that, which running it again does not mend.
  */
 export function exportPhase(
   e: ExportItem,
   succeededAt?: number,
   now = Date.now(),
-): 'running' | 'done' | 'failed' {
+): 'running' | 'done' | 'failed' | 'unregistered' {
   if (e.modelId) {
     if (e.modelPhase === 'Ready') return 'done'
     return e.modelPhase === 'Failed' ? 'failed' : 'running'
@@ -279,7 +280,17 @@ export function exportPhase(
     e.status === 'Succeeded' &&
     succeededAt !== undefined &&
     now - succeededAt >= EXPORT_REGISTER_WAIT
-  return unregistered ? 'failed' : 'running'
+  return unregistered ? 'unregistered' : 'running'
+}
+
+/** The tabs of a run that show its curves or the markers read with them. */
+const CURVE_TABS = ['overview', 'metrics', 'checkpoints', 'evaluation']
+// A little under three of a run page's 10 s ticks, so the curves are read on every third one.
+const CURVE_READ_MS = 25_000
+
+/** Whether a run page reads its curves on this tick: its tab shows them and they were last read at readAt. */
+export function curvesDue(tab: string, readAt: number, now = Date.now()): boolean {
+  return CURVE_TABS.includes(tab) && now - readAt >= CURVE_READ_MS
 }
 
 /** scatterTooltip is the HTML tooltip of a point of the Compare scatter, its names shown as text. */
