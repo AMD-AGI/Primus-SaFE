@@ -191,6 +191,8 @@ func (r *RunReconciler) reclaimCache(ctx context.Context, cache *dbclient.PostTr
 			v1.PostTrainingConvertCacheLabel: strconv.FormatInt(cache.ID, 10)}); err != nil {
 			return false, err
 		}
+		// A failed job has to outlive cacheReclaimRetry: once it is gone the next sweep makes it again.
+		job.Spec.TTLSecondsAfterFinished = int(2 * cacheReclaimRetry / time.Second)
 		if cache.Status != dbclient.ConvertCacheInvalid {
 			if err = r.db.UpdatePostTrainingConvertCache(ctx, cache.ID,
 				map[string]interface{}{"status": dbclient.ConvertCacheInvalid}); err != nil {

@@ -100,6 +100,8 @@ func TestSweepReclaimsCachesOfDeletedModels(t *testing.T) {
 	job := &jobs.Items[0]
 	require.Equal(t, gone.Path, job.GetParameter(v1.ParameterDestPath).Value)
 	require.Equal(t, "1", job.Labels[v1.PostTrainingConvertCacheLabel])
+	require.Greater(t, time.Duration(job.Spec.TTLSecondsAfterFinished)*time.Second, cacheReclaimRetry,
+		"a failed job outlives the wait before the next try, or it would be made again as soon as it is gone")
 
 	gone.Status = dbclient.ConvertCacheInvalid
 	job.Status.Phase = v1.OpsJobSucceeded
