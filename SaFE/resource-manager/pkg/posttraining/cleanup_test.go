@@ -88,6 +88,50 @@ func TestACleanupStaysInTheRunDirectoryAndWaitsForExports(t *testing.T) {
 	require.Empty(t, jobs.Items, "the cleanup waits for an export that the cache does not show yet")
 }
 
+// A cleanup job that was deleted leaves its workload, of the same name, for a while. A job of the name made
+// meanwhile would take that workload for its own and never get one, so none is made before the workload is gone;
+// the same holds for the job that counts the run directory.
+func TestNoCleanupJobIsMadeWhileTheWorkloadOfADeletedOneIsLeft(t *testing.T) {
+	ctx := context.Background()
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1",
+		Volumes: []v1.WorkspaceVolume{{Type: v1.PFS, MountPath: "/wekafs"}}}}
+	dir := testRunDir + "/checkpoints/iter_0000010"
+	run := testRunRow("Succeeded", "done")
+	run.OutputPath = testRunDir
+	run.CleanupRequest = `{"keep":"none","paths":["` + dir + `"],"attempts":1}`
+	left := func(name string) *v1.Workload {
+		return &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: name, Finalizers: []string{v1.WorkloadFinalizer},
+			DeletionTimestamp: &metav1.Time{Time: time.Now()}}}
+	}
+
+	// The retry of a failed cleanup job waits for the workload of the job that was deleted.
+	cleanup := client.ObjectKey{Name: resource.DirectoryCleanupJobName("ws1", dir)}
+	old := left(cleanup.Name)
+	r, _, _ := newTestReconciler(t, run, ws, old)
+	require.Equal(t, pendingRequeue, reconcileRun(t, r).RequeueAfter)
+	require.Error(t, r.Get(ctx, cleanup, &v1.OpsJob{}), "the workload of the deleted job is still there")
+	old.Finalizers = nil
+	require.NoError(t, r.Update(ctx, old))
+	require.Equal(t, pendingRequeue, reconcileRun(t, r).RequeueAfter)
+	job := &v1.OpsJob{}
+	require.NoError(t, r.Get(ctx, cleanup, job), "the job is made once the workload is gone")
+
+	// So does the job that counts the run directory after the cleanup.
+	job.Status.Phase = v1.OpsJobSucceeded
+	require.NoError(t, r.Update(ctx, job))
+	disk := client.ObjectKey{Name: diskJobName(testRun)}
+	old = left(disk.Name)
+	require.NoError(t, r.Create(ctx, old))
+	require.NoError(t, r.Delete(ctx, old))
+	require.Equal(t, pendingRequeue, reconcileRun(t, r).RequeueAfter)
+	require.Error(t, r.Get(ctx, disk, &v1.OpsJob{}))
+	require.NoError(t, r.Get(ctx, disk, old))
+	old.Finalizers = nil
+	require.NoError(t, r.Update(ctx, old))
+	require.Equal(t, pendingRequeue, reconcileRun(t, r).RequeueAfter)
+	require.NoError(t, r.Get(ctx, disk, &v1.OpsJob{}))
+}
+
 // A failed cleanup job counts as one failed attempt, however often the run is reconciled while the job is deleted.
 func TestAFailedCleanupJobBeingDeletedIsCountedOnce(t *testing.T) {
 	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1",

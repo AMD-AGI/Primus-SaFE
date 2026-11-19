@@ -111,8 +111,15 @@ func (r *RunReconciler) reconcileCleanup(ctx context.Context, run *dbclient.Post
 	running := false
 	for _, dir := range plan.Paths {
 		job := &v1.OpsJob{}
-		err := r.Get(ctx, client.ObjectKey{Name: resource.DirectoryCleanupJobName(run.Workspace, dir)}, job)
+		name := resource.DirectoryCleanupJobName(run.Workspace, dir)
+		err := r.Get(ctx, client.ObjectKey{Name: name}, job)
 		if apierrors.IsNotFound(err) {
+			if left, werr := r.jobWorkloadLeft(ctx, name); werr != nil {
+				return ctrlruntime.Result{}, werr
+			} else if left {
+				running = true
+				continue
+			}
 			if job, err = resource.NewDirectoryCleanupOpsJob(ws, dir, map[string]string{v1.PostTrainingRunIdLabel: run.RunID}); err != nil {
 				return ctrlruntime.Result{}, r.giveUpCleanup(ctx, run, plan, err.Error())
 			}
@@ -247,11 +254,25 @@ func jobFailure(job *v1.OpsJob) string {
 	return "the cleanup job failed"
 }
 
+// jobWorkloadLeft reports whether a workload of an OpsJob's name is still there. A job that was deleted leaves its
+// workload, of the same name, until that is torn down, and a job of the name made meanwhile would take that
+// workload for its own and never get one: it is made once the workload is gone.
+func (r *RunReconciler) jobWorkloadLeft(ctx context.Context, name string) (bool, error) {
+	err := r.Get(ctx, client.ObjectKey{Name: name}, &v1.Workload{})
+	if apierrors.IsNotFound(err) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
 // countRunDir counts a run directory with a model-inspect job and returns the usage JSON once the job is done.
 func (r *RunReconciler) countRunDir(ctx context.Context, run *dbclient.PostTrainingRun) (string, bool, error) {
 	job := &v1.OpsJob{}
 	err := r.Get(ctx, client.ObjectKey{Name: diskJobName(run.RunID)}, job)
 	if apierrors.IsNotFound(err) {
+		if left, werr := r.jobWorkloadLeft(ctx, diskJobName(run.RunID)); werr != nil || left {
+			return "", false, werr
+		}
 		return "", false, client.IgnoreAlreadyExists(r.Create(ctx, newRunDirJob(run, diskJobName(run.RunID))))
 	}
 	if err != nil {
