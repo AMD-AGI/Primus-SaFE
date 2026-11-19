@@ -766,7 +766,6 @@ func (r *RunReconciler) readLog(ctx context.Context, w *v1.Workload, u *runUpdat
 	}
 	countRead(in, rejected, skipped, run.MetricGap, gap)
 	r.notifyChanges(ctx, run, fields)
-	r.followEnd(run, fields)
 	if in.conversion != nil {
 		r.registerConversion(ctx, run, in.conversion)
 	}
