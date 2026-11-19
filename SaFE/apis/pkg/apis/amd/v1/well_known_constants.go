@@ -377,7 +377,6 @@ const (
 	PostTrainingRoleTrain       = "train"
 	PostTrainingRoleConvert     = "convert"
 	PostTrainingRoleExport      = "export"
-	PostTrainingRoleImportScan  = "import-scan"
 	// PostTrainingRoleEval marks the inference service of an evaluation.
 	PostTrainingRoleEval = "eval"
 	// PostTrainingRoleBackfill marks the read-only workload that backfills a finished run's metric gaps.

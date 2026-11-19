@@ -77,7 +77,6 @@ func TestPostTrainingWorkloadsGetNoGenericNotification(t *testing.T) {
 	running := v1.WorkloadStatus{Phase: v1.WorkloadRunning}
 	for _, labels := range []map[string]string{
 		{v1.PostTrainingRunIdLabel: "pt-1", v1.PostTrainingRoleLabel: v1.PostTrainingRoleTrain},
-		{v1.PostTrainingRoleLabel: v1.PostTrainingRoleImportScan},
 		{v1.PostTrainingConvertCacheLabel: "c1"},
 	} {
 		w.submitWorkloadNotification(&v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "wl1", Labels: labels},

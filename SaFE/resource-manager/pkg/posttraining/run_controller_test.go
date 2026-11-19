@@ -511,12 +511,3 @@ func TestTheReconcileThatEndsARunQueuesItAgain(t *testing.T) {
 	reconcileRun(t, r)
 	require.Empty(t, r.recovered)
 }
-
-// Imported runs get no backfill, verification or disk recount.
-func TestImportedRunsAreLeftAlone(t *testing.T) {
-	run := testRunRow("Stopped", "done")
-	run.Source, run.OutputPath = dbclient.PostTrainingSourceSpur, "/shared_nfs/runs/j2"
-	r, _, updates := newTestReconciler(t, run)
-	require.Zero(t, reconcileRun(t, r))
-	require.Empty(t, *updates, "no backfill, verification or disk recount for a Spur directory")
-}
