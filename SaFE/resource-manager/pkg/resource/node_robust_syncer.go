@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
@@ -60,7 +61,7 @@ var (
 
 	robustNodeSyncFallback = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "safe_robust_node_sync_fallback_total",
-		Help: "Total number of node reconcile rounds that skipped a cluster because its robust has no node sync API",
+		Help: "Total number of times a cluster was skipped because its robust has no node sync API",
 	}, []string{"cluster"})
 )
 
@@ -72,8 +73,9 @@ type NodeRobustSyncer struct {
 	// synced remembers the cluster each node was last pushed to, so a node that
 	// is gone or left its cluster can be deleted there without a digest round.
 	synced sync.Map
-	// noNodeSync holds the clusters already reported as having a Robust
-	// without node sync, so the report is made once.
+	// noNodeSync holds the clusters found to have a Robust without node sync,
+	// by the digest or by a per-node call. Their per-node calls are skipped and
+	// the report is made once, until a digest round finds node sync again.
 	noNodeSync sync.Map
 }
 
@@ -142,7 +144,7 @@ func (r *NodeRobustSyncer) Reconcile(ctx context.Context, req ctrlruntime.Reques
 		klog.V(4).Infof("[node-robust-syncer] cluster %s not available, retry node %s later", cluster, node.Name)
 		return ctrlruntime.Result{RequeueAfter: robustSyncNoClientWait}, nil
 	}
-	if !r.syncEnabled(ctx, cluster) {
+	if !r.syncEnabled(ctx, cluster) || r.hasNoNodeSync(cluster) {
 		return ctrlruntime.Result{}, nil
 	}
 	flavor, err := r.nodeFlavor(ctx, node)
@@ -150,7 +152,8 @@ func (r *NodeRobustSyncer) Reconcile(ctx context.Context, req ctrlruntime.Reques
 		return ctrlruntime.Result{}, err
 	}
 	if err = cc.SyncNode(ctx, buildNodeSyncPayload(node, flavor)); err != nil {
-		if robustclient.IsNotSupported(err) {
+		if nodeSyncUnavailable(err) {
+			robustNodeSyncFallback.WithLabelValues(cluster).Inc()
 			r.reportNoNodeSync(cluster, err)
 			return ctrlruntime.Result{}, nil
 		}
@@ -180,13 +183,19 @@ func (r *NodeRobustSyncer) deleteFromRobust(ctx context.Context, name, cluster s
 	if cc == nil {
 		return ctrlruntime.Result{RequeueAfter: robustSyncNoClientWait}, nil
 	}
-	if !r.syncEnabled(ctx, cluster) {
+	if !r.syncEnabled(ctx, cluster) || r.hasNoNodeSync(cluster) {
 		r.synced.CompareAndDelete(name, cluster)
 		return ctrlruntime.Result{}, nil
 	}
-	if err := cc.DeleteNode(ctx, name); err != nil && !robustclient.IsNotSupported(err) {
-		robustNodeSyncErrors.WithLabelValues(cluster, "node_delete").Inc()
-		return ctrlruntime.Result{}, fmt.Errorf("delete node %s from robust of cluster %s: %w", name, cluster, err)
+	if err := cc.DeleteNode(ctx, name); err != nil {
+		if !nodeSyncUnavailable(err) {
+			robustNodeSyncErrors.WithLabelValues(cluster, "node_delete").Inc()
+			return ctrlruntime.Result{}, fmt.Errorf("delete node %s from robust of cluster %s: %w", name, cluster, err)
+		}
+		robustNodeSyncFallback.WithLabelValues(cluster).Inc()
+		r.reportNoNodeSync(cluster, err)
+		r.synced.CompareAndDelete(name, cluster)
+		return ctrlruntime.Result{}, nil
 	}
 	robustNodeSyncSuccess.WithLabelValues(cluster, "node_delete").Inc()
 	r.synced.CompareAndDelete(name, cluster)
@@ -294,8 +303,25 @@ func (r *NodeRobustSyncer) reconcileCluster(ctx context.Context, cc *robustclien
 	return errors.Join(errs...)
 }
 
-// reportNoNodeSync logs once per cluster, until its Robust serves node sync
-// again, that the cluster's nodes are not synced.
+func (r *NodeRobustSyncer) hasNoNodeSync(cluster string) bool {
+	_, ok := r.noNodeSync.Load(cluster)
+	return ok
+}
+
+// nodeSyncUnavailable tells whether a per-node call failed because the Robust
+// has no node sync for SaFE: the route is missing (404 or 501), or, as on an
+// older Robust, guarded by a session SaFE does not have (401 or 403).
+func nodeSyncUnavailable(err error) bool {
+	if robustclient.IsNotSupported(err) {
+		return true
+	}
+	var se *robustclient.StatusError
+	return errors.As(err, &se) &&
+		(se.StatusCode == http.StatusUnauthorized || se.StatusCode == http.StatusForbidden)
+}
+
+// reportNoNodeSync marks cluster as having no node sync and logs it once,
+// until a digest round finds node sync again.
 func (r *NodeRobustSyncer) reportNoNodeSync(cluster string, err error) {
 	if _, logged := r.noNodeSync.LoadOrStore(cluster, true); !logged {
 		klog.Infof("[node-robust-syncer] robust of cluster %s has no node sync API, skipping its nodes: %v", cluster, err)

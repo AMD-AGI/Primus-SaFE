@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -353,6 +354,77 @@ func TestNodeRobustReconcileNotSupported(t *testing.T) {
 	assert.Equal(t, ctrlruntime.Result{}, res)
 	require.NoError(t, r.reconcileCluster(context.Background(), r.robustClient.ForCluster("c1"),
 		[]*v1.Node{syncManagedNode("n1", "1")}, nil))
+}
+
+func countingServer(t *testing.T, status int) (*httptest.Server, *atomic.Int32) {
+	t.Helper()
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(`{"error":"a SaFE session or API key is required"}`))
+	}))
+	t.Cleanup(srv.Close)
+	return srv, &calls
+}
+
+// A cluster the digest found without node sync gets no per-node calls.
+func TestNodeRobustReconcileSkipsClusterWithoutNodeSync(t *testing.T) {
+	srv, calls := countingServer(t, http.StatusOK)
+	node := syncManagedNode("n1", "")
+	r := newNodeRobustSyncer(t, node, syncTestFlavor())
+	r.robustClient.RegisterCluster("c1", srv.URL)
+	r.noNodeSync.Store("c1", true)
+
+	res, err := reconcileNode(t, r, "n1")
+	require.NoError(t, err)
+	assert.Equal(t, ctrlruntime.Result{}, res)
+
+	r.synced.Store("n1", "c1")
+	require.NoError(t, r.Delete(context.Background(), node))
+	res, err = reconcileNode(t, r, "n1")
+	require.NoError(t, err)
+	assert.Equal(t, ctrlruntime.Result{}, res)
+	assert.Empty(t, r.lastCluster("n1"))
+	assert.Zero(t, calls.Load())
+}
+
+// An older Robust guards the node routes with a session SaFE does not have:
+// 401 or 403 marks the cluster as without node sync instead of requeueing.
+func TestNodeRobustReconcileUnauthorizedMarksCluster(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			srv, calls := countingServer(t, status)
+			r := newNodeRobustSyncer(t, syncManagedNode("n1", ""), syncTestFlavor())
+			r.robustClient.RegisterCluster("c1", srv.URL)
+			fallback := testutil.ToFloat64(robustNodeSyncFallback.WithLabelValues("c1"))
+
+			res, err := reconcileNode(t, r, "n1")
+			require.NoError(t, err)
+			assert.Equal(t, ctrlruntime.Result{}, res)
+			assert.True(t, r.hasNoNodeSync("c1"))
+			assert.Equal(t, fallback+1, testutil.ToFloat64(robustNodeSyncFallback.WithLabelValues("c1")))
+			assert.Empty(t, r.lastCluster("n1"))
+
+			_, err = reconcileNode(t, r, "n1")
+			require.NoError(t, err)
+			assert.Equal(t, int32(1), calls.Load())
+		})
+	}
+}
+
+func TestNodeRobustDeleteUnauthorizedMarksCluster(t *testing.T) {
+	srv, calls := countingServer(t, http.StatusUnauthorized)
+	r := newNodeRobustSyncer(t)
+	r.robustClient.RegisterCluster("c1", srv.URL)
+	r.synced.Store("gone", "c1")
+
+	res, err := reconcileNode(t, r, "gone")
+	require.NoError(t, err)
+	assert.Equal(t, ctrlruntime.Result{}, res)
+	assert.True(t, r.hasNoNodeSync("c1"))
+	assert.Empty(t, r.lastCluster("gone"))
+	assert.Equal(t, int32(1), calls.Load())
 }
 
 func TestNodeRobustReconcileReturnsPushErrors(t *testing.T) {
