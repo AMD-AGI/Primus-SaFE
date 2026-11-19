@@ -340,10 +340,11 @@ func TestImportSummaryChecks(t *testing.T) {
 			s["metrics"] = map[string]interface{}{"train/" + strings.Repeat("n", 155): map[string]interface{}{
 				"axis": "train", "count": 1, "points": [][]interface{}{{1, 1.0}}}}
 		},
-		"name":       func(s map[string]interface{}) { s["name"] = strings.Repeat("n", 129) },
-		"slurmJobId": func(s map[string]interface{}) { s["slurmJobId"] = strings.Repeat("9", 33) },
-		"verdict":    func(s map[string]interface{}) { s["verdict"] = "PASS-WITH-WARNINGS" },
-		"baseModel":  func(s map[string]interface{}) { s["baseModel"] = strings.Repeat("m", 257) },
+		"gpusPerNode": func(s map[string]interface{}) { s["gpusPerNode"] = 1 << 31 },
+		"name":        func(s map[string]interface{}) { s["name"] = strings.Repeat("n", 129) },
+		"slurmJobId":  func(s map[string]interface{}) { s["slurmJobId"] = strings.Repeat("9", 33) },
+		"verdict":     func(s map[string]interface{}) { s["verdict"] = "PASS-WITH-WARNINGS" },
+		"baseModel":   func(s map[string]interface{}) { s["baseModel"] = strings.Repeat("m", 257) },
 	} {
 		_, err := parseImportSummary(importSummaryJSON(t, edit), reg)
 		var invalid *importInvalid

@@ -200,6 +200,9 @@ func parseImportSummary(data []byte, reg *registry.Registry) (*importSummary, er
 			return nil, fail(f.field, "%s has more than %d characters", f.field, f.max)
 		}
 	}
+	if s.GpusPerNode < 0 || s.GpusPerNode > math.MaxInt32 {
+		return nil, fail("gpusPerNode", "gpusPerNode is not a count of GPUs: %d", s.GpusPerNode)
+	}
 	total := 0
 	for name, series := range s.Metrics {
 		if utf8.RuneCountInString(name) > maxImportMetricName {
