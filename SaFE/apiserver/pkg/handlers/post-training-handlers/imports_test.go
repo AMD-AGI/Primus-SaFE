@@ -121,6 +121,38 @@ func (b unreadBody) Read([]byte) (int, error) {
 	return 0, io.EOF
 }
 
+// On the upload route the audit runs after the gate: it is not reached without a token, and with one it reads the
+// decompressed body.
+func TestTheUploadRouteAuditsOnlyBehindItsGate(t *testing.T) {
+	h, db := importHandler(t)
+	var audited []string
+	audit := func(c *gin.Context) {
+		body, _ := io.ReadAll(c.Request.Body)
+		audited = append(audited, string(body))
+		c.Request.Body = io.NopCloser(bytes.NewReader(body))
+		c.Next()
+	}
+	engine := gin.New()
+	engine.POST("/api/v1/post-training/imports", h.uploadChain(audit)...)
+
+	db.EXPECT().GetPostTrainingImportTokenByHash(gomock.Any(), gomock.Any()).Return(nil, gorm.ErrRecordNotFound)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/post-training/imports", unreadBody{t})
+	r.Header.Set("Authorization", "Bearer sst_unknown.x")
+	engine.ServeHTTP(w, r)
+	require.Equal(t, http.StatusUnauthorized, w.Code)
+	require.Empty(t, audited, "an upload without a token is not audited, and its body is not read")
+
+	db.EXPECT().GetPostTrainingImportTokenByHash(gomock.Any(), gomock.Any()).Return(cliToken(), nil)
+	db.EXPECT().SetPostTrainingImportTokenError(gomock.Any(), "pti-1", gomock.Any())
+	edit := func(s map[string]interface{}) { s["schema"] = "other/9" }
+	w, c := uploadRequest("sst_a.b", importSummaryJSON(t, edit))
+	engine.ServeHTTP(w, c.Request)
+	require.Equal(t, http.StatusUnprocessableEntity, w.Code, "the upload itself runs last")
+	require.Len(t, audited, 1)
+	require.JSONEq(t, string(importSummaryJSON(t, edit)), audited[0], "the audit keeps text, not gzip bytes")
+}
+
 // The gate of the upload route reads no body without a token, and hands on a bounded, decompressed one with it.
 func TestTheUploadGateChecksTheTokenBeforeItReadsTheBody(t *testing.T) {
 	h, db := importHandler(t)

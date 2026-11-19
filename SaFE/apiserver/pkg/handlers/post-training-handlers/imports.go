@@ -279,6 +279,12 @@ func notFoundOr(err error, what string) error {
 	return commonerrors.NewInternalError(err.Error())
 }
 
+// uploadChain returns the handlers of the upload route in their order. The gate stays first: the audit reads the
+// whole body, which only the holder of a token may send and only up to the gate's limit.
+func (h *Handler) uploadChain(audit gin.HandlerFunc) []gin.HandlerFunc {
+	return []gin.HandlerFunc{h.uploadGate, audit, h.UploadImport}
+}
+
 // uploadGate runs before the audit of the upload route, which has no sign-in: only the holder of an unspent import
 // token gets further, and the body the audit and the upload then read is bounded and already decompressed.
 func (h *Handler) uploadGate(c *gin.Context) {
@@ -309,6 +315,8 @@ func (h *Handler) uploadToken(c *gin.Context) *dbclient.PostTrainingImportToken 
 	token := strings.TrimSpace(strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer "))
 	t, err := h.db.GetPostTrainingImportTokenByHash(c.Request.Context(), tokenHash(token))
 	if !strings.HasPrefix(token, importTokenPrefix) || err != nil || t.UsedAt.Valid || time.Now().After(t.ExpiresAt) {
+		// The audit only sees an upload with a token; one without is at least logged.
+		klog.InfoS("refused an import upload that carries no unspent token", "client", c.ClientIP())
 		apiutils.AbortWithApiError(c, commonerrors.NewUnauthorized(importSpentMessage))
 		return nil
 	}

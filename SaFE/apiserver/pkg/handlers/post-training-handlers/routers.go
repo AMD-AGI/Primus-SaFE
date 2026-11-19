@@ -50,8 +50,7 @@ func InitRoutes(engine *gin.Engine, h *Handler) {
 	group.POST("/imports/scans", middleware.Audit("post-training"), h.CreateImportScan)
 	group.GET("/imports/scans/:id", h.GetImportScan)
 	group.POST("/imports/scans/:id/commit", middleware.Audit("post-training"), h.CommitImportScan)
-	// The command upload authenticates with its one-time import token, not a session. The gate stays first: the
-	// audit reads the whole body, which only a token holder may send and only up to the gate's limit.
-	engine.POST(common.PrimusRouterCustomRootPath+"/post-training/imports", h.uploadGate,
-		middleware.Audit("post-training"), h.UploadImport)
+	// The command upload authenticates with its one-time import token, not a session.
+	engine.POST(common.PrimusRouterCustomRootPath+"/post-training/imports",
+		h.uploadChain(middleware.Audit("post-training"))...)
 }
