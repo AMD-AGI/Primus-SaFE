@@ -116,8 +116,8 @@ func backfillWorkloadName(runID string) string {
 }
 
 // backfillPending reports whether a finished run still needs its end-of-run backfill: gaps are left, or a run
-// that failed or was stopped needs its directory counted again. A run whose workload the controller never saw, as
-// one that was never created, has no directory to go over.
+// that failed or was stopped needs its directory counted again. A run without the UID of a workload has none that
+// is known to have run, as when its workload was never created: it has no directory to go over.
 func backfillPending(run *dbclient.PostTrainingRun, history []stageEntry) bool {
 	if run.OutputPath == "" || run.WorkloadUID == "" || hasEvent(history, backfilledEvent) {
 		return false

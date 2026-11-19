@@ -267,7 +267,7 @@ func TestVerifyRegistersCompleteOutputOfLostWorkload(t *testing.T) {
 // queues it, and its reconcile ends it once nothing of a workload is found.
 func TestAPendingRunWithoutAWorkloadIsQueuedAndEnded(t *testing.T) {
 	run := testRunRow("Pending", "queued")
-	run.OutputPath = testRunDir
+	run.OutputPath, run.WorkloadUID = testRunDir, ""
 	r, db, updates := newTestReconciler(t, run)
 	r.recovered = make(chan event.GenericEvent, 2)
 	db.EXPECT().ListPostTrainingRuns(gomock.Any(), dbclient.PostTrainingRunFilter{
@@ -278,7 +278,7 @@ func TestAPendingRunWithoutAWorkloadIsQueuedAndEnded(t *testing.T) {
 	require.Equal(t, testRun, (<-r.recovered).Object.GetName())
 
 	db.EXPECT().GetWorkload(gomock.Any(), testRun).Return(nil, errors.New("not found")).AnyTimes()
-	db.EXPECT().ListWorkloadPods(gomock.Any(), testRun, "uid1").Return(nil, nil).AnyTimes()
+	db.EXPECT().ListWorkloadPods(gomock.Any(), testRun, "").Return(nil, nil).AnyTimes()
 	reconcileRun(t, r)
 	job := &v1.OpsJob{}
 	require.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: verifyJobName(testRun)}, job),
@@ -287,6 +287,10 @@ func TestAPendingRunWithoutAWorkloadIsQueuedAndEnded(t *testing.T) {
 	require.NoError(t, r.Update(context.Background(), job))
 	reconcileRun(t, r)
 	require.Equal(t, "Failed", (*updates)[len(*updates)-1]["status"])
+	run.Status = "Failed"
+	reconcileRun(t, r)
+	require.Error(t, r.Get(context.Background(), client.ObjectKey{Name: backfillWorkloadName(testRun)}, &v1.Workload{}),
+		"a run without a workload has no directory to go over")
 
 	// A run that was just recorded is given the time its workload takes to show.
 	fresh := testRunRow("Pending", "queued")
@@ -316,6 +320,33 @@ func TestAPendingRunIsNotLostWhileTheAPIServerHasItsWorkload(t *testing.T) {
 	require.Equal(t, runningRequeue, reconcileRun(t, r).RequeueAfter)
 	require.Error(t, r.Get(context.Background(), client.ObjectKey{Name: verifyJobName(testRun)}, &v1.OpsJob{}),
 		"a run whose workload runs is not taken for lost")
+}
+
+// The UID of a run's workload is recorded with the end of the run when the workload is first seen as it ends, and
+// when a workload that ran unseen is known from the workload table: the run's directory is then gone over.
+func TestAWorkloadSeenOnlyAtItsEndLeavesItsUID(t *testing.T) {
+	seen := testRunRow("Pending", "queued")
+	seen.OutputPath, seen.WorkloadUID = testRunDir, ""
+	r, db, updates := newTestReconciler(t, seen, endedWorkload(v1.WorkloadStopped))
+	db.EXPECT().ListWorkloadPods(gomock.Any(), testRun, gomock.Any()).Return(nil, nil).AnyTimes()
+	reconcileRun(t, r)
+	last := (*updates)[len(*updates)-1]
+	require.Equal(t, "Stopped", last["status"])
+	require.Equal(t, "uid1", last["workload_uid"], "the read of the log may not have saved it")
+
+	unseen := testRunRow("Pending", "queued")
+	unseen.OutputPath, unseen.WorkloadUID = testRunDir, ""
+	r, db, updates = newTestReconciler(t, unseen)
+	db.EXPECT().GetWorkload(gomock.Any(), testRun).Return(&dbclient.Workload{
+		Phase:       sql.NullString{String: "Failed", Valid: true},
+		WorkloadUId: sql.NullString{String: "uid9", Valid: true}}, nil)
+	db.EXPECT().ListWorkloadPods(gomock.Any(), testRun, gomock.Any()).Return(nil, nil).AnyTimes()
+	reconcileRun(t, r)
+	last = (*updates)[len(*updates)-1]
+	require.Equal(t, "Failed", last["status"])
+	require.Equal(t, "uid9", last["workload_uid"])
+	unseen.Status, unseen.WorkloadUID = "Failed", "uid9"
+	require.True(t, backfillPending(unseen, nil), "the workload ran, so its directory is counted")
 }
 
 // A run that exports no model and lost its result line ends as succeeded once verification finds its launcher

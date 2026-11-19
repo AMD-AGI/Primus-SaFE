@@ -332,7 +332,7 @@ func (r *RunReconciler) recoverRuns(ctx context.Context) error {
 	return nil
 }
 
-// requeue queues a run for a reconcile. A run the queue has no room for waits for its next event or poll.
+// requeue queues a run for a reconcile. A run the queue has no room for waits for its next event or sweep.
 func (r *RunReconciler) requeue(runID string) {
 	obj := &metav1.PartialObjectMetadata{ObjectMeta: metav1.ObjectMeta{Name: runID}}
 	select {
@@ -495,7 +495,10 @@ func (r *RunReconciler) reconcileWorkload(ctx context.Context, run *dbclient.Pos
 		if w.Status.EndTime != nil {
 			endTime = w.Status.EndTime.Time
 		}
-		return r.finish(ctx, newRunUpdate(run), w.Status.Phase, endTime, w)
+		end := newRunUpdate(run)
+		// The read of the log saves the UID with what it read, and may have failed for a workload first seen here.
+		end.set("workload_uid", run.WorkloadUID, string(w.UID))
+		return r.finish(ctx, end, w.Status.Phase, endTime, w)
 	}
 	return ctrlruntime.Result{RequeueAfter: runningRequeue}, nil
 }
@@ -540,6 +543,10 @@ func (r *RunReconciler) reconcileLost(ctx context.Context, run *dbclient.PostTra
 		phase = v1.WorkloadPhase(row.Phase.String)
 		if row.EndTime.Valid {
 			endTime = row.EndTime.Time
+		}
+		// The workload ran, although the controller did not see it.
+		if run.WorkloadUID == "" && row.WorkloadUId.Valid {
+			u.fields["workload_uid"] = row.WorkloadUId.String
 		}
 	}
 	switch phase {
