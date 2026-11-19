@@ -25,6 +25,9 @@ type VolumePurpose int
 type WorkspaceType string
 type WorkspaceVolumeType string
 
+// +kubebuilder:validation:Enum=Average;Min
+type LowUtilizationMode string
+
 const (
 	WorkspaceKind = "Workspace"
 
@@ -45,6 +48,11 @@ const (
 
 	HOSTPATH WorkspaceVolumeType = "hostpath"
 	PFS      WorkspaceVolumeType = "pfs"
+
+	// The workload is idle when the across-node average stays below the threshold for the whole window.
+	LowUtilizationAverage LowUtilizationMode = "Average"
+	// The workload is idle when at least one node stays below the threshold for the whole window.
+	LowUtilizationMin LowUtilizationMode = "Min"
 )
 
 type WorkspaceSpec struct {
@@ -78,6 +86,24 @@ type WorkspaceSpec struct {
 	// Trigger workload processing after a period of workspace inactivity. The idletime of each scope, Unit: "12h0m0s"
 	// only for sandbox workload
 	IdleTime map[WorkspaceScope]string `json:"idleTime,omitempty"`
+	// Stop running workloads whose GPU utilization stays low, per scope
+	LowUtilization map[WorkspaceScope]LowUtilizationPolicy `json:"lowUtilization,omitempty"`
+}
+
+// LowUtilizationPolicy stops workloads whose GPU utilization stays below a threshold
+type LowUtilizationPolicy struct {
+	// GPU utilization in percent (0-100) below which a workload counts as idle
+	Threshold int `json:"threshold"`
+	// How long the utilization must stay below the threshold, e.g. 30m (5m to 24h)
+	Window string `json:"window"`
+	// Average compares the across-node average, Min the least busy node
+	Mode LowUtilizationMode `json:"mode"`
+	// Time after the workload starts before it is checked, e.g. 1h
+	GracePeriod string `json:"gracePeriod,omitempty"`
+	// Time between the low utilization notice and the stop, e.g. 30m
+	NotifyBefore string `json:"notifyBefore,omitempty"`
+	// Detect and notify only, never stop the workload
+	DryRun bool `json:"dryRun,omitempty"`
 }
 
 type WorkspaceVolume struct {
@@ -268,6 +294,15 @@ func (w *Workspace) GetIdleTime(scope WorkspaceScope) string {
 		return ""
 	}
 	return idleTime
+}
+
+// GetLowUtilization returns the low-utilization policy of the scope, or nil when it has none.
+func (w *Workspace) GetLowUtilization(scope WorkspaceScope) *LowUtilizationPolicy {
+	policy, ok := w.Spec.LowUtilization[scope]
+	if !ok {
+		return nil
+	}
+	return &policy
 }
 
 // AppliesToScope reports whether the volume is mounted into workloads of the given scope.

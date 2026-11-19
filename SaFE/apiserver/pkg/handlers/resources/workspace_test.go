@@ -84,6 +84,36 @@ func TestGenerateWorkspace(t *testing.T) {
 	testifyassert.NotEmpty(t, ws.Spec.Scopes)
 }
 
+// The low-utilization policy is carried through create, patch and get.
+func TestWorkspaceLowUtilizationRoundTrip(t *testing.T) {
+	h, user := newAdminHandlerWithObjects()
+	policies := map[v1.WorkspaceScope]v1.LowUtilizationPolicy{
+		v1.TrainScope: {Threshold: 5, Window: "30m", Mode: v1.LowUtilizationMin, NotifyBefore: "15m", DryRun: true},
+	}
+	ws, err := h.generateWorkspace(context.Background(), user, &view.CreateWorkspaceRequest{
+		Name: "myws", ClusterId: "c1", LowUtilization: policies,
+	})
+	testifyassert.NoError(t, err)
+	assert.Equal(t, policies, ws.Spec.LowUtilization)
+	assert.Equal(t, policies, h.cvtToWorkspaceResponseItem(context.Background(), ws).LowUtilization)
+
+	// A patch without the field keeps it.
+	testifyassert.NoError(t, h.applyWorkspacePatch(context.Background(), ws, user, &view.PatchWorkspaceRequest{}))
+	assert.Equal(t, policies, ws.Spec.LowUtilization)
+
+	changed := map[v1.WorkspaceScope]v1.LowUtilizationPolicy{
+		v1.InferScope: {Threshold: 10, Window: "1h", Mode: v1.LowUtilizationAverage},
+	}
+	testifyassert.NoError(t, h.applyWorkspacePatch(context.Background(), ws, user,
+		&view.PatchWorkspaceRequest{LowUtilization: &changed}))
+	assert.Equal(t, changed, ws.Spec.LowUtilization)
+
+	empty := map[v1.WorkspaceScope]v1.LowUtilizationPolicy{}
+	testifyassert.NoError(t, h.applyWorkspacePatch(context.Background(), ws, user,
+		&view.PatchWorkspaceRequest{LowUtilization: &empty}))
+	testifyassert.Empty(t, ws.Spec.LowUtilization)
+}
+
 func TestGenerateWorkspaceExternalForcesReplicaZero(t *testing.T) {
 	h, user := newAdminHandlerWithObjects()
 	req := &view.CreateWorkspaceRequest{

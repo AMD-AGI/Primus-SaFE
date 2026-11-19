@@ -325,6 +325,9 @@ func (h *Handler) applyWorkspacePatch(ctx context.Context,
 	if req.IdleTime != nil {
 		workspace.Spec.IdleTime = *req.IdleTime
 	}
+	if req.LowUtilization != nil {
+		workspace.Spec.LowUtilization = *req.LowUtilization
+	}
 	return nil
 }
 
@@ -570,15 +573,16 @@ func (h *Handler) generateWorkspace(ctx context.Context,
 			},
 		},
 		Spec: v1.WorkspaceSpec{
-			Cluster:       req.ClusterId,
-			NodeFlavor:    req.FlavorId,
-			Replica:       req.Replica,
-			QueuePolicy:   v1.WorkspaceQueuePolicy(strings.ToLower(req.QueuePolicy)),
-			Volumes:       req.Volumes,
-			Scopes:        req.Scopes,
-			EnablePreempt: req.EnablePreempt,
-			IsDefault:     req.IsDefault,
-			IdleTime:      req.IdleTime,
+			Cluster:        req.ClusterId,
+			NodeFlavor:     req.FlavorId,
+			Replica:        req.Replica,
+			QueuePolicy:    v1.WorkspaceQueuePolicy(strings.ToLower(req.QueuePolicy)),
+			Volumes:        req.Volumes,
+			Scopes:         req.Scopes,
+			EnablePreempt:  req.EnablePreempt,
+			IsDefault:      req.IsDefault,
+			IdleTime:       req.IdleTime,
+			LowUtilization: req.LowUtilization,
 		},
 	}
 	if len(workspace.Spec.Scopes) == 0 {
@@ -655,6 +659,7 @@ func (h *Handler) cvtToWorkspaceResponseItem(ctx context.Context, w *v1.Workspac
 		EnablePreempt:     w.Spec.EnablePreempt,
 		IsDefault:         w.Spec.IsDefault,
 		IdleTime:          w.Spec.IdleTime,
+		LowUtilization:    w.Spec.LowUtilization,
 		GpuProduct:        v1.GetAnnotation(w, v1.GpuProductAnnotation),
 		External:          v1.IsExternalWorkspace(w),
 	}
