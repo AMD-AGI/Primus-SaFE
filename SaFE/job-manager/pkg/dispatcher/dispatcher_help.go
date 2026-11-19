@@ -19,6 +19,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -428,24 +429,27 @@ func cicdWorkloadWithParentAPIKey(workload, source *v1.Workload) *v1.Workload {
 }
 
 // unifiedJobScaleSet returns the scale set named in a UnifiedJob's SCALE_RUNNER_SET_ID when it is a
-// scale set of the same workspace and cluster, else nil.
-func unifiedJobScaleSet(ctx context.Context, reader client.Reader, workload *v1.Workload) *v1.Workload {
+// scale set of the same workspace and cluster, else nil. Read errors other than NotFound are returned.
+func unifiedJobScaleSet(ctx context.Context, reader client.Reader, workload *v1.Workload) (*v1.Workload, error) {
 	if workload.SpecKind() != common.UnifiedJobKind {
-		return nil
+		return nil, nil
 	}
 	name := workload.GetEnv(common.ScaleRunnerSetID)
 	if name == "" {
-		return nil
+		return nil, nil
 	}
 	parent := &v1.Workload{}
 	if err := reader.Get(ctx, client.ObjectKey{Name: name}, parent); err != nil {
-		return nil
+		if apierrors.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, err
 	}
 	if !commonworkload.IsCICDScalingRunnerSet(parent) || parent.Spec.Workspace != workload.Spec.Workspace ||
 		v1.GetClusterId(parent) != v1.GetClusterId(workload) {
-		return nil
+		return nil, nil
 	}
-	return parent
+	return parent, nil
 }
 
 // dispatchNodesAt returns the admin nodes assigned at the given dispatch index,

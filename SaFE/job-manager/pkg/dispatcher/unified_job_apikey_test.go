@@ -7,12 +7,14 @@ package dispatcher
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"gotest.tools/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -66,25 +68,45 @@ func TestUnifiedJobScaleSetResolution(t *testing.T) {
 	}
 	ctx := context.Background()
 	job := unifiedJobForTest()
+	resolve := func(c ctrlclient.Client, w *v1.Workload) *v1.Workload {
+		got, err := unifiedJobScaleSet(ctx, c, w)
+		assert.NilError(t, err)
+		return got
+	}
 
-	got := unifiedJobScaleSet(ctx, build(scaleSetForUnifiedJob("k")), job)
+	got := resolve(build(scaleSetForUnifiedJob("k")), job)
 	assert.Assert(t, got != nil && got.Name == "scale-set")
 
-	assert.Assert(t, unifiedJobScaleSet(ctx, build(), job) == nil, "a missing scale set")
+	assert.Assert(t, resolve(build(), job) == nil, "a missing scale set")
 
 	otherWs := scaleSetForUnifiedJob("k")
 	otherWs.Spec.Workspace = "ws2"
-	assert.Assert(t, unifiedJobScaleSet(ctx, build(otherWs), job) == nil, "a scale set of another workspace")
+	assert.Assert(t, resolve(build(otherWs), job) == nil, "a scale set of another workspace")
 
 	otherCluster := scaleSetForUnifiedJob("k")
 	otherCluster.Labels[v1.ClusterIdLabel] = "c2"
-	assert.Assert(t, unifiedJobScaleSet(ctx, build(otherCluster), job) == nil, "a scale set of another cluster")
+	assert.Assert(t, resolve(build(otherCluster), job) == nil, "a scale set of another cluster")
 
 	notScaleSet := scaleSetForUnifiedJob("k")
 	notScaleSet.Spec.GroupVersionKind.Kind = common.PytorchJobKind
-	assert.Assert(t, unifiedJobScaleSet(ctx, build(notScaleSet), job) == nil, "not a scale set")
+	assert.Assert(t, resolve(build(notScaleSet), job) == nil, "not a scale set")
 
 	noEnv := unifiedJobForTest()
 	noEnv.Spec.Env = nil
-	assert.Assert(t, unifiedJobScaleSet(ctx, build(scaleSetForUnifiedJob("k")), noEnv) == nil, "a job not started by a scale set")
+	assert.Assert(t, resolve(build(scaleSetForUnifiedJob("k")), noEnv) == nil, "a job not started by a scale set")
+}
+
+func TestUnifiedJobScaleSetReadErrorPropagates(t *testing.T) {
+	scheme, err := genMockScheme()
+	assert.NilError(t, err)
+	failing := fake.NewClientBuilder().WithScheme(scheme).WithObjects(scaleSetForUnifiedJob("k")).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(context.Context, ctrlclient.WithWatch, ctrlclient.ObjectKey, ctrlclient.Object, ...ctrlclient.GetOption) error {
+				return errors.New("apiserver unavailable")
+			},
+		}).Build()
+
+	got, err := unifiedJobScaleSet(context.Background(), failing, unifiedJobForTest())
+	assert.ErrorContains(t, err, "apiserver unavailable")
+	assert.Assert(t, got == nil)
 }
