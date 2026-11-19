@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -173,13 +174,36 @@ func TestAnExportGivesWayToACleanupAskedForMeanwhile(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError, statusCode(h.dropExportIfCleaning(ended, "pt-1", job)))
 	require.Error(t, h.client.Get(ctx, ctrlclient.ObjectKeyFromObject(job), &v1.Workload{}),
 		"a job that cannot be told safe is removed")
+
+	// A job that cannot be removed is answered as an error, and its removal has time of its own.
+	h = exportHandler(t, exportJob("pt-1-x20-b", "Running", 2))
+	var lookBy, undoBy time.Time
+	h.client = intercepted(h.client, interceptor.Funcs{Delete: func(ctx context.Context, _ ctrlclient.WithWatch,
+		_ ctrlclient.Object, _ ...ctrlclient.DeleteOption) error {
+		undoBy, _ = ctx.Deadline()
+		return errors.New("the API server is unavailable")
+	}})
+	h.db.(*mockclient.MockInterface).EXPECT().GetPostTrainingRun(gomock.Any(), "pt-1").DoAndReturn(
+		func(ctx context.Context, _ string) (*dbclient.PostTrainingRun, error) {
+			lookBy, _ = ctx.Deadline()
+			return &dbclient.PostTrainingRun{RunID: "pt-1", CleanupRequest: `{"keep":"none"}`}, nil
+		})
+	require.Equal(t, http.StatusInternalServerError, statusCode(h.dropExportIfCleaning(ctx, "pt-1", job)),
+		"the job may still read the checkpoint")
+	require.False(t, lookBy.IsZero())
+	require.True(t, undoBy.After(lookBy.Add(time.Second)), "a look that used up its time leaves the removal its own")
 }
 
-// runCall runs handle as user u1 on run pt-1 with body and returns the status and body.
-func runCall(handle gin.HandlerFunc, body string) (int, string) {
+// intercepted returns the fake client cli with funcs in front of it.
+func intercepted(cli ctrlclient.Client, funcs interceptor.Funcs) ctrlclient.Client {
+	return interceptor.NewClient(cli.(ctrlclient.WithWatch), funcs)
+}
+
+// runCall runs handle as user u1 on run pt-1 with body, in a request of ctx, and returns the status and body.
+func runCall(ctx context.Context, handle gin.HandlerFunc, body string) (int, string) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	c.Request = httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body)).WithContext(ctx)
 	c.Request.Header.Set("Content-Type", "application/json")
 	c.Params = gin.Params{{Key: "id", Value: "pt-1"}}
 	c.Set(common.UserId, "u1")
@@ -188,8 +212,9 @@ func runCall(handle gin.HandlerFunc, body string) (int, string) {
 	return w.Code, w.Body.String()
 }
 
-// The export endpoint removes the job it made when a cleanup was asked for while it was made.
-func TestTheExportEndpointRemovesItsJobForACleanupAskedMeanwhile(t *testing.T) {
+// exportEndpoint returns a handler that user u1 may export the returned run with, and its database: the run's
+// first read finds no cleanup, the read after the job was made finds one.
+func exportEndpoint(t *testing.T) (*Handler, *mockclient.MockInterface) {
 	db := mockclient.NewMockInterface(gomock.NewController(t))
 	h := templateHandler(t, db)
 	ctx := context.Background()
@@ -210,10 +235,33 @@ func TestTheExportEndpointRemovesItsJobForACleanupAskedMeanwhile(t *testing.T) {
 	queued := *run
 	queued.CleanupRequest = `{"keep":"none"}`
 	db.EXPECT().GetPostTrainingRun(gomock.Any(), "pt-1").Return(&queued, nil).After(read)
+	return h, db
+}
 
-	code, body := runCall(h.ExportCheckpoint, `{"step":20}`)
+// The export endpoint removes the job it made when a cleanup was asked for while it was made.
+func TestTheExportEndpointRemovesItsJobForACleanupAskedMeanwhile(t *testing.T) {
+	h, _ := exportEndpoint(t)
+	code, body := runCall(context.Background(), h.ExportCheckpoint, `{"step":20}`)
 	require.Equal(t, http.StatusConflict, code, body)
 	list := &v1.WorkloadList{}
-	require.NoError(t, h.client.List(ctx, list))
+	require.NoError(t, h.client.List(context.Background(), list))
+	require.Empty(t, list.Items, "the cleanup would delete the checkpoint the job reads")
+}
+
+// The export endpoint looks for a cleanup although its caller left while the job was made: the cluster stored the
+// job, and a call that ends with its caller would answer the cancellation and skip the look.
+func TestTheExportEndpointChecksItsJobAlthoughItsCallerLeft(t *testing.T) {
+	h, _ := exportEndpoint(t)
+	ctx, leave := context.WithCancel(context.Background())
+	h.client = intercepted(h.client, interceptor.Funcs{Create: func(ctx context.Context, c ctrlclient.WithWatch,
+		obj ctrlclient.Object, opts ...ctrlclient.CreateOption) error {
+		leave()
+		require.NoError(t, c.Create(context.Background(), obj, opts...))
+		return ctx.Err()
+	}})
+	code, body := runCall(ctx, h.ExportCheckpoint, `{"step":20}`)
+	require.Equal(t, http.StatusConflict, code, body)
+	list := &v1.WorkloadList{}
+	require.NoError(t, h.client.List(context.Background(), list))
 	require.Empty(t, list.Items, "the cleanup would delete the checkpoint the job reads")
 }

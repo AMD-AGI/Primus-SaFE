@@ -46,6 +46,9 @@ const (
 	imagesInUseTimeout    = 10 * time.Second
 	// detachedTimeout bounds what a handler does apart from its request, such as undoing what it started.
 	detachedTimeout = time.Minute
+	// recheckTimeout bounds a look at what another request did meanwhile; what it cannot tell in that time is
+	// undone.
+	recheckTimeout = 20 * time.Second
 )
 
 // errImagesInUseUnknown rejects a registry version while the images of the unfinished runs cannot be read.
@@ -79,6 +82,12 @@ func (h *Handler) UseAPIReader(r ctrlclient.Reader) {
 // detached returns a context for work that has to finish although its request ended, for at most detachedTimeout.
 func detached(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(ctx), detachedTimeout)
+}
+
+// recheck returns a context for a look at what another request did meanwhile, which a caller that left does not
+// end, for at most recheckTimeout.
+func recheck(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), recheckTimeout)
 }
 
 // registry returns the current registry. A missing ConfigMap means Post Training is off (404); an invalid one keeps

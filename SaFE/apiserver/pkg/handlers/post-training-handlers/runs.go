@@ -384,7 +384,11 @@ func (h *Handler) CleanupCheckpoints(c *gin.Context) {
 		apiutils.AbortWithApiError(c, err)
 		return
 	}
-	if err = h.requestCleanup(ctx, run.RunID, plan); err != nil {
+	// The request and the look for an export go together: a caller that leaves between them would leave the
+	// request unchecked.
+	act, cancel := detached(ctx)
+	defer cancel()
+	if err = h.requestCleanup(act, run.RunID, plan); err != nil {
 		apiutils.AbortWithApiError(c, err)
 		return
 	}
@@ -397,19 +401,19 @@ func (h *Handler) CleanupCheckpoints(c *gin.Context) {
 	c.JSON(http.StatusAccepted, gin.H{"runId": run.RunID, "keep": body.Keep})
 }
 
-// exportRunning answers a conflict while a checkpoint export of the run has not finished, as it reads a checkpoint.
+// exportRunning answers a conflict while an export job of the run has not ended, as it reads a checkpoint. The
+// jobs are read from reader: the client's cache, or the API server for a job made a moment ago.
 func (h *Handler) exportRunning(ctx context.Context, reader ctrlclient.Reader, runID string) error {
-	exports, err := h.listExportsFrom(ctx, reader, runID)
-	if err != nil {
+	jobs := &v1.WorkloadList{}
+	if err := reader.List(ctx, jobs, ctrlclient.MatchingLabels{v1.PostTrainingRunIdLabel: runID,
+		v1.PostTrainingRoleLabel: v1.PostTrainingRoleExport}); err != nil {
 		return commonerrors.NewInternalError("failed to list the run's exports: " + err.Error())
 	}
-	for _, e := range exports {
-		switch v1.WorkloadPhase(e.Status) {
-		case v1.WorkloadSucceeded, v1.WorkloadFailed, v1.WorkloadStopped:
-		default:
-			if e.WorkloadID != "" {
-				return commonerrors.NewConflict(fmt.Sprintf("step %d of run %s is being exported", e.Step, runID))
-			}
+	for i := range jobs.Items {
+		// A job that is being deleted counts until it is gone: it may still read the checkpoint.
+		if w := &jobs.Items[i]; !v1.IsWorkloadPhaseEnded(w.Status.Phase) {
+			return commonerrors.NewConflict(fmt.Sprintf("step %s of run %s is being exported",
+				w.Labels[v1.PostTrainingExportStepLabel], runID))
 		}
 	}
 	return nil
@@ -421,14 +425,17 @@ func (h *Handler) exportRunning(ctx context.Context, reader ctrlclient.Reader, r
 func (h *Handler) withdrawCleanupIfExporting(ctx context.Context, runID string) error {
 	// Apart from the request, and from the API server: a caller that left must not leave the request behind
 	// unchecked, and the cache may not show an export job made a moment ago.
-	ctx, cancel := detached(ctx)
-	defer cancel()
-	found := h.exportRunning(ctx, h.reader, runID)
+	check, cancel := recheck(ctx)
+	found := h.exportRunning(check, h.reader, runID)
+	cancel()
 	if found == nil {
 		return nil
 	}
-	// An export runs, or the exports cannot be listed to tell: either way the cleanup must not go ahead.
-	if err := h.db.UpdatePostTrainingRun(ctx, runID, map[string]interface{}{"cleanup_request": ""}); err != nil {
+	// An export runs, or the exports cannot be listed to tell: either way the cleanup must not go ahead. The
+	// withdrawal has time of its own, as the look may have used up its time.
+	undo, cancel := detached(ctx)
+	defer cancel()
+	if err := h.db.UpdatePostTrainingRun(undo, runID, map[string]interface{}{"cleanup_request": ""}); err != nil {
 		return commonerrors.NewInternalError(fmt.Sprintf("failed to withdraw the checkpoint cleanup of run %s, "+
 			"which an export may run against: %v", runID, err))
 	}

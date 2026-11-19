@@ -81,7 +81,11 @@ func (h *Handler) ExportCheckpoint(c *gin.Context) {
 		err = h.checkExportConflict(c, run.RunID, req.Step)
 	}
 	if err == nil {
-		err = h.client.Create(c.Request.Context(), w)
+		// The job and the look for a cleanup go together: a caller that leaves between them would leave the job
+		// unchecked.
+		act, cancel := detached(c.Request.Context())
+		defer cancel()
+		err = h.client.Create(act, w)
 	}
 	if err == nil {
 		err = h.dropExportIfCleaning(c.Request.Context(), run.RunID, w)
@@ -115,14 +119,17 @@ func (h *Handler) checkExportConflict(c *gin.Context, runID string, step int) er
 // have been asked for after the run was read and before the job was made.
 func (h *Handler) dropExportIfCleaning(ctx context.Context, runID string, w *v1.Workload) error {
 	// Apart from the request: a caller that left must not leave the job behind unchecked.
-	ctx, cancel := detached(ctx)
-	defer cancel()
-	run, err := h.db.GetPostTrainingRun(ctx, runID)
+	check, cancel := recheck(ctx)
+	run, err := h.db.GetPostTrainingRun(check, runID)
+	cancel()
 	if err == nil && run.CleanupRequest == "" {
 		return nil
 	}
-	// A cleanup is queued, or the run cannot be read to tell: either way the job must not read the checkpoint.
-	if derr := h.client.Delete(ctx, w); derr != nil && !apierrors.IsNotFound(derr) {
+	// A cleanup is queued, or the run cannot be read to tell: either way the job must not read the checkpoint. The
+	// removal has time of its own, as the look may have used up its time.
+	undo, cancel := detached(ctx)
+	defer cancel()
+	if derr := h.client.Delete(undo, w); derr != nil && !apierrors.IsNotFound(derr) {
 		return commonerrors.NewInternalError(fmt.Sprintf("failed to remove export job %s, which a checkpoint "+
 			"cleanup may run against: %v", w.Name, derr))
 	}
@@ -242,12 +249,6 @@ type exportItem struct {
 
 // listExports returns the run's checkpoint exports by step, newest step first.
 func (h *Handler) listExports(ctx context.Context, runID string) ([]exportItem, error) {
-	return h.listExportsFrom(ctx, h.client, runID)
-}
-
-// listExportsFrom is listExports read from reader: the client's cache, or the API server for a job made a moment
-// ago.
-func (h *Handler) listExportsFrom(ctx context.Context, reader ctrlclient.Reader, runID string) ([]exportItem, error) {
 	byStep := map[int]*exportItem{}
 	item := func(label string) *exportItem {
 		step, err := strconv.Atoi(label)
@@ -260,7 +261,7 @@ func (h *Handler) listExportsFrom(ctx context.Context, reader ctrlclient.Reader,
 		return byStep[step]
 	}
 	jobs := &v1.WorkloadList{}
-	if err := reader.List(ctx, jobs, ctrlclient.MatchingLabels{v1.PostTrainingRunIdLabel: runID,
+	if err := h.client.List(ctx, jobs, ctrlclient.MatchingLabels{v1.PostTrainingRunIdLabel: runID,
 		v1.PostTrainingRoleLabel: v1.PostTrainingRoleExport}); err != nil {
 		return nil, err
 	}
@@ -275,7 +276,7 @@ func (h *Handler) listExportsFrom(ctx context.Context, reader ctrlclient.Reader,
 		}
 	}
 	models := &v1.ModelList{}
-	if err := reader.List(ctx, models, ctrlclient.MatchingLabels{v1.PostTrainingRunIdLabel: runID}); err != nil {
+	if err := h.client.List(ctx, models, ctrlclient.MatchingLabels{v1.PostTrainingRunIdLabel: runID}); err != nil {
 		return nil, err
 	}
 	for i := range models.Items {

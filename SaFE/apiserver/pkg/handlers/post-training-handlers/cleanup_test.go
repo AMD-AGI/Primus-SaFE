@@ -15,7 +15,10 @@ import (
 
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	mockclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
 )
@@ -145,8 +148,9 @@ func TestACleanupGivesWayToAnExportThatStartedMeanwhile(t *testing.T) {
 		"a request that could not be withdrawn is not answered as a mere conflict")
 }
 
-// The cleanup endpoint takes its request back when the API server shows an export that the cache does not show yet.
-func TestTheCleanupEndpointWithdrawsForAnExportTheCacheMisses(t *testing.T) {
+// cleanupEndpoint returns a handler that user u1 may clean up run pt-1 with, and its database: the API server
+// shows a running export that the cache does not show yet.
+func cleanupEndpoint(t *testing.T) (*Handler, *mockclient.MockInterface) {
 	db := mockclient.NewMockInterface(gomock.NewController(t))
 	h := templateHandler(t, db)
 	h.reader = exportHandler(t, exportJob("pt-1-x20-b", "Running", 2)).client
@@ -154,10 +158,65 @@ func TestTheCleanupEndpointWithdrawsForAnExportTheCacheMisses(t *testing.T) {
 	run.Workspace, run.UserID, run.WorkloadID = "ws1", "u1", "pt-1"
 	db.EXPECT().ListPostTrainingRuns(gomock.Any(), gomock.Any()).Return(nil, int64(0), nil).AnyTimes()
 	db.EXPECT().GetPostTrainingRun(gomock.Any(), "pt-1").Return(run, nil)
+	return h, db
+}
+
+// The cleanup endpoint takes its request back when the API server shows an export that the cache does not show yet.
+func TestTheCleanupEndpointWithdrawsForAnExportTheCacheMisses(t *testing.T) {
+	h, db := cleanupEndpoint(t)
 	asked := db.EXPECT().RequestPostTrainingRunCleanup(gomock.Any(), "pt-1", gomock.Any()).Return(true, nil)
 	db.EXPECT().UpdatePostTrainingRun(gomock.Any(), "pt-1", map[string]interface{}{"cleanup_request": ""}).
 		Return(nil).After(asked)
 
-	code, body := runCall(h.CleanupCheckpoints, `{"keep":"none"}`)
+	code, body := runCall(context.Background(), h.CleanupCheckpoints, `{"keep":"none"}`)
 	require.Equal(t, http.StatusConflict, code, body)
+}
+
+// The cleanup endpoint looks for an export although its caller left while the request was recorded: the database
+// stored the request, and a call that ends with its caller would answer the cancellation and skip the look.
+func TestTheCleanupEndpointChecksItsRequestAlthoughItsCallerLeft(t *testing.T) {
+	h, db := cleanupEndpoint(t)
+	ctx, leave := context.WithCancel(context.Background())
+	asked := db.EXPECT().RequestPostTrainingRunCleanup(gomock.Any(), "pt-1", gomock.Any()).DoAndReturn(
+		func(ctx context.Context, _, _ string) (bool, error) {
+			leave()
+			return true, ctx.Err()
+		})
+	db.EXPECT().UpdatePostTrainingRun(gomock.Any(), "pt-1", map[string]interface{}{"cleanup_request": ""}).
+		Return(nil).After(asked)
+
+	code, body := runCall(ctx, h.CleanupCheckpoints, `{"keep":"none"}`)
+	require.Equal(t, http.StatusConflict, code, body)
+}
+
+// The look for an export reads the export jobs alone, and leaves the withdrawal time of its own.
+func TestTheLookForAnExportIsApartFromItsWithdrawal(t *testing.T) {
+	// Models that cannot be listed do not matter: only an export job reads a checkpoint.
+	h := exportHandler(t)
+	h.reader = intercepted(h.client, interceptor.Funcs{List: func(ctx context.Context, c ctrlclient.WithWatch,
+		list ctrlclient.ObjectList, opts ...ctrlclient.ListOption) error {
+		if _, ok := list.(*v1.ModelList); ok {
+			return errors.New("the models are unavailable")
+		}
+		return c.List(ctx, list, opts...)
+	}})
+	require.NoError(t, h.withdrawCleanupIfExporting(context.Background(), "pt-1"))
+
+	// Export jobs that cannot be listed may run: the cleanup is withdrawn.
+	var lookBy, undoBy time.Time
+	h.reader = intercepted(h.client, interceptor.Funcs{List: func(ctx context.Context, _ ctrlclient.WithWatch,
+		_ ctrlclient.ObjectList, _ ...ctrlclient.ListOption) error {
+		lookBy, _ = ctx.Deadline()
+		return context.DeadlineExceeded
+	}})
+	h.db.(*mockclient.MockInterface).EXPECT().UpdatePostTrainingRun(gomock.Any(), "pt-1",
+		map[string]interface{}{"cleanup_request": ""}).DoAndReturn(
+		func(ctx context.Context, _ string, _ map[string]interface{}) error {
+			undoBy, _ = ctx.Deadline()
+			return nil
+		})
+	err := h.withdrawCleanupIfExporting(context.Background(), "pt-1")
+	require.Equal(t, http.StatusInternalServerError, statusCode(err), "the cleanup cannot be told safe")
+	require.False(t, lookBy.IsZero())
+	require.True(t, undoBy.After(lookBy.Add(time.Second)), "a look that used up its time leaves the withdrawal its own")
 }
