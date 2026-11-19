@@ -61,8 +61,8 @@ type listResponse struct {
 	Items []listItem `json:"items"`
 }
 
-// listItem is a run of the list with how many runs of its recipe hash succeeded on the platform, and for an imported
-// run what the list shows of its import.
+// listItem is a run of the list with how many runs of its recipe hash succeeded on the platform and the latest of
+// them in the list's workspace, and for an imported run what the list shows of its import.
 type listItem struct {
 	*dbclient.PostTrainingRun
 	VerifiedRuns      int         `json:"verifiedRuns,omitempty"`
@@ -138,7 +138,7 @@ func (h *Handler) ListRuns(c *gin.Context) {
 			hashes = append(hashes, r.RecipeHash)
 		}
 	}
-	records, err := h.db.CountPostTrainingRunsByRecipe(c.Request.Context(), hashes)
+	records, err := h.db.ListPostTrainingRecipeRecords(c.Request.Context(), q.Workspace, hashes)
 	if err != nil {
 		klog.ErrorS(err, "failed to count the successful runs of the listed recipes")
 	}

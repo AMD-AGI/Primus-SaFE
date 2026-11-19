@@ -77,6 +77,24 @@ func testContext() *gin.Context {
 	return c
 }
 
+// The run list counts a recipe's successful runs on the platform and links the latest one of its own workspace.
+func TestTheRunListLinksTheLatestVerifiedRunOfItsWorkspace(t *testing.T) {
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	db.EXPECT().ListPostTrainingRuns(gomock.Any(), gomock.Any()).Return(
+		[]*dbclient.PostTrainingRun{{RunID: "pt-1", Workspace: "ws1", RecipeHash: "h1"}}, int64(1), nil).AnyTimes()
+	db.EXPECT().ListPostTrainingRecipeRecords(gomock.Any(), "ws1", []string{"h1"}).Return(
+		map[string]dbclient.RecipeRecord{"h1": {RecipeHash: "h1", Succeeded: 3, LatestRun: "pt-0"}}, nil)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/?workspace=ws1", nil)
+	c.Set(common.UserId, "u1")
+	c.Set(common.UserName, "alice")
+	templateHandler(t, db).ListRuns(c)
+	require.Equal(t, 200, w.Code, w.Body.String())
+	require.Contains(t, w.Body.String(), `"verifiedRuns":3`)
+	require.Contains(t, w.Body.String(), `"latestVerifiedRun":"pt-0"`)
+}
+
 // flavor is an MI355X node flavor.
 func flavor() *v1.NodeFlavor {
 	return &v1.NodeFlavor{Spec: v1.NodeFlavorSpec{

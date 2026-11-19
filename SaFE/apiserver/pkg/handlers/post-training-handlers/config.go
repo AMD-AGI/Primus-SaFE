@@ -70,7 +70,7 @@ type previewResponse struct {
 	FrameworkArgs []string            `json:"frameworkArgs,omitempty"`
 	Recipe        *recipe.Recipe      `json:"recipe,omitempty"`
 	// VerifiedRuns counts the runs of the same recipe hash that succeeded on the platform; LatestVerifiedRun is
-	// the one that ended last.
+	// the one of the request's workspace that ended last.
 	VerifiedRuns      int    `json:"verifiedRuns"`
 	LatestVerifiedRun string `json:"latestVerifiedRun,omitempty"`
 }
@@ -235,7 +235,8 @@ func (h *Handler) PreviewRecipe(c *gin.Context) {
 		h.markConvertCache(c, req.Workspace, res.Recipe)
 		resp.Layout, resp.FrameworkArgs, resp.Recipe = &res.Recipe.Layout, res.Recipe.FrameworkArgs, res.Recipe
 		hash := res.Recipe.Provenance.RecipeHash
-		if records, err := h.db.CountPostTrainingRunsByRecipe(c.Request.Context(), []string{hash}); err != nil {
+		if records, err := h.db.ListPostTrainingRecipeRecords(c.Request.Context(), req.Workspace,
+			[]string{hash}); err != nil {
 			klog.ErrorS(err, "failed to count the successful runs of a recipe", "hash", hash)
 		} else {
 			resp.VerifiedRuns, resp.LatestVerifiedRun = records[hash].Succeeded, records[hash].LatestRun
