@@ -501,6 +501,7 @@ func (r *DispatcherReconciler) generateK8sObject(ctx context.Context,
 		return nil, err
 	}
 	derived := cicdWorkloadWithParentAPIKey(cicdProxyWorkload(adminWorkload, source, result), source)
+	derived = cicdWorkloadWithParentAPIKey(derived, unifiedJobScaleSet(ctx, r.Client, adminWorkload))
 	if err = r.applyWorkloadSpecToObject(ctx, clientSets, result, derived, workspace, rt, source); err != nil {
 		return nil, commonerrors.NewInternalError(err.Error())
 	}
