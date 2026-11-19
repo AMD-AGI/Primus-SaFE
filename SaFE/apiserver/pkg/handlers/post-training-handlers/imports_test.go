@@ -21,6 +21,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang/mock/gomock"
 	"github.com/lib/pq"
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 	corev1 "k8s.io/api/core/v1"
@@ -183,6 +184,20 @@ func TestTheUploadAddressTakesOnlyAHost(t *testing.T) {
 		"a forwarded host with a path does not choose where the scan job posts")
 	r.Host = "safe.example.com/evil"
 	require.Empty(t, externalAddress(r))
+}
+
+// With a system host configured the upload address is that host, whatever host the request names.
+func TestTheUploadAddressIsTheConfiguredHost(t *testing.T) {
+	viper.Set("global.sub_domain", "tw325")
+	viper.Set("global.domain", "safe.example.com")
+	t.Cleanup(func() {
+		viper.Set("global.sub_domain", nil)
+		viper.Set("global.domain", nil)
+	})
+	r := httptest.NewRequest(http.MethodPost, "http://elsewhere.example.net/api/v1/post-training/imports/tokens", nil)
+	r.Header.Set("X-Forwarded-Host", "elsewhere.example.net")
+	require.Equal(t, "https://tw325.safe.example.com", externalAddress(r),
+		"a request cannot choose where the scan job posts its summary and token")
 }
 
 // The import token stays out of the audit log, which names the token's owner.

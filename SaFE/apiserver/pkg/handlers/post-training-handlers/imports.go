@@ -31,6 +31,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/posttraining/registry"
@@ -194,9 +195,13 @@ func tokenHash(token string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// externalAddress is the SaFE address the caller reached, which the command posts to: the scheme and host the proxy
-// forwarded, or the request's own.
+// externalAddress is the SaFE address the command and the scan job post to: the configured system host when there
+// is one, which a request cannot choose; without one, the address the caller reached, which is the scheme and host
+// the proxy forwarded, or the request's own.
 func externalAddress(r *http.Request) string {
+	if host := strings.TrimSpace(commonconfig.GetSystemHost()); hostOnly.MatchString(host) {
+		return "https://" + host
+	}
 	scheme := "http"
 	if r.TLS != nil {
 		scheme = "https"
