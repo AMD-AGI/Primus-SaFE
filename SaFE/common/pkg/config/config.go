@@ -774,6 +774,13 @@ func GetRobustServiceToken() string {
 	return strings.TrimSpace(getFromFile(robustSecretPath, RobustServiceTokenKey))
 }
 
+// GetRobustManagementCluster returns the name of the Cluster CR that SaFE itself
+// runs in, the only cluster allowed to reach Robust through the in-cluster
+// services when its CR has no endpoint annotation. "" when not configured.
+func GetRobustManagementCluster() string {
+	return getString(robustManagementCluster, "")
+}
+
 // GetLangfuseProxyPublicKey returns the shared Langfuse project public key from secret.
 func GetLangfuseProxyPublicKey() string {
 	return getFromFile(langfuseProxySecretPath, "public_key")

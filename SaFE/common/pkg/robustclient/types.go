@@ -27,6 +27,9 @@ type WorkloadSyncPayload struct {
 	GPURequest  int               `json:"gpu_request"`
 	CreatedAt   *string           `json:"created_at,omitempty"`
 	EndAt       *string           `json:"end_at,omitempty"`
+	// ResourceVersion is the Workload's metadata.resourceVersion. Robust ignores
+	// a payload whose version is not newer than the one it holds.
+	ResourceVersion string `json:"resource_version,omitempty"`
 }
 
 type WorkloadSyncBatchPayload struct {
@@ -42,6 +45,50 @@ type WorkloadSyncResponse struct {
 type WorkloadSyncBatchResponse struct {
 	Synced int `json:"synced"`
 	Failed int `json:"failed"`
+}
+
+// WorkloadSyncDigestEntry is what Robust holds for one workload synced from SaFE.
+type WorkloadSyncDigestEntry struct {
+	UID         string `json:"uid"`
+	SyncVersion string `json:"sync_version"`
+	Phase       string `json:"phase"`
+	Deleted     bool   `json:"deleted"`
+}
+
+type WorkloadSyncDigest struct {
+	Workloads []WorkloadSyncDigestEntry `json:"workloads"`
+}
+
+type GPUWindowRequest struct {
+	WorkloadUIDs []string `json:"workload_uids"`
+	Window       string   `json:"window"`
+	Step         string   `json:"step"`
+}
+
+// GPUWindowOverall summarizes the per-step average utilization (percent)
+// across a workload's nodes over the window.
+type GPUWindowOverall struct {
+	Max             float64 `json:"max"`
+	Avg             float64 `json:"avg"`
+	Samples         int     `json:"samples"`
+	ExpectedSamples int     `json:"expected_samples"`
+}
+
+// GPUWindowNode is one node's peak utilization (percent) over the window.
+type GPUWindowNode struct {
+	Node    string  `json:"node"`
+	Max     float64 `json:"max"`
+	Samples int     `json:"samples"`
+}
+
+type WorkloadGPUWindow struct {
+	UID     string           `json:"uid"`
+	Overall GPUWindowOverall `json:"overall"`
+	Nodes   []GPUWindowNode  `json:"nodes"`
+}
+
+type GPUWindowResponse struct {
+	Workloads []WorkloadGPUWindow `json:"workloads"`
 }
 
 type LogSearchRequest struct {

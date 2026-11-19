@@ -206,6 +206,12 @@ robust:
   service_token_secret: "robust-service-token"
   # Where the Secret is mounted in the three components.
   secret_path: "/etc/secrets/robust"
+  # Name of the Cluster CR SaFE itself runs in. Only that cluster may use the
+  # in-cluster Robust services when its CR has no
+  # primus-safe.amd.com/robust-api-endpoint annotation; any other cluster
+  # without the annotation gets no Robust client. Empty: the in-cluster
+  # services are used only when there is exactly one Cluster CR.
+  management_cluster: ""
 opensearch:
   # Log search feature flag. When true, log search endpoints are available.
   # Queries are proxied through robust-api on data clusters (no direct OpenSearch connection).
