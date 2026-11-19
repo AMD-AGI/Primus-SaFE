@@ -7,6 +7,7 @@ package client
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	"gorm.io/gorm"
@@ -113,9 +114,10 @@ func (c *Client) ListPostTrainingRunMetrics(
 }
 
 // ListLatestPostTrainingRunMetrics returns at most limit points of a run, or of its named metrics, by name and
-// step, which bounds what a curve request reads of a run with very many points. The series share the limit evenly
-// and each keeps its newest points: their steps are not on one axis, so the newest points of the run as a whole
-// would be those of the series that counts in the largest numbers.
+// step, which bounds what a curve request reads of a run with very many points. A run within the limit is read
+// whole. Past it each series keeps its newest points, as many as seriesQuota gives it: the steps of the series are
+// not on one axis, so the newest points of the run as a whole would be those of the series that counts in the
+// largest numbers.
 func (c *Client) ListLatestPostTrainingRunMetrics(ctx context.Context, runID string, names []string,
 	limit int) ([]*PostTrainingRunMetric, error) {
 	db, err := c.GetGormDB()
@@ -124,20 +126,51 @@ func (c *Client) ListLatestPostTrainingRunMetrics(ctx context.Context, runID str
 	}
 	// selected returns a query of the run's points, or of those of its named metrics, that selects columns.
 	selected := func(columns string) *gorm.DB {
-		query := db.Model(&PostTrainingRunMetric{}).Select(columns).Where("run_id = ?", runID)
+		query := db.WithContext(ctx).Model(&PostTrainingRunMetric{}).Select(columns).Where("run_id = ?", runID)
 		if len(names) > 0 {
 			query = query.Where("name IN ?", names)
 		}
 		return query
 	}
+	var series []struct {
+		Name   string
+		Points int64
+	}
+	if err := selected("name, COUNT(*) AS points").Group("name").Scan(&series).Error; err != nil {
+		return nil, err
+	}
+	counts := make([]int64, len(series))
+	for i, s := range series {
+		counts[i] = s.Points
+	}
+	quota, cut := seriesQuota(counts, limit)
+	if !cut {
+		return c.ListPostTrainingRunMetrics(ctx, runID, names)
+	}
 	ranked := selected("*, ROW_NUMBER() OVER (PARTITION BY name ORDER BY step DESC) AS rn")
 	var points []*PostTrainingRunMetric
-	if err := db.WithContext(ctx).Table("(?) AS latest", ranked).
-		Where("rn <= GREATEST(1, ? / GREATEST(1, (?)))", limit, selected("COUNT(DISTINCT name)")).
+	if err := db.WithContext(ctx).Table("(?) AS latest", ranked).Where("rn <= ?", quota).
 		Order("name ASC, step ASC").Find(&points).Error; err != nil {
 		return nil, err
 	}
 	return points, nil
+}
+
+// seriesQuota tells whether series of counts points are more than limit together and, if so, how many of its
+// newest points each may keep: a series with fewer keeps all of its points, and what those leave of the limit is
+// shared evenly among the longer ones. Every series keeps at least one point.
+func seriesQuota(counts []int64, limit int) (int64, bool) {
+	sorted := slices.Clone(counts)
+	slices.Sort(sorted)
+	left := int64(limit)
+	for i, n := range sorted {
+		longer := int64(len(sorted) - i)
+		if n*longer > left {
+			return max(1, left/longer), true
+		}
+		left -= n
+	}
+	return 0, false
 }
 
 // ListPostTrainingRunMetricNames returns the distinct metric names a run has points for, sorted.

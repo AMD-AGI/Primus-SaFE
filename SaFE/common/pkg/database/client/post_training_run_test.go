@@ -51,25 +51,56 @@ func TestARunIsFoundByItsIDToo(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet(), "a pasted run ID finds its run")
 }
 
-// A limited curve read takes the newest points of each series, which share the limit, as their steps are not on one
-// axis; they come back by name and step.
-func TestACurveRequestReadsTheNewestPointsOfEachSeries(t *testing.T) {
+// A curve read of a run within the limit is not cut; past it each series keeps its newest points, the short ones
+// all of theirs, and the long ones share what is left.
+func TestACurveRequestCutsOnlyARunPastTheLimit(t *testing.T) {
 	c, mock := newMockClient(t)
+	counts := `SELECT name, COUNT\(\*\) AS points FROM "post_training_run_metric" WHERE run_id = \$1 AND ` +
+		`name IN \(\$2,\$3\) GROUP BY "name"`
+	mock.ExpectQuery(counts).WithArgs("r1", "a", "b").
+		WillReturnRows(sqlmock.NewRows([]string{"name", "points"}).AddRow("a", 2).AddRow("b", 1))
+	mock.ExpectQuery(`SELECT \* FROM "post_training_run_metric" WHERE run_id = \$1 AND name IN \(\$2,\$3\) `+
+		`ORDER BY name ASC, step ASC`).WithArgs("r1", "a", "b").
+		WillReturnRows(sqlmock.NewRows([]string{"run_id", "name", "step", "value"}).
+			AddRow("r1", "a", 8, 3.0).AddRow("r1", "a", 9, 2.0).AddRow("r1", "b", 9, 1.0))
+	got, err := c.ListLatestPostTrainingRunMetrics(context.Background(), "r1", []string{"a", "b"}, 3)
+	require.NoError(t, err)
+	require.Len(t, got, 3, "three points fit a limit of three")
+
+	mock.ExpectQuery(counts).WithArgs("r1", "a", "b").
+		WillReturnRows(sqlmock.NewRows([]string{"name", "points"}).AddRow("a", 5).AddRow("b", 1))
 	mock.ExpectQuery(`SELECT \* FROM \(SELECT \*, ROW_NUMBER\(\) OVER \(PARTITION BY name ORDER BY step DESC\) AS rn `+
 		`FROM "post_training_run_metric" WHERE run_id = \$1 AND name IN \(\$2,\$3\)\) AS latest `+
-		`WHERE rn <= GREATEST\(1, \$4 / GREATEST\(1, \(SELECT COUNT\(DISTINCT name\) FROM "post_training_run_metric" `+
-		`WHERE run_id = \$5 AND name IN \(\$6,\$7\)\)\)\) ORDER BY name ASC, step ASC`).
-		WithArgs("r1", "a", "b", 3, "r1", "a", "b").
+		`WHERE rn <= \$4 ORDER BY name ASC, step ASC`).WithArgs("r1", "a", "b", 2).
 		WillReturnRows(sqlmock.NewRows([]string{"run_id", "name", "step", "value", "rn"}).
 			AddRow("r1", "a", 8, 3.0, 2).AddRow("r1", "a", 9, 2.0, 1).AddRow("r1", "b", 9, 1.0, 1))
-	got, err := c.ListLatestPostTrainingRunMetrics(context.Background(), "r1", []string{"a", "b"}, 3)
+	got, err = c.ListLatestPostTrainingRunMetrics(context.Background(), "r1", []string{"a", "b"}, 3)
 	require.NoError(t, err)
 	var order []string
 	for _, p := range got {
 		order = append(order, fmt.Sprintf("%s@%d", p.Name, p.Step))
 	}
-	require.Equal(t, []string{"a@8", "a@9", "b@9"}, order, "the newest points come back by name and step")
+	require.Equal(t, []string{"a@8", "a@9", "b@9"}, order, "b keeps its one point and a the two that are left")
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// The limit of a curve read is shared by filling the short series first.
+func TestSeriesQuota(t *testing.T) {
+	sixty := make([]int64, 60)
+	for i := range sixty {
+		sixty[i] = 500
+	}
+	sixty[0] = 10000
+	_, cut := seriesQuota(sixty, 200000)
+	require.False(t, cut, "a run of 39500 points is far within a limit of 200000")
+	quota, cut := seriesQuota([]int64{1000, 10, 10}, 320)
+	require.True(t, cut)
+	require.EqualValues(t, 300, quota, "the two short series take 20 and leave 300 to the long one")
+	quota, _ = seriesQuota([]int64{1000, 1000, 1000}, 300)
+	require.EqualValues(t, 100, quota)
+	quota, cut = seriesQuota([]int64{5, 5, 5}, 2)
+	require.True(t, cut)
+	require.EqualValues(t, 1, quota, "every series keeps at least its newest point")
 }
 
 // The run methods fail without a database.
