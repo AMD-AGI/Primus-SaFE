@@ -106,11 +106,16 @@ def truncate(text, head, tail=0):
     return "%s … [%d characters omitted] … %s" % (text[:head], omitted, text[len(text) - tail:] if tail else "")
 
 
-def saved_iterations(path):
-    """Return the iterations of the iter_NNNNNNN checkpoint directories under path, in order."""
+def saved_iterations(path, strict=False):
+    """Return the iterations of the iter_NNNNNNN checkpoint directories under path, in order. A path that cannot be
+    listed has none, unless strict is set: then only a missing path has none, and any other failure is raised."""
     try:
         names = os.listdir(path)
+    except FileNotFoundError:
+        return []
     except OSError:
+        if strict:
+            raise
         return []
     return sorted(int(m.group(1)) for m in (ITER_DIR.match(n) for n in names) if m)
 
@@ -695,10 +700,15 @@ class Runner:
         if actor == critic:
             return
         limit = -1 if actor is None or critic is None else min(actor, critic)
-        shared = set(saved_iterations(self.path("checkpoints"))) & set(saved_iterations(self.path(sub)))
+        try:
+            # A directory that cannot be listed is not one without checkpoints, which would remove the other's.
+            saved = {name: saved_iterations(self.path(name), strict=True) for name in ("checkpoints", sub)}
+        except OSError as e:
+            raise StageError("train", "the checkpoints cannot be listed: %s" % e)
+        shared = set(saved["checkpoints"]) & set(saved[sub])
         common = max((s for s in shared if s <= limit), default=None)
         for name in ("checkpoints", sub):
-            for step in saved_iterations(self.path(name)):
+            for step in saved[name]:
                 if common is None or step > common:
                     shutil.rmtree(self.path(name, "iter_%07d" % step), ignore_errors=True)
             self.adapter.set_latest_checkpoint(self.run_dir, name, common)

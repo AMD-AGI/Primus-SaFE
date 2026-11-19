@@ -3,6 +3,7 @@
 # See LICENSE for license information.
 #
 import collections
+import errno
 import io
 import json
 import os
@@ -111,6 +112,29 @@ def test_a_ppo_resume_keeps_the_checkpoints_when_a_tracker_gives_no_iteration(tm
     with pytest.raises(stages.StageError) as e:
         r.stage_train()
     assert e.value.retry, "a tracker that cannot be read now may be readable on the next attempt"
+    assert kept(tmp_path) == [9, 19] and kept(tmp_path, "critic_checkpoints") == [9, 19]
+
+
+def test_a_ppo_resume_keeps_the_checkpoints_when_a_directory_cannot_be_listed(monkeypatch, tmp_path):
+    """A checkpoint directory that cannot be listed is not one without checkpoints: the attempt fails, to be tried
+    again, and removes nothing."""
+    r, _ = runner(tmp_path, PPO)
+    r.adapter = PPOAdapter()
+    save(tmp_path, 9, 19)
+    track(tmp_path, "checkpoints", 19)
+    track(tmp_path, "critic_checkpoints", 9)
+    listdir = os.listdir
+
+    def failing(path):
+        if str(path).endswith("critic_checkpoints"):
+            raise OSError(errno.EIO, "Input/output error", path)
+        return listdir(path)
+
+    with monkeypatch.context() as m:
+        m.setattr(stages.os, "listdir", failing)
+        with pytest.raises(stages.StageError) as e:
+            r.stage_train()
+    assert e.value.retry
     assert kept(tmp_path) == [9, 19] and kept(tmp_path, "critic_checkpoints") == [9, 19]
 
 
