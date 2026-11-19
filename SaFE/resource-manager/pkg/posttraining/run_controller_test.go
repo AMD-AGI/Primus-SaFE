@@ -310,6 +310,12 @@ func TestAPendingRunIsNotLostWhileTheAPIServerHasItsWorkload(t *testing.T) {
 	require.Equal(t, runningRequeue, reconcileRun(t, r).RequeueAfter, "the run is followed as one that runs")
 	require.Error(t, r.Get(context.Background(), client.ObjectKey{Name: verifyJobName(testRun)}, &v1.OpsJob{}),
 		"nothing is left to look for")
+
+	// The run that was set running is followed the same way while the cache still lags.
+	run.Status, run.Stage, run.WorkloadUID = "Running", "prepare", "uid1"
+	require.Equal(t, runningRequeue, reconcileRun(t, r).RequeueAfter)
+	require.Error(t, r.Get(context.Background(), client.ObjectKey{Name: verifyJobName(testRun)}, &v1.OpsJob{}),
+		"a run whose workload runs is not taken for lost")
 }
 
 // A run that exports no model and lost its result line ends as succeeded once verification finds its launcher

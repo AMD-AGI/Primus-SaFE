@@ -524,20 +524,16 @@ func syncQueued(u *runUpdate, w *v1.Workload) {
 // its result from the workload_pod rows that outlive the record.
 func (r *RunReconciler) reconcileLost(ctx context.Context, run *dbclient.PostTrainingRun) (ctrlruntime.Result, error) {
 	u := newRunUpdate(run)
-	if run.Status == string(v1.WorkloadPending) {
-		if run.CreatedAt.Valid && u.now.Sub(run.CreatedAt.Time) < createGrace {
-			return ctrlruntime.Result{RequeueAfter: runningRequeue}, nil
-		}
-		// A pending run is reconciled without an event of its workload, so the cache may not show a workload the
-		// API server has: the run is then followed, not taken for lost.
-		w := &v1.Workload{}
-		err := r.reader.Get(ctx, client.ObjectKey{Name: run.WorkloadID}, w)
-		if err == nil {
-			return r.reconcileWorkload(ctx, run, w)
-		}
-		if !apierrors.IsNotFound(err) {
-			return ctrlruntime.Result{}, err
-		}
+	if run.Status == string(v1.WorkloadPending) && run.CreatedAt.Valid && u.now.Sub(run.CreatedAt.Time) < createGrace {
+		return ctrlruntime.Result{RequeueAfter: runningRequeue}, nil
+	}
+	// A run is also reconciled without an event of its workload, so the cache may not show a workload the API
+	// server has: the run is then followed, whatever its status, and not taken for lost.
+	w := &v1.Workload{}
+	if err := r.reader.Get(ctx, client.ObjectKey{Name: run.WorkloadID}, w); err == nil {
+		return r.reconcileWorkload(ctx, run, w)
+	} else if !apierrors.IsNotFound(err) {
+		return ctrlruntime.Result{}, err
 	}
 	phase, endTime := v1.WorkloadPhase(""), u.now
 	if row, err := r.db.GetWorkload(ctx, run.WorkloadID); err == nil && row != nil {
