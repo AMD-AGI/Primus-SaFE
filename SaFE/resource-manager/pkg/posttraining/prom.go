@@ -18,14 +18,14 @@ import (
 	rmmetrics "github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/metrics"
 )
 
-const gaugeInterval = time.Minute
+const unfinishedSweepInterval = time.Minute
 
-// runGauges refreshes the run gauges every gaugeInterval until ctx ends.
-func (r *RunReconciler) runGauges(ctx context.Context) error {
-	ticker := time.NewTicker(gaugeInterval)
+// runUnfinishedSweeps goes over the unfinished runs every unfinishedSweepInterval until ctx ends.
+func (r *RunReconciler) runUnfinishedSweeps(ctx context.Context) error {
+	ticker := time.NewTicker(unfinishedSweepInterval)
 	defer ticker.Stop()
 	for {
-		r.refreshGauges(ctx)
+		r.sweepUnfinished(ctx)
 		select {
 		case <-ctx.Done():
 			return nil
@@ -34,8 +34,10 @@ func (r *RunReconciler) runGauges(ctx context.Context) error {
 	}
 }
 
-// refreshGauges counts the unfinished runs by status and stage, and the runs marked stalled.
-func (r *RunReconciler) refreshGauges(ctx context.Context) {
+// sweepUnfinished lists the unfinished runs once for two uses. It counts them by status and stage, and the runs
+// marked stalled, for the gauges. And it queues the pending ones: a run is otherwise reconciled on an event of its
+// workload, which a run whose workload was never created does not get.
+func (r *RunReconciler) sweepUnfinished(ctx context.Context) {
 	counts := map[[2]string]int{}
 	stalled := 0
 	filter := dbclient.PostTrainingRunFilter{
@@ -43,13 +45,16 @@ func (r *RunReconciler) refreshGauges(ctx context.Context) {
 	for {
 		runs, _, err := r.db.ListPostTrainingRuns(ctx, filter)
 		if err != nil {
-			klog.ErrorS(err, "failed to count the unfinished Post Training runs")
+			klog.ErrorS(err, "failed to list the unfinished Post Training runs")
 			return
 		}
 		for _, run := range runs {
 			counts[[2]string{run.Status, run.Stage}]++
 			if run.StalledSince.Valid {
 				stalled++
+			}
+			if run.Status == string(v1.WorkloadPending) {
+				r.requeue(run.RunID)
 			}
 		}
 		if len(runs) < recoverPageSize {

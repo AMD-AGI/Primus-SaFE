@@ -56,8 +56,6 @@ const (
 	defaultMaxPoints  = 2000000
 	recoverPageSize   = 500
 	recoverBufferSize = 1024
-	// pendingPollInterval is how often the pending runs are queued without an event of their workloads.
-	pendingPollInterval = time.Minute
 )
 
 var (
@@ -288,10 +286,7 @@ func SetupPostTrainingController(_ context.Context, mgr manager.Manager) error {
 	if err = mgr.Add(manager.RunnableFunc(r.recoverRuns)); err != nil {
 		return err
 	}
-	if err = mgr.Add(manager.RunnableFunc(r.runPendingPolls)); err != nil {
-		return err
-	}
-	if err = mgr.Add(manager.RunnableFunc(r.runGauges)); err != nil {
+	if err = mgr.Add(manager.RunnableFunc(r.runUnfinishedSweeps)); err != nil {
 		return err
 	}
 	if err = mgr.Add(manager.RunnableFunc(r.runCacheSweeps)); err != nil {
@@ -335,40 +330,6 @@ func (r *RunReconciler) recoverRuns(ctx context.Context) error {
 	}
 	<-ctx.Done()
 	return nil
-}
-
-// runPendingPolls queues the pending runs every pendingPollInterval until ctx ends. A run is otherwise reconciled
-// on an event of its workload, which a run whose workload was never created does not get.
-func (r *RunReconciler) runPendingPolls(ctx context.Context) error {
-	ticker := time.NewTicker(pendingPollInterval)
-	defer ticker.Stop()
-	for {
-		r.queuePending(ctx)
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-ticker.C:
-		}
-	}
-}
-
-// queuePending queues every pending run.
-func (r *RunReconciler) queuePending(ctx context.Context) {
-	filter := dbclient.PostTrainingRunFilter{Statuses: []string{string(v1.WorkloadPending)}, Limit: recoverPageSize}
-	for {
-		runs, _, err := r.db.ListPostTrainingRuns(ctx, filter)
-		if err != nil {
-			klog.ErrorS(err, "failed to list the pending Post Training runs")
-			return
-		}
-		for _, run := range runs {
-			r.requeue(run.RunID)
-		}
-		if len(runs) < recoverPageSize {
-			return
-		}
-		filter.Offset += recoverPageSize
-	}
 }
 
 // requeue queues a run for a reconcile. A run the queue has no room for waits for its next event or poll.

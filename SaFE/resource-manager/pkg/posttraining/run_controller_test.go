@@ -263,17 +263,17 @@ func TestVerifyRegistersCompleteOutputOfLostWorkload(t *testing.T) {
 	require.NotEmpty(t, last["output_model_id"])
 }
 
-// A pending run whose workload was never created gets no event of a workload: the poll queues it, and its
-// reconcile ends it once nothing of a workload is found.
+// A pending run whose workload was never created gets no event of a workload: the sweep of the unfinished runs
+// queues it, and its reconcile ends it once nothing of a workload is found.
 func TestAPendingRunWithoutAWorkloadIsQueuedAndEnded(t *testing.T) {
 	run := testRunRow("Pending", "queued")
 	run.OutputPath = testRunDir
 	r, db, updates := newTestReconciler(t, run)
 	r.recovered = make(chan event.GenericEvent, 2)
 	db.EXPECT().ListPostTrainingRuns(gomock.Any(), dbclient.PostTrainingRunFilter{
-		Statuses: []string{string(v1.WorkloadPending)}, Limit: recoverPageSize}).Return(
+		Statuses: []string{string(v1.WorkloadPending), string(v1.WorkloadRunning)}, Limit: recoverPageSize}).Return(
 		[]*dbclient.PostTrainingRun{run}, int64(1), nil)
-	r.queuePending(context.Background())
+	r.sweepUnfinished(context.Background())
 	require.Len(t, r.recovered, 1)
 	require.Equal(t, testRun, (<-r.recovered).Object.GetName())
 
