@@ -57,6 +57,7 @@ install_or_upgrade_helm_chart() {
 #   auth_identity_service_account  <namespace>/<name> of the identity service's
 #                        ServiceAccount, granted get on that Secret and create
 #                        on Secrets. Omitted: primus-identity/primus-identity  -> auth.identity_service_account
+#                        A stored value is not kept.
 #   auth_authenticators  JSON array, the authenticator chain                 -> auth.authenticators
 #   auth_group_mappings  JSON array, identity groups to roles                -> auth.group_mappings
 #   auth_key_actors      JSON array, client ids that may fetch the keys of
@@ -145,8 +146,9 @@ check_live_auth() {
     return 1
   fi
   for var in $unset_keys; do
-    # These have a chart value when .env omits them. A stored login URL or SCIM callback is not kept.
-    if [[ "$var" == "auth_scim_enabled" || "$var" == "auth_scim_public_url" || "$var" == "auth_login_url" ]]; then
+    # These have a chart value when .env omits them. A stored login URL, SCIM callback or identity
+    # service account is not kept.
+    if [[ "$var" == "auth_scim_enabled" || "$var" == "auth_scim_public_url" || "$var" == "auth_login_url" || "$var" == "auth_identity_service_account" ]]; then
       continue
     fi
     # The apiserver creates primus-safe-scim-token. Omitting the key keeps that chart default.
