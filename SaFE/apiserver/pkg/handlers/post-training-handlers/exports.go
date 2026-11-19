@@ -83,6 +83,9 @@ func (h *Handler) ExportCheckpoint(c *gin.Context) {
 	if err == nil {
 		err = h.client.Create(c.Request.Context(), w)
 	}
+	if err == nil {
+		err = h.dropExportIfCleaning(c.Request.Context(), run.RunID, w)
+	}
 	if err != nil {
 		apiutils.AbortWithApiError(c, err)
 		return
@@ -105,6 +108,20 @@ func (h *Handler) checkExportConflict(c *gin.Context, runID string, step int) er
 		}
 	}
 	return nil
+}
+
+// dropExportIfCleaning removes an export job made while a checkpoint cleanup of its run was asked for, which would
+// delete the checkpoint the job reads, and answers the conflict. The run is read again for it: the cleanup may
+// have been asked for after the run was read and before the job was made.
+func (h *Handler) dropExportIfCleaning(ctx context.Context, runID string, w *v1.Workload) error {
+	run, err := h.db.GetPostTrainingRun(ctx, runID)
+	if err != nil || run.CleanupRequest == "" {
+		return nil
+	}
+	if err = h.client.Delete(ctx, w); err != nil && !apierrors.IsNotFound(err) {
+		klog.ErrorS(err, "failed to remove an export job that a checkpoint cleanup got ahead of", "job", w.Name)
+	}
+	return commonerrors.NewConflict("a checkpoint cleanup of the run is queued; export after it finished")
 }
 
 // exportWorkload checks an export request against the run and its kept checkpoints and builds the export job.

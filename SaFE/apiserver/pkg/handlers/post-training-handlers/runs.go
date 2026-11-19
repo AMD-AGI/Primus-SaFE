@@ -388,9 +388,45 @@ func (h *Handler) CleanupCheckpoints(c *gin.Context) {
 		apiutils.AbortWithApiError(c, err)
 		return
 	}
+	if err = h.withdrawCleanupIfExporting(ctx, run.RunID); err != nil {
+		apiutils.AbortWithApiError(c, err)
+		return
+	}
 	klog.Infof("clean up the checkpoints of post training run %s (keep %s) by user %s", run.RunID, body.Keep,
 		c.GetString(common.UserName))
 	c.JSON(http.StatusAccepted, gin.H{"runId": run.RunID, "keep": body.Keep})
+}
+
+// exportRunning answers a conflict while a checkpoint export of the run has not finished, as it reads a checkpoint.
+func (h *Handler) exportRunning(ctx context.Context, runID string) error {
+	exports, err := h.listExports(ctx, runID)
+	if err != nil {
+		return commonerrors.NewInternalError("failed to list the run's exports: " + err.Error())
+	}
+	for _, e := range exports {
+		switch v1.WorkloadPhase(e.Status) {
+		case v1.WorkloadSucceeded, v1.WorkloadFailed, v1.WorkloadStopped:
+		default:
+			if e.WorkloadID != "" {
+				return commonerrors.NewConflict(fmt.Sprintf("step %d of run %s is being exported", e.Step, runID))
+			}
+		}
+	}
+	return nil
+}
+
+// withdrawCleanupIfExporting takes a cleanup request back when an export started between its plan and its
+// request, and answers the conflict: the export and the cleanup each look for the other after they acted, so the
+// one that acted second gives way.
+func (h *Handler) withdrawCleanupIfExporting(ctx context.Context, runID string) error {
+	conflict := h.exportRunning(ctx, runID)
+	if conflict == nil {
+		return nil
+	}
+	if err := h.db.UpdatePostTrainingRun(ctx, runID, map[string]interface{}{"cleanup_request": ""}); err != nil {
+		klog.ErrorS(err, "failed to withdraw a checkpoint cleanup that an export got ahead of", "run", runID)
+	}
+	return conflict
 }
 
 // requestCleanup records a checkpoint cleanup unless the run got one since it was read.
@@ -416,18 +452,8 @@ func (h *Handler) planCleanup(ctx context.Context, run *dbclient.PostTrainingRun
 	if run.CleanupRequest != "" {
 		return "", commonerrors.NewConflict(fmt.Sprintf("a checkpoint cleanup of run %s is in progress", run.RunID))
 	}
-	exports, err := h.listExports(ctx, run.RunID)
-	if err != nil {
-		return "", commonerrors.NewInternalError("failed to list the run's exports: " + err.Error())
-	}
-	for _, e := range exports {
-		switch v1.WorkloadPhase(e.Status) {
-		case v1.WorkloadSucceeded, v1.WorkloadFailed, v1.WorkloadStopped:
-		default:
-			if e.WorkloadID != "" {
-				return "", commonerrors.NewConflict(fmt.Sprintf("step %d of run %s is being exported", e.Step, run.RunID))
-			}
-		}
+	if err := h.exportRunning(ctx, run.RunID); err != nil {
+		return "", err
 	}
 	var rec recipe.Recipe
 	if err := json.Unmarshal([]byte(run.Recipe), &rec); err != nil || rec.Output.Base == "" {

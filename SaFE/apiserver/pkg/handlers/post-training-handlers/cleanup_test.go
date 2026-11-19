@@ -122,3 +122,15 @@ func TestMarkersShowCleanedCheckpoints(t *testing.T) {
 	}
 	require.Equal(t, map[int]bool{10: true, 20: false, 30: true}, deleted)
 }
+
+// A cleanup that an export got ahead of, between its plan and its request, is taken back.
+func TestACleanupGivesWayToAnExportThatStartedMeanwhile(t *testing.T) {
+	h := exportHandler(t)
+	require.NoError(t, h.withdrawCleanupIfExporting(context.Background(), "pt-1"), "no export runs")
+
+	h = exportHandler(t, exportJob("pt-1-x20-b", "Running", 2))
+	h.db.(*mockclient.MockInterface).EXPECT().UpdatePostTrainingRun(gomock.Any(), "pt-1",
+		map[string]interface{}{"cleanup_request": ""}).Return(nil)
+	err := h.withdrawCleanupIfExporting(context.Background(), "pt-1")
+	require.Equal(t, http.StatusConflict, statusCode(err), "the export reads a checkpoint the cleanup would delete")
+}

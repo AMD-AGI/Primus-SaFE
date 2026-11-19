@@ -14,13 +14,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	mockclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/posttraining/registry"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
@@ -134,4 +137,21 @@ func TestExportConflictsAndList(t *testing.T) {
 	require.Equal(t, string(v1.WorkloadRunning), items[0].Status)
 	require.Equal(t, "m-20", items[0].ModelID)
 	require.Equal(t, "qwen-sft-step20", items[0].DisplayName)
+}
+
+// An export job made while a cleanup of its run was asked for is removed again.
+func TestAnExportGivesWayToACleanupAskedForMeanwhile(t *testing.T) {
+	h := exportHandler(t, exportJob("pt-1-x20-b", "Running", 2))
+	db := h.db.(*mockclient.MockInterface)
+	ctx := context.Background()
+	job := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "pt-1-x20-b"}}
+	db.EXPECT().GetPostTrainingRun(gomock.Any(), "pt-1").Return(&dbclient.PostTrainingRun{RunID: "pt-1"}, nil)
+	require.NoError(t, h.dropExportIfCleaning(ctx, "pt-1", job))
+	require.NoError(t, h.client.Get(ctx, ctrlclient.ObjectKeyFromObject(job), &v1.Workload{}), "no cleanup: the job stays")
+
+	db.EXPECT().GetPostTrainingRun(gomock.Any(), "pt-1").Return(
+		&dbclient.PostTrainingRun{RunID: "pt-1", CleanupRequest: `{"keep":"none"}`}, nil)
+	require.Equal(t, http.StatusConflict, statusCode(h.dropExportIfCleaning(ctx, "pt-1", job)))
+	require.Error(t, h.client.Get(ctx, ctrlclient.ObjectKeyFromObject(job), &v1.Workload{}),
+		"the cleanup would delete the checkpoint the job reads")
 }
