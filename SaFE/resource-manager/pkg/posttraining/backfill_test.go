@@ -49,6 +49,11 @@ func TestBackfillPending(t *testing.T) {
 	require.False(t, backfillPending(done, nil))
 	done.MetricCursor = `{"order":["a1"],"attempts":{"a1":{"maxSeq":9,"gaps":[{"from":4,"to":5,"since":1}]}}}`
 	require.True(t, backfillPending(done, nil), "a finished run with gaps is backfilled")
+
+	// A run whose workload the controller never saw, as one that was never created, wrote no directory.
+	unseen := testRunRow("Failed", "queued")
+	unseen.OutputPath, unseen.WorkloadUID = testRunDir, ""
+	require.False(t, backfillPending(unseen, nil))
 }
 
 // The backfill workload has a DNS display name and runs the backfill script on the run directory.
