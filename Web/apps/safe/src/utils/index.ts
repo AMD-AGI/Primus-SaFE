@@ -531,6 +531,12 @@ export function isLogDownloadEnabledForHost(enabled: boolean | undefined, hostna
   return !LOG_DOWNLOAD_DISABLED_HOSTS.has(hostname.toLowerCase())
 }
 
+const LOG_DISABLED_HOSTS = new Set(['global.primus-safe.amd.com'])
+
+export function isLogEnabledForHost(hostname = globalThis.location?.hostname ?? '') {
+  return !LOG_DISABLED_HOSTS.has(hostname.toLowerCase())
+}
+
 /** Convert a Kubernetes quantity to a Gi number string. Plain numbers stay as Gi. */
 export function quantityToGi(value?: string): string {
   if (!value) return ''

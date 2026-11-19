@@ -37,9 +37,10 @@
           {{ formatTimeStr(row.startTime) }}
         </template>
       </el-table-column>
-      <el-table-column label="Actions" width="140" fixed="right">
+      <el-table-column v-if="logEnabled || showSsh" label="Actions" width="140" fixed="right">
         <template #default="{ row }">
           <el-tooltip
+            v-if="logEnabled"
             effect="dark"
             content="Only available when Running"
             :disabled="workloadPhase === 'Running'"
@@ -111,7 +112,7 @@
 import { computed, ref } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
 import { WorkloadPhaseButtonType } from '@/services'
-import { formatTimeStr } from '@/utils'
+import { formatTimeStr, isLogEnabledForHost } from '@/utils'
 import type { WorkloadNodesHistoryItem } from '@/services/workload/type'
 import { toNodesHistoryRows } from './nodesHistory'
 
@@ -126,6 +127,7 @@ const props = defineProps<{
 
 const historyRows = computed(() => toNodesHistoryRows(props.nodesHistory))
 const historyVisible = ref(false)
+const logEnabled = isLogEnabledForHost()
 
 const emit = defineEmits<{
   (e: 'openLog', podId: string): void

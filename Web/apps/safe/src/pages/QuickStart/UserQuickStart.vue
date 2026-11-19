@@ -58,6 +58,7 @@ import { onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { driver, type DriveStep } from 'driver.js'
 import { useUserStore } from '@/stores/user'
+import { isLogEnabledForHost } from '@/utils'
 import 'driver.js/dist/driver.css'
 
 const router = useRouter()
@@ -138,7 +139,7 @@ const refs = [
   { task: 'Save custom image', path: 'Authoring → Actions → Save Image', to: '/authoring', tourId: 'save-image' },
   { task: 'Prewarm image', path: 'UI → Prewarm Image → select image', to: '/images', tourId: 'prewarm' },
   { task: 'Download logs', path: 'Training → select job → Logs → Download', to: '/training', tourId: 'logs' },
-]
+].filter((r) => r.tourId !== 'logs' || isLogEnabledForHost())
 
 /* ── Menu Guided Tour (driver.js) ── */
 function waitForEl(selector: string, timeout = 6000): Promise<Element> {

@@ -20,6 +20,7 @@ import {
   formatNodeInfo,
   calculateDefaultTime,
   isLogDownloadEnabledForHost,
+  isLogEnabledForHost,
 } from '../index'
 
 // ---------------------------------------------------------------------------
@@ -412,5 +413,15 @@ describe('isLogDownloadEnabledForHost', () => {
 
   it('keeps log download enabled for non-Core42 domains when backend config is enabled', () => {
     expect(isLogDownloadEnabledForHost(true, 'safe.example.com')).toBe(true)
+  })
+})
+
+describe('isLogEnabledForHost', () => {
+  it('disables logs on the global domain', () => {
+    expect(isLogEnabledForHost('Global.Primus-SaFE.amd.com')).toBe(false)
+  })
+
+  it('keeps logs enabled on other domains', () => {
+    expect(isLogEnabledForHost('core42.primus-safe.amd.com')).toBe(true)
   })
 })

@@ -45,7 +45,10 @@ vi.mock('@/services/base', () => ({
   getWorkspace: (...a: unknown[]) => services.getWorkspace(...a),
   getClusters: (...a: unknown[]) => services.getClusters(...a),
 }))
-vi.mock('@/utils', () => ({ copyText: (...a: unknown[]) => services.copyText(...a) }))
+vi.mock('@/utils', () => ({
+  copyText: (...a: unknown[]) => services.copyText(...a),
+  isLogEnabledForHost: () => true,
+}))
 
 import { useClusterStore } from '@/stores/cluster'
 import { useUserStore } from '@/stores/user'

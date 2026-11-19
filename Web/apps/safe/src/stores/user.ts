@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { login, getUserData, getSelfData, logout, getEnvs } from '@/services/login'
 import type { LoginReq, UserSelfData, EnvsResp } from '@/services'
 import { apiKeyRouting, isExternalAuth } from '@/utils/authMode'
+import { isLogEnabledForHost } from '@/utils'
 import { useWorkspaceStore } from './workspace'
 import { applySelfWorkspaces, loadSelfWorkspaces } from './selfWorkspaces'
 
@@ -87,7 +88,8 @@ export const useUserStore = defineStore('user', {
   },
   actions: {
     async fetchEnvs(quiet = false) {
-      this.envs = await getEnvs(quiet)
+      const envs = await getEnvs(quiet)
+      this.envs = envs && !isLogEnabledForHost() ? { ...envs, enableLog: false } : envs
     },
 
     /**
