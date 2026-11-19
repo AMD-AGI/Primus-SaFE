@@ -243,21 +243,6 @@ func (mr *MockInterfaceMockRecorder) CountPostTrainingRunSamples(ctx, runID inte
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountPostTrainingRunSamples", reflect.TypeOf((*MockInterface)(nil).CountPostTrainingRunSamples), ctx, runID)
 }
 
-// CountPostTrainingRunsByRecipe mocks base method.
-func (m *MockInterface) CountPostTrainingRunsByRecipe(ctx context.Context, hashes []string) (map[string]client.RecipeRecord, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CountPostTrainingRunsByRecipe", ctx, hashes)
-	ret0, _ := ret[0].(map[string]client.RecipeRecord)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// CountPostTrainingRunsByRecipe indicates an expected call of CountPostTrainingRunsByRecipe.
-func (mr *MockInterfaceMockRecorder) CountPostTrainingRunsByRecipe(ctx, hashes interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountPostTrainingRunsByRecipe", reflect.TypeOf((*MockInterface)(nil).CountPostTrainingRunsByRecipe), ctx, hashes)
-}
-
 // CountPostTrainingRunsByTemplate mocks base method.
 func (m *MockInterface) CountPostTrainingRunsByTemplate(ctx context.Context, templateIDs []string) (map[string]int, error) {
 	m.ctrl.T.Helper()
@@ -5697,21 +5682,6 @@ func NewMockPostTrainingRunInterface(ctrl *gomock.Controller) *MockPostTrainingR
 // EXPECT returns an object that allows the caller to indicate expected use.
 func (m *MockPostTrainingRunInterface) EXPECT() *MockPostTrainingRunInterfaceMockRecorder {
 	return m.recorder
-}
-
-// CountPostTrainingRunsByRecipe mocks base method.
-func (m *MockPostTrainingRunInterface) CountPostTrainingRunsByRecipe(ctx context.Context, hashes []string) (map[string]client.RecipeRecord, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CountPostTrainingRunsByRecipe", ctx, hashes)
-	ret0, _ := ret[0].(map[string]client.RecipeRecord)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// CountPostTrainingRunsByRecipe indicates an expected call of CountPostTrainingRunsByRecipe.
-func (mr *MockPostTrainingRunInterfaceMockRecorder) CountPostTrainingRunsByRecipe(ctx, hashes interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountPostTrainingRunsByRecipe", reflect.TypeOf((*MockPostTrainingRunInterface)(nil).CountPostTrainingRunsByRecipe), ctx, hashes)
 }
 
 // CreatePostTrainingRun mocks base method.

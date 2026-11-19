@@ -170,22 +170,6 @@ func TestDedupePostTrainingRunMetrics(t *testing.T) {
 	}
 }
 
-// Succeeded SaFE runs are counted per recipe hash with the latest of them.
-func TestCountPostTrainingRunsByRecipe(t *testing.T) {
-	c, mock := newMockClient(t)
-	mock.ExpectQuery(`SELECT recipe_hash, COUNT\(\*\) AS succeeded, .*FROM "post_training_run" WHERE .*recipe_hash IN .*GROUP BY "recipe_hash"`).
-		WithArgs("h1", "h2", postTrainingRunSucceeded, PostTrainingSourceSafe, false).
-		WillReturnRows(sqlmock.NewRows([]string{"recipe_hash", "succeeded", "latest_run"}).AddRow("h1", 2, "pt-b"))
-	got, err := c.CountPostTrainingRunsByRecipe(context.Background(), []string{"h1", "h2"})
-	require.NoError(t, err)
-	require.Equal(t, map[string]RecipeRecord{"h1": {RecipeHash: "h1", Succeeded: 2, LatestRun: "pt-b"}}, got)
-	require.NoError(t, mock.ExpectationsWereMet())
-
-	empty, err := (&Client{}).CountPostTrainingRunsByRecipe(context.Background(), nil)
-	require.NoError(t, err, "no hashes need no query")
-	require.Empty(t, empty)
-}
-
 // A recipe's successful runs are counted on the platform, and the latest one is taken from the workspace only.
 func TestListPostTrainingRecipeRecords(t *testing.T) {
 	c, mock := newMockClient(t)

@@ -213,37 +213,11 @@ func (c *Client) ListPostTrainingRuns(
 	return runs, total, nil
 }
 
-// RecipeRecord is how many runs of a recipe hash succeeded on the platform, and the latest of them.
+// RecipeRecord is how many runs of a recipe hash succeeded on the platform, and the latest of them in one workspace.
 type RecipeRecord struct {
 	RecipeHash string `gorm:"column:recipe_hash" json:"-"`
 	Succeeded  int    `gorm:"column:succeeded" json:"succeeded"`
 	LatestRun  string `gorm:"column:latest_run" json:"latestRun"`
-}
-
-// CountPostTrainingRunsByRecipe returns, for each of the hashes with a successful non-deleted run, how many such
-// runs there are and the one that ended last.
-func (c *Client) CountPostTrainingRunsByRecipe(ctx context.Context, hashes []string) (map[string]RecipeRecord, error) {
-	out := map[string]RecipeRecord{}
-	if len(hashes) == 0 {
-		return out, nil
-	}
-	db, err := c.GetGormDB()
-	if err != nil {
-		return nil, err
-	}
-	var rows []RecipeRecord
-	if err := db.WithContext(ctx).Model(&PostTrainingRun{}).
-		Select("recipe_hash, COUNT(*) AS succeeded, "+
-			"(ARRAY_AGG(run_id ORDER BY end_time DESC NULLS LAST))[1] AS latest_run").
-		Where("recipe_hash IN ? AND status = ? AND source = ? AND is_deleted = ?", hashes, postTrainingRunSucceeded,
-			PostTrainingSourceSafe, false).
-		Group("recipe_hash").Scan(&rows).Error; err != nil {
-		return nil, err
-	}
-	for _, r := range rows {
-		out[r.RecipeHash] = r
-	}
-	return out, nil
 }
 
 // ListPostTrainingRecipeRecords returns, for each of the hashes with a successful non-deleted run, how many such
