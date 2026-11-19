@@ -39,8 +39,6 @@ type PostTrainingRun struct {
 	Cluster          string `gorm:"column:cluster" json:"cluster" db:"cluster"`
 	UserID           string `gorm:"column:user_id" json:"userId" db:"user_id"`
 	UserName         string `gorm:"column:user_name" json:"userName" db:"user_name"`
-	// Source is safe for a run trained on the platform, spur for a run imported from Spur.
-	Source string `gorm:"column:source;default:safe" json:"source" db:"source"`
 
 	BaseModelID   string `gorm:"column:base_model_id" json:"baseModelId" db:"base_model_id"`
 	BaseModelName string `gorm:"column:base_model_name" json:"baseModelName" db:"base_model_name"`
@@ -238,8 +236,7 @@ func (c *Client) ListPostTrainingRecipeRecords(ctx context.Context, workspace st
 	if err := db.WithContext(ctx).Model(&PostTrainingRun{}).
 		Select("recipe_hash, COUNT(*) AS succeeded, COALESCE((ARRAY_AGG(run_id ORDER BY end_time DESC NULLS LAST) "+
 			"FILTER (WHERE workspace = ?))[1], '') AS latest_run", workspace).
-		Where("recipe_hash IN ? AND status = ? AND source = ? AND is_deleted = ?", hashes, postTrainingRunSucceeded,
-			PostTrainingSourceSafe, false).
+		Where("recipe_hash IN ? AND status = ? AND is_deleted = ?", hashes, postTrainingRunSucceeded, false).
 		Group("recipe_hash").Scan(&rows).Error; err != nil {
 		return nil, err
 	}

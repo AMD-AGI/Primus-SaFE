@@ -225,7 +225,7 @@ func TestListPostTrainingRecipeRecords(t *testing.T) {
 	mock.ExpectQuery(`SELECT recipe_hash, COUNT\(\*\) AS succeeded, COALESCE\(\(ARRAY_AGG\(run_id ORDER BY `+
 		`end_time DESC NULLS LAST\) FILTER \(WHERE workspace = \$1\)\)\[1\], ''\) AS latest_run `+
 		`FROM "post_training_run" WHERE .*recipe_hash IN .*GROUP BY "recipe_hash"`).
-		WithArgs("ws1", "h1", "h2", postTrainingRunSucceeded, PostTrainingSourceSafe, false).
+		WithArgs("ws1", "h1", "h2", postTrainingRunSucceeded, false).
 		WillReturnRows(sqlmock.NewRows([]string{"recipe_hash", "succeeded", "latest_run"}).
 			AddRow("h1", 2, "pt-b").AddRow("h2", 5, ""))
 	got, err := c.ListPostTrainingRecipeRecords(context.Background(), "ws1", []string{"h1", "h2"})
