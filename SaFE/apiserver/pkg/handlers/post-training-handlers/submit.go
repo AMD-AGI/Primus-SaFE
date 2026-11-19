@@ -23,6 +23,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -187,15 +188,20 @@ func (h *Handler) prepareRun(c *gin.Context, reg *registry.Registry,
 	return &preparedRun{row: row, workload: workload, warnings: res.Diagnostics}, nil, nil
 }
 
-// refused tells whether the cluster answered a creation with a refusal, after which the object does not exist. A
-// cancelled request, a timeout or a broken connection leaves that unknown.
+// refused tells whether the cluster answered a creation with a refusal, after which the object does not exist. That
+// is unknown after a cancelled request, a timeout or a broken connection, and after an answer that an object of
+// the name exists, that the server is unavailable, or of a failure whose reason the API server does not name.
 func refused(err error) bool {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
-		apierrors.IsTimeout(err) || apierrors.IsServerTimeout(err) {
+		apierrors.IsUnexpectedServerError(err) {
 		return false
 	}
-	var answer apierrors.APIStatus
-	return errors.As(err, &answer)
+	switch apierrors.ReasonForError(err) {
+	case metav1.StatusReasonUnknown, metav1.StatusReasonTimeout, metav1.StatusReasonServerTimeout,
+		metav1.StatusReasonServiceUnavailable, metav1.StatusReasonAlreadyExists:
+		return false
+	}
+	return true
 }
 
 // createRun records a prepared run and creates its workload; a run whose workload the cluster refuses is

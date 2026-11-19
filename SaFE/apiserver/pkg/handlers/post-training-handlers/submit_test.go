@@ -229,10 +229,19 @@ func TestARefusedRunIsMarkedFailedAlthoughItsRequestEnded(t *testing.T) {
 // A run stays pending when the cluster's answer to its workload is lost: the workload may run, and a failed run is
 // not followed.
 func TestARunWhoseWorkloadMayExistIsNotMarkedFailed(t *testing.T) {
+	workloads := v1.SchemeGroupVersion.WithResource("workloads").GroupResource()
 	lost := map[string]error{
 		"the caller left":       context.Canceled,
 		"the request timed out": apierrors.NewTimeoutError("etcd is slow", 1),
 		"the connection broke":  errFromString("connection reset by peer"),
+		"a workload of the name exists, which an earlier try of the request stored": apierrors.NewAlreadyExists(
+			workloads, "pt-1"),
+		"the server failed for a reason it does not name": &apierrors.StatusError{ErrStatus: metav1.Status{
+			Status: metav1.StatusFailure, Code: http.StatusInternalServerError, Reason: metav1.StatusReasonUnknown,
+			Message: "etcdserver: request timed out"}},
+		"the server is unavailable": apierrors.NewServiceUnavailable("the server is shutting down"),
+		"the answer is not the API server's": apierrors.NewGenericServerResponse(http.StatusInternalServerError,
+			"POST", workloads, "pt-1", "<html>bad gateway</html>", 0, true),
 	}
 	for name, answer := range lost {
 		db := mockclient.NewMockInterface(gomock.NewController(t))
@@ -254,6 +263,28 @@ func TestARunWhoseWorkloadMayExistIsNotMarkedFailed(t *testing.T) {
 			workload: &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "pt-1"}}})
 		require.ErrorIs(t, err, answer, name)
 		require.NoError(t, cli.Get(context.Background(), ctrlclient.ObjectKey{Name: "pt-1"}, &v1.Workload{}), name)
+	}
+}
+
+// A run is marked failed when the cluster refused its workload, as when an admission webhook cannot be called:
+// the workload is then not stored.
+func TestARunTheClusterRefusedIsMarkedFailed(t *testing.T) {
+	refusals := map[string]error{
+		"the request is invalid":     apierrors.NewBadRequest("the priority is out of range"),
+		"a webhook cannot be called": apierrors.NewInternalError(errFromString("failed calling webhook")),
+	}
+	for name, answer := range refusals {
+		db := mockclient.NewMockInterface(gomock.NewController(t))
+		h, _ := submitHandler(t, db, func(*v1.Workload) error { return answer })
+		db.EXPECT().CreatePostTrainingRun(gomock.Any(), gomock.Any()).Return(nil)
+		db.EXPECT().UpdatePostTrainingRun(gomock.Any(), "pt-1", gomock.Any()).DoAndReturn(
+			func(_ context.Context, _ string, fields map[string]interface{}) error {
+				require.Equal(t, string(v1.WorkloadFailed), fields["status"], name)
+				return nil
+			})
+		_, err := h.createRun(testContext(), &preparedRun{row: &dbclient.PostTrainingRun{RunID: "pt-1"},
+			workload: &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "pt-1"}}})
+		require.ErrorIs(t, err, answer, name)
 	}
 }
 
