@@ -189,8 +189,9 @@ func (h *Handler) prepareRun(c *gin.Context, reg *registry.Registry,
 }
 
 // refused tells whether the cluster answered a creation with a refusal, after which the object does not exist. That
-// is unknown after a cancelled request, a timeout or a broken connection, and after an answer that an object of
-// the name exists, that the server is unavailable, or that the server failed without a reason it names.
+// is unknown after a cancelled request, a timeout or a broken connection, after an answer that is not the API
+// server's own, and after one that an object of the name exists, that the server is unavailable, or that the
+// server failed without a reason it names.
 func refused(err error) bool {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
 		apierrors.IsUnexpectedServerError(err) {
