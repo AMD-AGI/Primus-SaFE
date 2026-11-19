@@ -282,6 +282,11 @@ run_upgrade '{"auth":{"scim":{"token_secret":"custom-scim-token"}}}' 'auth_scim_
 expect "live custom scim token secret, key set: applied" applied
 expect "live custom scim token secret, key set: kept" rendered '  token_secret: "custom-scim-token"'
 
+# 5d. The identity service account has a chart default and needs no .env key, even when the release stores it.
+run_upgrade "$(jq -c '.auth.identity_service_account = "primus-identity/primus-identity"' <<<"$LIVE_EXTERNAL")" "$(grep -v '^auth_identity_service_account' <<<"$AUTH_ENV")"
+expect "live external, identity service account omitted: applied" applied
+expect "live external, identity service account omitted: chart default" grep -qxF '    name: "primus-identity"' "$OUT/rendered.yaml"
+
 # 6. A key the release does not have is not demanded.
 run_upgrade '{"auth":{"mode":"external","login_url":"https://idp.example.com/sign-in/start","authenticators":[{"type":"builtin"}],"group_mappings":[{"group":"admins","roles":["system-admin"]}],"scim":{"enabled":false}}}' 'auth_mode=external
 auth_login_url=https://idp.example.com/sign-in/start
