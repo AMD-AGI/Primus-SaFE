@@ -302,6 +302,7 @@ type PostTrainingRunInterface interface {
 	UpdatePostTrainingRun(ctx context.Context, runID string, fields map[string]interface{}) error
 	RequestPostTrainingRunCleanup(ctx context.Context, runID, request string) (bool, error)
 	SetPostTrainingRunDeleted(ctx context.Context, runID string) error
+	IsPostTrainingRunDeleted(ctx context.Context, runID string) (bool, error)
 	ListPostTrainingRecipeRecords(ctx context.Context, workspace string, hashes []string) (map[string]RecipeRecord, error)
 }
 

@@ -1835,6 +1835,21 @@ func (mr *MockInterfaceMockRecorder) ListPostTrainingRunSamples(ctx, filter inte
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPostTrainingRunSamples", reflect.TypeOf((*MockInterface)(nil).ListPostTrainingRunSamples), ctx, filter)
 }
 
+// IsPostTrainingRunDeleted mocks base method.
+func (m *MockInterface) IsPostTrainingRunDeleted(ctx context.Context, runID string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsPostTrainingRunDeleted", ctx, runID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// IsPostTrainingRunDeleted indicates an expected call of IsPostTrainingRunDeleted.
+func (mr *MockInterfaceMockRecorder) IsPostTrainingRunDeleted(ctx, runID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsPostTrainingRunDeleted", reflect.TypeOf((*MockInterface)(nil).IsPostTrainingRunDeleted), ctx, runID)
+}
+
 // ListPostTrainingRuns mocks base method.
 func (m *MockInterface) ListPostTrainingRuns(ctx context.Context, filter client.PostTrainingRunFilter) ([]*client.PostTrainingRun, int64, error) {
 	m.ctrl.T.Helper()
@@ -5711,6 +5726,21 @@ func (m *MockPostTrainingRunInterface) GetPostTrainingRun(ctx context.Context, r
 func (mr *MockPostTrainingRunInterfaceMockRecorder) GetPostTrainingRun(ctx, runID interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPostTrainingRun", reflect.TypeOf((*MockPostTrainingRunInterface)(nil).GetPostTrainingRun), ctx, runID)
+}
+
+// IsPostTrainingRunDeleted mocks base method.
+func (m *MockPostTrainingRunInterface) IsPostTrainingRunDeleted(ctx context.Context, runID string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsPostTrainingRunDeleted", ctx, runID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// IsPostTrainingRunDeleted indicates an expected call of IsPostTrainingRunDeleted.
+func (mr *MockPostTrainingRunInterfaceMockRecorder) IsPostTrainingRunDeleted(ctx, runID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsPostTrainingRunDeleted", reflect.TypeOf((*MockPostTrainingRunInterface)(nil).IsPostTrainingRunDeleted), ctx, runID)
 }
 
 // ListPostTrainingRecipeRecords mocks base method.

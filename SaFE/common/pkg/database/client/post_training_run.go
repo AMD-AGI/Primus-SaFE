@@ -292,6 +292,19 @@ func (c *Client) SetPostTrainingRunDeleted(ctx context.Context, runID string) er
 		}).Error
 }
 
+// IsPostTrainingRunDeleted tells whether a run was deleted: its row is there and marked deleted. A run this
+// database has no row of is not a deleted one.
+func (c *Client) IsPostTrainingRunDeleted(ctx context.Context, runID string) (bool, error) {
+	db, err := c.GetGormDB()
+	if err != nil {
+		return false, err
+	}
+	var rows int64
+	err = db.WithContext(ctx).Model(&PostTrainingRun{}).Where("run_id = ? AND is_deleted = ?", runID, true).
+		Count(&rows).Error
+	return rows > 0, err
+}
+
 // updatePostTrainingRun applies fields to the non-deleted run on db, which may be a transaction.
 func updatePostTrainingRun(db *gorm.DB, runID string, fields map[string]interface{}) error {
 	result := db.Model(&PostTrainingRun{}).

@@ -173,6 +173,21 @@ func TestDedupePostTrainingRunMetrics(t *testing.T) {
 	}
 }
 
+// A run counts as deleted when its row is marked so, and not when it has no row.
+func TestIsPostTrainingRunDeleted(t *testing.T) {
+	c, mock := newMockClient(t)
+	for _, rows := range []int{1, 0} {
+		mock.ExpectQuery(`SELECT count\(\*\) FROM "post_training_run" WHERE run_id = \$1 AND is_deleted = \$2`).
+			WithArgs("r1", true).WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(rows))
+		deleted, err := c.IsPostTrainingRunDeleted(context.Background(), "r1")
+		require.NoError(t, err)
+		require.Equal(t, rows == 1, deleted)
+	}
+	require.NoError(t, mock.ExpectationsWereMet())
+	_, err := (&Client{}).IsPostTrainingRunDeleted(context.Background(), "r1")
+	require.Error(t, err, "without a database it cannot tell")
+}
+
 // A recipe's successful runs are counted on the platform, and the latest one is taken from the workspace only.
 func TestListPostTrainingRecipeRecords(t *testing.T) {
 	c, mock := newMockClient(t)
