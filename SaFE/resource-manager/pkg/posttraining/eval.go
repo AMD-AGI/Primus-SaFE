@@ -195,10 +195,12 @@ func (r *RunReconciler) finishEvaluation(ctx context.Context, run *dbclient.Post
 		return err
 	}
 	if !repeated {
-		// A service may be finished more than once, as when its delete failed. Only the service of the latest
-		// automatic evaluation moves the run on: an earlier one would end it while the later one evaluates.
+		// A service may be finished more than once, as when its delete failed. While the service of the latest
+		// automatic evaluation still evaluates, another one does not move the run on: the latest one will.
 		if last := lastEvalService(u.history); last != "" && last != s.Name {
-			return nil
+			if later, err := r.evaluating(ctx, last); err != nil || later {
+				return err
+			}
 		}
 		u.moveTo("done")
 	}
@@ -357,6 +359,20 @@ func lastEvalService(history []stageEntry) string {
 		}
 	}
 	return ""
+}
+
+// evaluating reports whether the evaluation service name exists and its evaluation has not been ended. It asks the
+// API server when the cache does not show the service, which may have been created a moment ago.
+func (r *RunReconciler) evaluating(ctx context.Context, name string) (bool, error) {
+	s := &v1.Workload{}
+	err := r.Get(ctx, client.ObjectKey{Name: name}, s)
+	if apierrors.IsNotFound(err) {
+		err = r.reader.Get(ctx, client.ObjectKey{Name: name}, s)
+	}
+	if err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+	return v1.GetAnnotation(s, v1.PostTrainingEvalDoneAnnotation) != v1.TrueStr, nil
 }
 
 // startEvaluation creates the inference service that evaluates modelID and returns its name.
