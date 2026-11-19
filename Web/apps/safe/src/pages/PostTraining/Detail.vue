@@ -767,15 +767,22 @@ const stageLabel = (s?: string) => STAGE_LABELS[(s || 'train') as RunStage] ?? s
 
 /** Loads the run; a quiet refresh keeps what is shown when it fails. */
 const fetchRun = async (quiet = false) => {
-  if (!runId.value) {
+  const id = runId.value
+  if (!id) {
     notFound.value = true
     return
   }
   try {
-    run.value = (await getPostTrainingRun(runId.value, quiet)) as unknown as RunDetail
-    if (imported.value && importInfo.value?.importId === undefined)
-      importInfo.value = (await getRunImport(runId.value)) as unknown as RunImport
+    const loaded = (await getPostTrainingRun(id, quiet)) as unknown as RunDetail
+    // The page may show another run by now: the answer for the run it left is dropped.
+    if (runId.value !== id) return
+    run.value = loaded
+    if (imported.value && importInfo.value?.importId === undefined) {
+      const info = (await getRunImport(id)) as unknown as RunImport
+      if (runId.value === id) importInfo.value = info
+    }
   } catch (err) {
+    if (runId.value !== id) return
     if ((err as { response?: { status?: number } })?.response?.status === 404) notFound.value = true
   }
 }
@@ -840,8 +847,8 @@ watch(
 
 // A tab that was hidden reads its run once when it shows again: the time the run is read for may have run out
 // meanwhile, which only a read of the run tells.
-watch(visibility, (now) => {
-  if (now === 'visible' && run.value) fetchRun(true)
+watch(visibility, (state) => {
+  if (state === 'visible' && run.value) fetchRun(true)
 })
 
 /** Training time from the start of the workload to its end, or to now while it runs. */
