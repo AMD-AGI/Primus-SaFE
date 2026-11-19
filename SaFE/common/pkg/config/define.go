@@ -71,6 +71,7 @@ const (
 	// and for how long an ended workload kept only in the database is still synced.
 	workloadRobustSyncInterval  = workloadPrefix + "robust_sync_interval_second"
 	workloadRobustSyncRetention = workloadPrefix + "robust_sync_retention_day"
+	workloadLowUtilEnable       = workloadPrefix + "low_utilization_enable"
 
 	// opensearch
 	openSearchPrefix      = "opensearch."

@@ -248,6 +248,12 @@ func GetWorkloadRobustSyncRetentionDay() int {
 	return getInt(workloadRobustSyncRetention, 7)
 }
 
+// IsWorkloadLowUtilizationEnable reports whether job-manager stops running
+// workloads under their workspace's low GPU utilization policy.
+func IsWorkloadLowUtilizationEnable() bool {
+	return getBool(workloadLowUtilEnable, false)
+}
+
 // IsOpenSearchEnable returns whether OpenSearch is enabled.
 func IsOpenSearchEnable() bool {
 	return getBool(openSearchEnable, false)

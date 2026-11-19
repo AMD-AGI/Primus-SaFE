@@ -49,6 +49,8 @@ data:
       max_ephemeral_store_percent: {{ default 0.6 (default .Values.workload).max_ephemeral_store_percent }}
       # If the workload has hang detection enabled, it is considered failed if no logs are generated within this interval, in seconds
       hang_check_interval: 1200
+      # Whether to stop running workloads under their workspace's low GPU utilization policy.
+      low_utilization_enable: {{ default false (default .Values.workload).low_utilization_enable }}
     ssh:
       # Whether to enable ssh, Users can log in directly to their own pods.
       enable: {{ .Values.ssh.enable }}

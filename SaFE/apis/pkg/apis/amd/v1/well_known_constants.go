@@ -274,6 +274,10 @@ const (
 	WorkloadUidLabel             = WorkloadPrefix + "uid"
 	WorkloadDispatchedAnnotation = WorkloadPrefix + "dispatched"
 	WorkloadScheduledAnnotation  = WorkloadPrefix + "scheduled"
+	// "true" keeps the workload out of its workspace's low GPU utilization policy.
+	WorkloadLowUtilExemptAnnotation = "primus-safe.amd.com/low-util-exempt"
+	// RFC3339 time the workload was first found idle under the low GPU utilization policy.
+	WorkloadLowUtilDetectedAtAnnotation = "primus-safe.amd.com/low-util-detected-at"
 	// QosRunningResourcesAnnotation stores the resource list still running while a
 	// larger spec waits for the dispatcher to admit it.
 	QosRunningResourcesAnnotation     = WorkloadPrefix + "qos.running.resources"

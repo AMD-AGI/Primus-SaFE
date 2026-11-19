@@ -583,6 +583,8 @@ workload:
   robust_sync_interval_second: 60
   # Days after its end that a workload kept only in the database is still synced to Robust.
   robust_sync_retention_day: 7
+  # Whether job-manager stops running workloads under their workspace's low GPU utilization policy.
+  low_utilization_enable: false
 sandbox:
   enable: true
   namespace: "agent-sandbox-system"
