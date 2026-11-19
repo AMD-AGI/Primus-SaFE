@@ -239,6 +239,8 @@ func TestDeleteRunKeepsAModelThatIsInUse(t *testing.T) {
 		OutputModelID: "m-out"}
 	before := remaining(t, cli)
 
+	based := db.EXPECT().ListPostTrainingRuns(gomock.Any(), dbclient.PostTrainingRunFilter{BaseModelID: "m-out",
+		Statuses: []string{"Pending", "Running"}}).Return(nil, int64(0), nil)
 	err := h.deleteRun(testContext(), run, true)
 	require.Equal(t, http.StatusBadRequest, statusCode(err), "infer-1 still runs on the model")
 	require.Contains(t, err.Error(), "infer-1")
@@ -246,6 +248,13 @@ func TestDeleteRunKeepsAModelThatIsInUse(t *testing.T) {
 	require.Equal(t, before, remaining(t, cli), "a refused delete stops nothing")
 
 	require.NoError(t, cli.Delete(context.Background(), &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "infer-1"}}))
+	tuned := db.EXPECT().ListPostTrainingRuns(gomock.Any(), gomock.Any()).Return([]*dbclient.PostTrainingRun{
+		{RunID: "pt-x"}, {RunID: "pt-next"}}, int64(2), nil).After(based)
+	err = h.deleteRun(testContext(), run, true)
+	require.Equal(t, http.StatusBadRequest, statusCode(err), "pt-next trains on the model as its base")
+	require.Contains(t, err.Error(), "pt-next")
+	require.NotContains(t, err.Error(), "pt-x,", "the run does not hold its own model")
+	db.EXPECT().ListPostTrainingRuns(gomock.Any(), gomock.Any()).Return(nil, int64(0), nil).After(tuned)
 	db.EXPECT().UpdateEvaluationTaskStatus(gomock.Any(), "task-1", dbclient.EvaluationTaskStatusCancelled).Return(nil)
 	db.EXPECT().SetPostTrainingRunDeleted(gomock.Any(), "pt-x").Return(nil)
 	db.EXPECT().DeletePostTrainingRunMetrics(gomock.Any(), "pt-x").Return(nil)

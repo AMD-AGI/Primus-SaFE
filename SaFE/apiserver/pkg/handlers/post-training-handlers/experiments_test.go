@@ -104,11 +104,19 @@ func TestDeleteExperimentChecksEveryModelBeforeItDeletesARun(t *testing.T) {
 	h := templateHandler(t, db)
 	db.EXPECT().GetPostTrainingExperiment(gomock.Any(), "exp-1").Return(&dbclient.PostTrainingExperiment{
 		ExperimentID: "exp-1", Workspace: "ws1", UserID: "u1", BaselineVariant: "baseline"}, nil)
-	db.EXPECT().ListPostTrainingRuns(gomock.Any(), gomock.Any()).Return([]*dbclient.PostTrainingRun{
+	runs := []*dbclient.PostTrainingRun{
 		{RunID: "pt-a", WorkloadID: "pt-a", Workspace: "ws1", UserID: "u1", VariantName: "baseline", Status: "Succeeded"},
 		{RunID: "pt-b", WorkloadID: "pt-b", Workspace: "ws1", UserID: "u1", VariantName: "lr", Status: "Succeeded",
 			OutputModelID: "m-b"},
-	}, int64(2), nil).AnyTimes()
+	}
+	db.EXPECT().ListPostTrainingRuns(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, f dbclient.PostTrainingRunFilter) ([]*dbclient.PostTrainingRun, int64, error) {
+			if f.ExperimentID == "" {
+				// No run trains on a model of the experiment, and none is unfinished.
+				return nil, 0, nil
+			}
+			return runs, 2, nil
+		}).AnyTimes()
 	require.NoError(t, h.client.Create(context.Background(), &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "infer-1"},
 		Spec:   v1.WorkloadSpec{Env: map[string]string{sourceModelEnv: "m-b"}},
 		Status: v1.WorkloadStatus{Phase: v1.WorkloadRunning}}))

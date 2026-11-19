@@ -543,6 +543,18 @@ func (h *Handler) checkModelUnused(ctx context.Context, run *dbclient.PostTraini
 			inUse = append(inUse, w.Name)
 		}
 	}
+	// A run that takes the model as its base reads the model's weights, and does not name it the way a workload
+	// that serves it does.
+	based, _, err := h.db.ListPostTrainingRuns(ctx, dbclient.PostTrainingRunFilter{BaseModelID: run.OutputModelID,
+		Statuses: []string{string(v1.WorkloadPending), string(v1.WorkloadRunning)}})
+	if err != nil {
+		return commonerrors.NewInternalError("failed to check the runs of the model: " + err.Error())
+	}
+	for _, r := range based {
+		if r.RunID != run.RunID {
+			inUse = append(inUse, r.RunID)
+		}
+	}
 	if len(inUse) > 0 {
 		return commonerrors.NewBadRequest(fmt.Sprintf("cannot delete model %s: running/pending workloads exist: %v. "+
 			"Stop or delete these workloads first, or delete the run without its model", run.OutputModelID, inUse))
