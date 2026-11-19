@@ -357,6 +357,34 @@ func TestAWorkloadSeenOnlyAtItsEndLeavesItsUID(t *testing.T) {
 	require.True(t, backfillPending(unseen, nil), "the workload ran, so its directory is counted")
 }
 
+// A workload that the cluster stored after its run ended without one is removed: nothing follows a run that ended,
+// and the workload would train unseen.
+func TestAWorkloadStoredAfterItsRunEndedIsRemoved(t *testing.T) {
+	ctx := context.Background()
+	live := func() *v1.Workload {
+		w := endedWorkload(v1.WorkloadRunning)
+		w.Status.EndTime = nil
+		return w
+	}
+	ended := testRunRow("Failed", "queued")
+	ended.WorkloadUID = ""
+	r, _, _ := newTestReconciler(t, ended, live())
+	reconcileRun(t, r)
+	require.Error(t, r.Get(ctx, client.ObjectKey{Name: testRun}, &v1.Workload{}))
+
+	// A workload of the name that is not the run's is left alone, and so is the one of a run that saw its workload.
+	foreign := live()
+	foreign.Labels = nil
+	r, _, _ = newTestReconciler(t, ended, foreign)
+	reconcileRun(t, r)
+	require.NoError(t, r.Get(ctx, client.ObjectKey{Name: testRun}, &v1.Workload{}))
+	seen := testRunRow("Failed", "train")
+	seen.StageHistory = `[{"stage":"train","event":"backfilled"}]`
+	r, _, _ = newTestReconciler(t, seen, live())
+	reconcileRun(t, r)
+	require.NoError(t, r.Get(ctx, client.ObjectKey{Name: testRun}, &v1.Workload{}))
+}
+
 // A run that exports no model and lost its result line ends as succeeded once verification finds its launcher
 // finished; the same finding fails a run that was to export one.
 func TestVerifyEndsALostRunThatExportsNoModel(t *testing.T) {
