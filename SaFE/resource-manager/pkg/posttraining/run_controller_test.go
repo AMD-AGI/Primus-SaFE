@@ -355,6 +355,19 @@ func TestSaveSamplesStopsAtTheCap(t *testing.T) {
 	require.NoError(t, r.saveSamples(context.Background(), run, in, rows(1)), "a full run stores nothing more")
 }
 
+// Samples the database refuses are dropped, so they do not hold up what was read with them; a database that could
+// not be asked fails the save, which the next reconcile tries again.
+func TestSaveSamplesTellsRefusedDataFromAFailedDatabase(t *testing.T) {
+	run := testRunRow("Running", "train")
+	r, db, _ := newTestReconciler(t, run)
+	rows := []*dbclient.PostTrainingRunSample{{RunID: testRun, Kind: "rollout", Step: 1}}
+	in := &ingestion{sum: &metricSummary{}}
+	db.EXPECT().UpsertPostTrainingRunSamples(gomock.Any(), gomock.Any()).Return(&pq.Error{Code: "22001"})
+	require.NoError(t, r.saveSamples(context.Background(), run, in, rows), "a value too long stays too long")
+	db.EXPECT().UpsertPostTrainingRunSamples(gomock.Any(), gomock.Any()).Return(errors.New("connection refused"))
+	require.Error(t, r.saveSamples(context.Background(), run, in, rows))
+}
+
 // A stopped run says who stopped it.
 func TestStoppedRunSaysWhoStoppedIt(t *testing.T) {
 	w := endedWorkload(v1.WorkloadStopped)

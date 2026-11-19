@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/lib/pq"
 	"gorm.io/gorm"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -644,9 +645,10 @@ func (r *RunReconciler) readLog(ctx context.Context, w *v1.Workload, u *runUpdat
 			return false, err
 		}
 	}
-	// Samples the database refuses must not hold up the metrics, stages and cursor read with them.
+	// Samples the database refuses must not hold up the metrics, stages and cursor read with them, so saveSamples
+	// drops those; it fails when the database could not be asked, and the same log is then read again.
 	if err := r.saveSamples(ctx, run, in, in.finishSamples()); err != nil {
-		klog.ErrorS(err, "failed to save the samples of a post training run", "run", run.RunID)
+		return false, err
 	}
 	switch {
 	case in.result != nil:
@@ -777,8 +779,24 @@ func syncStall(u *runUpdate, in *ingestion, running bool) {
 	}
 }
 
+// refusedByDatabase tells whether the database took a statement and refused its data, which another try does not
+// change, as opposed to not having been reached.
+func refusedByDatabase(err error) bool {
+	var refused *pq.Error
+	if !errors.As(err, &refused) {
+		return false
+	}
+	switch refused.Code.Class() {
+	case "21", "22", "23":
+		// Cardinality violation, data exception, integrity constraint violation.
+		return true
+	}
+	return false
+}
+
 // saveSamples stores the samples read up to the run's cap and counts the stored ones in the summary; once the cap
-// is reached the summary says so and later samples stay only in the run directory.
+// is reached the summary says so and later samples stay only in the run directory. Samples the database refuses
+// are dropped; it fails when the database could not be asked.
 func (r *RunReconciler) saveSamples(ctx context.Context, run *dbclient.PostTrainingRun, in *ingestion,
 	samples []*dbclient.PostTrainingRunSample) error {
 	if len(samples) == 0 {
@@ -797,7 +815,11 @@ func (r *RunReconciler) saveSamples(ctx context.Context, run *dbclient.PostTrain
 		samples = samples[:room]
 	}
 	if err := r.db.UpsertPostTrainingRunSamples(ctx, samples); err != nil {
-		return err
+		if !refusedByDatabase(err) {
+			return err
+		}
+		klog.ErrorS(err, "the database refused the samples of a post training run", "run", run.RunID)
+		return nil
 	}
 	if n, err := r.db.CountPostTrainingRunSamples(ctx, run.RunID); err == nil {
 		in.sum.Samples = n
