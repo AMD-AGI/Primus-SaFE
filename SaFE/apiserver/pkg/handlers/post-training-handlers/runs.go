@@ -161,24 +161,6 @@ func (h *Handler) getRun(c *gin.Context, verb v1.RoleVerb) (*dbclient.PostTraini
 	return run, nil
 }
 
-// getWritableRun is getRun for the endpoints that change a run or start work from it, which an imported run refuses:
-// SaFE has no recipe, workload or output model for it.
-func (h *Handler) getWritableRun(c *gin.Context, verb v1.RoleVerb) (*dbclient.PostTrainingRun, error) {
-	run, err := h.getRun(c, verb)
-	if err != nil {
-		return nil, err
-	}
-	if imported(run) {
-		return nil, commonerrors.NewBadRequest("Imported runs are read-only.")
-	}
-	return run, nil
-}
-
-// imported tells whether a run was imported rather than trained on the platform.
-func imported(run *dbclient.PostTrainingRun) bool {
-	return run.Source != "" && run.Source != dbclient.PostTrainingSourceSafe
-}
-
 // GetRun returns a run with its recipe snapshot, stage history, output model and evaluations.
 func (h *Handler) GetRun(c *gin.Context) {
 	reg, _, ok := h.requireEnabled(c)
@@ -227,7 +209,7 @@ func (h *Handler) StopRun(c *gin.Context) {
 	if _, _, ok := h.requireEnabled(c); !ok {
 		return
 	}
-	run, err := h.getWritableRun(c, v1.DeleteVerb)
+	run, err := h.getRun(c, v1.DeleteVerb)
 	if err != nil {
 		apiutils.AbortWithApiError(c, err)
 		return
@@ -267,7 +249,7 @@ func (h *Handler) CleanupCheckpoints(c *gin.Context) {
 		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("invalid request body: "+err.Error()))
 		return
 	}
-	run, err := h.getWritableRun(c, v1.DeleteVerb)
+	run, err := h.getRun(c, v1.DeleteVerb)
 	if err != nil {
 		apiutils.AbortWithApiError(c, err)
 		return
@@ -479,7 +461,7 @@ func (h *Handler) checkModelUnused(ctx context.Context, run *dbclient.PostTraini
 // checkModelDelete checks that the caller may delete the output model of a run together with the run, and that no
 // other workload runs on that model; a run with no model of its own to delete passes.
 func (h *Handler) checkModelDelete(c *gin.Context, run *dbclient.PostTrainingRun) error {
-	if run.OutputModelID == "" || imported(run) {
+	if run.OutputModelID == "" {
 		return nil
 	}
 	if err := h.authorizeModelDelete(c, run.OutputModelID); err != nil {
@@ -617,13 +599,7 @@ func (h *Handler) deleteRun(c *gin.Context, run *dbclient.PostTrainingRun, delet
 			return err
 		}
 	}
-	if imported(run) {
-		// Only SaFE's record goes: the run directory on Spur is not touched, and the directory can be imported again.
-		if err := h.db.DeletePostTrainingImportOfRun(ctx, run.RunID); err != nil {
-			return commonerrors.NewInternalError("failed to delete the import record: " + err.Error())
-		}
-		deleteModel = false
-	} else if _, err := h.endRun(ctx, run, fmt.Sprintf("Deleted by %s", c.GetString(common.UserName)), true,
+	if _, err := h.endRun(ctx, run, fmt.Sprintf("Deleted by %s", c.GetString(common.UserName)), true,
 		deleteModel); err != nil {
 		return err
 	}
