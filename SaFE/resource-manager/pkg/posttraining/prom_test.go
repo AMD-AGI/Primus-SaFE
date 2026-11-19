@@ -19,23 +19,29 @@ import (
 	rmmetrics "github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/metrics"
 )
 
-// The sweep of the unfinished runs counts them by status and stage, and the stalled ones, and queues the pending
-// ones, which have no event of a workload when theirs was never created.
+// The sweep of the unfinished runs counts them by status and stage, and the stalled ones, and queues them: a
+// pending run whose workload was never created has no event of a workload, and a running one whose workload is
+// gone has none either once a restart lost its requeue.
 func TestSweepUnfinished(t *testing.T) {
 	r, db, _ := newTestReconciler(t, testRunRow("Running", "train"))
 	r.recovered = make(chan event.GenericEvent, 4)
+	running := testRunRow("Running", "train")
+	running.RunID = "pt-running"
 	stalled := testRunRow("Running", "train")
-	stalled.StalledSince = pq.NullTime{Valid: true}
+	stalled.RunID, stalled.StalledSince = "pt-stalled", pq.NullTime{Valid: true}
 	pending := testRunRow("Pending", "queued")
 	pending.RunID = "pt-pending"
 	db.EXPECT().ListPostTrainingRuns(gomock.Any(), gomock.Any()).Return(
-		[]*dbclient.PostTrainingRun{testRunRow("Running", "train"), stalled, pending}, int64(3), nil)
+		[]*dbclient.PostTrainingRun{running, stalled, pending}, int64(3), nil)
 	r.sweepUnfinished(context.Background())
 	require.Equal(t, 2.0, testutil.ToFloat64(rmmetrics.PostTrainingRuns.WithLabelValues("Running", "train")))
 	require.Equal(t, 1.0, testutil.ToFloat64(rmmetrics.PostTrainingRuns.WithLabelValues("Pending", "queued")))
 	require.Equal(t, 1.0, testutil.ToFloat64(rmmetrics.PostTrainingRunsStalled))
-	require.Len(t, r.recovered, 1, "a run that runs has the events of its workload")
-	require.Equal(t, "pt-pending", (<-r.recovered).Object.GetName())
+	var queued []string
+	for len(r.recovered) > 0 {
+		queued = append(queued, (<-r.recovered).Object.GetName())
+	}
+	require.Equal(t, []string{"pt-running", "pt-stalled", "pt-pending"}, queued)
 }
 
 // Read counters grow only by what a read added, and a known gap is not counted again.

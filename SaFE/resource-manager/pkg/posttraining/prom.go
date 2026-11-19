@@ -35,8 +35,9 @@ func (r *RunReconciler) runUnfinishedSweeps(ctx context.Context) error {
 }
 
 // sweepUnfinished lists the unfinished runs once for two uses. It counts them by status and stage, and the runs
-// marked stalled, for the gauges. And it queues the pending ones: a run is otherwise reconciled on an event of its
-// workload, which a run whose workload was never created does not get.
+// marked stalled, for the gauges. And it queues them: a run is otherwise reconciled on an event of its workload or
+// on a requeue of its own. A pending run whose workload was never created has neither, nor does a running one
+// whose workload is gone once a restart lost its requeue.
 func (r *RunReconciler) sweepUnfinished(ctx context.Context) {
 	counts := map[[2]string]int{}
 	stalled := 0
@@ -53,9 +54,7 @@ func (r *RunReconciler) sweepUnfinished(ctx context.Context) {
 			if run.StalledSince.Valid {
 				stalled++
 			}
-			if run.Status == string(v1.WorkloadPending) {
-				r.requeue(run.RunID)
-			}
+			r.requeue(run.RunID)
 		}
 		if len(runs) < recoverPageSize {
 			break
