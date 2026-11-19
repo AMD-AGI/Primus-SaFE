@@ -11,6 +11,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -91,6 +92,13 @@ func upload(h *Handler, token string, summary []byte) *httptest.ResponseRecorder
 
 // uploadContext is upload that also returns the request's context.
 func uploadContext(h *Handler, token string, summary []byte) (*httptest.ResponseRecorder, *gin.Context) {
+	w, c := uploadRequest(token, summary)
+	h.UploadImport(c)
+	return w, c
+}
+
+// uploadRequest returns the context of an upload of a gzipped summary with a token, before any handler ran.
+func uploadRequest(token string, summary []byte) (*httptest.ResponseRecorder, *gin.Context) {
 	var body bytes.Buffer
 	gz := gzip.NewWriter(&body)
 	_, _ = gz.Write(summary)
@@ -100,8 +108,51 @@ func uploadContext(h *Handler, token string, summary []byte) (*httptest.Response
 	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/post-training/imports", &body)
 	c.Request.Header.Set("Authorization", "Bearer "+token)
 	c.Request.Header.Set("Content-Encoding", "gzip")
-	h.UploadImport(c)
 	return w, c
+}
+
+// unreadBody fails the test when an upload's body is read.
+type unreadBody struct{ t *testing.T }
+
+// Read fails the test.
+func (b unreadBody) Read([]byte) (int, error) {
+	b.t.Fatal("the body was read before the token was checked")
+	return 0, io.EOF
+}
+
+// The gate of the upload route reads no body without a token, and hands on a bounded, decompressed one with it.
+func TestTheUploadGateChecksTheTokenBeforeItReadsTheBody(t *testing.T) {
+	h, db := importHandler(t)
+	db.EXPECT().GetPostTrainingImportTokenByHash(gomock.Any(), gomock.Any()).Return(nil, gorm.ErrRecordNotFound)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/post-training/imports", unreadBody{t})
+	c.Request.Header.Set("Authorization", "Bearer sst_unknown.x")
+	h.uploadGate(c)
+	require.Equal(t, http.StatusUnauthorized, w.Code)
+	require.True(t, c.IsAborted(), "neither the audit nor the upload runs")
+
+	db.EXPECT().GetPostTrainingImportTokenByHash(gomock.Any(), gomock.Any()).Return(cliToken(), nil)
+	edit := func(s map[string]interface{}) { s["schema"] = "other/9" }
+	w, c = uploadRequest("sst_a.b", importSummaryJSON(t, edit))
+	h.uploadGate(c)
+	require.False(t, c.IsAborted())
+	require.Equal(t, "u1", c.GetString(common.UserId), "the audit names the token's owner")
+	require.Empty(t, c.Request.Header.Get("Content-Encoding"))
+	body, err := io.ReadAll(c.Request.Body)
+	require.NoError(t, err)
+	require.JSONEq(t, string(importSummaryJSON(t, edit)), string(body), "the audit keeps text, not gzip bytes")
+	c.Request.Body = io.NopCloser(bytes.NewReader(body))
+	db.EXPECT().SetPostTrainingImportTokenError(gomock.Any(), "pti-1", gomock.Any())
+	h.UploadImport(c)
+	require.Equal(t, http.StatusUnprocessableEntity, w.Code, "the upload reads the gate's token and body")
+
+	db.EXPECT().GetPostTrainingImportTokenByHash(gomock.Any(), gomock.Any()).Return(cliToken(), nil)
+	db.EXPECT().SetPostTrainingImportTokenError(gomock.Any(), "pti-1", gomock.Any())
+	w, c = uploadRequest("sst_a.b", make([]byte, importBodyLimit+1))
+	h.uploadGate(c)
+	require.Equal(t, http.StatusRequestEntityTooLarge, w.Code, "a small gzip body may not grow past the limit")
+	require.True(t, c.IsAborted())
 }
 
 // Issuing an import token deletes the expired ones, and a failed sweep does not fail the token.

@@ -6,6 +6,7 @@
 package posttraininghandlers
 
 import (
+	"bytes"
 	"compress/gzip"
 	"context"
 	"crypto/rand"
@@ -45,6 +46,8 @@ const (
 	importPurposeScan = "scan"
 	importViaCLI      = "cli"
 	importViaScan     = "scan"
+	// importTokenKey is where a request keeps the import token it was checked with.
+	importTokenKey = "postTrainingImportToken"
 	// tokenStates are the states GET /imports/tokens/:id reports.
 	tokenWaiting = "waiting"
 	tokenUsed    = "used"
@@ -271,6 +274,54 @@ func notFoundOr(err error, what string) error {
 	return commonerrors.NewInternalError(err.Error())
 }
 
+// uploadGate runs before the audit of the upload route, which has no sign-in: only the holder of an unspent import
+// token gets further, and the body the audit and the upload then read is bounded and already decompressed.
+func (h *Handler) uploadGate(c *gin.Context) {
+	if _, _, ok := h.requireEnabled(c); !ok {
+		return
+	}
+	t := h.uploadToken(c)
+	if t == nil {
+		return
+	}
+	raw, err := readImportBody(c.Request)
+	if err != nil {
+		h.refuseImport(c, t, http.StatusRequestEntityTooLarge,
+			gin.H{"errorCode": "RequestEntityTooLarge", "errorMessage": err.Error()})
+		return
+	}
+	c.Request.Body = io.NopCloser(bytes.NewReader(raw))
+	c.Request.ContentLength = int64(len(raw))
+	c.Request.Header.Del("Content-Encoding")
+}
+
+// uploadToken returns the unspent import token an upload carries, which the gate of the route may have read
+// already, and names its owner for the audit; it answers 401 and returns nil without one.
+func (h *Handler) uploadToken(c *gin.Context) *dbclient.PostTrainingImportToken {
+	if t, ok := c.Get(importTokenKey); ok {
+		return t.(*dbclient.PostTrainingImportToken)
+	}
+	token := strings.TrimSpace(strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer "))
+	t, err := h.db.GetPostTrainingImportTokenByHash(c.Request.Context(), tokenHash(token))
+	if !strings.HasPrefix(token, importTokenPrefix) || err != nil || t.UsedAt.Valid || time.Now().After(t.ExpiresAt) {
+		apiutils.AbortWithApiError(c, commonerrors.NewUnauthorized(importSpentMessage))
+		return nil
+	}
+	c.Set(common.UserId, t.UserID)
+	c.Set(common.UserName, t.UserName)
+	c.Set(importTokenKey, t)
+	return t
+}
+
+// refuseImport answers an upload that is refused and records the reason on its token, where the dialog reads it.
+func (h *Handler) refuseImport(c *gin.Context, t *dbclient.PostTrainingImportToken, code int, body gin.H) {
+	message, _ := body["errorMessage"].(string)
+	if err := h.db.SetPostTrainingImportTokenError(c.Request.Context(), t.TokenID, message); err != nil {
+		klog.ErrorS(err, "failed to record why an import was refused", "token", t.TokenID)
+	}
+	c.AbortWithStatusJSON(code, body)
+}
+
 // UploadImport takes the summary safe-post-training-import posts with an import token instead of a session: the
 // token names the workspace and the user, and is spent by the import it makes. With ?stage=true a scan's token stages
 // the summary for the dialog to commit. A refused upload keeps the token, with the reason, so the same command can
@@ -281,15 +332,10 @@ func (h *Handler) UploadImport(c *gin.Context) {
 		return
 	}
 	ctx := c.Request.Context()
-	token := strings.TrimSpace(strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer "))
-	t, err := h.db.GetPostTrainingImportTokenByHash(ctx, tokenHash(token))
-	if !strings.HasPrefix(token, importTokenPrefix) || err != nil || t.UsedAt.Valid || time.Now().After(t.ExpiresAt) {
-		apiutils.AbortWithApiError(c, commonerrors.NewUnauthorized(importSpentMessage))
+	t := h.uploadToken(c)
+	if t == nil {
 		return
 	}
-	// The audit of the upload names the token's owner.
-	c.Set(common.UserId, t.UserID)
-	c.Set(common.UserName, t.UserName)
 	// Only the holder of a token is told why the registry did not load.
 	if regErr != nil {
 		apiutils.AbortWithApiError(c, commonerrors.NewInternalError("the Post Training registry is not loaded: "+regErr.Error()))
@@ -300,13 +346,7 @@ func (h *Handler) UploadImport(c *gin.Context) {
 		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("this token cannot be used for that upload"))
 		return
 	}
-	refuse := func(code int, body gin.H) {
-		message, _ := body["errorMessage"].(string)
-		if err := h.db.SetPostTrainingImportTokenError(ctx, t.TokenID, message); err != nil {
-			klog.ErrorS(err, "failed to record why an import was refused", "token", t.TokenID)
-		}
-		c.AbortWithStatusJSON(code, body)
-	}
+	refuse := func(code int, body gin.H) { h.refuseImport(c, t, code, body) }
 	raw, err := readImportBody(c.Request)
 	if err != nil {
 		refuse(http.StatusRequestEntityTooLarge, gin.H{"errorCode": "RequestEntityTooLarge", "errorMessage": err.Error()})
