@@ -19,12 +19,14 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/yaml"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -276,6 +278,44 @@ func TestServiceResource(t *testing.T) {
 	require.Equal(t, "600Gi", serviceResource(nf, 8).EphemeralStorage,
 		"the ephemeral storage stays within the per-workload maximum, not the 950Gi left after the reserve")
 	require.Equal(t, "75Gi", serviceResource(nf, 1).EphemeralStorage, "the maximum is shared by the GPUs")
+}
+
+// An evaluation service that was marked done and whose delete then failed is removed by the next reconcile, which
+// also ends the automatic evaluation.
+func TestAnEvaluationServiceWhoseDeleteFailedIsRemovedNext(t *testing.T) {
+	run, objs := evalFixtures("eval")
+	s := autoService("svc-9")
+	s.Status.Phase = v1.WorkloadRunning
+	s.Annotations[evalJobAnnotation] = evalJobName("svc-9")
+	job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: evalJobName("svc-9"),
+		Labels: map[string]string{v1.PostTrainingRunIdLabel: testRun}}}
+	job.Status.Phase = v1.OpsJobSucceeded
+	r, _, updates := newTestReconciler(t, run, append(objs, s, job)...)
+	loadChartRegistry(t, r)
+	failDelete := true
+	r.Client = interceptor.NewClient(r.Client.(client.WithWatch), interceptor.Funcs{
+		Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+			if _, ok := obj.(*v1.Workload); ok && failDelete {
+				return apierrors.NewServiceUnavailable("the API server is busy")
+			}
+			return c.Delete(ctx, obj, opts...)
+		},
+	})
+	ctx := context.Background()
+	_, err := r.reconcileEvaluations(ctx, run)
+	require.Error(t, err, "the service is marked done and its delete fails")
+
+	failDelete = false
+	_, err = r.reconcileEvaluations(ctx, run)
+	require.NoError(t, err)
+	for _, left := range evalServices(t, r) {
+		require.False(t, left.DeletionTimestamp.IsZero(), "%s no longer holds its GPUs", left.Name)
+	}
+	moved := false
+	for _, u := range *updates {
+		moved = moved || u["stage"] == "done"
+	}
+	require.True(t, moved, "the automatic evaluation ends the run")
 }
 
 // autoService is a finished automatic evaluation service of testRun.

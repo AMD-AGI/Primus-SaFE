@@ -82,6 +82,13 @@ func (r *RunReconciler) reconcileEvaluations(ctx context.Context, run *dbclient.
 		present[s.Name] = true
 		autoSeen = autoSeen || v1.GetAnnotation(s, evalAutoAnnotation) == v1.TrueStr
 		if v1.GetAnnotation(s, v1.PostTrainingEvalDoneAnnotation) == v1.TrueStr {
+			// A done service that still runs and is neither kept nor being deleted was marked and then not
+			// removed, as when its delete failed: it would hold its GPUs for good, so it is finished again.
+			if v1.GetAnnotation(s, evalKeepAnnotation) != v1.TrueStr && s.GetDeletionTimestamp().IsZero() && !s.IsEnd() {
+				if err := r.finishEvaluation(ctx, run, s, true); err != nil {
+					return ctrlruntime.Result{}, err
+				}
+			}
 			continue
 		}
 		after, err := r.advanceEvaluation(ctx, run, s)
