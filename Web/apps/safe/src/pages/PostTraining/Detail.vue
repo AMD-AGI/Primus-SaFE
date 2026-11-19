@@ -838,6 +838,12 @@ watch(
   },
 )
 
+// A tab that was hidden reads its run once when it shows again: the time the run is read for may have run out
+// meanwhile, which only a read of the run tells.
+watch(visibility, (now) => {
+  if (now === 'visible' && run.value) fetchRun(true)
+})
+
 /** Training time from the start of the workload to its end, or to now while it runs. */
 const duration = computed(() => {
   const start = timeOf(run.value?.startTime)
