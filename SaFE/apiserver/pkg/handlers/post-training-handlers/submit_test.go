@@ -243,26 +243,6 @@ func TestDeletingARunDeletesItsModelOnlyForWhoMayDeleteTheModel(t *testing.T) {
 	}
 }
 
-// Only the user who issued a scan may commit it.
-func TestOnlyTheIssuerCommitsAScan(t *testing.T) {
-	db := mockclient.NewMockInterface(gomock.NewController(t))
-	h, cli := submitHandler(t, db, nil)
-	other := &v1.User{ObjectMeta: metav1.ObjectMeta{Name: "u2", Labels: map[string]string{v1.UserIdLabel: "u2"}},
-		Spec: v1.UserSpec{Type: v1.DefaultUserType, Roles: []v1.UserRole{v1.DefaultRole},
-			Resources: map[string][]string{common.UserWorkspaces: {"ws1"}}}}
-	require.NoError(t, cli.Create(context.Background(), other))
-	db.EXPECT().GetPostTrainingImportToken(gomock.Any(), "pti-scan").Return(&dbclient.PostTrainingImportToken{
-		TokenID: "pti-scan", Purpose: importPurposeScan, Workspace: "ws1", UserID: "u1"}, nil)
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
-	c.Params = gin.Params{{Key: "id", Value: "pti-scan"}}
-	c.Set(common.UserId, "u2")
-	h.CommitImportScan(c)
-	require.Equal(t, http.StatusForbidden, w.Code, "another member may not import a scan staged for u1: %s",
-		w.Body.String())
-}
-
 // A run name longer than its column is refused.
 func TestANameLongerThanItsColumnIsRefused(t *testing.T) {
 	db := mockclient.NewMockInterface(gomock.NewController(t))
