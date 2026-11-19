@@ -7,7 +7,6 @@ package client
 
 import (
 	"context"
-	"sort"
 	"time"
 
 	"gorm.io/gorm"
@@ -113,28 +112,31 @@ func (c *Client) ListPostTrainingRunMetrics(
 	return points, nil
 }
 
-// ListLatestPostTrainingRunMetrics returns the newest limit points of a run, or of its named metrics, by name and
-// step, which bounds what a curve request reads of a run with very many points.
+// ListLatestPostTrainingRunMetrics returns at most limit points of a run, or of its named metrics, by name and
+// step, which bounds what a curve request reads of a run with very many points. The series share the limit evenly
+// and each keeps its newest points: their steps are not on one axis, so the newest points of the run as a whole
+// would be those of the series that counts in the largest numbers.
 func (c *Client) ListLatestPostTrainingRunMetrics(ctx context.Context, runID string, names []string,
 	limit int) ([]*PostTrainingRunMetric, error) {
 	db, err := c.GetGormDB()
 	if err != nil {
 		return nil, err
 	}
-	query := db.WithContext(ctx).Where("run_id = ?", runID)
-	if len(names) > 0 {
-		query = query.Where("name IN ?", names)
+	// selected returns a query of the run's points, or of those of its named metrics, that selects columns.
+	selected := func(columns string) *gorm.DB {
+		query := db.Model(&PostTrainingRunMetric{}).Select(columns).Where("run_id = ?", runID)
+		if len(names) > 0 {
+			query = query.Where("name IN ?", names)
+		}
+		return query
 	}
+	ranked := selected("*, ROW_NUMBER() OVER (PARTITION BY name ORDER BY step DESC) AS rn")
 	var points []*PostTrainingRunMetric
-	if err := query.Order("step DESC").Limit(limit).Find(&points).Error; err != nil {
+	if err := db.WithContext(ctx).Table("(?) AS latest", ranked).
+		Where("rn <= GREATEST(1, ? / GREATEST(1, (?)))", limit, selected("COUNT(DISTINCT name)")).
+		Order("name ASC, step ASC").Find(&points).Error; err != nil {
 		return nil, err
 	}
-	sort.SliceStable(points, func(i, j int) bool {
-		if points[i].Name != points[j].Name {
-			return points[i].Name < points[j].Name
-		}
-		return points[i].Step < points[j].Step
-	})
 	return points, nil
 }
 

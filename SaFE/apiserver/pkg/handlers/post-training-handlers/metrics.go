@@ -28,7 +28,7 @@ import (
 const (
 	defaultMaxPoints = 1000
 	maxMaxPoints     = 20000
-	// maxMetricRows bounds the points a curve request reads; the curves of a run with more show its newest.
+	// maxMetricRows bounds the points a curve request reads; of a run with more, each curve shows its newest.
 	maxMetricRows = 200000
 	valLossMetric = "eval/val/loss"
 	// checkpointsCleanedEvent is the stage_history event of a finished checkpoint cleanup; keptStep names the

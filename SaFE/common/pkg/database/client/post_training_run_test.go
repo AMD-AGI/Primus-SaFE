@@ -51,14 +51,17 @@ func TestARunIsFoundByItsIDToo(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet(), "a pasted run ID finds its run")
 }
 
-// A limited curve read takes the newest points and returns them by name and step.
-func TestACurveRequestReadsTheNewestPoints(t *testing.T) {
+// A limited curve read takes the newest points of each series, which share the limit, as their steps are not on one
+// axis; they come back by name and step.
+func TestACurveRequestReadsTheNewestPointsOfEachSeries(t *testing.T) {
 	c, mock := newMockClient(t)
-	mock.ExpectQuery(`SELECT \* FROM "post_training_run_metric" WHERE run_id = \$1 AND name IN \(\$2,\$3\) `+
-		`ORDER BY step DESC LIMIT \$4`).
-		WithArgs("r1", "a", "b", 3).
-		WillReturnRows(sqlmock.NewRows([]string{"run_id", "name", "step", "value"}).
-			AddRow("r1", "b", 9, 1.0).AddRow("r1", "a", 9, 2.0).AddRow("r1", "a", 8, 3.0))
+	mock.ExpectQuery(`SELECT \* FROM \(SELECT \*, ROW_NUMBER\(\) OVER \(PARTITION BY name ORDER BY step DESC\) AS rn `+
+		`FROM "post_training_run_metric" WHERE run_id = \$1 AND name IN \(\$2,\$3\)\) AS latest `+
+		`WHERE rn <= GREATEST\(1, \$4 / GREATEST\(1, \(SELECT COUNT\(DISTINCT name\) FROM "post_training_run_metric" `+
+		`WHERE run_id = \$5 AND name IN \(\$6,\$7\)\)\)\) ORDER BY name ASC, step ASC`).
+		WithArgs("r1", "a", "b", 3, "r1", "a", "b").
+		WillReturnRows(sqlmock.NewRows([]string{"run_id", "name", "step", "value", "rn"}).
+			AddRow("r1", "a", 8, 3.0, 2).AddRow("r1", "a", 9, 2.0, 1).AddRow("r1", "b", 9, 1.0, 1))
 	got, err := c.ListLatestPostTrainingRunMetrics(context.Background(), "r1", []string{"a", "b"}, 3)
 	require.NoError(t, err)
 	var order []string
