@@ -448,16 +448,6 @@ func unifiedJobScaleSet(ctx context.Context, reader client.Reader, workload *v1.
 	return parent
 }
 
-// cicdIdentityURL returns the identity API base for CICD pods: the public control-plane origin,
-// whose console routes /api/v1/apikeys to identity. Empty unless auth.mode is external and
-// auth.api_keys_upstream is set.
-func cicdIdentityURL() string {
-	if commonconfig.GetAuthMode() != commonconfig.AuthModeExternal || commonconfig.GetAuthAPIKeysUpstream() == "" {
-		return ""
-	}
-	return externalControlPlaneBaseURL()
-}
-
 // dispatchNodesAt returns the admin nodes assigned at the given dispatch index,
 // preferring the DB workload_dispatch_node table and falling back to the etcd
 // Status.Nodes. Best-effort: a missing db client (e.g. DB disabled) or any query
@@ -1471,9 +1461,6 @@ func buildEnvironment(workload *v1.Workload, workspace *v1.Workspace, resourceId
 			return nil, err
 		}
 		result = addEnvVar(result, workload, jobutils.UserApiKeyEnv, apiKey)
-		if identityURL := cicdIdentityURL(); identityURL != "" {
-			result = addEnvVar(result, workload, jobutils.IdentityURLEnv, identityURL)
-		}
 	} else if workload.SpecKind() == common.UnifiedJobKind {
 		if v1.GetAnnotation(workload, v1.UserEncryptedAPIKeyAnnotation) != "" {
 			apiKey, err := cicdAPIKey(workload)
@@ -2435,9 +2422,6 @@ func updateCICDScaleSetEnvs(obj *unstructured.Unstructured,
 		return err
 	}
 	envs[jobutils.UserApiKeyEnv] = apiKey
-	if identityURL := cicdIdentityURL(); identityURL != "" {
-		envs[jobutils.IdentityURLEnv] = identityURL
-	}
 	envs[jobutils.PriorityEnv] = strconv.Itoa(adminWorkload.Spec.Priority)
 	envs[jobutils.WorkspaceIdEnv] = adminWorkload.Spec.Workspace
 	envs[jobutils.AdminControlPlaneEnv] = v1.GetAdminControlPlane(adminWorkload)

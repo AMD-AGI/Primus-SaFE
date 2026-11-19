@@ -1693,26 +1693,6 @@ func TestUpdateCICDScaleSetEnvs_MissingEncryptedAPIKeyFails(t *testing.T) {
 	assert.Assert(t, strings.Contains(err.Error(), "encrypted API key"))
 }
 
-func TestCICDIdentityURL(t *testing.T) {
-	t.Cleanup(func() {
-		for _, k := range []string{"auth.mode", "auth.api_keys_upstream", "global.sub_domain", "global.domain"} {
-			commonconfig.UnsetValue(k)
-		}
-	})
-	commonconfig.SetValue("global.sub_domain", "safe")
-	commonconfig.SetValue("global.domain", "example.com")
-	commonconfig.SetValue("auth.mode", "external")
-	commonconfig.SetValue("auth.api_keys_upstream", "identity.idns.svc.cluster.local:8080")
-	assert.Equal(t, "https://safe.example.com", cicdIdentityURL())
-
-	commonconfig.UnsetValue("auth.api_keys_upstream")
-	assert.Equal(t, "", cicdIdentityURL())
-
-	commonconfig.SetValue("auth.mode", "builtin")
-	commonconfig.SetValue("auth.api_keys_upstream", "identity.idns.svc.cluster.local:8080")
-	assert.Equal(t, "", cicdIdentityURL())
-}
-
 // --- merged from dispatcher_help_pure_test.go ---
 
 func TestBuildSecretVolume(t *testing.T) {
@@ -3799,32 +3779,4 @@ func TestModifyContainersFailsWithoutCICDAPIKey(t *testing.T) {
 	}}
 	err := modifyContainers(obj, cicdScaleSetForTest(""), jobutils.TestWorkspaceData.DeepCopy(), []string{"spec", "containers"}, 0)
 	assert.ErrorContains(t, err, "encrypted API key")
-}
-
-func TestCICDEnvsCarryIdentityURLInExternalMode(t *testing.T) {
-	t.Cleanup(func() {
-		for _, k := range []string{"auth.mode", "auth.api_keys_upstream", "global.sub_domain", "global.domain"} {
-			commonconfig.UnsetValue(k)
-		}
-	})
-	commonconfig.SetValue("global.sub_domain", "safe")
-	commonconfig.SetValue("global.domain", "example.com")
-	commonconfig.SetValue("auth.mode", "external")
-	commonconfig.SetValue("auth.api_keys_upstream", "identity.idns.svc.cluster.local:8080")
-
-	workload := cicdScaleSetForTest("user-api-key")
-	envs, err := buildEnvironment(workload, nil, -1)
-	assert.NilError(t, err)
-	assert.Equal(t, true, findEnv(envs, jobutils.IdentityURLEnv, "https://safe.example.com"))
-
-	workspace := jobutils.TestWorkspaceData.DeepCopy()
-	workload.Spec.Workspace = workspace.Name
-	obj := &unstructured.Unstructured{Object: map[string]interface{}{
-		"spec": map[string]interface{}{"template": map[string]interface{}{"spec": map[string]interface{}{
-			"containers": []interface{}{map[string]interface{}{"name": "runner", "env": []interface{}{}}},
-		}}},
-	}}
-	resourceSpec := jobutils.TestCICDScaleSetResourceTemplate.Spec.ResourceSpecs[0]
-	assert.NilError(t, updateCICDScaleSetEnvs(obj, workload, workspace, resourceSpec))
-	assert.Equal(t, true, findEnv(getEnvs(t, obj, workload, &resourceSpec), jobutils.IdentityURLEnv, "https://safe.example.com"))
 }

@@ -12,7 +12,6 @@ RUN apt update && \
 
 COPY ./SaFE/docker/cicd/unified-job-proxy/*.sh ${APP_HOME}
 COPY ./SaFE/docker/cicd/unified-job-proxy/*.py ${APP_HOME}
-COPY ./SaFE/docker/cicd/common/apikey_renew.py ${APP_HOME}
 COPY ./SaFE/docker/cicd/unified-job-proxy/requirements.txt ${APP_HOME}
 
 RUN chmod +x ${APP_HOME}/*.sh

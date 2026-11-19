@@ -24,8 +24,6 @@ data:
     auth:
       # In external mode a workload gets the owner's existing platform key and none is created.
       mode: {{ default "builtin" (default dict .Values.auth).mode | quote }}
-      # Identity host[:port] for CICD IDENTITY_URL when mode is external.
-      api_keys_upstream: {{ default "" (default dict .Values.auth).api_keys_upstream | quote }}
     health_check:
       # Whether to enable health check
       enable: {{ default true (default .Values.k8s).enable_health_check }}

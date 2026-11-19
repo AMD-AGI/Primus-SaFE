@@ -16,8 +16,6 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
-import apikey_renew
-
 # Global cleanup context - set after workload creation
 _cleanup_context: Dict[str, Any] = {
     "session": None,
@@ -284,7 +282,6 @@ def build_session() -> Tuple[requests.Session, str]:
         raise ValueError("Missing APISERVER_NODE_PORT (NodePort of apiserver pod)")
     base_url = f"http://{admin_ip}:{node_port}".rstrip("/")
 
-    apikey_renew.ensure_user_apikey()
     bearer_token = getenv_str("USER_APIKEY")
     s = requests.Session()
     s.headers.update({"Content-Type": "application/json; charset=utf-8"})
