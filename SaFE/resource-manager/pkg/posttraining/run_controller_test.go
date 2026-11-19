@@ -403,6 +403,12 @@ func TestAWorkloadStoredAfterItsRunEndedIsRemoved(t *testing.T) {
 	reconcileRun(t, r)
 	require.Error(t, r.Get(ctx, client.ObjectKey{Name: testRun}, &v1.Workload{}))
 
+	// A workload that ended is left with what it shows of its end.
+	over := endedWorkload(v1.WorkloadFailed)
+	r, _, _ = newTestReconciler(t, ended, over)
+	reconcileRun(t, r)
+	require.NoError(t, r.Get(ctx, client.ObjectKey{Name: testRun}, &v1.Workload{}))
+
 	// A workload of the name that is not the run's is left alone, and so is the one of a run that saw its workload.
 	foreign := live()
 	foreign.Labels = nil
