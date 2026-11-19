@@ -77,9 +77,6 @@ func (r *RunReconciler) backfillFromLogSearch(ctx context.Context, w *v1.Workloa
 		return
 	}
 	cur.Backfilled = now.Unix()
-	for _, g := range gaps {
-		g.Searches++
-	}
 	query := cicdlog.Query{
 		ListLogInput: cicdlog.ListLogInput{Keywords: []string{markerMetric}, PodNames: cur.Pod, Limit: backfillLimit, Order: "asc"},
 		SinceTime:    since.Add(-backfillMargin),
@@ -95,6 +92,10 @@ func (r *RunReconciler) backfillFromLogSearch(ctx context.Context, w *v1.Workloa
 	if err = json.Unmarshal(raw, &resp); err != nil {
 		klog.V(2).InfoS("the log search for a metric gap returned an unreadable answer", "run", in.u.run.RunID)
 		return
+	}
+	// Only a search that was answered counts toward backfillSearches; one that failed found nothing out.
+	for _, g := range gaps {
+		g.Searches++
 	}
 	ingestSearchHits(&resp, in)
 }
