@@ -634,6 +634,7 @@ import {
   deletePostTrainingRun,
   exportPhase,
   exportPostTrainingCheckpoint,
+  fillsGapsAfterEnd,
   evaluatePostTrainingRun,
   formatDuration,
   getPostTrainingMetrics,
@@ -806,13 +807,15 @@ const exportPhases = computed(() =>
 /** Whether a checkpoint export is still running or its model is not ready yet. */
 const exporting = computed(() => exportPhases.value.includes('running'))
 
-// The run is read every 10 seconds, and its curves every 30 while a tab shows them or their markers.
+// The run is read every 10 seconds, and its curves every 30 while a tab shows them or their markers. A run that
+// ended with a gap in its metrics is read a while longer, as the gap is filled after its end.
 useIntervalFn(() => {
   if (
     !isActive.value &&
     run.value?.stage !== 'eval' &&
     !run.value?.cleanupRequest &&
-    !exporting.value
+    !exporting.value &&
+    !fillsGapsAfterEnd(run.value)
   )
     return
   if (visibility.value !== 'visible') return
@@ -822,7 +825,8 @@ useIntervalFn(() => {
 
 // The points a run wrote after the last read are read once more when it ends, whichever tab shows.
 watch(isActive, (on, was) => {
-  if (was && !on) fetchMetrics(true)
+  // Opening another run clears this one, which is not a run that ended.
+  if (was && !on && run.value) fetchMetrics(true)
 })
 
 /** Training time from the start of the workload to its end, or to now while it runs. */

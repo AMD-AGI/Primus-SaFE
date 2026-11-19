@@ -47,6 +47,7 @@ import {
   postTrainingEntryReasons,
   exportPhase,
   curvesDue,
+  fillsGapsAfterEnd,
   EXPORT_REGISTER_WAIT,
   backToRuns,
   experimentNamesProblem,
@@ -481,6 +482,18 @@ describe('exportPhase', () => {
     expect(exportPhase({ step: 1, status: 'Succeeded' }, 0, EXPORT_REGISTER_WAIT)).not.toBe(
       'failed',
     )
+  })
+})
+
+describe('fillsGapsAfterEnd', () => {
+  it('keeps reading a run with a gap for a while after it ended, as the gap is filled then', () => {
+    const end = Date.parse('2026-11-19T00:00:00Z')
+    const ended = { Time: '2026-11-19T00:00:00Z', Valid: true }
+    expect(fillsGapsAfterEnd({ metricGap: true, endTime: ended }, end + 60_000)).toBe(true)
+    expect(fillsGapsAfterEnd({ metricGap: false, endTime: ended }, end + 60_000)).toBe(false)
+    expect(fillsGapsAfterEnd({ metricGap: true, endTime: ended }, end + 3_600_000)).toBe(false)
+    expect(fillsGapsAfterEnd({ metricGap: true }, end)).toBe(false)
+    expect(fillsGapsAfterEnd(undefined, end)).toBe(false)
   })
 })
 

@@ -288,6 +288,21 @@ export function exportPhase(
   return unregistered ? 'unregistered' : 'running'
 }
 
+// How long a run's page goes on reading it after it ended, for the points filled into a gap of its metrics.
+const GAP_FILL_WAIT_MS = 15 * 60 * 1000
+
+/**
+ * Whether the page of a run that ended still reads it: the run has a gap in its metrics, which the controller
+ * fills from the log search once the run ended, and it ended less than GAP_FILL_WAIT_MS ago.
+ */
+export function fillsGapsAfterEnd(
+  run: { metricGap?: boolean; endTime?: NullTime } | undefined,
+  now = Date.now(),
+): boolean {
+  const end = timeOf(run?.endTime)
+  return !!run?.metricGap && !!end && now - Date.parse(end) < GAP_FILL_WAIT_MS
+}
+
 /** The tabs of a run that show its curves or the markers read with them. */
 const CURVE_TABS = ['overview', 'metrics', 'checkpoints', 'evaluation']
 // A little under three of a run page's 10 s ticks, so the curves are read on every third one.
