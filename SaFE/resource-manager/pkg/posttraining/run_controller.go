@@ -342,6 +342,15 @@ func (r *RunReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) 
 	run, err := r.db.GetPostTrainingRun(ctx, req.Name)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
+			// Only a run that was deleted leaves orphans. A run this database has no row of, as after a restore
+			// from a backup, may well be running, and what runs under its id is left alone.
+			deleted, err := r.db.IsPostTrainingRunDeleted(ctx, req.Name)
+			if err != nil {
+				return ctrlruntime.Result{}, reconcileError("database", err)
+			}
+			if !deleted {
+				return ctrlruntime.Result{}, nil
+			}
 			return ctrlruntime.Result{}, reconcileError("orphans", r.removeOrphans(ctx, req.Name))
 		}
 		return ctrlruntime.Result{}, reconcileError("database", err)

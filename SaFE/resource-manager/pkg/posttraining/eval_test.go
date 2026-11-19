@@ -152,10 +152,17 @@ func TestTheChildrenOfADeletedRunAreRemoved(t *testing.T) {
 	job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: "pt-gone-eval-job", Labels: labels("")},
 		Spec: v1.OpsJobSpec{Inputs: []v1.Parameter{{Name: v1.ParameterEvalTaskId, Value: "task-9"}}}}
 	r, db, _ := newTestReconciler(t, testRunRow("Succeeded", "done"), service, kept, job)
-	db.EXPECT().GetPostTrainingRun(gomock.Any(), "pt-gone").Return(nil, gorm.ErrRecordNotFound)
-	db.EXPECT().UpdateEvaluationTaskStatus(gomock.Any(), "task-9", dbclient.EvaluationTaskStatusCancelled).Return(nil)
+	db.EXPECT().GetPostTrainingRun(gomock.Any(), "pt-gone").Return(nil, gorm.ErrRecordNotFound).Times(2)
 	ctx := context.Background()
+	db.EXPECT().IsPostTrainingRunDeleted(gomock.Any(), "pt-gone").Return(false, nil)
 	_, err := r.Reconcile(ctx, ctrlruntime.Request{NamespacedName: client.ObjectKey{Name: "pt-gone"}})
+	require.NoError(t, err)
+	require.NoError(t, r.Get(ctx, client.ObjectKeyFromObject(service), &v1.Workload{}),
+		"a run this database has no row of, as after a restore, is not a deleted one: what runs under it stays")
+
+	db.EXPECT().IsPostTrainingRunDeleted(gomock.Any(), "pt-gone").Return(true, nil)
+	db.EXPECT().UpdateEvaluationTaskStatus(gomock.Any(), "task-9", dbclient.EvaluationTaskStatusCancelled).Return(nil)
+	_, err = r.Reconcile(ctx, ctrlruntime.Request{NamespacedName: client.ObjectKey{Name: "pt-gone"}})
 	require.NoError(t, err)
 	require.Error(t, r.Get(ctx, client.ObjectKeyFromObject(service), &v1.Workload{}),
 		"an evaluation service of a deleted run holds GPUs nothing else frees")
