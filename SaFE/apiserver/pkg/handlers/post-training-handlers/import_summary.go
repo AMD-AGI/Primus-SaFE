@@ -32,8 +32,10 @@ const (
 	importCluster = "spur"
 	// importSparkPoints caps the sparkline of an imported run, as the controller's does.
 	importSparkPoints = 60
-	// maxImportStep is the largest step a float holds exactly, which an integer column takes.
-	maxImportStep = 1 << 53
+	// maxImportStep is the largest step the integer column of a metric point takes.
+	maxImportStep = math.MaxInt32
+	// maxImportMetricName is the longest metric name the name column of a metric point takes.
+	maxImportMetricName = 160
 	// maxImportWallTime is the last second of year 9999, the latest time of a point a timestamp column takes.
 	maxImportWallTime = 253402300799
 )
@@ -200,6 +202,9 @@ func parseImportSummary(data []byte, reg *registry.Registry) (*importSummary, er
 	}
 	total := 0
 	for name, series := range s.Metrics {
+		if utf8.RuneCountInString(name) > maxImportMetricName {
+			return nil, fail("metrics", "a metric name has more than %d characters", maxImportMetricName)
+		}
 		if series.Axis != "train" && series.Axis != "rollout" {
 			return nil, fail("metrics."+name, "unknown axis %q", series.Axis)
 		}
