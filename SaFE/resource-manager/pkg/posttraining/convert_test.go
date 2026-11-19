@@ -79,7 +79,7 @@ func TestSweepReclaimsCachesOfDeletedModels(t *testing.T) {
 	user := testRunRow("Running", "train")
 	user.Recipe = `{"convert":{"cacheKey":"slime-qwen3-8B-m-kept-0ld"}}`
 	db.EXPECT().ListPostTrainingConvertCaches(gomock.Any(), gomock.Any()).Return(
-		[]*dbclient.PostTrainingConvertCache{gone, live, retired}, nil).Times(2)
+		[]*dbclient.PostTrainingConvertCache{gone, live, retired}, nil).Times(3)
 	db.EXPECT().ListPostTrainingRuns(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, f dbclient.PostTrainingRunFilter) ([]*dbclient.PostTrainingRun, int64, error) {
 			if f.BaseModelID == "m-kept" {
@@ -93,8 +93,15 @@ func TestSweepReclaimsCachesOfDeletedModels(t *testing.T) {
 	ctx := context.Background()
 	res, err := r.Reconcile(ctx, ctrlruntime.Request{NamespacedName: client.ObjectKey{Name: cacheSweepRequest}})
 	require.NoError(t, err)
-	require.Equal(t, cacheSweepRequeue, res.RequeueAfter, "the sweep comes back for the running cleanup")
+	require.Equal(t, cacheSweepRequeue, res.RequeueAfter, "the sweep comes back for the cache it marked")
 	jobs := &v1.OpsJobList{}
+	require.NoError(t, r.List(ctx, jobs))
+	require.Empty(t, jobs.Items, "a marked cache waits one sweep, for a run submitted on it a moment before")
+
+	gone.Status = dbclient.ConvertCacheInvalid
+	res, err = r.Reconcile(ctx, ctrlruntime.Request{NamespacedName: client.ObjectKey{Name: cacheSweepRequest}})
+	require.NoError(t, err)
+	require.Equal(t, cacheSweepRequeue, res.RequeueAfter, "the sweep comes back for the running cleanup")
 	require.NoError(t, r.List(ctx, jobs))
 	require.Len(t, jobs.Items, 1, "only the cache of the deleted model goes; a retired commit in use stays")
 	job := &jobs.Items[0]
@@ -103,7 +110,6 @@ func TestSweepReclaimsCachesOfDeletedModels(t *testing.T) {
 	require.Greater(t, time.Duration(job.Spec.TTLSecondsAfterFinished)*time.Second, cacheReclaimRetry,
 		"a failed job outlives the wait before the next try, or it would be made again as soon as it is gone")
 
-	gone.Status = dbclient.ConvertCacheInvalid
 	job.Status.Phase = v1.OpsJobSucceeded
 	require.NoError(t, r.Update(ctx, job))
 	db.EXPECT().DeletePostTrainingConvertCache(gomock.Any(), int64(1)).Return(nil)
@@ -126,7 +132,7 @@ func TestReclaimChecksTheRunsAgainOnceTheCacheIsMarked(t *testing.T) {
 	late := testRunRow("Pending", "")
 	late.Recipe = `{"convert":{"cacheKey":"slime-qwen3-8B-m-gone-540ea91"}}`
 	db.EXPECT().ListPostTrainingConvertCaches(gomock.Any(), gomock.Any()).Return(
-		[]*dbclient.PostTrainingConvertCache{gone}, nil)
+		[]*dbclient.PostTrainingConvertCache{gone}, nil).Times(2)
 	listed := 0
 	db.EXPECT().ListPostTrainingRuns(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(context.Context, dbclient.PostTrainingRunFilter) ([]*dbclient.PostTrainingRun, int64, error) {
@@ -138,6 +144,9 @@ func TestReclaimChecksTheRunsAgainOnceTheCacheIsMarked(t *testing.T) {
 	db.EXPECT().UpdatePostTrainingConvertCache(gomock.Any(), int64(1),
 		map[string]interface{}{"status": dbclient.ConvertCacheInvalid}).Return(nil)
 	_, err := r.Reconcile(context.Background(), ctrlruntime.Request{NamespacedName: client.ObjectKey{Name: cacheSweepRequest}})
+	require.NoError(t, err)
+	gone.Status = dbclient.ConvertCacheInvalid
+	_, err = r.Reconcile(context.Background(), ctrlruntime.Request{NamespacedName: client.ObjectKey{Name: cacheSweepRequest}})
 	require.NoError(t, err)
 	jobs := &v1.OpsJobList{}
 	require.NoError(t, r.List(context.Background(), jobs))

@@ -168,8 +168,9 @@ func commitRetired(key string, commits map[string]bool) bool {
 	return true
 }
 
-// reclaimCache removes a cache directory with a model-cleanup job, marking the record invalid first and checking
-// once more that no run took the cache meanwhile, and deletes the record once the job succeeded. A failed job is
+// reclaimCache removes a cache directory with a model-cleanup job: one sweep marks the record invalid, the next
+// checks once more that no run took the cache meanwhile and starts the job, and the record is deleted once the job
+// succeeded. A failed job is
 // kept for cacheReclaimRetry and then deleted, so a later sweep tries again. A record whose path is not a cache
 // directory loses only the record. It reports whether the cache is gone.
 func (r *RunReconciler) reclaimCache(ctx context.Context, cache *dbclient.PostTrainingConvertCache) (bool, error) {
@@ -198,6 +199,9 @@ func (r *RunReconciler) reclaimCache(ctx context.Context, cache *dbclient.PostTr
 				map[string]interface{}{"status": dbclient.ConvertCacheInvalid}); err != nil {
 				return false, err
 			}
+			// A run submitted on the cache a moment before it was marked has its row by the next sweep, which
+			// looks for the runs of the cache again before it removes anything.
+			return false, nil
 		}
 		if inUse, err := r.cacheInUse(ctx, cache); err != nil || inUse {
 			return false, err
