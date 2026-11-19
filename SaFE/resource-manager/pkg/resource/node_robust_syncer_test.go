@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -222,14 +223,15 @@ func TestPlanNodeSync(t *testing.T) {
 	assert.Empty(t, plan.delete)
 }
 
-// fakeNodeRobust serves the node sync API. A nil digest answers 404 like a
-// Robust that does not ship the node endpoints.
+// fakeNodeRobust serves the node sync API. A nil digest answers digestStatus,
+// 404 by default, like a Robust that does not ship the node endpoints.
 type fakeNodeRobust struct {
-	mu      sync.Mutex
-	digest  *robustclient.NodeSyncDigest
-	pushed  []string
-	batches int
-	deleted []string
+	mu           sync.Mutex
+	digest       *robustclient.NodeSyncDigest
+	digestStatus int
+	pushed       []string
+	batches      int
+	deleted      []string
 }
 
 func (f *fakeNodeRobust) serve(t *testing.T) *httptest.Server {
@@ -240,7 +242,10 @@ func (f *fakeNodeRobust) serve(t *testing.T) *httptest.Server {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/nodes/sync/digest":
 			if f.digest == nil {
-				w.WriteHeader(http.StatusNotFound)
+				if f.digestStatus == 0 {
+					f.digestStatus = http.StatusNotFound
+				}
+				w.WriteHeader(f.digestStatus)
 				return
 			}
 			_ = json.NewEncoder(w).Encode(f.digest)
@@ -378,20 +383,39 @@ func TestNodeReconcileClusterAppliesPlan(t *testing.T) {
 	assert.Equal(t, []string{"orphan"}, fr.deleted)
 }
 
-// Against a Robust without the node digest every live node is pushed and nothing deleted.
+// A Robust whose node digest answers 404 or 501 has no node sync: the cluster
+// is skipped every round without an error, reported once, and synced again
+// once the digest is served.
 func TestNodeReconcileClusterDigestNotSupported(t *testing.T) {
-	fr := &fakeNodeRobust{}
-	r := newNodeRobustSyncer(t)
-	r.robustClient.RegisterCluster("c1", fr.serve(t).URL)
-	now := metav1.Now()
-	deleting := syncManagedNode("deleting", "1")
-	deleting.DeletionTimestamp = &now
-	nodes := []*v1.Node{syncManagedNode("a", "1"), syncExternalNode("vk-1", "", ""), deleting}
+	for cluster, status := range map[string]int{"c404": http.StatusNotFound, "c501": http.StatusNotImplemented} {
+		t.Run(cluster, func(t *testing.T) {
+			fr := &fakeNodeRobust{digestStatus: status}
+			node := syncManagedNode("a", "1")
+			node.Labels[v1.ClusterIdLabel] = cluster
+			r := newNodeRobustSyncer(t, node)
+			r.robustClient.RegisterCluster(cluster, fr.serve(t).URL)
+			fallback := testutil.ToFloat64(robustNodeSyncFallback.WithLabelValues(cluster))
+			reconcileErrors := testutil.ToFloat64(robustNodeSyncReconcileErrors.WithLabelValues(cluster))
 
-	require.NoError(t, r.reconcileCluster(context.Background(), r.robustClient.ForCluster("c1"), nodes, nil))
-	assert.Equal(t, []string{"a", "vk-1"}, fr.pushed)
-	assert.Equal(t, 1, fr.batches)
-	assert.Empty(t, fr.deleted)
+			for round := 0; round < 2; round++ {
+				r.reconcileAll(context.Background())
+			}
+			assert.Empty(t, fr.pushed)
+			assert.Empty(t, fr.deleted)
+			assert.Equal(t, fallback+2, testutil.ToFloat64(robustNodeSyncFallback.WithLabelValues(cluster)))
+			assert.Equal(t, reconcileErrors, testutil.ToFloat64(robustNodeSyncReconcileErrors.WithLabelValues(cluster)))
+			_, reported := r.noNodeSync.Load(cluster)
+			assert.True(t, reported)
+
+			fr.mu.Lock()
+			fr.digest = &robustclient.NodeSyncDigest{}
+			fr.mu.Unlock()
+			r.reconcileAll(context.Background())
+			assert.Equal(t, []string{"a"}, fr.pushed)
+			_, reported = r.noNodeSync.Load(cluster)
+			assert.False(t, reported)
+		})
+	}
 }
 
 // The loop reconciles only in-scope nodes, grouped by cluster.
@@ -401,7 +425,7 @@ func TestNodeReconcileAllScopesNodes(t *testing.T) {
 	other := syncManagedNode("other", "")
 	other.Labels[v1.ClusterIdLabel] = "c2"
 	r := newNodeRobustSyncer(t, syncManagedNode("n1", ""), unbound, other, syncTestFlavor())
-	fr := &fakeNodeRobust{}
+	fr := &fakeNodeRobust{digest: &robustclient.NodeSyncDigest{}}
 	r.robustClient.RegisterCluster("c1", fr.serve(t).URL)
 
 	r.reconcileAll(context.Background())
