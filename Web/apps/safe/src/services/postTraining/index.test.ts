@@ -486,14 +486,39 @@ describe('exportPhase', () => {
 })
 
 describe('fillsGapsAfterEnd', () => {
-  it('keeps reading a run with a gap for a while after it ended, as the gap is filled then', () => {
-    const end = Date.parse('2026-11-19T00:00:00Z')
-    const ended = { Time: '2026-11-19T00:00:00Z', Valid: true }
-    expect(fillsGapsAfterEnd({ metricGap: true, endTime: ended }, end + 60_000)).toBe(true)
-    expect(fillsGapsAfterEnd({ metricGap: false, endTime: ended }, end + 60_000)).toBe(false)
-    expect(fillsGapsAfterEnd({ metricGap: true, endTime: ended }, end + 3_600_000)).toBe(false)
+  const MINUTE = 60_000
+  const end = Date.parse('2026-11-19T00:00:00Z')
+  const ended = { Time: '2026-11-19T00:00:00Z', Valid: true }
+
+  it('keeps reading a run with a gap until its end-of-run backfill went over the gap', () => {
+    expect(fillsGapsAfterEnd({ metricGap: true, endTime: ended }, end + MINUTE)).toBe(true)
+    // The controller gives the backfill an hour.
+    expect(fillsGapsAfterEnd({ metricGap: true, endTime: ended }, end + 60 * MINUTE)).toBe(true)
+    expect(fillsGapsAfterEnd({ metricGap: true, endTime: ended }, end + 80 * MINUTE)).toBe(false)
+    const backfilled = [
+      { stage: 'train' as const, time: '2026-11-19T00:02:00Z', event: 'backfilled' },
+    ]
+    expect(
+      fillsGapsAfterEnd(
+        { metricGap: true, endTime: ended, stageHistory: backfilled },
+        end + 3 * MINUTE,
+      ),
+    ).toBe(false)
+    expect(fillsGapsAfterEnd({ metricGap: false, endTime: ended }, end + MINUTE)).toBe(false)
     expect(fillsGapsAfterEnd({ metricGap: true }, end)).toBe(false)
     expect(fillsGapsAfterEnd(undefined, end)).toBe(false)
+  })
+
+  it('counts from the stage done, where the backfill of a run that succeeded starts', () => {
+    // The evaluation took two hours.
+    const done = Date.parse('2026-11-19T02:00:00Z')
+    const stageHistory = JSON.stringify([
+      { stage: 'eval', time: '2026-11-19T00:05:00Z' },
+      { stage: 'done', time: '2026-11-19T02:00:00Z' },
+    ])
+    const run = { metricGap: true, endTime: ended, stageHistory }
+    expect(fillsGapsAfterEnd(run, done + 60 * MINUTE)).toBe(true)
+    expect(fillsGapsAfterEnd(run, done + 80 * MINUTE)).toBe(false)
   })
 })
 

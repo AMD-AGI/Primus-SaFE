@@ -288,19 +288,31 @@ export function exportPhase(
   return unregistered ? 'unregistered' : 'running'
 }
 
-// How long a run's page goes on reading it after it ended, for the points filled into a gap of its metrics.
-const GAP_FILL_WAIT_MS = 15 * 60 * 1000
+// How long a run's page waits for the end-of-run backfill of a gap in its metrics, which the controller gives an
+// hour.
+const GAP_FILL_WAIT_MS = 75 * 60 * 1000
+const BACKFILLED_EVENT = 'backfilled'
 
 /**
- * Whether the page of a run that ended still reads it: the run has a gap in its metrics, which the controller
- * fills from the log search once the run ended, and it ended less than GAP_FILL_WAIT_MS ago.
+ * Whether the page of a run that ended still reads it: the run has a gap in its metrics that its end-of-run
+ * backfill did not go over yet. The backfill starts when the controller is done with the run, which for a run that
+ * succeeded is the stage done, after its evaluation; GAP_FILL_WAIT_MS later the page waits no more.
  */
 export function fillsGapsAfterEnd(
-  run: { metricGap?: boolean; endTime?: NullTime } | undefined,
+  run:
+    | { metricGap?: boolean; endTime?: NullTime; stageHistory?: string | StageEntry[] }
+    | undefined,
   now = Date.now(),
 ): boolean {
   const end = timeOf(run?.endTime)
-  return !!run?.metricGap && !!end && now - Date.parse(end) < GAP_FILL_WAIT_MS
+  if (!run?.metricGap || !end) return false
+  const history =
+    (typeof run.stageHistory === 'string'
+      ? parseJSON<StageEntry[]>(run.stageHistory)
+      : run.stageHistory) ?? []
+  if (history.some((e) => e.event === BACKFILLED_EVENT)) return false
+  const done = history.find((e) => e.stage === 'done' && !e.event && e.time)
+  return now - Math.max(Date.parse(end), done ? Date.parse(done.time) : 0) < GAP_FILL_WAIT_MS
 }
 
 /** The tabs of a run that show its curves or the markers read with them. */
