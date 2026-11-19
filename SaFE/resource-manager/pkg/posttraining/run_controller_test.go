@@ -327,12 +327,16 @@ func TestAPendingRunIsNotLostWhileTheAPIServerHasItsWorkload(t *testing.T) {
 func TestAWorkloadSeenOnlyAtItsEndLeavesItsUID(t *testing.T) {
 	seen := testRunRow("Pending", "queued")
 	seen.OutputPath, seen.WorkloadUID = testRunDir, ""
-	r, db, updates := newTestReconciler(t, seen, endedWorkload(v1.WorkloadStopped))
+	stopped := endedWorkload(v1.WorkloadStopped)
+	started := metav1.NewTime(time.Now().Add(-time.Hour).Truncate(time.Second))
+	stopped.Status.StartTime = &started
+	r, db, updates := newTestReconciler(t, seen, stopped)
 	db.EXPECT().ListWorkloadPods(gomock.Any(), testRun, gomock.Any()).Return(nil, nil).AnyTimes()
 	reconcileRun(t, r)
 	last := (*updates)[len(*updates)-1]
 	require.Equal(t, "Stopped", last["status"])
 	require.Equal(t, "uid1", last["workload_uid"], "the read of the log may not have saved it")
+	require.Equal(t, started.Time, last["start_time"], "nor when the workload started")
 
 	unseen := testRunRow("Pending", "queued")
 	unseen.OutputPath, unseen.WorkloadUID = testRunDir, ""

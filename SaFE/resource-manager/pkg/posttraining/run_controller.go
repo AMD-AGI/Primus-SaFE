@@ -455,13 +455,18 @@ func finished(run *dbclient.PostTrainingRun) bool {
 	return false
 }
 
+// noteWorkload records on u what a look at the run's workload tells of it: its UID and when it started.
+func noteWorkload(u *runUpdate, w *v1.Workload) {
+	u.set("workload_uid", u.run.WorkloadUID, string(w.UID))
+	if w.Status.StartTime != nil && !u.run.StartTime.Valid {
+		u.fields["start_time"] = w.Status.StartTime.Time
+	}
+}
+
 // reconcileWorkload follows the run's workload through queueing, running and its end.
 func (r *RunReconciler) reconcileWorkload(ctx context.Context, run *dbclient.PostTrainingRun, w *v1.Workload) (ctrlruntime.Result, error) {
 	u := newRunUpdate(run)
-	u.set("workload_uid", run.WorkloadUID, string(w.UID))
-	if w.Status.StartTime != nil && !run.StartTime.Valid {
-		u.fields["start_time"] = w.Status.StartTime.Time
-	}
+	noteWorkload(u, w)
 	switch {
 	case w.IsPending():
 		syncQueued(u, w)
@@ -496,8 +501,8 @@ func (r *RunReconciler) reconcileWorkload(ctx context.Context, run *dbclient.Pos
 			endTime = w.Status.EndTime.Time
 		}
 		end := newRunUpdate(run)
-		// The read of the log saves the UID with what it read, and may have failed for a workload first seen here.
-		end.set("workload_uid", run.WorkloadUID, string(w.UID))
+		// The read of the log saves these with what it read, and may have failed for a workload first seen here.
+		noteWorkload(end, w)
 		return r.finish(ctx, end, w.Status.Phase, endTime, w)
 	}
 	return ctrlruntime.Result{RequeueAfter: runningRequeue}, nil
