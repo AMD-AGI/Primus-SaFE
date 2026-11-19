@@ -940,7 +940,8 @@ func inspectTarget(model *v1.Model) (string, string) {
 }
 
 // startInspect creates the model-inspect job once a download slot is free, counting the jobs in the cache, as a
-// job too many only reads one file; a job that cannot be created yet is tried again with the controller's backoff.
+// job too many only reads one file. A job the API server did not take is tried again with the controller's backoff;
+// one that cannot be built from the model and its workspace fails the read with its reason.
 func (r *ModelReconciler) startInspect(ctx context.Context, model *v1.Model, workspaceName, dir string) (ctrl.Result, error) {
 	if limit := commonconfig.GetModelMaxConcurrentDownloads(); limit > 0 {
 		jobs := &v1.OpsJobList{}
@@ -963,10 +964,11 @@ func (r *ModelReconciler) startInspect(ctx context.Context, model *v1.Model, wor
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	job, err := r.constructModelInspectOpsJob(model, workspace, dir)
-	if err == nil {
-		err = r.Create(ctx, job)
+	if err != nil {
+		// What the model and its workspace say does not make a job, which another try does not change.
+		return ctrl.Result{}, r.finishInspect(ctx, model, nil, inspectFailed, err.Error())
 	}
-	if err != nil && !errors.IsAlreadyExists(err) {
+	if err = r.Create(ctx, job); err != nil && !errors.IsAlreadyExists(err) {
 		klog.ErrorS(err, "Failed to start reading the model config", "model", model.Name)
 		return ctrl.Result{}, err
 	}

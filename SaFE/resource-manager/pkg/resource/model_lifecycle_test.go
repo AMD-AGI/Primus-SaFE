@@ -1581,8 +1581,8 @@ func TestInspectModelReadsConfigOnce(t *testing.T) {
 		"after the last attempt the failure is kept")
 }
 
-// A model is inspected once Post Training is on, and a job that cannot start yet is retried.
-func TestInspectModelWaitsForPostTrainingAndRetriesAFailedStart(t *testing.T) {
+// A model is inspected once Post Training is on, and a job that cannot be built fails the read with its reason.
+func TestInspectModelWaitsForPostTrainingAndFailsAJobItCannotBuild(t *testing.T) {
 	model := genMockModel("registered", v1.AccessModeLocalPath, "ws1")
 	model.Spec.Source.LocalPath = "/data/models/org--repo"
 	model.Status.Phase = v1.ModelPhaseReady
@@ -1603,7 +1603,35 @@ func TestInspectModelWaitsForPostTrainingAndRetriesAFailedStart(t *testing.T) {
 	require.NoError(t, cli.Create(ctx, ptRegistry()))
 	r.ptCheckedAt = time.Time{}
 	_, err = r.inspectModel(ctx, model)
-	require.Error(t, err, "a job that cannot be created yet, here for a workspace without a cluster, is retried")
+	require.NoError(t, err)
+	got := &v1.Model{}
+	require.NoError(t, cli.Get(ctx, client.ObjectKeyFromObject(model), got))
+	assert.Equal(t, inspectFailed, got.Annotations[v1.ModelInspectAnnotation],
+		"a job that cannot be built, here for a workspace without a cluster, fails the read and is not tried for good")
+	assert.Contains(t, got.Annotations[v1.ModelInspectErrorAnnotation], "no cluster")
+}
+
+// A model-inspect job the API server did not take is tried again, and the read is not recorded as failed.
+func TestInspectModelRetriesAJobTheAPIServerDidNotTake(t *testing.T) {
+	model := genMockModel("registered", v1.AccessModeLocalPath, "ws1")
+	model.Spec.Source.LocalPath = "/data/models/org--repo"
+	model.Status.Phase = v1.ModelPhaseReady
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1"}}
+	stored := fake.NewClientBuilder().WithScheme(lifecycleScheme(t)).WithObjects(model, ws, ptRegistry()).
+		WithStatusSubresource(model).Build()
+	cli := interceptor.NewClient(stored, interceptor.Funcs{
+		Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+			if _, ok := obj.(*v1.OpsJob); ok {
+				return errors.NewServiceUnavailable("the API server is busy")
+			}
+			return c.Create(ctx, obj, opts...)
+		},
+	})
+	r := &ModelReconciler{ClusterBaseReconciler: &ClusterBaseReconciler{Client: cli}, apiReader: cli,
+		db: mockclient.NewMockInterface(gomock.NewController(t))}
+	ctx := context.Background()
+	_, err := r.inspectModel(ctx, model)
+	require.Error(t, err, "the controller tries again with its backoff")
 	got := &v1.Model{}
 	require.NoError(t, cli.Get(ctx, client.ObjectKeyFromObject(model), got))
 	assert.Empty(t, got.Annotations[v1.ModelInspectAnnotation])
