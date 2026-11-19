@@ -972,7 +972,6 @@ data:
         display_name VARCHAR(128) NOT NULL,
         framework VARCHAR(32) NOT NULL DEFAULT 'slime',
         framework_version VARCHAR(64),
-        source VARCHAR(16) NOT NULL DEFAULT 'safe',
         train_type VARCHAR(16) NOT NULL,
         method VARCHAR(16) NOT NULL,
         algorithm VARCHAR(32),
@@ -1023,7 +1022,6 @@ data:
         is_deleted BOOLEAN DEFAULT FALSE
     );
     -- Columns added after the table was first created, for a table an earlier build made
-    ALTER TABLE post_training_run ADD COLUMN IF NOT EXISTS source VARCHAR(16) NOT NULL DEFAULT 'safe';
     ALTER TABLE post_training_run ADD COLUMN IF NOT EXISTS output_adapter_path TEXT;
     ALTER TABLE post_training_run ADD COLUMN IF NOT EXISTS stalled_since TIMESTAMPTZ;
     ALTER TABLE post_training_run ADD COLUMN IF NOT EXISTS disk_usage TEXT;
@@ -1072,51 +1070,6 @@ data:
     );
     create unique index if not exists T_POST_TRAINING_RUN_SAMPLE_KEY_INDEX on post_training_run_sample (run_id, kind, step, dataset, group_index, sample_index);
     alter table post_training_run_sample owner to "primus-safe";
-    create table if not exists post_training_import
-    (
-        id SERIAL PRIMARY KEY,
-        import_id VARCHAR(64) NOT NULL UNIQUE,
-        run_id VARCHAR(64),
-        workspace VARCHAR(64) NOT NULL,
-        source_path TEXT NOT NULL,
-        format VARCHAR(32) NOT NULL DEFAULT 'slime-rocm',
-        path_key VARCHAR(64),
-        slurm_job_id VARCHAR(32),
-        via VARCHAR(16) NOT NULL,
-        state VARCHAR(16) NOT NULL,
-        verdict VARCHAR(16),
-        summary TEXT,
-        resources TEXT,
-        warnings TEXT,
-        parser_version VARCHAR(32),
-        scan_workload_id VARCHAR(64),
-        message TEXT,
-        user_id VARCHAR(64),
-        user_name VARCHAR(128),
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        updated_at TIMESTAMPTZ,
-        is_deleted BOOLEAN DEFAULT FALSE
-    );
-    create unique index if not exists T_POST_TRAINING_IMPORT_PATH_KEY_INDEX on post_training_import (path_key);
-    create index if not exists T_POST_TRAINING_IMPORT_RUN_INDEX on post_training_import (run_id);
-    alter table post_training_import owner to "primus-safe";
-    create table if not exists post_training_import_token
-    (
-        id SERIAL PRIMARY KEY,
-        token_id VARCHAR(64) NOT NULL UNIQUE,
-        token_hash VARCHAR(64) NOT NULL UNIQUE,
-        workspace VARCHAR(64) NOT NULL,
-        purpose VARCHAR(16) NOT NULL,
-        user_id VARCHAR(64) NOT NULL,
-        user_name VARCHAR(128),
-        expires_at TIMESTAMPTZ NOT NULL,
-        used_at TIMESTAMPTZ,
-        import_id VARCHAR(64),
-        last_error TEXT,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-    create index if not exists T_POST_TRAINING_IMPORT_TOKEN_EXPIRES_INDEX on post_training_import_token (expires_at);
-    alter table post_training_import_token owner to "primus-safe";
     create table if not exists post_training_convert_cache
     (
         id SERIAL PRIMARY KEY,

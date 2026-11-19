@@ -12,7 +12,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -74,54 +73,6 @@ type Registry struct {
 	Network    Network           `json:"network,omitempty"`
 	Evaluation Evaluation        `json:"evaluation,omitempty"`
 	Paused     Paused            `json:"paused,omitempty"`
-	Imports    Imports           `json:"imports,omitempty"`
-}
-
-// Imports configures the mounted-path import of Spur run directories. Without a mount for a cluster only the command
-// upload works there; a mount is a storage and network change approved on its own.
-type Imports struct {
-	Mounts []ImportMount `json:"mounts,omitempty"`
-}
-
-// ImportMount is the workspace whose pods see Spur's shared storage read-only at Root, through a ReadOnlyMany volume
-// mounted there; the scans of a cluster's import dialog run in it.
-type ImportMount struct {
-	Cluster   string `json:"cluster"`
-	Workspace string `json:"workspace"`
-	Root      string `json:"root"`
-	// AllowedPrefixes are the directories under Root that users may scan, where {user} stands for the scanning
-	// user's name; without any, no directory can be scanned.
-	AllowedPrefixes []string `json:"allowedPrefixes,omitempty"`
-}
-
-// ImportUserPlaceholder stands for the scanning user's name in an import mount's allowed prefixes.
-const ImportUserPlaceholder = "{user}"
-
-// ScanPrefixes returns the directories user may scan. A prefix with {user} is left out for a user whose name is
-// not a single path segment.
-func (m ImportMount) ScanPrefixes(user string) []string {
-	segment := user != "" && user != "." && user != ".." && !strings.ContainsAny(user, "/\x00")
-	var out []string
-	for _, p := range m.AllowedPrefixes {
-		if strings.Contains(p, ImportUserPlaceholder) {
-			if !segment {
-				continue
-			}
-			p = strings.ReplaceAll(p, ImportUserPlaceholder, user)
-		}
-		out = append(out, p)
-	}
-	return out
-}
-
-// MountFor returns the import mount of a cluster, or nil when it has none.
-func (i Imports) MountFor(cluster string) *ImportMount {
-	for k := range i.Mounts {
-		if i.Mounts[k].Cluster == cluster {
-			return &i.Mounts[k]
-		}
-	}
-	return nil
 }
 
 // Paused stops new submissions, A/B experiments, re-exports and re-evaluations; running runs carry on.
@@ -132,12 +83,11 @@ type Paused struct {
 
 // Framework is one training framework: the compiler plugin, the launcher adapter and its metric panels.
 type Framework struct {
-	Name          string   `json:"name"`
-	Default       bool     `json:"default,omitempty"`
-	Compiler      string   `json:"compiler"`
-	Adapter       string   `json:"adapter"`
-	ImportFormats []string `json:"importFormats,omitempty"`
-	Metrics       Metrics  `json:"metrics"`
+	Name     string  `json:"name"`
+	Default  bool    `json:"default,omitempty"`
+	Compiler string  `json:"compiler"`
+	Adapter  string  `json:"adapter"`
+	Metrics  Metrics `json:"metrics"`
 }
 
 // Metrics configures which metric names the launcher forwards and how the pages draw them.
@@ -345,18 +295,6 @@ func Parse(data []byte) (*Registry, error) {
 func (r *Registry) Validate() error {
 	var errs []string
 	add := func(format string, args ...interface{}) { errs = append(errs, fmt.Sprintf(format, args...)) }
-
-	for _, m := range r.Imports.Mounts {
-		if m.Cluster == "" || m.Workspace == "" || !path.IsAbs(m.Root) || path.Clean(m.Root) != m.Root {
-			add("import mount %q needs a cluster, a workspace and a clean absolute root", m.Cluster)
-		}
-		for _, p := range m.AllowedPrefixes {
-			probe := strings.ReplaceAll(p, ImportUserPlaceholder, "user")
-			if !path.IsAbs(probe) || path.Clean(probe) != probe || (probe != m.Root && !strings.HasPrefix(probe, m.Root+"/")) {
-				add("import mount %q: allowed prefix %q must be a clean absolute path under %s", m.Cluster, p, m.Root)
-			}
-		}
-	}
 
 	frameworks := map[string]bool{}
 	defaults := 0
