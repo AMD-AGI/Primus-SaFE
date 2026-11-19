@@ -78,6 +78,14 @@ func TestACleanupStaysInTheRunDirectoryAndWaitsForExports(t *testing.T) {
 	jobs := &v1.OpsJobList{}
 	require.NoError(t, r.List(context.Background(), jobs))
 	require.Empty(t, jobs.Items, "the cleanup waits for the export that reads a checkpoint")
+
+	// The cache may not show an export job made a moment ago: the API server is asked.
+	shown := r.Client
+	r, _, _ = newTestReconciler(t, run, ws)
+	r.reader = shown
+	require.Equal(t, pendingRequeue, reconcileRun(t, r).RequeueAfter)
+	require.NoError(t, r.List(context.Background(), jobs))
+	require.Empty(t, jobs.Items, "the cleanup waits for an export that the cache does not show yet")
 }
 
 // A failed cleanup job counts as one failed attempt, however often the run is reconciled while the job is deleted.

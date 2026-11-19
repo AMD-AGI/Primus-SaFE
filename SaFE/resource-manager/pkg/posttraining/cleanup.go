@@ -192,10 +192,11 @@ func cleanupPathAllowed(path, base string) bool {
 	return false
 }
 
-// exporting reports whether a checkpoint export of the run has not finished, as it reads a checkpoint.
+// exporting reports whether a checkpoint export of the run has not finished, as it reads a checkpoint. It asks the
+// API server: the cache may not show an export job made a moment ago, which the cleanup would delete under.
 func (r *RunReconciler) exporting(ctx context.Context, runID string) (bool, error) {
 	jobs := &v1.WorkloadList{}
-	if err := r.List(ctx, jobs, client.MatchingLabels{v1.PostTrainingRunIdLabel: runID,
+	if err := r.reader.List(ctx, jobs, client.MatchingLabels{v1.PostTrainingRunIdLabel: runID,
 		v1.PostTrainingRoleLabel: v1.PostTrainingRoleExport}); err != nil {
 		return false, err
 	}
