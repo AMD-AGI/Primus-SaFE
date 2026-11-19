@@ -87,7 +87,7 @@ RUN rm -rf "${APP_HOME}/safe_post_training/tests" \
     && find "${APP_HOME}" -type d -exec chmod 0755 {} + \
     && find "${APP_HOME}" -type f -exec chmod 0644 {} + \
     && find "${APP_HOME}" -type f -name '*.sh' -exec chmod 0755 {} + \
-    && chmod 0755 "${APP_HOME}/save-image" "${APP_HOME}"/safe_post_training/bin/* \
+    && chmod 0755 "${APP_HOME}/save-image" \
     && useradd --uid 65532 --user-group --no-create-home --shell /usr/sbin/nologin preprocess \
     && chown -R preprocess:preprocess "${APP_HOME}"
 

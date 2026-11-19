@@ -27,7 +27,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o s3-downloader ./p
 # Runtime stage
 FROM alpine:latest
 
-# python3 runs the model-inspect, Post Training verify, backfill and Spur scan scripts of the ops jobs on this image.
+# python3 runs the model-inspect, Post Training verify and backfill scripts of the ops jobs on this image.
 RUN apk --no-cache add ca-certificates python3
 
 WORKDIR /app
