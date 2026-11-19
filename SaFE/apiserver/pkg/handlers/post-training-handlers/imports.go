@@ -315,8 +315,13 @@ func (h *Handler) uploadToken(c *gin.Context) *dbclient.PostTrainingImportToken 
 	token := strings.TrimSpace(strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer "))
 	t, err := h.db.GetPostTrainingImportTokenByHash(c.Request.Context(), tokenHash(token))
 	if !strings.HasPrefix(token, importTokenPrefix) || err != nil || t.UsedAt.Valid || time.Now().After(t.ExpiresAt) {
-		// The audit only sees an upload with a token; one without is at least logged.
-		klog.InfoS("refused an import upload that carries no unspent token", "client", c.ClientIP())
+		// The audit only sees an upload with a token; one without is at least logged. A token that could not be
+		// looked up is not one that is spent.
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			klog.ErrorS(err, "failed to look up the token of an import upload", "client", c.ClientIP())
+		} else {
+			klog.InfoS("refused an import upload that carries no unspent token", "client", c.ClientIP())
+		}
 		apiutils.AbortWithApiError(c, commonerrors.NewUnauthorized(importSpentMessage))
 		return nil
 	}
