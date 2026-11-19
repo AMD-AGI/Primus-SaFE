@@ -416,9 +416,11 @@ const canStartService = computed(() => {
 
 // Fetch details
 const getDetail = async () => {
+  const id = modelId.value
   try {
-    const res = await getModelDetail(modelId.value)
-    detailData.value = res
+    const res = await getModelDetail(id)
+    // Another model was opened meanwhile: its answer is the one to show.
+    if (modelId.value === id) detailData.value = res
   } catch (error) {
     console.error('Failed to fetch model detail:', error)
     ElMessage.error('Failed to load model details')
@@ -499,8 +501,11 @@ onMounted(async () => {
   ptReasonOf.value = await postTrainingEntryReasons(wsStore.currentWorkspaceId ?? '')
 })
 
-// The page stays mounted when a lineage link opens another model.
-watch(modelId, (id) => id && getDetail())
+// The page stays mounted when a lineage link opens another model, whose page does not show the one before.
+watch(modelId, (id) => {
+  detailData.value = null
+  if (id) getDetail()
+})
 </script>
 
 <style scoped lang="scss">

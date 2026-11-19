@@ -760,8 +760,11 @@ const fetchAvailability = async () => {
 
 /** Reads whether Post Training is on, then lists the runs where it is. */
 const loadPage = async () => {
+  // The table shows as loading, not as empty, while it waits to learn whether Post Training is on.
+  loading.value = !!wsStore.currentWorkspaceId
   await fetchAvailability()
-  if (!notEnabled.value) fetchData()
+  if (notEnabled.value) loading.value = false
+  else fetchData()
 }
 
 const onSearch = (resetPage: boolean) => {

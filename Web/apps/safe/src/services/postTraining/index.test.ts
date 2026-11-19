@@ -436,6 +436,13 @@ describe('experimentNamesProblem', () => {
     expect(experimentNamesProblem('e'.repeat(119), ['v'])).toBe('')
     expect(experimentNamesProblem('e'.repeat(120), ['v'])).toContain(`${'e'.repeat(120)}-baseline`)
   })
+
+  it('names a variant that the backend would refuse as a second run of one name', () => {
+    expect(experimentNamesProblem('qwen3-sft-ab', ['lr2e-6', 'lr2e-6'])).toContain(
+      '"lr2e-6" appears twice',
+    )
+    expect(experimentNamesProblem('qwen3-sft-ab', ['baseline'])).toContain('named "baseline"')
+  })
 })
 
 describe('backToRuns', () => {

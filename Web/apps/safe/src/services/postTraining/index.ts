@@ -243,6 +243,11 @@ export function experimentNamesProblem(name: string, variants: string[]): string
   const bad = variants.find((v) => !VARIANT_NAME.test(v))
   if (bad !== undefined)
     return `Variant name "${bad}" must be up to 32 lowercase letters, digits and dashes.`
+  const twice = ['baseline', ...variants].find((v, i, all) => all.indexOf(v) !== i)
+  if (twice !== undefined)
+    return twice === 'baseline'
+      ? 'A variant cannot be named "baseline", the name of the run with the unchanged recipe.'
+      : `Variant name "${twice}" appears twice.`
   const long = ['baseline', ...variants]
     .map((v) => `${name.trim()}-${v}`)
     .find((run) => [...run].length > MAX_RUN_NAME)
