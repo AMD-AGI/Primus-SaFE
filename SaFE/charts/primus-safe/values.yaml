@@ -579,6 +579,10 @@ external_execution:
 workload:
   # Seconds to keep a finished workload before TTL deletion.
   ttl_second: 60
+  # Seconds between reconciles of each cluster's workloads against Robust's sync digest.
+  robust_sync_interval_second: 60
+  # Days after its end that a workload kept only in the database is still synced to Robust.
+  robust_sync_retention_day: 7
 sandbox:
   enable: true
   namespace: "agent-sandbox-system"

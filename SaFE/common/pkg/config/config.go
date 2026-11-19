@@ -236,6 +236,18 @@ func GetWorkloadTTLSecond() int {
 	return getInt(workloadTTLSecond, 60)
 }
 
+// GetWorkloadRobustSyncIntervalSecond returns how often, in seconds, each cluster's
+// workloads are reconciled against Robust.
+func GetWorkloadRobustSyncIntervalSecond() int {
+	return getInt(workloadRobustSyncInterval, 60)
+}
+
+// GetWorkloadRobustSyncRetentionDay returns for how many days after its end a
+// workload kept only in the database is still synced to Robust.
+func GetWorkloadRobustSyncRetentionDay() int {
+	return getInt(workloadRobustSyncRetention, 7)
+}
+
 // IsOpenSearchEnable returns whether OpenSearch is enabled.
 func IsOpenSearchEnable() bool {
 	return getBool(openSearchEnable, false)

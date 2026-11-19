@@ -67,6 +67,10 @@ const (
 	maxEphemeralStorePercent  = workloadPrefix + "max_ephemeral_store_percent"
 	workloadHangCheckInterval = workloadPrefix + "hang_check_interval"
 	workloadTTLSecond         = workloadPrefix + "ttl_second"
+	// How often each cluster's workloads are reconciled against Robust's sync digest,
+	// and for how long an ended workload kept only in the database is still synced.
+	workloadRobustSyncInterval  = workloadPrefix + "robust_sync_interval_second"
+	workloadRobustSyncRetention = workloadPrefix + "robust_sync_retention_day"
 
 	// opensearch
 	openSearchPrefix      = "opensearch."

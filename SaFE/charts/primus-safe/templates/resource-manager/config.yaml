@@ -40,6 +40,10 @@ data:
     workload:
       # The maximum percentage of ephemeral storage that can be used by a workload.
       max_ephemeral_store_percent: {{ default 0.6 (default .Values.workload).max_ephemeral_store_percent }}
+      # Seconds between reconciles of each cluster's workloads against Robust's sync digest.
+      robust_sync_interval_second: {{ default 60 (default .Values.workload).robust_sync_interval_second }}
+      # Days after its end that a workload kept only in the database is still synced to Robust.
+      robust_sync_retention_day: {{ default 7 (default .Values.workload).robust_sync_retention_day }}
     db:
       # Whether to enable database, The database will store some historical data regarding workloads, faults, and ops jobs.
       enable: {{ .Values.db.enable }}

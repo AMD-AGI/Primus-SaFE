@@ -176,6 +176,27 @@ func (c *Client) SelectWorkloadsForList(ctx context.Context, query sqrl.Sqlizer,
 	return workloads, err
 }
 
+// SelectWorkloadsEndedSince returns, ordered by id, the workloads of cluster with a
+// workload uid that ended at or after since, restricted to the list columns.
+func (c *Client) SelectWorkloadsEndedSince(ctx context.Context, cluster string, since time.Time, limit, offset int) ([]*Workload, error) {
+	query := sqrl.And{
+		sqrl.Eq{"cluster": cluster},
+		sqrl.GtOrEq{"end_time": since},
+		sqrl.NotEq{"workload_uid": nil},
+	}
+	return c.SelectWorkloadsForList(ctx, query, []string{"id"}, limit, offset)
+}
+
+// SelectWorkloadsByUIDs returns the workloads, deleted ones included, whose workload
+// uid is one of uids, restricted to the list columns.
+func (c *Client) SelectWorkloadsByUIDs(ctx context.Context, uids []string) ([]*Workload, error) {
+	if len(uids) == 0 {
+		return nil, nil
+	}
+	// workload_uid is not a unique column, so allow for more rows than uids.
+	return c.SelectWorkloadsForList(ctx, sqrl.Eq{"workload_uid": uids}, nil, 4*len(uids), 0)
+}
+
 // CountWorkloads returns the total count of workloads matching the criteria.
 func (c *Client) CountWorkloads(ctx context.Context, query sqrl.Sqlizer) (int, error) {
 	db, err := c.getDB()
