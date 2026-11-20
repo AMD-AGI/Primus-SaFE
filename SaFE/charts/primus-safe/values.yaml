@@ -515,9 +515,9 @@ langfuse_proxy:
 llm_gateway:
   enabled: true
   secret_path: "/etc/secrets/llm-gateway"
-  # LiteLLM model that summarizes why a workload is Pending. Empty skips the model
-  # and returns the scheduler message or the strongest collected fact.
-  summary_model: ""
+  # LiteLLM chat model that summarizes why a workload is Pending.
+  # Empty skips the model and returns the scheduler message or the strongest collected fact.
+  summary_model: "gpt-5.4"
 # Model Optimization (Hyperloom via PrimusClaw). Routes register when db.enable; set claw_base_url / secret for Claw.
 model_optimization:
   claw_base_url: ""
