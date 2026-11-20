@@ -196,20 +196,36 @@ export const useUserStore = defineStore('user', {
 
     async logout() {
       try {
-        // In external mode the session is the identity provider's: end it there first, so that it stops
-        // working everywhere (a copied cookie included), then let the apiserver clear what it set.
         if (!this.envs) {
           await this.fetchEnvs(true).catch(() => undefined)
         }
         const providerLogout = externalLogoutUrl(this.envs)
-        if (providerLogout) {
-          try {
-            await endProviderSession(providerLogout)
-          } catch (e) {
-            console.warn('[logout] the identity provider did not end the session', e)
-          }
+        if (!providerLogout) {
+          await logout()
+          return
         }
-        await logout()
+        // In external mode the session is the identity provider's, and its cookie is the one the apiserver's
+        // logout clears (same name, path and host). End it at the provider first, while the browser still
+        // sends it, so that it is revoked on the server and stops working everywhere (a copied cookie
+        // included). The apiserver's logout follows quietly: after a revocation it answers 401, which must not
+        // send the browser to the sign-in page. If the provider's logout failed, the session is still valid
+        // and the apiserver's logout is what clears it from this browser; if that fails too, the browser
+        // still holds a working session, so this is not a sign-out and must not be reported as one.
+        let providerError: unknown
+        try {
+          await endProviderSession(providerLogout)
+        } catch (e) {
+          providerError = e
+          console.warn('[logout] the identity provider did not end the session', e)
+        }
+        try {
+          await logout(true)
+        } catch (e) {
+          if (providerError !== undefined) {
+            throw e
+          }
+          console.debug('[logout] the apiserver did not sign out', e)
+        }
       } finally {
         this.$patch({
           session: 'anonymous',

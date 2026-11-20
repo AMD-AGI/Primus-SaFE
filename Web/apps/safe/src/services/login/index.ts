@@ -37,7 +37,12 @@ export async function ssoLoginRaw(code: string, state?: string, codeVerifier?: s
   return resp
 }
 
-export const logout = (): Promise<void> => request.post(`/logout`)
+/**
+ * Signs out at the apiserver. `quiet` sends it past the global error handler, so that a failure (a 401 once
+ * the session is already gone included) is the caller's to judge instead of a redirect to the sign-in page.
+ */
+export const logout = (quiet = false): Promise<void> =>
+  request.post(`/logout`, null, quiet ? { skipErrorHandler: true } : undefined)
 
 /**
  * Ends the identity provider's session at its logout path on this origin (envs.logoutUrl), which revokes

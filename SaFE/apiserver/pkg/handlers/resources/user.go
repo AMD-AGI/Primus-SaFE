@@ -832,6 +832,9 @@ func (h *Handler) userWorkspaces(ctx context.Context, user *v1.User) (workspaces
 // logout handles user logout by clearing authentication cookies.
 // Only applicable for requests from the console interface.
 func (h *Handler) logout(c *gin.Context) (interface{}, error) {
+	// In external mode these are the identity provider's session cookies (same names, path and host).
+	// The console ends the session at the provider first, so by the time it gets here they are usually
+	// gone already; clearing them anyway is what signs the browser out when the provider's logout failed.
 	info := &view.UserLoginResponse{}
 	setCookie(c, info, "")
 	return nil, nil
