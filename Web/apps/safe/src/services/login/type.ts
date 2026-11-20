@@ -78,6 +78,9 @@ export interface EnvsResp {
   apiKeysUrl?: string
   // Present only when authMode is external: where the browser signs in (auth.login_url). Not an SSO URL.
   loginUrl?: string
+  // Present only when authMode is external: the path on this console's own origin where sign-out ends the
+  // identity provider's session (auth.logout_url). The browser's session is the provider's, not the apiserver's.
+  logoutUrl?: string
   // Present only when authMode is external: the connection named on the authorize request.
   // Empty omits the parameter.
   connection?: string

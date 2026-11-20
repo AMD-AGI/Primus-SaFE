@@ -46,6 +46,20 @@ export const apiKeysProviderUrl = (
 }
 
 /**
+ * Where sign-out ends the identity provider's session, as a path on this console's origin, or '' when the
+ * mode is not external or the server reports no usable path. In external mode the browser's session is
+ * the provider's own, so clearing the apiserver's cookies alone would leave it valid everywhere else.
+ * Only a path counts, so the session is never sent to another origin.
+ */
+export const externalLogoutUrl = (
+  envs: Pick<EnvsResp, 'authMode' | 'logoutUrl'> | null | undefined,
+): string => {
+  const url = isExternalAuth(envs) ? (envs?.logoutUrl ?? '').trim() : ''
+  if (!url.startsWith('/') || url.startsWith('//') || /[\\\s?#]/.test(url)) return ''
+  return url
+}
+
+/**
  * What the API Keys page does for a deployment:
  * - `providerUrl`: where the identity provider's keys are created, listed and revoked; '' means the
  *   list is the apiserver's own, as with built-in accounts;

@@ -48,23 +48,27 @@ func TestCheckExternalDeployment(t *testing.T) {
 	require.NoError(t, CheckExternalDeployment(), "the introspection URL is the identity service URL")
 }
 
-// The console sign-in token carries sso.login.client_id as its audience, so an external chain with sso.login
-// on needs an oidc authenticator for that audience.
-func TestRequireLoginAudience(t *testing.T) {
+// The console's ID token (audience sso.login.client_id) is never a credential, so an external chain with
+// sso.login on refuses an oidc authenticator for that audience; any other entry is left alone.
+func TestRefuseLoginAudience(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
 	oidc := func(aud string) commonconfig.AuthenticatorConfig {
 		return commonconfig.AuthenticatorConfig{Type: "oidc", Audience: aud}
 	}
-	require.NoError(t, requireLoginAudience(nil), "sso.login off")
+	require.NoError(t, refuseLoginAudience([]commonconfig.AuthenticatorConfig{oidc("safe-console")}), "sso.login off")
 
 	viper.Set("sso.login.enable", true)
-	require.ErrorContains(t, requireLoginAudience([]commonconfig.AuthenticatorConfig{oidc("safe-console")}), "client_id is empty")
+	require.ErrorContains(t, refuseLoginAudience([]commonconfig.AuthenticatorConfig{oidc("primus-safe")}), "client_id is empty")
 
 	viper.Set("sso.login.client_id", "safe-console")
-	require.ErrorContains(t, requireLoginAudience([]commonconfig.AuthenticatorConfig{oidc("primus-safe"), {Type: "builtin"}}), `"safe-console"`)
-	require.ErrorContains(t, requireLoginAudience([]commonconfig.AuthenticatorConfig{{Type: "introspection", Audience: "safe-console"}}), "no oidc authenticator")
-	require.NoError(t, requireLoginAudience([]commonconfig.AuthenticatorConfig{oidc("primus-safe"), oidc("safe-console")}))
+	require.ErrorContains(t, refuseLoginAudience([]commonconfig.AuthenticatorConfig{oidc("primus-safe"), oidc("safe-console")}),
+		`auth.authenticators[1] is an oidc entry for audience "safe-console"`)
+	require.ErrorContains(t, refuseLoginAudience([]commonconfig.AuthenticatorConfig{{Type: "OIDC", Audience: "safe-console"}}), "must not be a credential")
+	require.NoError(t, refuseLoginAudience([]commonconfig.AuthenticatorConfig{{Type: "introspection", Audience: "safe-console"}}),
+		"an introspection entry is asked about opaque credentials, not the ID token")
+	require.NoError(t, refuseLoginAudience([]commonconfig.AuthenticatorConfig{oidc("primus-safe"), {Type: "introspection", Audience: "primus-safe"}}))
+	require.NoError(t, refuseLoginAudience(nil))
 }
 
 // buildChain refuses an empty chain, an oidc-only chain unless auth.allow_oidc_only is set, a malformed

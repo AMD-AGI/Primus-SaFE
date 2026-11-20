@@ -30,6 +30,10 @@ type GetEnvResponse struct {
 	// Where the console sends the browser to sign in when AuthMode is external (auth.login_url).
 	// Absent unless authentication is external and the deployment sets one. Not an SSO URL.
 	LoginURL string `json:"loginUrl,omitempty"`
+	// Where the console ends the identity provider's session at sign-out when AuthMode is external
+	// (auth.logout_url, default /identity/api/v1/logout): a path on the console's own origin. The browser's
+	// session is the identity provider's, so clearing cookies here alone would leave it valid there.
+	LogoutURL string `json:"logoutUrl,omitempty"`
 	// The one identity connection the console names on the authorize request when AuthMode is external.
 	// auth.connection (default okta-amd) when sso.enable is on, local when it is off. Absent when authentication is not external.
 	Connection string `json:"connection,omitempty"`

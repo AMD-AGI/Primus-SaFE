@@ -140,6 +140,7 @@ install_node_agent=n'
 
 AUTH_ENV="auth_mode=external
 auth_login_url=https://idp.example.com/sign-in/start
+auth_logout_url=/idp/api/v1/logout
 auth_allow_oidc_only=false
 auth_provider_client=false
 auth_client_secret=safe-introspection
@@ -206,12 +207,14 @@ expect "no auth keys, fresh install: login url" rendered 'login_url: "https://te
 expect "no auth keys, fresh install: scim public url" rendered '  public_url: "https://test.primus-safe.amd.com/scim/v2"'
 expect "no auth keys, fresh install: default accounts page" rendered 'accounts_url: "/identity/#accounts"'
 expect "no auth keys, fresh install: default API keys page" rendered 'keys_console_url: "/identity/#keys"'
+expect "no auth keys, fresh install: default logout" rendered 'logout_url: "/identity/api/v1/logout"'
 
 # 2. The auth_* keys reach the rendered chart, on a release that is not external yet.
 run_upgrade "$LIVE_BUILTIN" "$AUTH_ENV"
 expect "all auth keys: applied" applied
 expect "all auth keys: mode" rendered 'mode: "external"'
 expect "all auth keys: login_url" rendered 'login_url: "https://idp.example.com/sign-in/start"'
+expect "all auth keys: logout_url" rendered 'logout_url: "/idp/api/v1/logout"'
 expect "all auth keys: authenticators" rendered 'authenticators: [{"audience":"primus-safe","issuer":"https://idp.example.com","type":"oidc"},{"type":"builtin"}]'
 expect "all auth keys: group_mappings" rendered 'group_mappings: [{"group":"admins","roles":["system-admin"]}]'
 expect "all auth keys: client secret mounted into the apiserver" grep -qxF '            secretName: safe-introspection' "$OUT/rendered.yaml"
@@ -227,7 +230,7 @@ expect "all auth keys: the identity service account may write the client secret"
 no_rbac() { awk '/^---$/{sep = $0; next} /^# Source: /{rbac = ($0 ~ /identity-client-rbac.yaml$/)} !rbac {if (sep != "") print sep; print} {sep = ""}' "$1"; }
 no_rbac "$OUT/rendered.yaml" > "$W/with-auth.yaml"
 run_upgrade "" ""
-diff_lines="$(diff <(no_rbac "$OUT/rendered.yaml") "$W/with-auth.yaml" | grep -E '^[<>]' | grep -vE 'mode:|authenticators:|group_mappings:|login_url:|key_actors:|api_keys_url:|api_keys_upstream:|accounts_url:|keys_console_url:|enabled:|API_KEYS_UPSTREAM|IDENTITY_URL|nginx proxies /api/v1/apikeys|value: "identity.idns.svc.cluster.local:8080"|env:$|auth-client-secret|mountPath: /etc/secrets/auth|readOnly: true|secretName: safe-introspection|"safe-introspection"|secret:$|optional: true|checksum/config:' || true)"
+diff_lines="$(diff <(no_rbac "$OUT/rendered.yaml") "$W/with-auth.yaml" | grep -E '^[<>]' | grep -vE 'mode:|authenticators:|group_mappings:|login_url:|logout_url:|key_actors:|api_keys_url:|api_keys_upstream:|accounts_url:|keys_console_url:|enabled:|API_KEYS_UPSTREAM|IDENTITY_URL|nginx proxies /api/v1/apikeys|value: "identity.idns.svc.cluster.local:8080"|env:$|auth-client-secret|mountPath: /etc/secrets/auth|readOnly: true|secretName: safe-introspection|"safe-introspection"|secret:$|optional: true|checksum/config:' || true)"
 expect "rendering with and without the keys differs only in the auth segment" test -z "$diff_lines"
 [[ -z "$diff_lines" ]] || echo "$diff_lines"
 
@@ -412,11 +415,11 @@ oidc_login_redirect_uri=https://console.example.com/sso/callback
 sso_bridge_allowlist='[]'"
 run_upgrade "$LIVE_BUILTIN" "$AUTH_ENV
 $CONSOLE_LOGIN"
-expect "external, sso.login client id is no oidc audience: refused" refused
-expect "external, sso.login client id is no oidc audience: names the chart's reason" grep -q 'no oidc authenticator audience equals sso.login.client_id "console"' "$OUT/log"
+expect "external, sso.login client id is no oidc audience: applied" applied
 run_upgrade "$LIVE_BUILTIN" "$(sed 's|"audience":"primus-safe"|"audience":"console"|' <<<"$AUTH_ENV")
 $CONSOLE_LOGIN"
-expect "external, sso.login client id is an oidc audience: applied" applied
+expect "external, sso.login client id is an oidc audience: refused" refused
+expect "external, sso.login client id is an oidc audience: names the chart's reason" grep -q 'oidc entry for audience "console", which is sso.login.client_id' "$OUT/log"
 
 # 11. A host without jq: a release that is not external upgrades as it always did, and the break-glass
 # needs no jq; an external release asks for it instead of guessing.

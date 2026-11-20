@@ -345,6 +345,9 @@ auth:
   # Where the console sends users to sign in when mode is external.
   # Empty: https://<global.sub_domain>.<global.domain>/login/password.
   login_url: ""
+  # Where the console ends the identity provider's session at sign-out when mode is external: a path on the
+  # console's own origin (the browser's session cookie is sent there). Empty: /identity/api/v1/logout.
+  logout_url: ""
   # Accept an authenticator list that is only oidc. Off by default: external mode then needs
   # an introspection or builtin entry.
   allow_oidc_only: false

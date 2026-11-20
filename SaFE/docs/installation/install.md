@@ -73,7 +73,9 @@ The [install.sh](../../bootstrap/install.sh) script provides a one-click install
         `ssoAuthUrl` stays the URL of the provider of the secret while it is configured. Sessions and users are kept as before: the session
         holds the provider's ID token (its `exp` is the session's end), and the user id comes from the `email` claim
         (else `sub`) by the same rule as for the other provider, so a person keeps one account whichever provider signed
-        them in. Ask the provider for ID tokens that live as long as a session should.
+        them in. Ask the provider for ID tokens that live as long as a session should. That is builtin mode; with
+        `auth.mode: external` the browser keeps the identity provider's own session instead and the ID token is
+        discarded (see [external authentication](../apis/external-authentication.md)).
       - Helm values (or `.env` for `bootstrap/upgrade.sh`): `sso.login.enable` (`oidc_login_enable`). `sso.login.issuer`
         (`oidc_login_issuer`), `sso.login.client_id` (`oidc_login_client_id`), and `sso.login.redirect_uri`
         (`oidc_login_redirect_uri`) can be left unset. Unset, they are `https://<sub_domain>.<domain>`, `safe-console`,

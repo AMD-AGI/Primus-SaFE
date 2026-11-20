@@ -48,6 +48,7 @@ func (h *Handler) getEnvs(c *gin.Context) (interface{}, error) {
 		// sso.enable selects it: auth.connection (default okta-amd) or local. sso.login, when set, is that authorize URL.
 		resp.APIKeysURL = commonconfig.GetAuthAPIKeysURL()
 		resp.LoginURL = commonconfig.GetAuthLoginURL()
+		resp.LogoutURL = commonconfig.GetAuthLogoutURL()
 		if resp.SSOEnable {
 			resp.Connection = commonconfig.GetAuthConnection()
 		} else {

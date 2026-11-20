@@ -686,6 +686,28 @@ func TestAuthAPIKeysURL(t *testing.T) {
 	}
 }
 
+func TestAuthLogoutURL(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	testifyassert.Equal(t, "/identity/api/v1/logout", GetAuthLogoutURL(), "the identity service's logout on the console host")
+	for in, want := range map[string]string{
+		"/idp/api/v1/logout":             "/idp/api/v1/logout",
+		"  /idp/logout  ":                "/idp/logout",
+		"":                               "/identity/api/v1/logout",
+		"https://idp.example.com/logout": "",
+		"//idp.example.com/logout":       "",
+		"idp/logout":                     "",
+		"/idp/log out":                   "",
+		"/idp/logout?x=1":                "",
+		"/idp/logout#x":                  "",
+		"/idp\\logout":                   "",
+	} {
+		viper.Set("auth.logout_url", in)
+		testifyassert.Equal(t, want, GetAuthLogoutURL(), "input %q", in)
+	}
+}
+
 func TestAuthConfig(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)

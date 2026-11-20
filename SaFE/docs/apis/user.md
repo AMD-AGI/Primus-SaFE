@@ -117,8 +117,8 @@ User authentication and access token retrieval.
 | creationTime | string | User creation time (RFC3339)                                  |
 | restrictedType | int | Restriction: 0 normal, 1 frozen                               |
 | avatarUrl | string | Avatar URL                                                    |
-| token | string | User token, encrypted internally.                             |
-| expire | int | Token expire time (Unix seconds)                              |
+| token | string | User token, encrypted internally. Empty with `auth.mode: external`: the browser keeps the identity provider's session cookie, and the response sets no cookie |
+| expire | int | Token expire time (Unix seconds); with `auth.mode: external`, the end of the identity provider's session (0 when it reports none) |
 
 Nested workspace object:
 
