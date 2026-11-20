@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sort"
+	"strconv"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -235,6 +236,28 @@ func TestTheLastSaveIsTheOneTheLauncherReported(t *testing.T) {
 		buildMarkers(training, whole).Checkpoints)
 	empty := capped(1, func(run *dbclient.PostTrainingRun) { run.MetricSummary, run.MetricGap = "", true })
 	require.Empty(t, buildMarkers(empty, nil).Checkpoints)
+}
+
+// The step where a run ended comes from its own output, so the number of saves listed for it is bounded: a run
+// lists its latest ones, and a step that cannot be counted from lists none.
+func TestTheListOfCheckpointsIsBounded(t *testing.T) {
+	listed := func(iteration string) []checkpointMark {
+		run := &dbclient.PostTrainingRun{TrainType: "sft", Status: "Succeeded", Stage: "done",
+			Recipe:     `{"choices":{"saveInterval":1}}`,
+			ResultLine: `[SUCCESS] {"run":"pt-1","stage":"export","output":"/w/pt-1/f","iteration":` + iteration + `}`}
+		return buildMarkers(run, nil).Checkpoints
+	}
+	marks := listed("3000000")
+	require.Len(t, marks, maxCheckpointMarks)
+	require.Equal(t, 3000001, marks[len(marks)-1].Step, "the latest saves are the ones listed")
+	require.Equal(t, 3000001-maxCheckpointMarks+1, marks[0].Step)
+	require.Len(t, listed(strconv.Itoa(maxCheckpointMarks-1)), maxCheckpointMarks, "a run at the bound lists all")
+	require.Empty(t, listed(strconv.Itoa(math.MaxInt)), "the step after the largest number is none")
+
+	far := &dbclient.PostTrainingRun{TrainType: "sft", Status: "Running", Stage: "train",
+		Recipe: `{"choices":{"saveInterval":1}}`}
+	points := map[string][]*dbclient.PostTrainingRunMetric{"train/loss": rows("train/loss", 2999999, 1)}
+	require.Len(t, buildMarkers(far, points).Checkpoints, maxCheckpointMarks, "a step of a point is bounded too")
 }
 
 // Stopping a workload records who stopped it and deletes it, and a missing one is fine.

@@ -31,6 +31,9 @@ const (
 	// maxMetricRows bounds the points a curve request reads; of a run with more, each curve shows its newest.
 	maxMetricRows = 200000
 	valLossMetric = "eval/val/loss"
+	// maxCheckpointMarks bounds the saves of the interval listed for a run: the step where a run ended comes from
+	// its own output.
+	maxCheckpointMarks = 10000
 	// checkpointsCleanedEvent is the stage_history event of a finished checkpoint cleanup; keptStep names the
 	// checkpoint it kept, if any, and cleanedSteps the ones it then removed.
 	checkpointsCleanedEvent = "checkpoints-cleaned"
@@ -438,9 +441,14 @@ func buildMarkers(run *dbclient.PostTrainingRun, points map[string][]*dbclient.P
 		}
 	}
 	steps := []int{}
-	if interval := rec.Choices.SaveInterval; interval > 0 {
-		for step := interval; step <= end; step += interval {
-			steps = append(steps, step)
+	if interval := rec.Choices.SaveInterval; interval > 0 && end >= interval {
+		// The latest saves are listed when there are more than the bound; counting them keeps the steps in range.
+		count, first := end/interval, interval
+		if count > maxCheckpointMarks {
+			first, count = (count-maxCheckpointMarks+1)*interval, maxCheckpointMarks
+		}
+		for i := 0; i < count; i++ {
+			steps = append(steps, first+i*interval)
 		}
 	}
 	// appended is the last save when the interval does not list it.
