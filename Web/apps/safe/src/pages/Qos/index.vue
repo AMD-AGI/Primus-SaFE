@@ -13,7 +13,7 @@
       v-loading="loading"
       :element-loading-text="$loadingText"
     >
-      <el-table-column prop="name" label="Cluster" min-width="160">
+      <el-table-column prop="name" label="Workspace" min-width="160">
         <template #default="{ row }">
           <el-link type="primary" v-route="{ path: '/qos/detail', query: { name: row.name } }">
             {{ row.name }}
@@ -56,20 +56,20 @@ const router = useRouter()
 const loading = ref(false)
 const items = ref<QosItem[]>([])
 
-/** load reads every cluster ceiling. */
+/** load reads every workspace ceiling. */
 const load = async () => {
   loading.value = true
   try {
     const res = await listQos()
-    items.value = (res.items ?? []).filter((item) => item.name !== 'default')
+    items.value = res.items ?? []
   } finally {
     loading.value = false
   }
 }
 
-/** onDelete removes one cluster ceiling after confirmation. */
+/** onDelete removes one workspace ceiling after confirmation. */
 const onDelete = (name: string) => {
-  ElMessageBox.confirm(`Delete QoS for ${name}? This cluster will have no limit.`, 'Delete QoS', {
+  ElMessageBox.confirm(`Delete QoS for ${name}? This workspace will have no limit.`, 'Delete QoS', {
     confirmButtonText: 'Delete',
     cancelButtonText: 'Cancel',
     type: 'warning',

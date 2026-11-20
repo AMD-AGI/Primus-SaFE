@@ -6,9 +6,10 @@
     @open="onOpen"
     @close="emit('update:visible', false)"
   >
-    <el-radio-group v-if="clusters.length > 1" v-model="target" class="mb-6">
-      <el-radio-button v-for="cluster in clusters" :key="cluster.clusterId" :value="cluster.clusterId">
-        {{ cluster.clusterId }}
+    <el-text v-if="!workspaces.length" type="info">No workspace.</el-text>
+    <el-radio-group v-if="workspaces.length > 1" v-model="target" class="mb-6">
+      <el-radio-button v-for="item in workspaces" :key="item.workspaceId" :value="item.workspaceId">
+        {{ item.workspaceName || item.workspaceId }}
       </el-radio-button>
     </el-radio-group>
     <QosScopeForm v-if="drafts[target]" v-model="drafts[target]" />
@@ -22,7 +23,7 @@
 <script lang="ts" setup>
 import { computed, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { useClusterStore } from '@/stores/cluster'
+import { useWorkspaceStore } from '@/stores/workspace'
 import { editUser, type UserSelfData } from '@/services'
 import {
   draftToScope,
@@ -36,44 +37,42 @@ import QosScopeForm from '@/pages/Qos/QosScopeForm.vue'
 const props = defineProps<{ visible: boolean; user: UserSelfData | null }>()
 const emit = defineEmits(['update:visible', 'success'])
 
-const clusterStore = useClusterStore()
-const clusters = computed(() =>
-  clusterStore.items.filter((item) => item.clusterId && item.clusterId !== 'default'),
-)
+const workspaceStore = useWorkspaceStore()
+const workspaces = computed(() => workspaceStore.items.filter((item) => item.workspaceId))
 
 const saving = ref(false)
 const target = ref('')
 const drafts = reactive<Record<string, ScopeDraft>>({})
 
-/** resetDrafts loads the user's per-cluster ceilings into the form. */
+/** resetDrafts loads the user's per-workspace ceilings into the form. */
 const resetDrafts = () => {
   for (const key of Object.keys(drafts)) delete drafts[key]
   const qos = props.user?.qos
-  for (const [clusterId, scope] of Object.entries(qos?.clusters ?? {})) {
-    drafts[clusterId] = scopeToDraft(scope)
+  for (const [workspaceId, scope] of Object.entries(qos?.workspaces ?? {})) {
+    drafts[workspaceId] = scopeToDraft(scope)
   }
-  for (const cluster of clusters.value) {
-    if (!drafts[cluster.clusterId]) drafts[cluster.clusterId] = emptyDraft()
+  for (const item of workspaces.value) {
+    if (!drafts[item.workspaceId]) drafts[item.workspaceId] = emptyDraft()
   }
-  const ids = clusters.value.map((cluster) => cluster.clusterId)
-  const current = clusterStore.currentClusterId ?? ''
+  const ids = workspaces.value.map((item) => item.workspaceId)
+  const current = workspaceStore.currentWorkspaceId ?? ''
   target.value = ids.includes(current) ? current : (ids[0] ?? '')
 }
 
 /** onOpen prepares the form when the dialog is shown. */
 const onOpen = async () => {
-  if (!clusterStore.isFetched) await clusterStore.fetchClusters()
+  if (!workspaceStore.isFetched) await workspaceStore.fetchWorkspace()
   resetDrafts()
 }
 
-/** buildQos keeps only per-cluster ceilings that set a value. */
+/** buildQos keeps only per-workspace ceilings that set a value. */
 const buildQos = (): UserQos => {
-  const clusters: UserQos['clusters'] = {}
+  const workspaces: UserQos['workspaces'] = {}
   for (const [name, draft] of Object.entries(drafts)) {
     const scope = draftToScope(draft)
-    if (scope) clusters[name] = scope
+    if (scope) workspaces[name] = scope
   }
-  return Object.keys(clusters).length ? { clusters } : {}
+  return Object.keys(workspaces).length ? { workspaces } : {}
 }
 
 /** onSave writes this user's ceilings. Other user fields stay unchanged. */

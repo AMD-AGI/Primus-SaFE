@@ -46,13 +46,13 @@ spec:
                 description: User password, base64 encoded, optional
                 type: string
               qos:
-                description: Per-user resource and runtime ceilings per cluster.
-                  Unset fields use the cluster Qos.
+                description: Per-user resource and runtime ceilings per workspace.
+                  Unset fields use the workspace Qos.
                 properties:
-                  clusters:
+                  workspaces:
                     additionalProperties:
-                      description: UserQosScope is one user's ceiling on one
-                        cluster.
+                      description: UserQosScope is one user's ceiling in one
+                        workspace.
                       properties:
                         maxResources:
                           description: ResourceCap is a GPU, CPU and memory ceiling.

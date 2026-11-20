@@ -20,12 +20,12 @@ import (
 	commonqos "github.com/AMD-AIG-AIMA/SAFE/common/pkg/qos"
 )
 
-// qosWorkload returns a queued workload of one user that asks for gpus cards on cluster c1.
+// qosWorkload returns a queued workload of one user that asks for gpus cards in workspace c1.
 func qosWorkload(name, user, gpus string) *v1.Workload {
 	return &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Labels: map[string]string{
-			v1.ClusterIdLabel: "c1",
-			v1.UserIdLabel:    user,
+			v1.WorkspaceIdLabel: "c1",
+			v1.UserIdLabel:      user,
 		}},
 		Spec: v1.WorkloadSpec{
 			GroupVersionKind: v1.GroupVersionKind{Kind: common.PytorchJobKind},
@@ -41,7 +41,7 @@ func TestUserQuotaHoldDoesNotBlockQueue(t *testing.T) {
 	if err != nil || reason != "" {
 		t.Fatalf("setup: %q %v", reason, err)
 	}
-	held := commonqos.UserQuotaReasonPrefix + ": gpu used 8 + request 8 > limit 8 (user alice, cluster c1)"
+	held := commonqos.UserQuotaReasonPrefix + ": gpu used 8 + request 8 > limit 8 (user alice, workspace c1)"
 	if !isSkippableReason(held) {
 		t.Fatalf("a user quota hold must not stop the queue: %q", held)
 	}
@@ -291,5 +291,32 @@ func TestUserQuotaHoldEdges(t *testing.T) {
 	reason := r.userQuotaHold(ctx, qosWorkload("w", "alice", "1"), nil)
 	if !strings.HasPrefix(reason, commonqos.UserQuotaCheckFailedPrefix) {
 		t.Fatalf("a bad ceiling holds the workload, reason %q", reason)
+	}
+}
+
+func TestUserQuotaIgnoresAnotherWorkspace(t *testing.T) {
+	qos := &v1.Qos{
+		ObjectMeta: metav1.ObjectMeta{Name: "ws1"},
+		Spec:       v1.QosSpec{MaxResources: &v1.ResourceCap{GPU: "8"}},
+	}
+	otherQos := &v1.Qos{
+		ObjectMeta: metav1.ObjectMeta{Name: "ws2"},
+		Spec:       v1.QosSpec{MaxResources: &v1.ResourceCap{GPU: "8"}},
+	}
+	running := qosWorkload("running", "alice", "8")
+	running.Labels[v1.WorkspaceIdLabel] = "ws1"
+	running.Annotations = map[string]string{v1.WorkloadScheduledAnnotation: "true"}
+	other := qosWorkload("other", "alice", "8")
+	other.Labels[v1.WorkspaceIdLabel] = "ws2"
+	cl := ctrlfake.NewClientBuilder().WithScheme(ttlScheme(t)).WithObjects(qos, otherQos, running, other).Build()
+	r := &SchedulerReconciler{Client: cl}
+
+	if reason := r.userQuotaHold(context.Background(), other, nil); reason != "" {
+		t.Fatalf("usage in another workspace does not count, reason %q", reason)
+	}
+	same := qosWorkload("same", "alice", "1")
+	same.Labels[v1.WorkspaceIdLabel] = "ws1"
+	if reason := r.userQuotaHold(context.Background(), same, nil); !strings.HasPrefix(reason, commonqos.UserQuotaReasonPrefix) {
+		t.Fatalf("the same workspace counts, reason %q", reason)
 	}
 }

@@ -9,7 +9,7 @@ package v1
 // UserQosScopeApplyConfiguration represents a declarative configuration of the UserQosScope type for use
 // with apply.
 //
-// UserQosScope is one user's ceiling on one cluster.
+// UserQosScope is one user's ceiling in one workspace.
 type UserQosScopeApplyConfiguration struct {
 	MaxResources *ResourceCapApplyConfiguration `json:"maxResources,omitempty"`
 	// MaxRuntime is the timeout ceiling in seconds, keyed by workspace scope

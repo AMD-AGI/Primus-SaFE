@@ -104,17 +104,17 @@ func knownQosScope(name string) bool {
 	}
 }
 
-// ValidateUserQos checks each per-cluster ceiling. Top-level fields are rejected.
+// ValidateUserQos checks each per-workspace ceiling. Top-level fields are rejected.
 func ValidateUserQos(qos *v1.UserQos) error {
 	if qos == nil {
 		return nil
 	}
 	if qos.MaxResources != nil || len(qos.MaxRuntime) > 0 {
-		return commonerrors.NewBadRequest("a user qos is set per cluster in clusters")
+		return commonerrors.NewBadRequest("a user qos is set per workspace in workspaces")
 	}
-	for clusterID, scope := range qos.Clusters {
-		if strings.TrimSpace(clusterID) == "" {
-			return commonerrors.NewBadRequest("qos cluster id is required")
+	for workspaceID, scope := range qos.Workspaces {
+		if strings.TrimSpace(workspaceID) == "" {
+			return commonerrors.NewBadRequest("qos workspace id is required")
 		}
 		if err := ValidateQosLimits(scope.MaxResources, scope.MaxRuntime); err != nil {
 			return err

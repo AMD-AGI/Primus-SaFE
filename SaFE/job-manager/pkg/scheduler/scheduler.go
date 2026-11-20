@@ -451,8 +451,7 @@ func (r *SchedulerReconciler) scheduleWorkloads(ctx context.Context, message *Sc
 		r.updateUnScheduled(ctx, schedulingWorkloads, unScheduledReasons, workspace)
 	}
 	if userQuotaHeld {
-		// Quota is counted per cluster, so it can be released by another workspace or by a
-		// raised ceiling. Neither event reaches this workspace, so it is checked again later.
+		// A raised ceiling does not reach this workspace, so a held workload is checked again later.
 		r.AddAfter(&SchedulerMessage{
 			WorkspaceId: workspace.Name,
 			ClusterId:   workspace.Spec.Cluster,
@@ -485,17 +484,17 @@ func quotaBefore(a, b *v1.Workload) bool {
 	return commonqos.AdmissionBefore(a, b)
 }
 
-// userQuotaReason reports when this user's work on the cluster cannot take the request.
+// userQuotaReason reports when this user's work in the workspace cannot take the request.
 // Scheduled work counts. Queued work counts when it is admitted ahead of this workload.
 // admitted is added by name, so a workload admitted in this pass counts before the cache
 // sees its scheduled flag. A request that is already larger than the ceiling stays pending.
 func (r *SchedulerReconciler) userQuotaReason(ctx context.Context, workload *v1.Workload, admitted []*v1.Workload) (string, error) {
 	userID := v1.GetUserId(workload)
-	clusterID := v1.GetClusterId(workload)
-	if userID == "" || clusterID == "" {
+	workspaceID := commonqos.WorkspaceID(workload)
+	if userID == "" || workspaceID == "" {
 		return "", nil
 	}
-	limits, err := commonqos.Ceiling(ctx, r.Client, userID, clusterID, string(commonworkload.GetScope(workload)))
+	limits, err := commonqos.Ceiling(ctx, r.Client, userID, workspaceID, string(commonworkload.GetScope(workload)))
 	if err != nil {
 		return "", err
 	}
@@ -504,8 +503,8 @@ func (r *SchedulerReconciler) userQuotaReason(ctx context.Context, workload *v1.
 	}
 	held := &v1.WorkloadList{}
 	if err = r.List(ctx, held, client.MatchingLabels{
-		v1.ClusterIdLabel: clusterID,
-		v1.UserIdLabel:    userID,
+		v1.WorkspaceIdLabel: workspaceID,
+		v1.UserIdLabel:      userID,
 	}); err != nil {
 		return "", err
 	}
@@ -529,7 +528,7 @@ func (r *SchedulerReconciler) userQuotaReason(ctx context.Context, workload *v1.
 			if !quotaBefore(item, workload) {
 				continue
 			}
-			if above, aboveErr := aboveCeiling(userID, clusterID, item, limits); aboveErr != nil || above {
+			if above, aboveErr := aboveCeiling(userID, workspaceID, item, limits); aboveErr != nil || above {
 				if aboveErr != nil {
 					return "", aboveErr
 				}
@@ -542,7 +541,7 @@ func (r *SchedulerReconciler) userQuotaReason(ctx context.Context, workload *v1.
 	}
 	for _, item := range admitted {
 		if item == nil || item.Name == workload.Name || counted[item.Name] || item.IsEnd() ||
-			v1.GetUserId(item) != userID || v1.GetClusterId(item) != clusterID {
+			v1.GetUserId(item) != userID || commonqos.WorkspaceID(item) != workspaceID {
 			continue
 		}
 		if err = add(item); err != nil {
@@ -553,17 +552,17 @@ func (r *SchedulerReconciler) userQuotaReason(ctx context.Context, workload *v1.
 	if err != nil {
 		return "", err
 	}
-	return commonqos.QuotaReason(userID, clusterID, used, request, limits)
+	return commonqos.QuotaReason(userID, workspaceID, used, request, limits)
 }
 
 // aboveCeiling reports whether a workload's own request already exceeds the ceiling.
 // Such a queued workload can never start and does not count toward later work.
-func aboveCeiling(userID, clusterID string, workload *v1.Workload, limits commonqos.Limits) (bool, error) {
+func aboveCeiling(userID, workspaceID string, workload *v1.Workload, limits commonqos.Limits) (bool, error) {
 	request, err := commonworkload.GetTotalResourceList(workload)
 	if err != nil {
 		return false, err
 	}
-	reason, err := commonqos.QuotaReason(userID, clusterID, corev1.ResourceList{}, request, limits)
+	reason, err := commonqos.QuotaReason(userID, workspaceID, corev1.ResourceList{}, request, limits)
 	return reason != "", err
 }
 

@@ -1,11 +1,11 @@
 <template>
   <div>
     <el-text class="block textx-18 font-500" tag="b">QoS</el-text>
-    <el-text class="block mt-2" type="info">Cluster ceiling. An empty field is not limited.</el-text>
+    <el-text class="block mt-2" type="info">Workspace ceiling. An empty field is not limited.</el-text>
   </div>
   <el-card class="mt-6 safe-card" shadow="never" v-loading="loading">
     <el-descriptions v-if="item" :column="1" border>
-      <el-descriptions-item label="Cluster">{{ item.name }}</el-descriptions-item>
+      <el-descriptions-item label="Workspace">{{ item.name }}</el-descriptions-item>
       <el-descriptions-item label="CPU">{{ item.maxResources?.cpu || '-' }}</el-descriptions-item>
       <el-descriptions-item label="Memory">{{ item.maxResources?.memory || '-' }}</el-descriptions-item>
       <el-descriptions-item label="GPU">{{ item.maxResources?.gpu || '-' }}</el-descriptions-item>
@@ -33,7 +33,7 @@ const router = useRouter()
 const loading = ref(false)
 const item = ref<QosItem>()
 
-/** load reads one cluster ceiling. */
+/** load reads one workspace ceiling. */
 const load = async () => {
   const name = String(route.query.name ?? '')
   if (!name) {
@@ -52,7 +52,7 @@ const load = async () => {
 const onDelete = () => {
   if (!item.value?.name) return
   const name = item.value.name
-  ElMessageBox.confirm(`Delete QoS for ${name}? This cluster will have no limit.`, 'Delete QoS', {
+  ElMessageBox.confirm(`Delete QoS for ${name}? This workspace will have no limit.`, 'Delete QoS', {
     confirmButtonText: 'Delete',
     cancelButtonText: 'Cancel',
     type: 'warning',

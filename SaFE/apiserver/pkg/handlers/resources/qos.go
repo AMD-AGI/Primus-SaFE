@@ -28,17 +28,17 @@ func (h *Handler) ListQos(c *gin.Context) {
 	handle(c, h.listQos)
 }
 
-// GetQos returns one default ceiling. The name is "default" or a cluster id.
+// GetQos returns one workspace ceiling. The name is the workspace id.
 func (h *Handler) GetQos(c *gin.Context) {
 	handle(c, h.getQos)
 }
 
-// CreateQos creates one cluster ceiling. System administrators only.
+// CreateQos creates one workspace ceiling. System administrators only.
 func (h *Handler) CreateQos(c *gin.Context) {
 	handle(c, h.createQos)
 }
 
-// UpdateQos replaces one cluster ceiling. A timeout or resource left out of the request is cleared.
+// UpdateQos replaces one workspace ceiling. A timeout or resource left out of the request is cleared.
 func (h *Handler) UpdateQos(c *gin.Context) {
 	handle(c, h.updateQos)
 }
@@ -58,9 +58,6 @@ func (h *Handler) listQos(c *gin.Context) (interface{}, error) {
 	}
 	items := make([]view.QosResponse, 0, len(list.Items))
 	for i := range list.Items {
-		if list.Items[i].Name == v1.QosDefaultName {
-			continue
-		}
 		items = append(items, view.NewQosResponse(&list.Items[i]))
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
@@ -72,22 +69,11 @@ func (h *Handler) getQos(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	name := c.GetString(common.Name)
-	if err := rejectGlobalQos(name); err != nil {
-		return nil, err
-	}
 	qos, err := h.getQosObject(c, name)
 	if err != nil {
 		return nil, err
 	}
 	return view.NewQosResponse(qos), nil
-}
-
-// rejectGlobalQos refuses the unused global object. Ceilings are stored per cluster.
-func rejectGlobalQos(name string) error {
-	if name == v1.QosDefaultName {
-		return commonerrors.NewBadRequest("a global qos is not used")
-	}
-	return nil
 }
 
 // readQosRequest checks the caller and normalizes one create or update body.
@@ -109,9 +95,6 @@ func (h *Handler) readQosRequest(c *gin.Context) (string, *view.PutQosRequest, e
 	name := c.GetString(common.Name)
 	if name == "" {
 		return "", nil, commonerrors.NewBadRequest("qos name is required")
-	}
-	if err := rejectGlobalQos(name); err != nil {
-		return "", nil, err
 	}
 	return name, req, nil
 }

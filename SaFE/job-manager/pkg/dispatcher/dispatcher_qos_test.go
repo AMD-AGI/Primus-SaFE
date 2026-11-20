@@ -44,8 +44,8 @@ func scaleWorkload(name, gpu string, at time.Time, priority int) *v1.Workload {
 			Name:              name,
 			CreationTimestamp: metav1.NewTime(at),
 			Labels: map[string]string{
-				v1.ClusterIdLabel: "c1",
-				v1.UserIdLabel:    "alice",
+				v1.WorkspaceIdLabel: "c1",
+				v1.UserIdLabel:      "alice",
 			},
 			Annotations: map[string]string{
 				v1.WorkloadScheduledAnnotation:   "true",

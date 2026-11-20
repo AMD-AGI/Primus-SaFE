@@ -19,7 +19,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 )
 
-// UserQuotaReasonPrefix marks a workload that is waiting on its user's cluster ceiling.
+// UserQuotaReasonPrefix marks a workload that is waiting on its user's workspace ceiling.
 // It is distinct from the workspace capacity reason so the scheduler does not describe it
 // as blocked by earlier workloads.
 const UserQuotaReasonPrefix = "In queue - user quota exceeded"
@@ -52,7 +52,7 @@ func AdmissionBefore(a, b *v1.Workload) bool {
 	return a.Name < b.Name
 }
 
-// Limits is the ceiling that applies to one user on one cluster for one workspace scope.
+// Limits is the ceiling that applies to one user in one workspace for one workspace scope.
 // An empty resource field and a zero runtime mean that dimension is not limited.
 type Limits struct {
 	CPU            string
@@ -76,9 +76,21 @@ func Load(ctx context.Context, c client.Reader, name string) (*v1.Qos, error) {
 	return qos, nil
 }
 
-// Ceiling loads the user and the cluster Qos, then resolves the workspace scope.
+// WorkspaceID is the workspace whose ceiling applies to the workload.
+// The label is set when the workload is admitted. The spec is used before that.
+func WorkspaceID(workload *v1.Workload) string {
+	if workload == nil {
+		return ""
+	}
+	if id := v1.GetWorkspaceId(workload); id != "" {
+		return id
+	}
+	return workload.Spec.Workspace
+}
+
+// Ceiling loads the user and the workspace Qos, then resolves the workspace scope.
 // A missing user or Qos is an empty contribution, not an error.
-func Ceiling(ctx context.Context, c client.Reader, userID, clusterID, scope string) (Limits, error) {
+func Ceiling(ctx context.Context, c client.Reader, userID, workspaceID, scope string) (Limits, error) {
 	var user *v1.User
 	if userID != "" {
 		user = &v1.User{}
@@ -89,35 +101,35 @@ func Ceiling(ctx context.Context, c client.Reader, userID, clusterID, scope stri
 			user = nil
 		}
 	}
-	clusterQos, err := Load(ctx, c, clusterID)
+	workspaceQos, err := Load(ctx, c, workspaceID)
 	if err != nil {
 		return Limits{}, err
 	}
-	return Resolve(user, clusterQos, clusterID, scope), nil
+	return Resolve(user, workspaceQos, workspaceID, scope), nil
 }
 
 // Resolve picks each field independently. A set value stops the search.
-// Order: this user on the cluster, then the cluster ceiling.
+// Order: this user in the workspace, then the workspace ceiling.
 // scope is a workspace scope such as Train or Infer.
-func Resolve(user *v1.User, clusterQos *v1.Qos, clusterID, scope string) Limits {
-	var userCluster v1.UserQosScope
+func Resolve(user *v1.User, workspaceQos *v1.Qos, workspaceID, scope string) Limits {
+	var userWorkspace v1.UserQosScope
 	if user != nil && user.Spec.Qos != nil {
-		if item, ok := user.Spec.Qos.Clusters[clusterID]; ok {
-			userCluster = item
+		if item, ok := user.Spec.Qos.Workspaces[workspaceID]; ok {
+			userWorkspace = item
 		}
 	}
 	return Limits{
-		CPU:            firstSet(capCPU(userCluster.MaxResources), capCPU(specCap(clusterQos))),
-		Memory:         firstSet(capMemory(userCluster.MaxResources), capMemory(specCap(clusterQos))),
-		GPU:            firstSet(capGPU(userCluster.MaxResources), capGPU(specCap(clusterQos))),
-		RuntimeSeconds: firstRuntime(scope, userCluster.MaxRuntime, specRuntime(clusterQos)),
+		CPU:            firstSet(capCPU(userWorkspace.MaxResources), capCPU(specCap(workspaceQos))),
+		Memory:         firstSet(capMemory(userWorkspace.MaxResources), capMemory(specCap(workspaceQos))),
+		GPU:            firstSet(capGPU(userWorkspace.MaxResources), capGPU(specCap(workspaceQos))),
+		RuntimeSeconds: firstRuntime(scope, userWorkspace.MaxRuntime, specRuntime(workspaceQos)),
 	}
 }
 
 // QuotaReason reports the dimensions where used plus request passes the ceiling.
 // An empty result means the request fits.
-func QuotaReason(userID, clusterID string, used, request corev1.ResourceList, limits Limits) (string, error) {
-	return Exceeded(userID, clusterID, used, request, limits, true, true, true)
+func QuotaReason(userID, workspaceID string, used, request corev1.ResourceList, limits Limits) (string, error) {
+	return Exceeded(userID, workspaceID, used, request, limits, true, true, true)
 }
 
 // ResourceGrew reports which of CPU, memory and GPU is larger in next than in prev.
@@ -130,7 +142,7 @@ func ResourceGrew(prev, next corev1.ResourceList) (cpu, memory, gpu bool) {
 
 // Exceeded reports the dimensions where used plus request passes the ceiling.
 // cpu, memory and gpu select which dimensions are checked.
-func Exceeded(userID, clusterID string, used, request corev1.ResourceList, limits Limits, cpu, memory, gpu bool) (string, error) {
+func Exceeded(userID, workspaceID string, used, request corev1.ResourceList, limits Limits, cpu, memory, gpu bool) (string, error) {
 	var parts []string
 	checks := []struct {
 		name  string
@@ -161,8 +173,8 @@ func Exceeded(userID, clusterID string, used, request corev1.ResourceList, limit
 	if len(parts) == 0 {
 		return "", nil
 	}
-	return fmt.Sprintf("%s: %s (user %s, cluster %s)",
-		UserQuotaReasonPrefix, strings.Join(parts, "; "), userID, clusterID), nil
+	return fmt.Sprintf("%s: %s (user %s, workspace %s)",
+		UserQuotaReasonPrefix, strings.Join(parts, "; "), userID, workspaceID), nil
 }
 
 // specCap returns the resource ceiling of a Qos, or nil when the object is absent.

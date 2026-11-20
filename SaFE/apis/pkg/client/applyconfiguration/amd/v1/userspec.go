@@ -25,7 +25,7 @@ type UserSpecApplyConfiguration struct {
 	// The key of resources is the name to be managed (e.g. workspace)
 	// values are its corresponding values(e.g. workspace-id)"
 	Resources map[string][]string `json:"resources,omitempty"`
-	// Per-user resource and runtime ceilings per cluster. Unset fields use the cluster Qos.
+	// Per-user resource and runtime ceilings per workspace. Unset fields use the workspace Qos.
 	Qos *UserQosApplyConfiguration `json:"qos,omitempty"`
 }
 

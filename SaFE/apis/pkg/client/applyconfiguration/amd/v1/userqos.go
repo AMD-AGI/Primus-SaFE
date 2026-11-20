@@ -9,14 +9,14 @@ package v1
 // UserQosApplyConfiguration represents a declarative configuration of the UserQos type for use
 // with apply.
 //
-// UserQos is stored on the User. Clusters holds the ceilings keyed by cluster id.
+// UserQos is stored on the User. Workspaces holds the ceilings keyed by workspace id.
 // The top-level MaxResources and MaxRuntime are not used.
 type UserQosApplyConfiguration struct {
 	MaxResources *ResourceCapApplyConfiguration `json:"maxResources,omitempty"`
 	// MaxRuntime is the timeout ceiling in seconds, keyed by workspace scope
 	// (Train, Infer, Authoring, CICD, Ray, Sandbox). A missing or non-positive entry is unset.
 	MaxRuntime map[string]int                            `json:"maxRuntime,omitempty"`
-	Clusters   map[string]UserQosScopeApplyConfiguration `json:"clusters,omitempty"`
+	Workspaces map[string]UserQosScopeApplyConfiguration `json:"workspaces,omitempty"`
 }
 
 // UserQosApplyConfiguration constructs a declarative configuration of the UserQos type for use with
@@ -47,16 +47,16 @@ func (b *UserQosApplyConfiguration) WithMaxRuntime(entries map[string]int) *User
 	return b
 }
 
-// WithClusters puts the entries into the Clusters field in the declarative configuration
+// WithWorkspaces puts the entries into the Workspaces field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, the entries provided by each call will be put on the Clusters field,
-// overwriting an existing map entries in Clusters field with the same key.
-func (b *UserQosApplyConfiguration) WithClusters(entries map[string]UserQosScopeApplyConfiguration) *UserQosApplyConfiguration {
-	if b.Clusters == nil && len(entries) > 0 {
-		b.Clusters = make(map[string]UserQosScopeApplyConfiguration, len(entries))
+// If called multiple times, the entries provided by each call will be put on the Workspaces field,
+// overwriting an existing map entries in Workspaces field with the same key.
+func (b *UserQosApplyConfiguration) WithWorkspaces(entries map[string]UserQosScopeApplyConfiguration) *UserQosApplyConfiguration {
+	if b.Workspaces == nil && len(entries) > 0 {
+		b.Workspaces = make(map[string]UserQosScopeApplyConfiguration, len(entries))
 	}
 	for k, v := range entries {
-		b.Clusters[k] = v
+		b.Workspaces[k] = v
 	}
 	return b
 }

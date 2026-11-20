@@ -476,16 +476,16 @@ func (h *Handler) patchUser(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
-// clusterOnlyQos stores per-cluster ceilings. A qos without clusters clears the user's ceilings.
-// Memory is stored the same way as a cluster Qos.
-func clusterOnlyQos(qos *v1.UserQos) *v1.UserQos {
-	if qos == nil || len(qos.Clusters) == 0 {
+// workspaceOnlyQos stores per-workspace ceilings. A qos without workspaces clears the user's ceilings.
+// Memory is stored the same way as a workspace Qos.
+func workspaceOnlyQos(qos *v1.UserQos) *v1.UserQos {
+	if qos == nil || len(qos.Workspaces) == 0 {
 		return nil
 	}
 	copied := qos.DeepCopy()
-	for id, scope := range copied.Clusters {
+	for id, scope := range copied.Workspaces {
 		scope.MaxResources = view.NormalizeQosResources(scope.MaxResources)
-		copied.Clusters[id] = scope
+		copied.Workspaces[id] = scope
 	}
 	return copied
 }
@@ -516,7 +516,7 @@ func applyUserPatch(targetUser *v1.User, req *view.PatchUserRequest) {
 		v1.SetAnnotation(targetUser, v1.UserEmailAnnotation, *req.Email)
 	}
 	if req.Qos != nil {
-		targetUser.Spec.Qos = clusterOnlyQos(req.Qos)
+		targetUser.Spec.Qos = workspaceOnlyQos(req.Qos)
 	}
 }
 

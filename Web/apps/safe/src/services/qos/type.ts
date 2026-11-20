@@ -10,7 +10,7 @@ export interface QosScope {
 }
 
 export interface UserQos extends QosScope {
-  clusters?: Record<string, QosScope>
+  workspaces?: Record<string, QosScope>
 }
 
 export interface QosItem {
