@@ -159,8 +159,8 @@ func TestGetEnvsAPIKeysURL(t *testing.T) {
 	}
 }
 
-// The console returns after sign-in only to the path prefixes /envs names (console.return_prefixes): the
-// defaults while the key is unset, the configured list (without entries that are not plain path
+// The console returns after sign-in only to the path prefixes /envs names (console.return_prefixes): the four
+// it always had while the key is unset, the configured list (without entries that are not plain path
 // prefixes) when it is set, and an empty list, never null, when nothing is left.
 func TestGetEnvsConsoleReturnPrefixes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -180,7 +180,7 @@ func TestGetEnvsConsoleReturnPrefixes(t *testing.T) {
 
 	viper.Set("console.return_prefixes", nil)
 	resp, _ := get()
-	assert.Equal(t, []string{"/dispatron", "/autopilot", "/binding", "/blog-drafts", "/identity"}, resp.ConsoleReturnPrefixes)
+	assert.Equal(t, []string{"/dispatron", "/autopilot", "/binding", "/blog-drafts"}, resp.ConsoleReturnPrefixes)
 
 	for _, tt := range []struct {
 		name  string

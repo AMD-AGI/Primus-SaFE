@@ -18,7 +18,6 @@ describe('outsideConsoleReturn', () => {
       '/autopilot',
       '/binding',
       '/blog-drafts',
-      '/identity',
     ])
   })
 
@@ -31,8 +30,6 @@ describe('outsideConsoleReturn', () => {
     ['/binding/sign-in', `${SELF}/binding/sign-in`],
     ['/blog-drafts/', `${SELF}/blog-drafts/`],
     ['/blog-drafts/2026/11/post.html#c3', `${SELF}/blog-drafts/2026/11/post.html#c3`],
-    ['/identity/#accounts', `${SELF}/identity/#accounts`],
-    ['/identity/#keys', `${SELF}/identity/#keys`],
   ])('returns %s as a full-page target', (value, want) => {
     expect(outsideConsoleReturn(value, SELF)).toBe(want)
   })

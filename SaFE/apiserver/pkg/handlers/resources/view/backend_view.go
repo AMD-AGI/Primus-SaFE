@@ -37,8 +37,7 @@ type GetEnvResponse struct {
 	AccountsURL string `json:"accountsUrl,omitempty"`
 	// Page the console opens for API keys when AuthMode is external (auth.keys_console_url).
 	KeysURL string `json:"keysUrl,omitempty"`
-	// Whether to enable sso. This is sso.enable. When set, the console signs in with SSO, including
-	// when it opens the identity console. When unset, that console asks for a username and password.
+	// Whether to enable sso. This is sso.enable. The console uses it only when AuthMode is not external.
 	SSOEnable bool `json:"ssoEnable"`
 	// The authorization URL of the sso Secret provider, when AuthMode is not external and that provider
 	// is configured. The console uses it when SSOLoginUrl is empty. Absent in external mode.

@@ -66,7 +66,6 @@ import { debounce } from 'lodash'
 import AddDialog from './Components/AddDialog.vue'
 import KeyList from './Components/KeyList.vue'
 import { useUserStore } from '@/stores/user'
-import { openIdentityConsole } from '@/utils/identityConsole'
 
 const userStore = useUserStore()
 // With an external identity provider the apiserver refuses to issue keys: a key is created at the
@@ -78,7 +77,7 @@ const creatable = computed(() => userStore.apiKeyRouting.creatable)
 watch(
   () => (userStore.isExternalAuth ? userStore.envs?.keysUrl : ''),
   (url) => {
-    if (url) void openIdentityConsole(userStore.envs, url)
+    if (url) window.location.assign(url)
   },
   { immediate: true },
 )

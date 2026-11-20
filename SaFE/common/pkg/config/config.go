@@ -510,7 +510,7 @@ func GetConsoleAccessContact() string {
 
 // DefaultConsoleReturnPrefixes are the web apps on the console's host that a sign-in returns to
 // when console.return_prefixes is not set.
-var DefaultConsoleReturnPrefixes = []string{"/dispatron", "/autopilot", "/binding", "/blog-drafts", "/identity"}
+var DefaultConsoleReturnPrefixes = []string{"/dispatron", "/autopilot", "/binding", "/blog-drafts"}
 
 // consoleReturnPrefixRE is one or more plain path segments, none starting with a dot (so no "."
 // or ".." segment) and no trailing slash: "/dispatron", "/apps/blog".

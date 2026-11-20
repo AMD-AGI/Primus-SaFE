@@ -85,8 +85,7 @@ export interface EnvsResp {
   accountsUrl?: string
   // Page to open for API keys when authMode is external. Absent when the deployment sets none.
   keysUrl?: string
-  // sso.enable. When set, the console signs in with SSO, including when it opens the identity
-  // console. When unset, that console asks for a username and password.
+  // sso.enable. The console uses this only when authMode is not external.
   ssoEnable?: boolean
   // The console's sign-in when authMode is not external and the server has one with PKCE (sso.login).
   ssoLoginUrl?: string

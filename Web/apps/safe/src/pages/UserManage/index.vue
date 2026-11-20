@@ -155,7 +155,6 @@ import { useUserStore } from '@/stores/user'
 import { useWorkspaceStore } from '@/stores/workspace'
 import type { Workspace } from '@/services'
 import { useRouter } from 'vue-router'
-import { openIdentityConsole } from '@/utils/identityConsole'
 
 const searchName = ref('')
 const qosVisible = ref(false)
@@ -173,7 +172,7 @@ const router = useRouter()
 const userStore = useUserStore()
 const openIdentityAccounts = () => {
   const url = userStore.envs?.accountsUrl
-  if (url) void openIdentityConsole(userStore.envs, url)
+  if (url) window.location.assign(url)
 }
 // The server refuses registration and deletion when an external identity provider owns accounts.
 const creatable = computed(() => !userStore.isExternalAuth)
