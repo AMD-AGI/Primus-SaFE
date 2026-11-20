@@ -1187,14 +1187,15 @@ func (m *WorkloadMutator) mutateTimeout(ctx context.Context, workload *v1.Worklo
 	return nil
 }
 
-// runtimeCeiling is the qos timeout, in seconds, for this workload's workspace scope.
-// Zero means no timeout.
+// runtimeCeiling is the qos timeout, in seconds, for this workload's workspace scope,
+// including the workspace maxRuntime of that scope. Zero means no timeout.
 func runtimeCeiling(ctx context.Context, c client.Reader, workload *v1.Workload, workspace *v1.Workspace) (int, error) {
 	clusterID := v1.GetClusterId(workload)
 	if clusterID == "" && workspace != nil {
 		clusterID = workspace.Spec.Cluster
 	}
-	limits, err := commonqos.Ceiling(ctx, c, v1.GetUserId(workload), clusterID, string(commonworkload.GetScope(workload)))
+	limits, err := commonqos.CeilingInWorkspace(ctx, c, v1.GetUserId(workload), clusterID,
+		string(commonworkload.GetScope(workload)), workspace)
 	if err != nil {
 		return 0, err
 	}

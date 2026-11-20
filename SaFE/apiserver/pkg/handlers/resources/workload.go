@@ -614,14 +614,12 @@ func (h *Handler) authWorkloadUpdate(c *gin.Context, adminWorkload *v1.Workload,
 		}
 	}
 	if request.Timeout != nil && (adminWorkload.Spec.Timeout == nil || *request.Timeout != *adminWorkload.Spec.Timeout) {
-		scope := string(commonworkload.GetScope(adminWorkload))
-		limits, err := commonqos.Ceiling(c.Request.Context(), h.Client, v1.GetUserId(adminWorkload),
-			v1.GetClusterId(adminWorkload), scope)
+		ceiling, err := h.runtimeCeiling(c.Request.Context(), adminWorkload)
 		if err != nil {
 			return err
 		}
 		// A timeout above the qos limit for the scope, or no timeout, requires the highest-priority permission.
-		if limits.RuntimeSeconds > 0 && (*request.Timeout > limits.RuntimeSeconds || *request.Timeout <= 0) {
+		if ceiling > 0 && (*request.Timeout > ceiling || *request.Timeout <= 0) {
 			priorityKind := generatePriority(common.HighPriorityInt)
 			if err = h.authWorkloadAction(c, adminWorkload, v1.UpdateVerb, priorityKind, requestUser, roles); err != nil {
 				return err
@@ -636,6 +634,31 @@ func (h *Handler) authWorkloadUpdate(c *gin.Context, adminWorkload *v1.Workload,
 		}
 	}
 	return nil
+}
+
+// runtimeCeiling is the qos timeout, in seconds, for the workload's workspace scope, including
+// the workspace maxRuntime of that scope. Zero means no timeout.
+func (h *Handler) runtimeCeiling(ctx context.Context, workload *v1.Workload) (int, error) {
+	var workspace *v1.Workspace
+	if workload.Spec.Workspace != "" {
+		var err error
+		if workspace, err = h.getAdminWorkspace(ctx, workload.Spec.Workspace); err != nil {
+			if !apierrors.IsNotFound(err) {
+				return 0, err
+			}
+			workspace = nil
+		}
+	}
+	clusterID := v1.GetClusterId(workload)
+	if clusterID == "" && workspace != nil {
+		clusterID = workspace.Spec.Cluster
+	}
+	limits, err := commonqos.CeilingInWorkspace(ctx, h.Client, v1.GetUserId(workload), clusterID,
+		string(commonworkload.GetScope(workload)), workspace)
+	if err != nil {
+		return 0, err
+	}
+	return limits.RuntimeSeconds, nil
 }
 
 // authWorkloadPrivileged checks the workload/privileged grant in the workload's workspace for a
