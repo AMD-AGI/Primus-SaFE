@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -57,6 +58,7 @@ func TestPlanCleanup(t *testing.T) {
 	require.Equal(t, []string{"/w/pt-1/checkpoints/iter_0000009", "/w/pt-1/checkpoints/iter_0000029"}, got.Paths,
 		"slime saves the checkpoint after step N as iter_{N-1}")
 	require.Equal(t, 20, *got.KeptStep, "the lowest validation loss stays")
+	require.Equal(t, []int{10, 30}, got.CleanedSteps, "the plan names the steps it removes")
 
 	plan, err = h.planCleanup(ctx, cleanupRun("Stopped"), "none")
 	require.NoError(t, err)
@@ -118,14 +120,31 @@ func TestMarkersShowCleanedCheckpoints(t *testing.T) {
 	for _, row := range rows {
 		points[row.Name] = append(points[row.Name], row)
 	}
-	run := cleanupRun("Succeeded")
-	run.StageHistory = `[{"stage":"done","event":"checkpoints-cleaned","keptStep":20}]`
-	m := buildMarkers(run, points)
-	deleted := map[int]bool{}
-	for _, cp := range m.Checkpoints {
-		deleted[cp.Step] = cp.Deleted
+	deleted := func(stage string, events ...string) map[int]bool {
+		run := cleanupRun("Succeeded")
+		for i, e := range events {
+			events[i] = `{"stage":"done","event":"checkpoints-cleaned"` + e + `}`
+		}
+		run.Stage, run.StageHistory = stage, "["+strings.Join(events, ",")+"]"
+		out := map[int]bool{}
+		for _, cp := range buildMarkers(run, points).Checkpoints {
+			out[cp.Step] = cp.Deleted
+		}
+		return out
 	}
-	require.Equal(t, map[int]bool{10: true, 20: false, 30: true}, deleted)
+	require.Equal(t, map[int]bool{10: true, 20: false, 30: true}, deleted("", `,"keptStep":20`))
+	// A run that is past training also lists its last save, after step 31.
+	require.Equal(t, map[int]bool{10: true, 20: false, 30: true, 31: true},
+		deleted("done", `,"keptStep":20,"cleanedSteps":[10,30,31]`))
+	require.Equal(t, map[int]bool{10: true, 20: false, 30: false, 31: false},
+		deleted("done", `,"keptStep":20,"cleanedSteps":[10]`), "only the checkpoints the event names are gone")
+	require.Equal(t, map[int]bool{10: true, 20: false, 30: true, 31: false},
+		deleted("done", `,"keptStep":20,"cleanedSteps":[10]`, `,"keptStep":20,"cleanedSteps":[30]`),
+		"a later cleanup leaves what an earlier one removed as it is")
+	require.Equal(t, map[int]bool{10: true, 20: false, 30: true, 31: false}, deleted("done", `,"keptStep":20`),
+		"an event without the steps is of a cleanup made before the last save was listed, which it left")
+	require.Equal(t, map[int]bool{10: true, 20: true, 30: true, 31: true}, deleted("done", ``),
+		"a cleanup that kept none removed the directory")
 }
 
 // A cleanup that an export got ahead of, between its plan and its request, is taken back.

@@ -355,11 +355,13 @@ type cleanupBody struct {
 	Keep string `json:"keep"`
 }
 
-// checkpointCleanup is the cleanup_request column: the directories the controller removes and the step kept.
+// checkpointCleanup is the cleanup_request column: the directories the controller removes, the step kept and, for
+// a cleanup that keeps one, the steps removed.
 type checkpointCleanup struct {
-	Keep     string   `json:"keep"`
-	Paths    []string `json:"paths"`
-	KeptStep *int     `json:"keptStep,omitempty"`
+	Keep         string   `json:"keep"`
+	Paths        []string `json:"paths"`
+	KeptStep     *int     `json:"keptStep,omitempty"`
+	CleanedSteps []int    `json:"cleanedSteps,omitempty"`
 }
 
 // CleanupCheckpoints removes the checkpoints of a finished run, keeping the best one or none. The run controller
@@ -496,6 +498,7 @@ func (h *Handler) planCleanup(ctx context.Context, run *dbclient.PostTrainingRun
 				return "", commonerrors.NewBadRequest("the best checkpoint of the run is already deleted")
 			case !cp.Deleted && cp.Step != m.BestCheckpoint.Step:
 				plan.Paths = append(plan.Paths, fmt.Sprintf("%s/checkpoints/iter_%07d", base, checkpointIteration(cp.Step)))
+				plan.CleanedSteps = append(plan.CleanedSteps, cp.Step)
 			}
 		}
 		kept := m.BestCheckpoint.Step

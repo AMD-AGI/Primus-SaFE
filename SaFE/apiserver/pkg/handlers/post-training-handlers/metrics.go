@@ -32,7 +32,7 @@ const (
 	maxMetricRows = 200000
 	valLossMetric = "eval/val/loss"
 	// checkpointsCleanedEvent is the stage_history event of a finished checkpoint cleanup; keptStep names the
-	// checkpoint it kept, if any.
+	// checkpoint it kept, if any, and cleanedSteps the ones it then removed.
 	checkpointsCleanedEvent = "checkpoints-cleaned"
 
 	AxisStep    = "step"
@@ -369,6 +369,18 @@ func seriesComplete(run *dbclient.PostTrainingRun) bool {
 	return !run.MetricGap && !sum.Capped
 }
 
+// cleanedSteps returns the steps a checkpoints-cleaned event names as removed.
+func cleanedSteps(event map[string]interface{}) map[int]bool {
+	list, _ := event["cleanedSteps"].([]interface{})
+	steps := map[int]bool{}
+	for _, v := range list {
+		if step, ok := v.(float64); ok {
+			steps[int(step)] = true
+		}
+	}
+	return steps
+}
+
 // buildMarkers derives the checkpoint, best checkpoint, resume and failure markers of a run from its recipe, stage
 // history and points.
 func buildMarkers(run *dbclient.PostTrainingRun, points map[string][]*dbclient.PostTrainingRunMetric) markers {
@@ -379,7 +391,7 @@ func buildMarkers(run *dbclient.PostTrainingRun, points map[string][]*dbclient.P
 	if run.TrainType == registry.TrainTypeRL {
 		main = "rollout/raw_reward"
 	}
-	lastStep, done := 0, 0
+	lastStep, done, lastSave := 0, 0, 0
 	if rows := points[main]; len(rows) > 0 {
 		lastStep = rows[len(rows)-1].Step
 		done = lastStep + 1
@@ -400,6 +412,7 @@ func buildMarkers(run *dbclient.PostTrainingRun, points map[string][]*dbclient.P
 	// not tell where that is.
 	if trained(run) && seriesComplete(run) && done > 0 && (len(steps) == 0 || steps[len(steps)-1] != done) {
 		steps = append(steps, done)
+		lastSave = done
 	}
 	for _, step := range steps {
 		cp := checkpointMark{Step: step}
@@ -426,8 +439,18 @@ func buildMarkers(run *dbclient.PostTrainingRun, points map[string][]*dbclient.P
 	for _, e := range history {
 		if e["event"] == checkpointsCleanedEvent {
 			kept, keptOne := e["keptStep"].(float64)
+			cleaned := cleanedSteps(e)
 			for i := range m.Checkpoints {
-				m.Checkpoints[i].Deleted = m.Checkpoints[i].Deleted || !keptOne || m.Checkpoints[i].Step != int(kept)
+				cp := &m.Checkpoints[i]
+				switch {
+				case !keptOne:
+					cp.Deleted = true
+				case len(cleaned) > 0:
+					cp.Deleted = cp.Deleted || cleaned[cp.Step]
+				// An event without the steps is of a cleanup made before the last save was listed, which it left.
+				case cp.Step != int(kept) && cp.Step != lastSave:
+					cp.Deleted = true
+				}
 			}
 		}
 		if step, ok := e["resumeStep"].(float64); ok {
