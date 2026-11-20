@@ -198,8 +198,9 @@ func TestWorkloadTimeoutAboveQosNeedsLongRuntime(t *testing.T) {
 			},
 		}
 		roles := f.h.accessController.GetRoles(t.Context(), requestUser)
-		return f.h.authWorkloadUpdate(f.ctx(userId, workload.Name, ""), workload, requestUser, roles,
+		_, err := f.h.authWorkloadUpdate(f.ctx(userId, workload.Name, ""), workload, requestUser, roles,
 			&view.PatchWorkloadRequest{Timeout: &timeout})
+		return err
 	}
 	assert.NoError(t, update(userAdmin, 0))
 	assert.NoError(t, update(userAdmin, 9000))

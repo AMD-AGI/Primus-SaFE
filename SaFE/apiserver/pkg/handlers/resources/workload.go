@@ -260,6 +260,12 @@ func (h *Handler) createWorkloadImplWithHook(c *gin.Context, workload *v1.Worklo
 	if v1.GetUserName(workload) == "" {
 		v1.SetAnnotation(workload, v1.UserNameAnnotation, v1.GetUserName(requestUser))
 	}
+	runtimeCond, err := h.authWorkloadCreateRuntime(c, workload, requestUser, roles)
+	if err != nil {
+		klog.ErrorS(err, "failed to auth workload timeout", "workload", workload.Name,
+			"timeout", workload.GetTimeout(), "user", c.GetString(common.UserName))
+		return nil, err
+	}
 	if err = h.attachCICDEncryptedAPIKey(c, workload, requestUser); err != nil {
 		klog.ErrorS(err, "failed to attach CICD API key", "workload", workload.Name,
 			"user", c.GetString(common.UserName))
@@ -273,7 +279,7 @@ func (h *Handler) createWorkloadImplWithHook(c *gin.Context, workload *v1.Worklo
 			klog.ErrorS(err, "post-create workload cleanup failed", "workload", workload.Name)
 		}
 	}
-	if err = h.updateWorkloadPhase(c.Request.Context(), workload, v1.WorkloadPending, nil); err != nil {
+	if err = h.updateWorkloadPhase(c.Request.Context(), workload, v1.WorkloadPending, runtimeCond); err != nil {
 		return nil, err
 	}
 	klog.Infof("create workload, name: %s, user: %s/%s, priority: %d, timeout: %d, resources: %s",
@@ -572,7 +578,8 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 	if _, err = apiutils.ParseRequestBody(c.Request, req); err != nil {
 		return nil, commonerrors.NewBadRequest(err.Error())
 	}
-	if err = h.authWorkloadUpdate(c, adminWorkload, requestUser, roles, req); err != nil {
+	timeoutChange, err := h.authWorkloadUpdate(c, adminWorkload, requestUser, roles, req)
+	if err != nil {
 		return nil, err
 	}
 
@@ -581,6 +588,7 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 		if innerError = applyWorkloadPatch(adminWorkload, req); innerError != nil {
 			return innerError
 		}
+		timeoutChange.apply(adminWorkload)
 		if innerError = h.updateWorkload(ctx, adminWorkload, requestUser, req); innerError == nil {
 			return nil
 		}
@@ -595,44 +603,141 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to update workload", "name", adminWorkload.Name)
 		return nil, err
 	}
+	if timeoutChange != nil && timeoutChange.condition != nil {
+		if err = h.appendWorkloadCondition(ctx, adminWorkload, timeoutChange.condition); err != nil {
+			klog.ErrorS(err, "failed to record the runtime extension", "name", adminWorkload.Name)
+		}
+	}
 	klog.Infof("update workload, name: %s, request: %s, request.user: %s",
 		name, string(jsonutils.MarshalSilently(sanitizePatchWorkloadRequestForLog(req))), c.GetString(common.UserId))
 	return nil, nil
 }
 
 // authWorkloadUpdate performs authorization checks for workload update.
+// The returned change, nil when there is none, is what the patch does to the
+// runtime-extended-by mark.
 func (h *Handler) authWorkloadUpdate(c *gin.Context, adminWorkload *v1.Workload,
-	requestUser *v1.User, roles []*v1.Role, request *view.PatchWorkloadRequest) error {
+	requestUser *v1.User, roles []*v1.Role, request *view.PatchWorkloadRequest) (*runtimeChange, error) {
 	var err error
+	var change *runtimeChange
 	if err = h.authWorkloadAction(c, adminWorkload, v1.UpdateVerb, v1.WorkloadKind, requestUser, roles); err != nil {
-		return err
+		return nil, err
 	}
 	if request.Priority != nil && *request.Priority != adminWorkload.Spec.Priority {
 		priorityKind := generatePriority(*request.Priority)
 		if err = h.authWorkloadAction(c, adminWorkload, v1.UpdateVerb, priorityKind, requestUser, roles); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	if request.Timeout != nil && (adminWorkload.Spec.Timeout == nil || *request.Timeout != *adminWorkload.Spec.Timeout) {
 		ceiling, err := h.runtimeCeiling(c.Request.Context(), adminWorkload)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if aboveRuntimeCeiling(*request.Timeout, ceiling) {
 			if err = h.authWorkloadLongRuntime(c, adminWorkload, v1.UpdateVerb, *request.Timeout, ceiling,
 				requestUser, roles); err != nil {
-				return err
+				return nil, err
 			}
+			change = &runtimeChange{
+				extendedBy: requestUser.Name,
+				condition: newRuntimeExtendedCondition(fmt.Sprintf("runtime extended from %s to %s by %s",
+					formatRuntime(adminWorkload.GetTimeout()), formatRuntime(*request.Timeout), requestUserName(c, requestUser))),
+			}
+		} else if ceiling > 0 {
+			change = &runtimeChange{}
 		}
 	}
 	// A change to a workload that runs privileged changes what runs privileged, so it takes the
 	// grant its creation took.
 	if commonworkload.RunsPrivileged(adminWorkload) {
 		if err = h.authWorkloadPrivileged(c, adminWorkload, v1.UpdateVerb, requestUser, roles); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	return nil
+	return change, nil
+}
+
+// runtimeChange is what a timeout change does to WorkloadRuntimeExtendedByAnnotation.
+type runtimeChange struct {
+	// The user who set a timeout above the ceiling; empty removes the mark.
+	extendedBy string
+	// The timeline entry to record once the change is stored, if any.
+	condition *metav1.Condition
+}
+
+// apply sets or removes the mark. A nil change leaves the workload as it is.
+func (r *runtimeChange) apply(workload *v1.Workload) {
+	if r == nil {
+		return
+	}
+	if r.extendedBy == "" {
+		v1.RemoveAnnotation(workload, v1.WorkloadRuntimeExtendedByAnnotation)
+		return
+	}
+	v1.SetAnnotation(workload, v1.WorkloadRuntimeExtendedByAnnotation, r.extendedBy)
+}
+
+// authWorkloadCreateRuntime checks the workload/long-runtime grant for a new workload whose timeout
+// is above its runtime ceiling, or none, and marks it with WorkloadRuntimeExtendedByAnnotation. The
+// mark is removed first, so a workload never carries it unless this check set it. When it is set,
+// the timeline entry to record is returned. An unset timeout is filled from the ceiling by the
+// webhook and needs nothing.
+func (h *Handler) authWorkloadCreateRuntime(c *gin.Context, workload *v1.Workload,
+	requestUser *v1.User, roles []*v1.Role) (*metav1.Condition, error) {
+	v1.RemoveAnnotation(workload, v1.WorkloadRuntimeExtendedByAnnotation)
+	if workload.Spec.Timeout == nil {
+		return nil, nil
+	}
+	ceiling, err := h.runtimeCeiling(c.Request.Context(), workload)
+	if err != nil || !aboveRuntimeCeiling(*workload.Spec.Timeout, ceiling) {
+		return nil, err
+	}
+	if err = h.authWorkloadLongRuntime(c, workload, v1.CreateVerb, *workload.Spec.Timeout, ceiling,
+		requestUser, roles); err != nil {
+		return nil, err
+	}
+	v1.SetAnnotation(workload, v1.WorkloadRuntimeExtendedByAnnotation, requestUser.Name)
+	return newRuntimeExtendedCondition(fmt.Sprintf("runtime set to %s by %s, above the workspace limit %s",
+		formatRuntime(*workload.Spec.Timeout), requestUserName(c, requestUser), formatRuntime(ceiling))), nil
+}
+
+// newRuntimeExtendedCondition is the timeline entry of a timeout set above the runtime ceiling.
+func newRuntimeExtendedCondition(message string) *metav1.Condition {
+	return &metav1.Condition{
+		Type:               string(v1.RuntimeExtended),
+		Status:             metav1.ConditionTrue,
+		Reason:             "Extended",
+		Message:            message,
+		LastTransitionTime: metav1.NewTime(time.Now().UTC()),
+	}
+}
+
+// requestUserName is the name of the requesting user for messages, or its id when it has none.
+func requestUserName(c *gin.Context, requestUser *v1.User) string {
+	if name := c.GetString(common.UserName); name != "" {
+		return name
+	}
+	return requestUser.Name
+}
+
+// appendWorkloadCondition adds one timeline entry to the workload status. Unlike
+// updateWorkloadPhase it does not skip a type the workload already has.
+func (h *Handler) appendWorkloadCondition(ctx context.Context, workload *v1.Workload, cond *metav1.Condition) error {
+	name := workload.Name
+	return backoff.ConflictRetry(func() error {
+		base := workload.DeepCopy()
+		workload.Status.Conditions = append(workload.Status.Conditions, *cond)
+		err := h.Status().Patch(ctx, workload, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{}))
+		if apierrors.IsConflict(err) {
+			latest, getErr := h.getAdminWorkload(ctx, name)
+			if getErr != nil {
+				return getErr
+			}
+			workload = latest
+		}
+		return err
+	}, defaultRetryCount, defaultRetryDelay)
 }
 
 // aboveRuntimeCeiling reports whether a timeout is above a set ceiling. No timeout is above it.

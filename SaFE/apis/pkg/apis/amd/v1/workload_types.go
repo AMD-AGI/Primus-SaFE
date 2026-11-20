@@ -54,6 +54,8 @@ const (
 	AdminStopped  WorkloadConditionType = "AdminStopped"
 
 	AdminLowUtilization WorkloadConditionType = "AdminLowUtilization"
+	// A timeout above the runtime ceiling was set by a user holding workload/long-runtime.
+	RuntimeExtended WorkloadConditionType = "RuntimeExtended"
 )
 
 type WorkloadResource struct {

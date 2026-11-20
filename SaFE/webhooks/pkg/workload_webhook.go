@@ -1175,8 +1175,12 @@ func (m *WorkloadMutator) mutateStickNodes(ctx context.Context, workload *v1.Wor
 
 // mutateTimeout fills an empty timeout from the qos ceiling for this user, cluster and workspace scope.
 // The workload kind is mapped to a scope first. A shorter explicit timeout is kept.
-// A longer one is left for the validator to reject.
+// A longer one is left for the validator to reject. A workload the apiserver marked with
+// WorkloadRuntimeExtendedByAnnotation keeps its timeout, no timeout included.
 func (m *WorkloadMutator) mutateTimeout(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) error {
+	if v1.GetAnnotation(workload, v1.WorkloadRuntimeExtendedByAnnotation) != "" {
+		return nil
+	}
 	ceiling, err := runtimeCeiling(ctx, m.Client, workload, workspace)
 	if err != nil || ceiling <= 0 {
 		return err
@@ -1358,8 +1362,13 @@ func scaleReservationKey(userID, clusterID, name string) string {
 }
 
 // validateTimeout rejects a timeout above the qos ceiling for the workload's workspace scope.
-// It runs on create. A timeout change on update is authorized by the apiserver.
+// It runs on create. A timeout change on update is authorized by the apiserver. A workload the
+// apiserver marked with WorkloadRuntimeExtendedByAnnotation, which no request can set, was
+// authorized for workload/long-runtime and may have any timeout.
 func (v *WorkloadValidator) validateTimeout(ctx context.Context, workload *v1.Workload) error {
+	if v1.GetAnnotation(workload, v1.WorkloadRuntimeExtendedByAnnotation) != "" {
+		return nil
+	}
 	workspace, _ := getWorkspace(ctx, v.Client, workload.Spec.Workspace)
 	ceiling, err := runtimeCeiling(ctx, v.Client, workload, workspace)
 	if err != nil {
