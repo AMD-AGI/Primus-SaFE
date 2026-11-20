@@ -66,6 +66,8 @@ install_or_upgrade_helm_chart() {
 #                        provider, when something else routes it              -> auth.api_keys_url
 #   auth_api_keys_upstream  host[:port] of the identity provider's service,
 #                        which the console's nginx routes /api/v1/apikeys to  -> auth.api_keys_upstream
+#   auth_connection      identity connection of the SSO sign-in in external mode.
+#                        Omitted: okta-amd                                     -> auth.connection
 #   auth_accounts_url    page the console opens for accounts in external mode.
 #                        Omitted: /identity/#accounts                         -> auth.accounts_url
 #   auth_keys_console_url  page the console opens for API keys in external mode.
@@ -81,7 +83,7 @@ install_or_upgrade_helm_chart() {
 #                        running release already uses that name. A different stored
 #                        name is kept only when .env sets it.                    -> auth.scim.token_secret
 # JSON values are single-quoted in .env, e.g. auth_key_actors='["client-a"]'.
-AUTH_ENV_KEYS=(auth_mode auth_login_url auth_allow_oidc_only auth_provider_client auth_client_secret auth_identity_service_account auth_authenticators auth_group_mappings auth_key_actors auth_api_keys_url auth_api_keys_upstream auth_accounts_url auth_keys_console_url auth_scim_enabled auth_scim_identity_url auth_scim_public_url auth_scim_token_secret)
+AUTH_ENV_KEYS=(auth_mode auth_login_url auth_allow_oidc_only auth_provider_client auth_client_secret auth_identity_service_account auth_authenticators auth_group_mappings auth_key_actors auth_api_keys_url auth_api_keys_upstream auth_connection auth_accounts_url auth_keys_console_url auth_scim_enabled auth_scim_identity_url auth_scim_public_url auth_scim_token_secret)
 
 # check_live_auth refuses an upgrade that would drop the external authentication of a release.
 # helm renders every value from the chart defaults and the files it is given, so a release that
@@ -204,7 +206,7 @@ write_auth_values() {
   fi
   if ! command -v jq &> /dev/null; then
     # The break-glass alone, auth_mode=builtin, needs no jq to be written.
-    if [[ "${auth_mode:-}" == "builtin" && -z "${auth_login_url+x}${auth_allow_oidc_only+x}${auth_provider_client+x}${auth_client_secret+x}${auth_identity_service_account+x}${auth_authenticators+x}${auth_group_mappings+x}${auth_key_actors+x}${auth_api_keys_url+x}${auth_api_keys_upstream+x}${auth_accounts_url+x}${auth_keys_console_url+x}${auth_scim_enabled+x}${auth_scim_identity_url+x}${auth_scim_public_url+x}${auth_scim_token_secret+x}" ]]; then
+    if [[ "${auth_mode:-}" == "builtin" && -z "${auth_login_url+x}${auth_allow_oidc_only+x}${auth_provider_client+x}${auth_client_secret+x}${auth_identity_service_account+x}${auth_authenticators+x}${auth_group_mappings+x}${auth_key_actors+x}${auth_api_keys_url+x}${auth_api_keys_upstream+x}${auth_connection+x}${auth_accounts_url+x}${auth_keys_console_url+x}${auth_scim_enabled+x}${auth_scim_identity_url+x}${auth_scim_public_url+x}${auth_scim_token_secret+x}" ]]; then
       printf '{"auth":{"mode":"builtin"}}\n' > "$out"
       AUTH_VALUES_FILE="$out"
       return 0

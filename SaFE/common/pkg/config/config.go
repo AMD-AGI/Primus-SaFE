@@ -510,7 +510,7 @@ func GetConsoleAccessContact() string {
 
 // DefaultConsoleReturnPrefixes are the web apps on the console's host that a sign-in returns to
 // when console.return_prefixes is not set.
-var DefaultConsoleReturnPrefixes = []string{"/dispatron", "/autopilot", "/binding", "/blog-drafts"}
+var DefaultConsoleReturnPrefixes = []string{"/dispatron", "/autopilot", "/binding", "/blog-drafts", "/identity"}
 
 // consoleReturnPrefixRE is one or more plain path segments, none starting with a dot (so no "."
 // or ".." segment) and no trailing slash: "/dispatron", "/apps/blog".
@@ -1220,8 +1220,11 @@ func AllowOIDCOnly() bool { return getBool(authAllowOIDCOnly, false) }
 // call the identity service to register a SCIM target or to forward a status change.
 func ProviderClientEnabled() bool { return getBool(authProviderClient, false) }
 
-// GetAuthConnection returns auth.connection. Empty omits the connection parameter.
-func GetAuthConnection() string { return strings.TrimSpace(getString(authConnection, "")) }
+// DefaultAuthConnection is the identity connection of the SSO sign-in, used when auth.connection is unset or blank.
+const DefaultAuthConnection = "okta-amd"
+
+// GetAuthConnection returns auth.connection, or DefaultAuthConnection when blank.
+func GetAuthConnection() string { return stringOr(authConnection, DefaultAuthConnection) }
 
 // DefaultAccountsURL and DefaultKeysConsoleURL are the identity console's pages for accounts and
 // API keys, used when auth.accounts_url or auth.keys_console_url is unset or blank.

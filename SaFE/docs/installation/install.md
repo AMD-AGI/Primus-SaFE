@@ -106,7 +106,7 @@ The [install.sh](../../bootstrap/install.sh) script provides a one-click install
       `/login?redirect=<path>` get it back after sign-in only when the path is under one of
       `console.return_prefixes` (`.env`: `console_return_prefixes`, a JSON array in single quotes). Each entry is a
       plain path prefix (`/dispatron`, `/apps/x`: no trailing slash, no `.` or `..` segment); others are ignored.
-      Unset, the list is `/dispatron`, `/autopilot`, `/binding` and `/blog-drafts`; `'[]'` allows none. The console
+      Unset, the list is `/dispatron`, `/autopilot`, `/binding`, `/blog-drafts` and `/identity`; `'[]'` allows none. The console
       reads it from `/api/v1/envs` (`consoleReturnPrefixes`) and uses the default list while that cannot be read.
       For example, to also return to the Claw API's download links:
 

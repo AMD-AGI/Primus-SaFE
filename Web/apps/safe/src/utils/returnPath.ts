@@ -20,6 +20,7 @@ export const DEFAULT_OUTSIDE_CONSOLE_PREFIXES: readonly string[] = [
   '/autopilot',
   '/binding',
   '/blog-drafts',
+  '/identity',
 ]
 
 // One or more plain path segments, none starting with a dot (so no "." or ".." segment), and no
