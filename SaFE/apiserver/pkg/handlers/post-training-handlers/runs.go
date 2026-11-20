@@ -361,7 +361,7 @@ type checkpointCleanup struct {
 	Keep         string   `json:"keep"`
 	Paths        []string `json:"paths"`
 	KeptStep     *int     `json:"keptStep,omitempty"`
-	CleanedSteps []int    `json:"cleanedSteps,omitempty"`
+	CleanedSteps *[]int   `json:"cleanedSteps,omitempty"`
 }
 
 // CleanupCheckpoints removes the checkpoints of a finished run, keeping the best one or none. The run controller
@@ -491,6 +491,8 @@ func (h *Handler) planCleanup(ctx context.Context, run *dbclient.PostTrainingRun
 		if m.BestCheckpoint == nil {
 			return "", commonerrors.NewBadRequest("the run has no checkpoint with a validation loss to keep")
 		}
+		// The list of steps is there when it is empty: it tells the event of this cleanup from an older one.
+		steps := []int{}
 		for _, cp := range m.Checkpoints {
 			switch {
 			case cp.Step == m.BestCheckpoint.Step && cp.Deleted:
@@ -498,11 +500,11 @@ func (h *Handler) planCleanup(ctx context.Context, run *dbclient.PostTrainingRun
 				return "", commonerrors.NewBadRequest("the best checkpoint of the run is already deleted")
 			case !cp.Deleted && cp.Step != m.BestCheckpoint.Step:
 				plan.Paths = append(plan.Paths, fmt.Sprintf("%s/checkpoints/iter_%07d", base, checkpointIteration(cp.Step)))
-				plan.CleanedSteps = append(plan.CleanedSteps, cp.Step)
+				steps = append(steps, cp.Step)
 			}
 		}
 		kept := m.BestCheckpoint.Step
-		plan.KeptStep = &kept
+		plan.KeptStep, plan.CleanedSteps = &kept, &steps
 	default:
 		return "", commonerrors.NewBadRequest(`keep must be "best" or "none"`)
 	}

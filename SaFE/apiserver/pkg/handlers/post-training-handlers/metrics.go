@@ -388,16 +388,17 @@ func savedIteration(run *dbclient.PostTrainingRun) (int, bool) {
 	return *result.Iteration, true
 }
 
-// cleanedSteps returns the steps a checkpoints-cleaned event names as removed.
-func cleanedSteps(event map[string]interface{}) map[int]bool {
-	list, _ := event["cleanedSteps"].([]interface{})
+// cleanedSteps returns the steps a checkpoints-cleaned event names as removed, and whether it has that list, which
+// is empty for a cleanup that found none to remove.
+func cleanedSteps(event map[string]interface{}) (map[int]bool, bool) {
+	list, listed := event["cleanedSteps"].([]interface{})
 	steps := map[int]bool{}
 	for _, v := range list {
 		if step, ok := v.(float64); ok {
 			steps[int(step)] = true
 		}
 	}
-	return steps
+	return steps, listed
 }
 
 // buildMarkers derives the checkpoint, best checkpoint, resume and failure markers of a run from its recipe, stage
@@ -472,13 +473,13 @@ func buildMarkers(run *dbclient.PostTrainingRun, points map[string][]*dbclient.P
 	for _, e := range history {
 		if e["event"] == checkpointsCleanedEvent {
 			kept, keptOne := e["keptStep"].(float64)
-			cleaned := cleanedSteps(e)
+			cleaned, listed := cleanedSteps(e)
 			for i := range m.Checkpoints {
 				cp := &m.Checkpoints[i]
 				switch {
 				case !keptOne:
 					cp.Deleted = true
-				case len(cleaned) > 0:
+				case listed:
 					cp.Deleted = cp.Deleted || cleaned[cp.Step]
 				// An event without the steps is of a cleanup made before the last save was listed, which it left.
 				case cp.Step != int(kept) && cp.Step != appended:

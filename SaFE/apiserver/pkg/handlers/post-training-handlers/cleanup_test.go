@@ -58,7 +58,14 @@ func TestPlanCleanup(t *testing.T) {
 	require.Equal(t, []string{"/w/pt-1/checkpoints/iter_0000009", "/w/pt-1/checkpoints/iter_0000029"}, got.Paths,
 		"slime saves the checkpoint after step N as iter_{N-1}")
 	require.Equal(t, 20, *got.KeptStep, "the lowest validation loss stays")
-	require.Equal(t, []int{10, 30}, got.CleanedSteps, "the plan names the steps it removes")
+	require.Equal(t, []int{10, 30}, *got.CleanedSteps, "the plan names the steps it removes")
+
+	single := cleanupRun("Succeeded")
+	single.Recipe = `{"output":{"base":"/w/pt-1"},"choices":{"saveInterval":30}}`
+	plan, err = h.planCleanup(ctx, single, "best")
+	require.NoError(t, err)
+	require.JSONEq(t, `{"keep":"best","paths":null,"keptStep":30,"cleanedSteps":[]}`, plan,
+		"a plan with nothing to remove has its list, empty")
 
 	plan, err = h.planCleanup(ctx, cleanupRun("Stopped"), "none")
 	require.NoError(t, err)
@@ -143,6 +150,8 @@ func TestMarkersShowCleanedCheckpoints(t *testing.T) {
 		"a later cleanup leaves what an earlier one removed as it is")
 	require.Equal(t, map[int]bool{10: true, 20: false, 30: true, 31: false}, deleted("done", `,"keptStep":20`),
 		"an event without the steps is of a cleanup made before the last save was listed, which it left")
+	require.Equal(t, map[int]bool{10: false, 20: false, 30: false, 31: false},
+		deleted("done", `,"keptStep":20,"cleanedSteps":[]`), "a cleanup that found none to remove marks none")
 	require.Equal(t, map[int]bool{10: true, 20: true, 30: true, 31: true}, deleted("done", ``),
 		"a cleanup that kept none removed the directory")
 }
