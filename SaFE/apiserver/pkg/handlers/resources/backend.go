@@ -45,11 +45,11 @@ func (h *Handler) getEnvs(c *gin.Context) (interface{}, error) {
 	}
 	if commonconfig.GetAuthMode() == commonconfig.AuthModeExternal {
 		// The console starts an authorize request at identity. connection names one identity source.
-		// sso.enable selects it: okta-amd or local. sso.login, when set, is that authorize URL.
+		// sso.enable selects it: auth.connection (default okta-amd) or local. sso.login, when set, is that authorize URL.
 		resp.APIKeysURL = commonconfig.GetAuthAPIKeysURL()
 		resp.LoginURL = commonconfig.GetAuthLoginURL()
 		if resp.SSOEnable {
-			resp.Connection = "okta-amd"
+			resp.Connection = commonconfig.GetAuthConnection()
 		} else {
 			resp.Connection = "local"
 		}

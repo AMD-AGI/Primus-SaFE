@@ -149,6 +149,7 @@ auth_group_mappings='[{\"group\":\"admins\",\"roles\":[\"system-admin\"]}]'
 auth_key_actors='[\"client-a\"]'
 auth_api_keys_url=/api/v1/apikeys
 auth_api_keys_upstream=identity.idns.svc.cluster.local:8080
+auth_connection=okta-amd
 auth_accounts_url=/identity/#accounts
 auth_keys_console_url=/identity/#keys
 auth_scim_enabled=false

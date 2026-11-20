@@ -19,7 +19,7 @@ func TestConsoleURLAndProviderSwitches(t *testing.T) {
 
 	require.False(t, AllowOIDCOnly())
 	require.False(t, ProviderClientEnabled())
-	require.Empty(t, GetAuthConnection())
+	require.Equal(t, DefaultAuthConnection, GetAuthConnection())
 	require.Equal(t, DefaultAccountsURL, GetAuthAccountsURL())
 	require.Equal(t, DefaultKeysConsoleURL, GetAuthKeysConsoleURL())
 	require.Equal(t, DefaultSCIMTokenSecret, GetSCIMTokenSecret())

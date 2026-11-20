@@ -350,7 +350,7 @@ auth:
   # When true, the apiserver calls the identity service to register the SCIM target and to
   # forward a restricted-type change. Off by default: configure the SCIM target on the provider.
   provider_client: false
-  # Value of the connection parameter on the authorize request. Empty omits the parameter.
+  # Identity connection the console names on the authorize request when sso.enable is on. Empty: okta-amd.
   connection: ""
   # Page the console opens for accounts when mode is external. Empty: /identity/#accounts.
   accounts_url: ""

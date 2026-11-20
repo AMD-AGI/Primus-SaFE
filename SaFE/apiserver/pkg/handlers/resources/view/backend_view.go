@@ -31,7 +31,7 @@ type GetEnvResponse struct {
 	// Absent unless authentication is external and the deployment sets one. Not an SSO URL.
 	LoginURL string `json:"loginUrl,omitempty"`
 	// The one identity connection the console names on the authorize request when AuthMode is external.
-	// okta-amd when sso.enable is on, local when it is off. Absent when authentication is not external.
+	// auth.connection (default okta-amd) when sso.enable is on, local when it is off. Absent when authentication is not external.
 	Connection string `json:"connection,omitempty"`
 	// Page the console opens for accounts when AuthMode is external (auth.accounts_url).
 	AccountsURL string `json:"accountsUrl,omitempty"`
