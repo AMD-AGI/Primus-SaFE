@@ -885,6 +885,14 @@ func renderApiserverError(t *testing.T, values ...string) string {
 
 // TestChartRefusesAnIncompleteExternalAuth pins the external-mode checks the apiserver makes at start-up, so a
 // release the apiserver would refuse is refused at render time instead.
+// TestChartRendersTheLogoutURL pins auth.logout_url: the identity service's logout on the console host unless set.
+func TestChartRendersTheLogoutURL(t *testing.T) {
+	loadRendered(t, renderApiserverConfig(t, externalAuthArgs()...))
+	testifyassert.Equal(t, "/identity/api/v1/logout", GetAuthLogoutURL())
+	loadRendered(t, renderApiserverConfig(t, externalAuthArgs("--set-string", "auth.logout_url=/idp/api/v1/logout")...))
+	testifyassert.Equal(t, "/idp/api/v1/logout", GetAuthLogoutURL())
+}
+
 func TestChartRefusesAnIncompleteExternalAuth(t *testing.T) {
 	oidcConsole := []string{"--set", "auth.authenticators[1].type=oidc", "--set", "auth.authenticators[1].issuer=https://idp.example",
 		"--set", "auth.authenticators[1].audience=safe-console"}
@@ -907,11 +915,16 @@ func TestChartRefusesAnIncompleteExternalAuth(t *testing.T) {
 			"--set-string", "auth.scim.identity_url=https://idp.example"), ""},
 		{"scim and provider_client with an introspection URL", externalAuthArgs("--set", "auth.scim.enabled=true", "--set", "auth.provider_client=true",
 			"--set", "auth.authenticators[1].type=introspection", "--set-string", "auth.authenticators[1].url=https://idp.example/oauth/introspect"), ""},
-		{"sso.login without an oidc audience", externalAuthArgs("--set", "sso.login.enable=true"), `sso.login.client_id "safe-console"`},
-		{"sso.login with another oidc audience", externalAuthArgs(append([]string{"--set", "sso.login.enable=true",
-			"--set-string", "sso.login.client_id=other-console"}, oidcConsole...)...), `sso.login.client_id "other-console"`},
-		{"sso.login with the default client id as audience", externalAuthArgs(append([]string{"--set", "sso.login.enable=true"}, oidcConsole...)...), ""},
-		{"builtin mode is not checked", []string{"--set", "sso.login.enable=true"}, ""},
+		{"sso.login with no oidc entry for the console", externalAuthArgs("--set", "sso.login.enable=true"), ""},
+		{"sso.login with the default client id as an oidc audience", externalAuthArgs(append([]string{"--set", "sso.login.enable=true"}, oidcConsole...)...),
+			`auth.authenticators[1] is an oidc entry for audience "safe-console", which is sso.login.client_id`},
+		{"sso.login with its client id as an oidc audience", externalAuthArgs(append([]string{"--set", "sso.login.enable=true",
+			"--set-string", "sso.login.client_id=other-console", "--set-string", "auth.authenticators[1].audience=other-console"}, oidcConsole[:4]...)...),
+			`audience "other-console", which is sso.login.client_id`},
+		{"sso.login with another client id than the oidc audience", externalAuthArgs(append([]string{"--set", "sso.login.enable=true",
+			"--set-string", "sso.login.client_id=other-console"}, oidcConsole...)...), ""},
+		{"an oidc entry for the console's audience while sso.login is off", externalAuthArgs(oidcConsole...), ""},
+		{"builtin mode is not checked", append([]string{"--set", "sso.login.enable=true"}, oidcConsole...), ""},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			got := renderApiserverError(t, tt.values...)

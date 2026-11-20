@@ -1212,6 +1212,21 @@ func GetAuthAPIKeysURL() string {
 // authentication is external. External mode requires it.
 func GetAuthLoginURL() string { return getString(authLoginURL, "") }
 
+// DefaultAuthLogoutURL is the identity service's logout on the console host, used when auth.logout_url is
+// unset or blank.
+const DefaultAuthLogoutURL = "/identity/api/v1/logout"
+
+// GetAuthLogoutURL returns auth.logout_url, or DefaultAuthLogoutURL when blank: where the console ends the
+// identity provider's session when authentication is external. Only a path on the console's own origin is
+// returned, since the browser sends its session there; any other value gives "".
+func GetAuthLogoutURL() string {
+	url := stringOr(authLogoutURL, DefaultAuthLogoutURL)
+	if !strings.HasPrefix(url, "/") || strings.HasPrefix(url, "//") || strings.ContainsAny(url, "\\ \t\r\n?#") {
+		return ""
+	}
+	return url
+}
+
 // AllowOIDCOnly reports auth.allow_oidc_only. Off by default: an external chain then needs
 // an introspection or builtin authenticator.
 func AllowOIDCOnly() bool { return getBool(authAllowOIDCOnly, false) }

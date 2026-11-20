@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
-import { login, getUserData, getSelfData, logout, getEnvs } from '@/services/login'
+import { login, getUserData, getSelfData, logout, getEnvs, endProviderSession } from '@/services/login'
 import type { LoginReq, UserSelfData, EnvsResp } from '@/services'
-import { apiKeyRouting, isExternalAuth } from '@/utils/authMode'
+import { apiKeyRouting, externalLogoutUrl, isExternalAuth } from '@/utils/authMode'
 import { isLogEnabledForHost } from '@/utils'
 import { useWorkspaceStore } from './workspace'
 import { applySelfWorkspaces, loadSelfWorkspaces } from './selfWorkspaces'
@@ -196,6 +196,19 @@ export const useUserStore = defineStore('user', {
 
     async logout() {
       try {
+        // In external mode the session is the identity provider's: end it there first, so that it stops
+        // working everywhere (a copied cookie included), then let the apiserver clear what it set.
+        if (!this.envs) {
+          await this.fetchEnvs(true).catch(() => undefined)
+        }
+        const providerLogout = externalLogoutUrl(this.envs)
+        if (providerLogout) {
+          try {
+            await endProviderSession(providerLogout)
+          } catch (e) {
+            console.warn('[logout] the identity provider did not end the session', e)
+          }
+        }
         await logout()
       } finally {
         this.$patch({

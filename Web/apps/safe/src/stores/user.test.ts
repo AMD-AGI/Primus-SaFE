@@ -19,11 +19,14 @@ const getUserData = vi.fn()
 const getEnvs = vi.fn()
 const getSelfData = vi.fn()
 const getSelfWorkspaces = vi.fn()
+const logout = vi.fn()
+const endProviderSession = vi.fn()
 
 vi.mock('element-plus', () => ({ ElMessage: () => {}, ElMessageBox: {} }))
 vi.mock('@/services/login', () => ({
   login: vi.fn(),
-  logout: vi.fn(),
+  logout: (...a: unknown[]) => logout(...a),
+  endProviderSession: (...a: unknown[]) => endProviderSession(...a),
   getEnvs: (...a: unknown[]) => getEnvs(...a),
   getUserData: (...a: unknown[]) => getUserData(...a),
   getSelfData: (...a: unknown[]) => getSelfData(...a),
@@ -261,5 +264,62 @@ describe('ensureSessionOnce with a saved userId in external mode', () => {
     await store.ensureSessionOnce()
     expect(store.session).toBe('authenticated')
     expect(getSelfData).not.toHaveBeenCalled()
+  })
+})
+
+describe('logout', () => {
+  const calls: string[] = []
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    calls.length = 0
+    getEnvs.mockReset()
+    logout.mockReset().mockImplementation(async () => {
+      calls.push('apiserver')
+    })
+    endProviderSession.mockReset().mockImplementation(async (url: string) => {
+      calls.push('provider ' + url)
+    })
+  })
+
+  const signedInWith = (envs: Record<string, unknown> | null) => {
+    const store = useUserStore()
+    store.session = 'authenticated'
+    store.userId = 'u1'
+    store.profile = profile as any
+    store.envs = envs as any
+    return store
+  }
+
+  it('ends the identity provider session first in external mode, then the apiserver one', async () => {
+    const store = signedInWith({ authMode: 'external', logoutUrl: '/identity/api/v1/logout' })
+    await store.logout()
+    expect(calls).toEqual(['provider /identity/api/v1/logout', 'apiserver'])
+    expect(store.session).toBe('anonymous')
+    expect(store.userId).toBe('')
+  })
+
+  it('reads the mode first when it is not known yet', async () => {
+    getEnvs.mockResolvedValue({ authMode: 'external', logoutUrl: '/identity/api/v1/logout' })
+    const store = signedInWith(null)
+    await store.logout()
+    expect(calls).toEqual(['provider /identity/api/v1/logout', 'apiserver'])
+  })
+
+  it('still signs out here when the provider cannot be reached', async () => {
+    endProviderSession.mockRejectedValue(new Error('503'))
+    const store = signedInWith({ authMode: 'external', logoutUrl: '/identity/api/v1/logout' })
+    await store.logout()
+    expect(logout).toHaveBeenCalledTimes(1)
+    expect(store.session).toBe('anonymous')
+  })
+
+  it.each([
+    ['builtin mode', { authMode: 'builtin', logoutUrl: '/identity/api/v1/logout' }],
+    ['external mode with no usable path', { authMode: 'external', logoutUrl: 'https://idp.example.com/logout' }],
+  ])('only signs out at the apiserver in %s', async (_name, envs) => {
+    const store = signedInWith(envs)
+    await store.logout()
+    expect(endProviderSession).not.toHaveBeenCalled()
+    expect(calls).toEqual(['apiserver'])
   })
 })

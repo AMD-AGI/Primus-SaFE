@@ -399,9 +399,9 @@ func TestExternalModeExchangesLoginProviderCode(t *testing.T) {
 	commonconfig.SetValue("sso.login.enable", "true")
 	commonconfig.SetValue("sso.login.client_id", guardAudience)
 	require.True(t, commonconfig.IsSSOLoginEnable())
-	// The console token's audience must be accepted by one oidc authenticator. The issuer is never
-	// contacted: the exchange fails at the provider, which is what this test leaves to it.
-	oidc := map[string]any{"type": "oidc", "issuer": "https://idp.invalid", "audience": guardAudience, "jwks_url": "https://idp.invalid/jwks"}
+	// An oidc entry for the API's own audience, not the console's (which the start-up check refuses). The
+	// issuer is never contacted: the exchange fails at the provider, which is what this test leaves to it.
+	oidc := map[string]any{"type": "oidc", "issuer": "https://idp.invalid", "audience": "primus-safe", "jwks_url": "https://idp.invalid/jwks"}
 	e := guardEngineWithMappings(t, false, nil, []map[string]any{{"group": "platform-admins", "roles": []string{"system-admin"}}}, oidc)
 	// Registered after the engine, so it runs before the engine's cleanup re-checks the chain with sso.login off.
 	t.Cleanup(func() {

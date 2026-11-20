@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { apiKeyRouting, apiKeysProviderUrl, externalLoginUrl, isExternalAuth } from './authMode'
+import {
+  apiKeyRouting,
+  apiKeysProviderUrl,
+  externalLoginUrl,
+  externalLogoutUrl,
+  isExternalAuth,
+} from './authMode'
 
 const source = (rel: string) => readFileSync(new URL(`../${rel}`, import.meta.url), 'utf-8')
 
@@ -96,6 +102,30 @@ describe('externalLoginUrl', () => {
     ['javascript', { authMode: 'external' as const, loginUrl: 'javascript:alert(1)' }, ''],
   ])('%s', (_name, envs, want) => {
     expect(externalLoginUrl(envs)).toBe(want)
+  })
+})
+
+describe('externalLogoutUrl', () => {
+  it.each([
+    [
+      'external, the identity logout',
+      { authMode: 'external' as const, logoutUrl: '/identity/api/v1/logout' },
+      '/identity/api/v1/logout',
+    ],
+    ['external, none reported', { authMode: 'external' as const }, ''],
+    ['builtin ignores it', { authMode: 'builtin' as const, logoutUrl: '/identity/api/v1/logout' }, ''],
+    ['no mode (an older apiserver) ignores it', { logoutUrl: '/identity/api/v1/logout' }, ''],
+    [
+      'an absolute URL is not a path on this origin',
+      { authMode: 'external' as const, logoutUrl: 'https://idp.example.com/logout' },
+      '',
+    ],
+    ['a protocol relative URL', { authMode: 'external' as const, logoutUrl: '//idp.example.com/logout' }, ''],
+    ['a query', { authMode: 'external' as const, logoutUrl: '/identity/logout?x=1' }, ''],
+    ['a backslash', { authMode: 'external' as const, logoutUrl: '/\\idp.example.com' }, ''],
+    ['no envs yet', null, ''],
+  ])('%s', (_name, envs, want) => {
+    expect(externalLogoutUrl(envs)).toBe(want)
   })
 })
 

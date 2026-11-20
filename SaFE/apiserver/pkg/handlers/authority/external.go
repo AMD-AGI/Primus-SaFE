@@ -75,7 +75,7 @@ func InitExternalAuth(cli client.Client) error {
 	if err != nil {
 		return err
 	}
-	if err = requireLoginAudience(cfgs); err != nil {
+	if err = refuseLoginAudience(cfgs); err != nil {
 		return err
 	}
 	keyActors := map[string]struct{}{}
@@ -115,22 +115,26 @@ func warnStoredPlatformRoles(cfgs []commonconfig.AuthenticatorConfig) {
 	klog.Warning(msg)
 }
 
-// requireLoginAudience refuses an external deployment whose console sign-in token the chain cannot
-// accept. The ID token from sso.login carries sso.login.client_id as its audience.
-func requireLoginAudience(cfgs []commonconfig.AuthenticatorConfig) error {
+// refuseLoginAudience refuses an external chain that would take the console's ID token as a credential.
+// That token (audience sso.login.client_id) only proves to this apiserver, once, at sign-in, that the
+// browser was given the code; the browser's credential is the identity provider's own session, which
+// the identity provider and every service asking it accept. A chain that also accepted the ID token
+// would let the console count as signed in where nothing else does.
+func refuseLoginAudience(cfgs []commonconfig.AuthenticatorConfig) error {
 	if !commonconfig.IsSSOLoginEnable() {
 		return nil
 	}
-	want := commonconfig.GetSSOLoginClientId()
-	if want == "" {
+	login := commonconfig.GetSSOLoginClientId()
+	if login == "" {
 		return errors.New("sso.login.enable is set but sso.login.client_id is empty")
 	}
-	for _, c := range cfgs {
-		if strings.EqualFold(c.Type, "oidc") && c.Audience == want {
-			return nil
+	for i, c := range cfgs {
+		if strings.EqualFold(c.Type, "oidc") && c.Audience == login {
+			return fmt.Errorf("auth.authenticators[%d] is an oidc entry for audience %q, which is sso.login.client_id: "+
+				"the console's ID token must not be a credential; remove that entry", i, login)
 		}
 	}
-	return fmt.Errorf("sso.login.enable is set but no oidc authenticator audience equals sso.login.client_id %q", want)
+	return nil
 }
 
 func buildChain(cfgs []commonconfig.AuthenticatorConfig) (*extauth.Chain, error) {

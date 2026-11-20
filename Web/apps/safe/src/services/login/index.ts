@@ -39,6 +39,14 @@ export async function ssoLoginRaw(code: string, state?: string, codeVerifier?: s
 
 export const logout = (): Promise<void> => request.post(`/logout`)
 
+/**
+ * Ends the identity provider's session at its logout path on this origin (envs.logoutUrl), which revokes
+ * the session on the server and clears its cookies. Called outside the API's base URL and error handler:
+ * a failure is the caller's to judge.
+ */
+export const endProviderSession = (url: string): Promise<unknown> =>
+  axios.post(url, null, { withCredentials: true, timeout: 10000 })
+
 export const register = (data: RegisterReq): Promise<void> => request.post(`/users`, data)
 
 export const editUser = (id: string, data: EditUserResp) => request.patch(`/users/${id}`, data)

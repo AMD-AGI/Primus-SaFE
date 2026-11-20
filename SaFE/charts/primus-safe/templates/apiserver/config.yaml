@@ -219,15 +219,12 @@ data:
     {{- if not $admin }}
     {{- fail "auth.mode is external but auth.group_mappings grants system-admin to no group" }}
     {{- end }}
+    {{- /* The console's ID token (audience sso.login.client_id) is never a credential: the browser keeps the identity provider's session. */}}
     {{- if eq (toString (default false $login.enable)) "true" }}
-    {{- $audience := false }}
-    {{- range $a := default (list) .Values.auth.authenticators }}
+    {{- range $i, $a := default (list) .Values.auth.authenticators }}
     {{- if and (eq (lower (default "" $a.type)) "oidc") (eq (toString (default "" $a.audience)) (toString $loginClient)) }}
-    {{- $audience = true }}
+    {{- fail (printf "auth.authenticators[%d] is an oidc entry for audience %q, which is sso.login.client_id: the console's ID token must not be a credential; remove that entry" $i (toString $loginClient)) }}
     {{- end }}
-    {{- end }}
-    {{- if not $audience }}
-    {{- fail (printf "sso.login.enable is set but no oidc authenticator audience equals sso.login.client_id %q" (toString $loginClient)) }}
     {{- end }}
     {{- end }}
     {{- /* Only auth.provider_client calls the identity service, so only it needs the SCIM identity URL. */}}
@@ -258,6 +255,8 @@ data:
       authenticators: {{ toJson (default (list) .Values.auth.authenticators) }}
       group_mappings: {{ toJson (default (list) .Values.auth.group_mappings) }}
       login_url: {{ $loginURL | quote }}
+      # Where the console ends the identity provider's session at sign-out, a path on the console host.
+      logout_url: {{ default "/identity/api/v1/logout" .Values.auth.logout_url | quote }}
       allow_oidc_only: {{ default false .Values.auth.allow_oidc_only }}
       provider_client: {{ default false .Values.auth.provider_client }}
       connection: {{ default "okta-amd" .Values.auth.connection | quote }}

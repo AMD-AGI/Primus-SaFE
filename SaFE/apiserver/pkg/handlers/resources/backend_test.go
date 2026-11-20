@@ -89,6 +89,7 @@ func TestGetEnvsExternalLoginURL(t *testing.T) {
 	t.Cleanup(func() {
 		viper.Set("auth.mode", nil)
 		viper.Set("auth.login_url", nil)
+		viper.Set("auth.logout_url", nil)
 		viper.Set("auth.connection", nil)
 		viper.Set("sso.enable", nil)
 	})
@@ -102,6 +103,12 @@ func TestGetEnvsExternalLoginURL(t *testing.T) {
 	assert.False(t, got.SSOEnable)
 	assert.Equal(t, "local", got.Connection)
 	assert.Equal(t, "https://sign-in.example.com/start", got.LoginURL)
+	assert.Equal(t, "/identity/api/v1/logout", got.LogoutURL, "sign-out ends the identity service's session")
+	viper.Set("auth.logout_url", "/idp/logout")
+	assert.Equal(t, "/idp/logout", get().LogoutURL)
+	viper.Set("auth.logout_url", "https://elsewhere.example.com/logout")
+	assert.Empty(t, get().LogoutURL, "the browser's session is never sent to another origin")
+	viper.Set("auth.logout_url", nil)
 	viper.Set("sso.enable", true)
 	got = get()
 	assert.True(t, got.SSOEnable)
@@ -113,6 +120,7 @@ func TestGetEnvsExternalLoginURL(t *testing.T) {
 	assert.Equal(t, "builtin", got.AuthMode)
 	assert.False(t, got.SSOEnable)
 	assert.Empty(t, got.LoginURL)
+	assert.Empty(t, got.LogoutURL)
 	viper.Set("auth.mode", "external")
 
 	viper.Set("auth.login_url", "")

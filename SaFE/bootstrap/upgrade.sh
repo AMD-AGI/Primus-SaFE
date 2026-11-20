@@ -48,6 +48,8 @@ install_or_upgrade_helm_chart() {
 #   auth_login_url       where the console sends users to sign in.
 #                        Omitted: https://<sub_domain>.<domain>/login/password.
 #                        A stored value is not kept.                            -> auth.login_url
+#   auth_logout_url      path on the console host where sign-out ends the identity
+#                        provider's session. Omitted: /identity/api/v1/logout  -> auth.logout_url
 #   auth_allow_oidc_only true | false. true allows a chain without an
 #                        introspection or builtin authenticator              -> auth.allow_oidc_only
 #   auth_provider_client true | false. true lets the apiserver call the
@@ -83,7 +85,7 @@ install_or_upgrade_helm_chart() {
 #                        running release already uses that name. A different stored
 #                        name is kept only when .env sets it.                    -> auth.scim.token_secret
 # JSON values are single-quoted in .env, e.g. auth_key_actors='["client-a"]'.
-AUTH_ENV_KEYS=(auth_mode auth_login_url auth_allow_oidc_only auth_provider_client auth_client_secret auth_identity_service_account auth_authenticators auth_group_mappings auth_key_actors auth_api_keys_url auth_api_keys_upstream auth_connection auth_accounts_url auth_keys_console_url auth_scim_enabled auth_scim_identity_url auth_scim_public_url auth_scim_token_secret)
+AUTH_ENV_KEYS=(auth_mode auth_login_url auth_logout_url auth_allow_oidc_only auth_provider_client auth_client_secret auth_identity_service_account auth_authenticators auth_group_mappings auth_key_actors auth_api_keys_url auth_api_keys_upstream auth_connection auth_accounts_url auth_keys_console_url auth_scim_enabled auth_scim_identity_url auth_scim_public_url auth_scim_token_secret)
 
 # check_live_auth refuses an upgrade that would drop the external authentication of a release.
 # helm renders every value from the chart defaults and the files it is given, so a release that
@@ -206,7 +208,7 @@ write_auth_values() {
   fi
   if ! command -v jq &> /dev/null; then
     # The break-glass alone, auth_mode=builtin, needs no jq to be written.
-    if [[ "${auth_mode:-}" == "builtin" && -z "${auth_login_url+x}${auth_allow_oidc_only+x}${auth_provider_client+x}${auth_client_secret+x}${auth_identity_service_account+x}${auth_authenticators+x}${auth_group_mappings+x}${auth_key_actors+x}${auth_api_keys_url+x}${auth_api_keys_upstream+x}${auth_connection+x}${auth_accounts_url+x}${auth_keys_console_url+x}${auth_scim_enabled+x}${auth_scim_identity_url+x}${auth_scim_public_url+x}${auth_scim_token_secret+x}" ]]; then
+    if [[ "${auth_mode:-}" == "builtin" && -z "${auth_login_url+x}${auth_logout_url+x}${auth_allow_oidc_only+x}${auth_provider_client+x}${auth_client_secret+x}${auth_identity_service_account+x}${auth_authenticators+x}${auth_group_mappings+x}${auth_key_actors+x}${auth_api_keys_url+x}${auth_api_keys_upstream+x}${auth_connection+x}${auth_accounts_url+x}${auth_keys_console_url+x}${auth_scim_enabled+x}${auth_scim_identity_url+x}${auth_scim_public_url+x}${auth_scim_token_secret+x}" ]]; then
       printf '{"auth":{"mode":"builtin"}}\n' > "$out"
       AUTH_VALUES_FILE="$out"
       return 0

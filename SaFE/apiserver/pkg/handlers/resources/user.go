@@ -680,6 +680,14 @@ func (h *Handler) getAdminUser(ctx context.Context, userId string) (*v1.User, er
 	return user, nil
 }
 
+// ssoTokenInstance is the SSO sign-in the login handler uses, nil when there is none.
+var ssoTokenInstance = func() authority.TokenInterface {
+	if inst := authority.SSOInstance(); inst != nil {
+		return inst
+	}
+	return nil
+}
+
 // login implements user authentication logic.
 // Handles different user types and performs authentication based on the request type.
 func (h *Handler) login(c *gin.Context) (interface{}, error) {
@@ -706,7 +714,7 @@ func (h *Handler) login(c *gin.Context) (interface{}, error) {
 		if !ssoOn {
 			return nil, commonerrors.NewInternalError("SSO is not enabled")
 		}
-		tokenInstance = authority.SSOInstance()
+		tokenInstance = ssoTokenInstance()
 	} else {
 		tokenInstance = authority.DefaultTokenInstance()
 	}
@@ -719,7 +727,11 @@ func (h *Handler) login(c *gin.Context) (interface{}, error) {
 		CodeVerifier: query.CodeVerifier,
 		Username:     query.Name,
 		Password:     query.Password,
+		ClientIP:     c.ClientIP(),
 	}
+	// External mode: the identity provider's session in this browser is the sign-in (sso_token.go).
+	tokenInput.SessionCookie, _ = c.Cookie(authority.CookieToken)
+	tokenInput.SessionUserType, _ = c.Cookie(common.UserType)
 	user, resp, err := tokenInstance.Login(c.Request.Context(), tokenInput)
 
 	if err != nil {
@@ -743,7 +755,11 @@ func (h *Handler) login(c *gin.Context) (interface{}, error) {
 		Token:            resp.Token,
 		UserResponseItem: h.cvtToUserResponseItem(c.Request.Context(), user),
 	}
-	if query.IsFromConsole {
+	if commonconfig.GetAuthMode() == commonconfig.AuthModeExternal {
+		// The browser keeps the identity provider's session cookie, which this response must not
+		// replace, and no other credential is handed out.
+		result.Token = ""
+	} else if query.IsFromConsole {
 		setCookie(c, result, query.Type)
 	}
 	klog.Infof("user login successfully, userName: %s, userId: %s", result.Name, result.Id)
