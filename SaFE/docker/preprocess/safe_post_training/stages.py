@@ -793,13 +793,16 @@ class Runner:
             if self.reward_rejected:
                 raise StageError("train", "the reward service rejected the key", retry=False)
             raise StageError("train", "training exited with code %d" % code)
+        # The command can end within a tick of its last save, before the retention ran for it.
+        self.checkpoint_tick()
 
     def checkpoint_tick(self):
         """Notice a checkpoint that finished saving: it counts as progress and the disk usage is reported."""
         latest = self.adapter.latest_checkpoint(self.run_dir)
         if latest != self.checkpoint:
             self.checkpoint = latest
-            self.watchdog.saved()
+            if self.watchdog:
+                self.watchdog.saved()
             self.apply_retention(latest)
             self.report_disk()
 

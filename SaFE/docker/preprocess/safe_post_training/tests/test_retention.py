@@ -12,7 +12,7 @@ import sys
 
 import pytest
 
-from safe_post_training import metrics, stages
+from safe_post_training import launch, metrics, stages
 from safe_post_training.frameworks.slime.adapter import Adapter as SlimeAdapter
 from safe_post_training.tests.test_launch import FakeAdapter, markers, recipe_for, run
 
@@ -174,6 +174,38 @@ def test_rl_and_keep_all(tmp_path):
     save(tmp_path, 1, 2)
     r.apply_retention(3)
     assert kept(tmp_path) == [1, 2, 3]
+
+
+SAVES = """
+import os, sys
+for step in (4, 9, 11):
+    os.makedirs(os.path.join(sys.argv[1], "checkpoints", "iter_%07d" % step))
+    with open(os.path.join(sys.argv[1], "checkpoints", "latest_checkpointed_iteration.txt"), "w") as f:
+        f.write(str(step))
+"""
+
+
+class SavingAdapter(SlimeAdapter):
+    """Reads slime's checkpoint trackers and trains with a command that saves three checkpoints and ends."""
+
+    def train_command(self, recipe, run_dir):
+        return [sys.executable, "-c", SAVES, run_dir], {}, {}
+
+
+def test_retention_runs_for_a_save_the_training_ended_right_after(tmp_path):
+    """A training that ends within a tick of its last save still has the retention run for that save, with a
+    watchdog that never got to tick and with none."""
+    for name in ("watched", "unwatched"):
+        (tmp_path / name).mkdir()
+        r, out = runner(tmp_path / name, {"trainType": "sft", "checkpoint": {"keepLast": 1}})
+        r.adapter = SavingAdapter()
+        if name == "watched":
+            r.watchdog = launch.Watchdog(r.emitter, interval=3600)
+        r.stage_train()
+        assert kept(tmp_path / name) == [11], name
+        notices = [m[1] for m in markers(out) if m[0] == "[STAGE]"]
+        assert [n["detail"] for n in notices if n.get("state") == "retention"] == \
+            [{"deleted": [4, 9], "kept": [11]}], name
 
 
 def test_validation_losses_survive_a_restart(tmp_path):
