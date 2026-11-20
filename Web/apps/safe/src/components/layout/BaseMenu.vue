@@ -226,6 +226,7 @@ import MenuItem from './MenuItem.vue'
 import { useUserStore } from '@/stores/user'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useDark } from '@vueuse/core'
+import { isLogEnabledForHost } from '@/utils'
 import { menuIcons } from './menuIcons'
 import type { ScopesKeys } from '@/services/base/type'
 
@@ -575,7 +576,7 @@ watchEffect(() => {
       index: '/auditlogs',
       name: 'Audit Logs',
       icon: menuIcons.fault,
-      canAccess: hasManagerAccess.value, // Admin only
+      canAccess: hasManagerAccess.value && isLogEnabledForHost(), // Admin only
     },
     {
       index: '/workload-manage',
