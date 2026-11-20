@@ -396,6 +396,21 @@ func savedIteration(run *dbclient.PostTrainingRun) (int, bool) {
 	return *result.Iteration, true
 }
 
+// bestBefore returns the save of the interval before step first that has the lowest validation loss, the earliest
+// one among equals.
+func bestBefore(valLoss map[int]float64, interval, first int) (int, bool) {
+	best, found := 0, false
+	for step, loss := range valLoss {
+		if step < interval || step >= first || step%interval != 0 {
+			continue
+		}
+		if !found || loss < valLoss[best] || (loss == valLoss[best] && step < best) {
+			best, found = step, true
+		}
+	}
+	return best, found
+}
+
 // cleanedSteps returns the steps a checkpoints-cleaned event names as removed, and whether it has that list, which
 // is empty for a cleanup that found none to remove.
 func cleanedSteps(event map[string]interface{}) (map[int]bool, bool) {
@@ -446,6 +461,10 @@ func buildMarkers(run *dbclient.PostTrainingRun, points map[string][]*dbclient.P
 		count, first := end/interval, interval
 		if count > maxCheckpointMarks {
 			first, count = (count-maxCheckpointMarks+1)*interval, maxCheckpointMarks
+			// The best save of those the bound leaves out is listed with the latest ones: it may be the best of all.
+			if step, ok := bestBefore(valLoss, interval, first); ok {
+				steps = append(steps, step)
+			}
 		}
 		for i := 0; i < count; i++ {
 			steps = append(steps, first+i*interval)

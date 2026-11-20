@@ -258,6 +258,37 @@ func TestTheListOfCheckpointsIsBounded(t *testing.T) {
 		Recipe: `{"choices":{"saveInterval":1}}`}
 	points := map[string][]*dbclient.PostTrainingRunMetric{"train/loss": rows("train/loss", 2999999, 1)}
 	require.Len(t, buildMarkers(far, points).Checkpoints, maxCheckpointMarks, "a step of a point is bounded too")
+
+	// The best save is the best of all, also when the bound leaves it out of the latest ones: it is listed with
+	// them, so that the retention's marks and a cleanup that keeps the best one name the save that is kept.
+	kept := &dbclient.PostTrainingRun{TrainType: "sft", Status: "Succeeded", Stage: "done",
+		Recipe:     `{"choices":{"saveInterval":1},"checkpoint":{"keepLast":2,"keepBest":true}}`,
+		ResultLine: `[SUCCESS] {"run":"pt-1","stage":"export","output":"/w/pt-1/f","iteration":3000000}`}
+	m := buildMarkers(kept, map[string][]*dbclient.PostTrainingRunMetric{
+		valLossMetric: rows(valLossMetric, 3, 0.3, 5, 0.1, 7, 0.1, 2995000, 0.5, 3000001, 0.7)})
+	require.Equal(t, 5, m.BestCheckpoint.Step, "the earliest of the saves with the lowest loss")
+	require.Len(t, m.Checkpoints, maxCheckpointMarks+1)
+	var present []int
+	for _, cp := range m.Checkpoints {
+		if !cp.Deleted {
+			present = append(present, cp.Step)
+		}
+	}
+	require.Equal(t, []int{5, 3000000, 3000001}, present)
+
+	// A best save among the latest ones is listed once, after the best of those the bound leaves out.
+	m = buildMarkers(kept, map[string][]*dbclient.PostTrainingRunMetric{
+		valLossMetric: rows(valLossMetric, 5, 0.9, 2995000, 0.1)})
+	require.Equal(t, 2995000, m.BestCheckpoint.Step)
+	require.Len(t, m.Checkpoints, maxCheckpointMarks+1)
+	require.Equal(t, 5, m.Checkpoints[0].Step)
+	for i := 1; i < len(m.Checkpoints); i++ {
+		require.Less(t, m.Checkpoints[i-1].Step, m.Checkpoints[i].Step, "the steps are in order")
+	}
+	kept.Recipe = `{"choices":{"saveInterval":3},"checkpoint":{"keepLast":2,"keepBest":true}}`
+	m = buildMarkers(kept, map[string][]*dbclient.PostTrainingRunMetric{
+		valLossMetric: rows(valLossMetric, 4, 0.1, 6, 0.2)})
+	require.Equal(t, 6, m.BestCheckpoint.Step, "a loss at a step that is no save of the interval names no save")
 }
 
 // Stopping a workload records who stopped it and deletes it, and a missing one is fine.
