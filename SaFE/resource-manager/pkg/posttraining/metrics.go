@@ -414,7 +414,8 @@ func (m *mainMetric) observe(step int64, value float64) {
 	m.Seen++
 }
 
-// rewind drops the summary points after step when a new attempt resumes from it.
+// rewind drops the summary points after step when a new attempt resumes from it. A main metric whose latest
+// point was replaced goes back to the last point the sparkline keeps, and is dropped when it keeps none.
 func (s *metricSummary) rewind(step int64) {
 	if m := s.Main; m != nil {
 		kept := m.Spark[:0]
@@ -424,6 +425,13 @@ func (s *metricSummary) rewind(step int64) {
 			}
 		}
 		m.Spark = kept
+		switch {
+		case m.Step <= step:
+		case len(kept) == 0:
+			s.Main = nil
+		default:
+			m.Step, m.Value = kept[len(kept)-1].Step, kept[len(kept)-1].Value
+		}
 	}
 	if b := s.BestValLoss; b != nil && b.Step > step {
 		s.BestValLoss = nil

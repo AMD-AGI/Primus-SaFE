@@ -184,6 +184,39 @@ func TestBackfilledPointsDoNotMoveTheMainMetricBack(t *testing.T) {
 		Spark: []summaryPoint{{Value: 2}}}, *in.sum.Main)
 }
 
+// A resume takes the main metric back with the sparkline, to the last point that was not replaced, and the points
+// the backfill fills in for the new attempt move it forward from there.
+func TestAResumeTakesTheMainMetricBack(t *testing.T) {
+	resumed := func(step int) *ingestion {
+		first := newTestIngestion(100)
+		feed(first, stageLine("a1", "train", "running", `{"resumeStep":0}`),
+			metricLine("a1", 1, 1, `{"train/loss":1}`), metricLine("a1", 2, 10, `{"train/loss":0.3}`))
+		first.finish()
+		next := newTestIngestion(100)
+		next.cur, next.sum = first.cur, first.sum
+		feed(next, stageLine("a2", "train", "running", fmt.Sprintf(`{"resumeStep":%d}`, step)),
+			metricLine("a2", 3, 8, `{"eval/acc":0.4}`))
+		next.finish()
+		return next
+	}
+	next := resumed(5)
+	require.Equal(t, mainMetric{Name: "train/loss", Step: 1, Value: 1, Stride: 1, Seen: 2,
+		Spark: []summaryPoint{{Step: 1, Value: 1}}}, *next.sum.Main, "step 10 of the first attempt was replaced")
+	in := newTestIngestion(100)
+	in.cur, in.sum, in.backfill = next.cur, next.sum, true
+	feed(in, metricLine("a2", 1, 6, `{"train/loss":0.6}`), metricLine("a2", 2, 7, `{"train/loss":0.55}`))
+	require.Len(t, in.finish(), 2)
+	require.Equal(t, []summaryPoint{{Step: 1, Value: 1}, {Step: 6, Value: 0.6}, {Step: 7, Value: 0.55}},
+		in.sum.Main.Spark)
+	require.Equal(t, 0.55, in.sum.Main.Value)
+
+	require.Nil(t, resumed(0).sum.Main, "a resume that replaces every point leaves none to show")
+	sparse := loadSummary(`{"main":{"name":"train/loss","step":10,"value":0.3,"spark":[{"step":1,"value":1}],` +
+		`"stride":2,"seen":2}}`)
+	sparse.rewind(10)
+	require.Equal(t, 0.3, sparse.Main.Value, "a resume from the latest step replaces nothing")
+}
+
 // A resumed attempt replaces the points after its resume step.
 func TestIngestionResumeDropsReplacedPoints(t *testing.T) {
 	in := newTestIngestion(100)
