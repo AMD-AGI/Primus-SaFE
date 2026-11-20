@@ -611,6 +611,16 @@ func TestExternalLoginKeepsTheIdentitySession(t *testing.T) {
 	assert.Contains(t, err.Error(), ErrInvalidToken)
 	_, _, err = login("code-legacy", TokenInput{SessionCookie: idToken, SessionUserType: "sso"})
 	assertUnauthorized(err, ErrInvalidToken)
+
+	// A delegated token of the same user, which the chain accepts as a credential, is not a sign-in: it acts
+	// for the user through another party and is not the identity provider's session in this browser.
+	delegated := f.idToken(map[string]any{"aud": "primus-safe", "act": map[string]any{"client_id": "agent-x"},
+		"scope": "safe.api"})
+	userID, err = probe(t, &http.Cookie{Name: CookieToken, Value: delegated}, &http.Cookie{Name: "userType", Value: "sso"})
+	require.NoError(t, err, "the chain must accept the delegated token, or the refusal below proves nothing")
+	assert.Equal(t, "u-1", userID)
+	_, _, err = login("code-delegated", TokenInput{SessionCookie: delegated, SessionUserType: "sso"})
+	assertUnauthorized(err, "does not hold a session of the identity provider")
 }
 
 // A chain that would take the console's ID token as a credential is refused at start-up.

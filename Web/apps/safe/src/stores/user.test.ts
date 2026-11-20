@@ -268,15 +268,25 @@ describe('ensureSessionOnce with a saved userId in external mode', () => {
 })
 
 describe('logout', () => {
+  // A model of the deployment, not a blind success: the apiserver authenticates its /logout with the identity
+  // provider's session cookie, which the provider's logout clears. Once it is gone the apiserver answers 401,
+  // and the global error handler, unless the call is quiet, sends the browser to the sign-in page.
   const calls: string[] = []
+  let providerSession = true
   beforeEach(() => {
     setActivePinia(createPinia())
     calls.length = 0
+    providerSession = true
     getEnvs.mockReset()
-    logout.mockReset().mockImplementation(async () => {
+    logout.mockReset().mockImplementation(async (quiet?: boolean) => {
+      if (!providerSession) {
+        calls.push(quiet ? 'apiserver 401' : 'apiserver 401, redirect to /login')
+        throw Object.assign(new Error('401'), { response: { status: 401 } })
+      }
       calls.push('apiserver')
     })
     endProviderSession.mockReset().mockImplementation(async (url: string) => {
+      providerSession = false
       calls.push('provider ' + url)
     })
   })
@@ -290,10 +300,10 @@ describe('logout', () => {
     return store
   }
 
-  it('ends the identity provider session first in external mode, then the apiserver one', async () => {
+  it('signs out at the apiserver while the session still works, then ends it at the provider', async () => {
     const store = signedInWith({ authMode: 'external', logoutUrl: '/identity/api/v1/logout' })
-    await store.logout()
-    expect(calls).toEqual(['provider /identity/api/v1/logout', 'apiserver'])
+    await expect(store.logout()).resolves.toBeUndefined()
+    expect(calls).toEqual(['apiserver', 'provider /identity/api/v1/logout'])
     expect(store.session).toBe('anonymous')
     expect(store.userId).toBe('')
   })
@@ -301,15 +311,23 @@ describe('logout', () => {
   it('reads the mode first when it is not known yet', async () => {
     getEnvs.mockResolvedValue({ authMode: 'external', logoutUrl: '/identity/api/v1/logout' })
     const store = signedInWith(null)
-    await store.logout()
-    expect(calls).toEqual(['provider /identity/api/v1/logout', 'apiserver'])
+    await expect(store.logout()).resolves.toBeUndefined()
+    expect(calls).toEqual(['apiserver', 'provider /identity/api/v1/logout'])
+  })
+
+  it('still ends the provider session, with no redirect, when the apiserver refuses', async () => {
+    providerSession = false
+    const store = signedInWith({ authMode: 'external', logoutUrl: '/identity/api/v1/logout' })
+    await expect(store.logout()).resolves.toBeUndefined()
+    expect(calls).toEqual(['apiserver 401', 'provider /identity/api/v1/logout'])
+    expect(store.session).toBe('anonymous')
   })
 
   it('still signs out here when the provider cannot be reached', async () => {
     endProviderSession.mockRejectedValue(new Error('503'))
     const store = signedInWith({ authMode: 'external', logoutUrl: '/identity/api/v1/logout' })
-    await store.logout()
-    expect(logout).toHaveBeenCalledTimes(1)
+    await expect(store.logout()).resolves.toBeUndefined()
+    expect(calls).toEqual(['apiserver'])
     expect(store.session).toBe('anonymous')
   })
 

@@ -196,20 +196,28 @@ export const useUserStore = defineStore('user', {
 
     async logout() {
       try {
-        // In external mode the session is the identity provider's: end it there first, so that it stops
-        // working everywhere (a copied cookie included), then let the apiserver clear what it set.
         if (!this.envs) {
           await this.fetchEnvs(true).catch(() => undefined)
         }
         const providerLogout = externalLogoutUrl(this.envs)
-        if (providerLogout) {
-          try {
-            await endProviderSession(providerLogout)
-          } catch (e) {
-            console.warn('[logout] the identity provider did not end the session', e)
-          }
+        if (!providerLogout) {
+          await logout()
+          return
         }
-        await logout()
+        // In external mode the session is the identity provider's. The apiserver's logout is authenticated
+        // with that session, so it goes first, while the session still works, and quietly: a failure must
+        // not send the browser to the sign-in page before the provider's session is ended. Then end the
+        // session at the provider, so that it stops working everywhere (a copied cookie included).
+        try {
+          await logout(true)
+        } catch (e) {
+          console.warn('[logout] the apiserver did not sign out', e)
+        }
+        try {
+          await endProviderSession(providerLogout)
+        } catch (e) {
+          console.warn('[logout] the identity provider did not end the session', e)
+        }
       } finally {
         this.$patch({
           session: 'anonymous',
