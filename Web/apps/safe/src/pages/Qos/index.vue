@@ -4,8 +4,22 @@
     <el-button type="primary" round :icon="Plus" class="m-t-4 text-black" @click="router.push('/qos/create')">
       Create QoS
     </el-button>
+    <div class="m-t-3 qos-hint">
+      Each row sets the CPU, memory, GPU and timeout ceilings for one workspace. An empty value means that field is
+      not limited. The example is not applied. A user's own ceiling in a workspace takes precedence for each field it
+      sets; set it in
+      <el-link type="primary" class="qos-hint-link" v-route="{ path: '/usermanage' }">User Management</el-link>.
+    </div>
   </div>
   <el-card class="mt-6 safe-card" shadow="never">
+    <div class="qos-example">
+      <span class="qos-example-tag">Example</span>
+      <span>workspace-a</span>
+      <span>CPU 256</span>
+      <span>Memory 2048Gi</span>
+      <span>GPU 64</span>
+      <span>{{ formatRuntime(exampleRuntime) }}</span>
+    </div>
     <el-table
       :data="items"
       size="large"
@@ -55,6 +69,9 @@ import { Plus } from '@element-plus/icons-vue'
 import { deleteQos, listQos } from '@/services/qos'
 import { formatRuntime, type QosItem } from '@/services/qos/type'
 
+/** exampleRuntime illustrates timeouts. It is display-only and never sent to the server. */
+const exampleRuntime = { Train: 168 * 3600, Infer: 720 * 3600 }
+
 const router = useRouter()
 const loading = ref(false)
 const items = ref<QosItem[]>([])
@@ -85,3 +102,27 @@ const onDelete = (name: string) => {
 
 onMounted(load)
 </script>
+
+<style scoped>
+.qos-hint {
+  color: var(--safe-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.qos-hint-link {
+  font-size: 13px;
+  vertical-align: baseline;
+}
+.qos-example {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+  margin-top: 8px;
+  color: var(--safe-muted);
+  font-size: 13px;
+}
+.qos-example-tag {
+  font-weight: 500;
+}
+</style>
