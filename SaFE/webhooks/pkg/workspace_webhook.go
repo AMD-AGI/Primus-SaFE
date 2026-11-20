@@ -910,8 +910,8 @@ func validateLowUtilization(workspace *v1.Workspace) error {
 		case legacy:
 			_, ruleErrs := validateLowUtilizationRule(prefix, v1.LowUtilizationRule{Threshold: policy.Threshold, Window: policy.Window})
 			errs = append(errs, ruleErrs...)
-		case len(policy.Rules) == 0 && policy.MaxRuntime == "":
-			errs = append(errs, fmt.Errorf("%s: set at least one rule or a maxRuntime", prefix))
+		case len(policy.Rules) == 0:
+			errs = append(errs, fmt.Errorf("%s: set at least one rule or the legacy threshold and window", prefix))
 		}
 		if len(policy.Rules) > maxLowUtilizationRules {
 			errs = append(errs, fmt.Errorf("%s: at most %d rules, got %d", prefix, maxLowUtilizationRules, len(policy.Rules)))
@@ -928,13 +928,6 @@ func validateLowUtilization(workspace *v1.Workspace) error {
 				errs = append(errs, fmt.Errorf("%s: window %s repeats the window of rules[%d]", rulePrefix, rule.Window, first))
 			} else {
 				windows[window] = i
-			}
-		}
-		if policy.MaxRuntime != "" {
-			if d, err := time.ParseDuration(policy.MaxRuntime); err != nil {
-				errs = append(errs, fmt.Errorf("%s: invalid maxRuntime %q: %v", prefix, policy.MaxRuntime, err))
-			} else if d < 5*time.Minute || d > 30*24*time.Hour {
-				errs = append(errs, fmt.Errorf("%s: maxRuntime must be between 5m and 720h, got %s", prefix, policy.MaxRuntime))
 			}
 		}
 		if (legacy || len(policy.Rules) > 0 || policy.Mode != "") &&

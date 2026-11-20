@@ -28,7 +28,6 @@ func TestMetricsRegisteredAndUsable(t *testing.T) {
 	WorkloadRescheduleTotal.Inc()
 	LowUtilDetectedTotal.WithLabelValues("c1").Inc()
 	LowUtilStoppedTotal.WithLabelValues("c1").Inc()
-	LowUtilMaxRuntimeStoppedTotal.WithLabelValues("c1").Inc()
 	LowUtilSkippedNoDataTotal.WithLabelValues("c1").Inc()
 	LowUtilClusterSkippedTotal.WithLabelValues("c1", "unsupported").Inc()
 
@@ -44,7 +43,6 @@ func TestMetricsRegisteredAndUsable(t *testing.T) {
 		"safe_workload_reschedule_total":                 false,
 		"safe_low_util_detected_total":                   false,
 		"safe_low_util_stopped_total":                    false,
-		"safe_low_util_max_runtime_stopped_total":        false,
 		"safe_low_util_skipped_no_data_total":            false,
 		"safe_low_util_cluster_skipped_total":            false,
 	}

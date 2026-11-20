@@ -119,10 +119,6 @@ spec:
                       description: Time after the workload starts before it is checked,
                         e.g. 1h
                       type: string
-                    maxRuntime:
-                      description: Stop the workload once it has run longer than this
-                        since it started, e.g. 3h (5m to 720h)
-                      type: string
                     mode:
                       description: Average compares the across-node average, Min the
                         least busy node. Required with a rule.

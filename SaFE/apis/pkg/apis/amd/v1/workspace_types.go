@@ -100,8 +100,6 @@ type LowUtilizationPolicy struct {
 	Window string `json:"window,omitempty"`
 	// A workload counts as idle when any rule matches (at most 5, each with its own window)
 	Rules []LowUtilizationRule `json:"rules,omitempty"`
-	// Stop the workload once it has run longer than this since it started, e.g. 3h (5m to 720h)
-	MaxRuntime string `json:"maxRuntime,omitempty"`
 	// Average compares the across-node average, Min the least busy node. Required with a rule.
 	Mode LowUtilizationMode `json:"mode,omitempty"`
 	// Time after the workload starts before it is checked, e.g. 1h

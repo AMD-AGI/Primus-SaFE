@@ -40,8 +40,6 @@ const (
 	lowUtilReasonDetected  = "Detected_"
 	lowUtilReasonWouldStop = "DryRunWouldStop_"
 	lowUtilReasonRecovered = "Recovered_"
-	// AdminLowUtilization condition reason of a dry-run policy whose maxRuntime has passed.
-	lowUtilReasonMaxRuntime = "DryRunMaxRuntime"
 )
 
 var errLowUtilNoClient = errors.New("no Robust client for the cluster")
@@ -146,14 +144,6 @@ func (r *LowUtilizationController) runOnce(ctx context.Context) {
 	now := r.now()
 	checked := make([]lowUtilCandidate, 0, len(candidates))
 	for _, c := range candidates {
-		stopped, err := r.enforceMaxRuntime(ctx, c, now)
-		if err != nil {
-			klog.ErrorS(err, "[low-util] failed to enforce maxRuntime", "workload", c.workload.Name)
-			continue
-		}
-		if stopped {
-			continue
-		}
 		if len(c.policy.EffectiveRules()) == 0 {
 			if err = r.clearDetected(ctx, c.workload); err != nil {
 				klog.ErrorS(err, "[low-util] failed to clear the detected mark", "workload", c.workload.Name)
@@ -220,33 +210,6 @@ func (r *LowUtilizationController) collectCandidates(ctx context.Context) ([]low
 		candidates = append(candidates, lowUtilCandidate{workload: w, policy: policy, cluster: cluster})
 	}
 	return candidates, nil
-}
-
-// enforceMaxRuntime stops a workload that has run for the maxRuntime of its
-// policy, or records it once in dry run, and reports whether it was stopped.
-func (r *LowUtilizationController) enforceMaxRuntime(ctx context.Context,
-	c lowUtilCandidate, now time.Time) (bool, error) {
-	maxRuntime := parseLowUtilDuration(c.policy.MaxRuntime)
-	w := c.workload
-	if maxRuntime <= 0 || now.Sub(w.Status.StartTime.Time) < maxRuntime {
-		return false, nil
-	}
-	if c.policy.DryRun {
-		klog.Infof("[low-util] dry run, workload %s would be stopped: running longer than %s", w.Name, c.policy.MaxRuntime)
-		return false, r.addCondition(ctx, w, jobutils.NewCondition(string(v1.AdminLowUtilization),
-			fmt.Sprintf("dry run: the workload would be stopped now for running longer than %s", c.policy.MaxRuntime),
-			lowUtilReasonMaxRuntime))
-	}
-	if err := jobutils.MarkWorkloadStopped(ctx, r.Client, w, jobutils.StopReasonMaxRuntime,
-		fmt.Sprintf("stopped: running longer than %s (workspace policy)", c.policy.MaxRuntime)); err != nil {
-		return false, err
-	}
-	jmmetrics.LowUtilMaxRuntimeStoppedTotal.WithLabelValues(c.cluster).Inc()
-	if err := r.Delete(ctx, w); err != nil {
-		klog.ErrorS(err, "failed to delete workload", "workload", w.Name)
-		return true, client.IgnoreNotFound(err)
-	}
-	return true, nil
 }
 
 // queryGPUWindows asks Robust once per cluster and distinct rule window for the

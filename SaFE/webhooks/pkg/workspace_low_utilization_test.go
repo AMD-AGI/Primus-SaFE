@@ -28,8 +28,8 @@ func TestValidateLowUtilization(t *testing.T) {
 		return p
 	}
 	rules := v1.LowUtilizationPolicy{
-		Rules:      []v1.LowUtilizationRule{{Threshold: 11, Window: "30m"}, {Threshold: 30, Window: "1h"}},
-		MaxRuntime: "3h", Mode: v1.LowUtilizationAverage, GracePeriod: "10m",
+		Rules: []v1.LowUtilizationRule{{Threshold: 11, Window: "30m"}, {Threshold: 30, Window: "1h"}},
+		Mode:  v1.LowUtilizationAverage, GracePeriod: "10m",
 	}
 	withRules := func(change func(p *v1.LowUtilizationPolicy)) v1.LowUtilizationPolicy {
 		p := rules
@@ -64,11 +64,10 @@ func TestValidateLowUtilization(t *testing.T) {
 		{"negative grace period", v1.TrainScope, with(func(p *v1.LowUtilizationPolicy) { p.GracePeriod = "-1m" }), "gracePeriod must not be negative"},
 		{"negative notify before", v1.TrainScope, with(func(p *v1.LowUtilizationPolicy) { p.NotifyBefore = "-1m" }), "notifyBefore must not be negative"},
 
-		{"rules only", v1.TrainScope, withRules(func(p *v1.LowUtilizationPolicy) { p.MaxRuntime = "" }), ""},
-		{"rules and maxRuntime", v1.TrainScope, rules, ""},
-		{"maxRuntime only without mode", v1.TrainScope, v1.LowUtilizationPolicy{MaxRuntime: "3h"}, ""},
-		{"maxRuntime bounds", v1.TrainScope, v1.LowUtilizationPolicy{MaxRuntime: "720h"}, ""},
-		{"empty policy", v1.TrainScope, v1.LowUtilizationPolicy{Mode: v1.LowUtilizationAverage}, "lowUtilization[Train]: set at least one rule or a maxRuntime"},
+		{"rules", v1.TrainScope, rules, ""},
+		{"empty policy", v1.TrainScope, v1.LowUtilizationPolicy{Mode: v1.LowUtilizationAverage},
+			"lowUtilization[Train]: set at least one rule or the legacy threshold and window"},
+		{"durations only", v1.TrainScope, v1.LowUtilizationPolicy{GracePeriod: "1h", DryRun: true}, "set at least one rule"},
 		{"legacy and rules", v1.TrainScope, withRules(func(p *v1.LowUtilizationPolicy) { p.Threshold, p.Window = 5, "30m" }), "not both"},
 		{"legacy threshold and rules", v1.TrainScope, withRules(func(p *v1.LowUtilizationPolicy) { p.Threshold = 5 }), "not both"},
 		{"duplicate window", v1.TrainScope, withRules(func(p *v1.LowUtilizationPolicy) {
@@ -87,9 +86,6 @@ func TestValidateLowUtilization(t *testing.T) {
 		{"rule window too long", v1.TrainScope, withRules(func(p *v1.LowUtilizationPolicy) { p.Rules[0].Window = "25h" }),
 			"lowUtilization[Train].rules[0]: window must be between 5m and 24h"},
 		{"rules without mode", v1.TrainScope, withRules(func(p *v1.LowUtilizationPolicy) { p.Mode = "" }), "invalid mode"},
-		{"unparsable maxRuntime", v1.TrainScope, withRules(func(p *v1.LowUtilizationPolicy) { p.MaxRuntime = "3 hours" }), "invalid maxRuntime"},
-		{"maxRuntime too short", v1.TrainScope, v1.LowUtilizationPolicy{MaxRuntime: "4m"}, "maxRuntime must be between 5m and 720h"},
-		{"maxRuntime too long", v1.TrainScope, v1.LowUtilizationPolicy{MaxRuntime: "721h"}, "maxRuntime must be between 5m and 720h"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -23,8 +23,6 @@ type LowUtilizationPolicyApplyConfiguration struct {
 	Window *string `json:"window,omitempty"`
 	// A workload counts as idle when any rule matches (at most 5, each with its own window)
 	Rules []LowUtilizationRuleApplyConfiguration `json:"rules,omitempty"`
-	// Stop the workload once it has run longer than this since it started, e.g. 3h (5m to 720h)
-	MaxRuntime *string `json:"maxRuntime,omitempty"`
 	// Average compares the across-node average, Min the least busy node. Required with a rule.
 	Mode *amdv1.LowUtilizationMode `json:"mode,omitempty"`
 	// Time after the workload starts before it is checked, e.g. 1h
@@ -67,14 +65,6 @@ func (b *LowUtilizationPolicyApplyConfiguration) WithRules(values ...*LowUtiliza
 		}
 		b.Rules = append(b.Rules, *values[i])
 	}
-	return b
-}
-
-// WithMaxRuntime sets the MaxRuntime field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the MaxRuntime field is set to the value of the last call.
-func (b *LowUtilizationPolicyApplyConfiguration) WithMaxRuntime(value string) *LowUtilizationPolicyApplyConfiguration {
-	b.MaxRuntime = &value
 	return b
 }
 
