@@ -16,8 +16,6 @@ import {
   type PreviewResp,
   type RunDetail,
   type SubmitRequest,
-  type TemplateContent,
-  type TemplateItem,
 } from '@/services/postTraining'
 
 export const STEPS = [
@@ -60,12 +58,12 @@ export function newRequest(workspace: string): SubmitRequest {
 /** A deep copy of plain JSON data. */
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T
 
-/** The recipe snapshot fields of a run that a copy or a template made from it starts from. */
+/** The recipe snapshot fields of a run that a copy made from it starts from. */
 interface RunSnapshot {
   trainType?: 'sft' | 'rl'
   method?: string
   framework?: string
-  model?: { id?: string; spec?: string }
+  model?: { id?: string }
   data?: { trainId?: string }
   choices?: Choices
   layout?: { nodes?: number }
@@ -75,8 +73,8 @@ interface RunSnapshot {
 }
 
 /**
- * Returns the request a run's recipe snapshot gives a copy or a template, under the run's name; the image, priority
- * and timeout are the caller's to decide.
+ * Returns the request a run's recipe snapshot gives a copy, under the run's name; the image, priority and timeout
+ * are the caller's to decide.
  */
 export function requestFromRun(run: RunDetail): SubmitRequest {
   const rec = (run.recipe ?? {}) as RunSnapshot
@@ -95,74 +93,6 @@ export function requestFromRun(run: RunDetail): SubmitRequest {
     evaluation: clone(rec.evaluation ?? {}),
     tracking: rec.tracking ? clone(rec.tracking) : { wandb: {} },
   }
-}
-
-/** The spec a run's recipe matched. */
-export function specOfRun(run: RunDetail): string | undefined {
-  return ((run.recipe ?? {}) as RunSnapshot).model?.spec
-}
-
-/**
- * Returns what a template keeps of a request: the options and settings, and the base model and datasets when
- * include says so. The image stays out, so runs from the template use the current default image.
- */
-export function templateContent(
-  form: SubmitRequest,
-  include: { model: boolean; data: boolean },
-): TemplateContent {
-  const { nodes, gpusPerNode, priority, timeoutSeconds, maxRetry } = form.resources
-  const content: TemplateContent = clone({
-    framework: form.framework,
-    trainType: form.trainType,
-    method: form.method,
-    preset: form.preset,
-    choices: form.choices,
-    resources: { nodes, gpusPerNode, priority, timeoutSeconds, maxRetry },
-    export: form.export,
-    evaluation: form.evaluation,
-    tracking: form.tracking,
-  })
-  if (include.model) content.modelId = form.modelId
-  if (include.data) {
-    content.datasetId = form.datasetId
-    if (form.evalDatasetId) content.evalDatasetId = form.evalDatasetId
-  }
-  return content
-}
-
-/** The parallel settings that follow a spec's defaults. */
-const PARALLEL_CHOICES: (keyof Choices)[] = ['tp', 'pp', 'cp', 'ep', 'sequenceParallel']
-
-/**
- * Applies a template to a request: its options and settings and, when it keeps them, its base model and datasets.
- * When the template was saved for another spec than the one modelSpec names, the parallel settings go back to the
- * spec's defaults; it returns whether they did.
- */
-export function applyTemplate(
-  form: SubmitRequest,
-  tpl: TemplateItem,
-  modelSpec?: (modelId: string) => string | undefined,
-): boolean {
-  const c = clone(tpl.content)
-  Object.assign(form, {
-    framework: c.framework ?? form.framework,
-    trainType: c.trainType ?? tpl.trainType,
-    method: c.method ?? tpl.method,
-    preset: c.preset,
-    choices: c.choices ?? {},
-    export: c.export ?? form.export,
-    evaluation: c.evaluation ?? {},
-    tracking: c.tracking ?? { wandb: {} },
-    templateId: tpl.templateId,
-  })
-  if (c.resources) Object.assign(form.resources, c.resources)
-  if (c.modelId) form.modelId = c.modelId
-  if (c.datasetId) form.datasetId = c.datasetId
-  if (c.evalDatasetId) form.evalDatasetId = c.evalDatasetId
-  const spec = modelSpec?.(form.modelId)
-  if (!tpl.spec || !spec || spec === tpl.spec) return false
-  for (const k of PARALLEL_CHOICES) delete form.choices[k]
-  return true
 }
 
 /** Groups the errors and warnings of a preview by the wizard step that fixes them; step 0 holds the rest. */
@@ -277,13 +207,9 @@ export function createWizard(workspace: string, nodeFlavor?: string) {
   const fieldValues = (name: string): OptionValue[] =>
     config.value?.options?.fields?.[name]?.values ?? []
 
-  // Set while a template is edited: its train type, method and framework are the template's own.
-  const templateEdit = ref(false)
-
   return {
     workspace,
     form,
-    templateEdit,
     models,
     config,
     trainDatasets,

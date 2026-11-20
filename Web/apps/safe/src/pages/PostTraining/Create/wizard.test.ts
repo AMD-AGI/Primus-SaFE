@@ -1,12 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import {
-  applyTemplate,
-  diagnosticsByStep,
-  newRequest,
-  requestFromRun,
-  templateContent,
-} from './wizard'
-import { fieldStep, type RunDetail, type TemplateItem } from '@/services/postTraining'
+import { diagnosticsByStep, newRequest, requestFromRun } from './wizard'
+import { fieldStep, type RunDetail } from '@/services/postTraining'
 
 vi.mock('@/services/request', () => ({ default: {} }))
 
@@ -48,7 +42,7 @@ describe('newRequest', () => {
   })
 })
 
-describe('templates', () => {
+describe('requestFromRun', () => {
   const run = {
     runId: 'pt-1',
     workspace: 'ws',
@@ -77,34 +71,5 @@ describe('templates', () => {
     expect(req.choices).toEqual({ lr: 0.00002, tp: 2 })
     expect(req.resources).toEqual({ nodes: 2, gpusPerNode: 8 })
     expect(req.tracking).toEqual({ wandb: {} })
-  })
-
-  it('keeps the model and data only when asked, and never the image', () => {
-    const req = { ...requestFromRun(run), resources: { nodes: 2, gpusPerNode: 8, image: 'img:9' } }
-    const options = templateContent(req, { model: false, data: false })
-    expect(options.modelId).toBeUndefined()
-    expect(options.datasetId).toBeUndefined()
-    expect(options.resources).toEqual({ nodes: 2, gpusPerNode: 8 })
-    const all = templateContent(req, { model: true, data: true })
-    expect([all.modelId, all.datasetId]).toEqual(['m1', 'd1'])
-  })
-
-  it('applies a template and resets parallel settings for another spec', () => {
-    const tpl = {
-      templateId: 'tpl-1',
-      trainType: 'sft',
-      method: 'full',
-      spec: 'qwen3-8B',
-      content: { choices: { lr: 0.00002, tp: 2, pp: 2 }, resources: { nodes: 2 } },
-    } as unknown as TemplateItem
-    const form = { ...newRequest('ws'), modelId: 'm-4b' }
-    expect(applyTemplate(form, tpl, () => 'qwen3-4B')).toBe(true)
-    expect(form.choices).toEqual({ lr: 0.00002 })
-    expect(form.templateId).toBe('tpl-1')
-    // A template without a model keeps the chosen one.
-    expect(form.modelId).toBe('m-4b')
-    const same = { ...newRequest('ws'), modelId: 'm-8b' }
-    expect(applyTemplate(same, tpl, () => 'qwen3-8B')).toBe(false)
-    expect(same.choices.tp).toBe(2)
   })
 })
