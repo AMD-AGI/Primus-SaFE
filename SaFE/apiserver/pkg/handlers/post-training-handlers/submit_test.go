@@ -143,6 +143,28 @@ func TestAnExperimentWhoseWorkloadIsRefusedIsRolledBack(t *testing.T) {
 	require.Empty(t, workloads.Items, "the baseline that started is stopped with the experiment")
 }
 
+// A run whose automatic evaluation names a benchmark that does not exist, or a dataset of another type, is refused
+// with the reason: it would train, start an inference service and only then find nothing to evaluate on.
+func TestARunWithABenchmarkThatDoesNotExistIsRefused(t *testing.T) {
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	h, cli := submitHandler(t, db, nil)
+	db.EXPECT().GetDataset(gomock.Any(), "gone").Return(nil, gorm.ErrRecordNotFound).AnyTimes()
+	req := recipe.SubmitRequest{Workspace: "ws1", DisplayName: "sft-eval", TrainType: "sft", Method: "full",
+		ModelID: "m1", DatasetID: "d1", Resources: recipe.Resources{Nodes: 1, GpusPerNode: 8},
+		Evaluation: recipe.EvaluationRequest{Enabled: true, Benchmarks: []string{"gone", "d1"}}}
+	for name, handle := range map[string]gin.HandlerFunc{"submit": h.SubmitRun, "preview": h.PreviewRecipe} {
+		_, body := postAs(handle, req)
+		require.Contains(t, body, "Benchmark dataset gone was not found", name)
+		require.Contains(t, body, "Dataset d1 is not an evaluation dataset", name)
+		require.Contains(t, body, `"field":"evaluation.benchmarks"`, name)
+	}
+	code, _ := postAs(h.SubmitRun, req)
+	require.Equal(t, http.StatusBadRequest, code)
+	workloads := &v1.WorkloadList{}
+	require.NoError(t, cli.List(context.Background(), workloads))
+	require.Empty(t, workloads.Items)
+}
+
 // A run's model is deleted with the run only for a user who may delete the model.
 func TestDeletingARunDeletesItsModelOnlyForWhoMayDeleteTheModel(t *testing.T) {
 	db := mockclient.NewMockInterface(gomock.NewController(t))

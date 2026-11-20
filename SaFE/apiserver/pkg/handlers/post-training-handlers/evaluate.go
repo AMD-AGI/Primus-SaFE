@@ -17,6 +17,7 @@ import (
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/post-training-handlers/recipe"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
@@ -100,7 +101,7 @@ func (h *Handler) requestEvaluation(ctx context.Context, run *dbclient.PostTrain
 		if err != nil || dataset == nil {
 			return "", commonerrors.NewBadRequest(fmt.Sprintf("dataset %s not found", id))
 		}
-		if dataset.DatasetType != "evaluation" {
+		if dataset.DatasetType != recipe.BenchmarkDatasetType {
 			return "", commonerrors.NewBadRequest(fmt.Sprintf("dataset %s is not an evaluation dataset", id))
 		}
 	}
