@@ -861,19 +861,9 @@ func formatRuntime(seconds int) string {
 }
 
 // runtimeCeiling is the qos timeout, in seconds, for the workload's workspace scope. Zero means
-// no timeout. A workload being created has no cluster label yet; its workspace names the cluster.
+// no timeout.
 func (h *Handler) runtimeCeiling(ctx context.Context, workload *v1.Workload) (int, error) {
-	clusterID := v1.GetClusterId(workload)
-	if clusterID == "" && workload.Spec.Workspace != "" {
-		workspace, err := h.getAdminWorkspace(ctx, workload.Spec.Workspace)
-		if err != nil && !apierrors.IsNotFound(err) {
-			return 0, err
-		}
-		if workspace != nil {
-			clusterID = workspace.Spec.Cluster
-		}
-	}
-	limits, err := commonqos.Ceiling(ctx, h.Client, v1.GetUserId(workload), clusterID,
+	limits, err := commonqos.Ceiling(ctx, h.Client, v1.GetUserId(workload), commonqos.WorkspaceID(workload),
 		string(commonworkload.GetScope(workload)))
 	if err != nil {
 		return 0, err

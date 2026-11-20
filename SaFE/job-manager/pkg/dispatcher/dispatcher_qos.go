@@ -43,13 +43,13 @@ func (r *DispatcherReconciler) prepareScaleQuota(ctx context.Context, workload *
 		return true, nil
 	}
 	userID := v1.GetUserId(workload)
-	clusterID := v1.GetClusterId(workload)
-	if userID == "" || clusterID == "" {
+	workspaceID := commonqos.WorkspaceID(workload)
+	if userID == "" || workspaceID == "" {
 		return true, nil
 	}
 	r.scaleMu.Lock()
 	defer r.scaleMu.Unlock()
-	limits, err := commonqos.Ceiling(ctx, r.workloadReader(), userID, clusterID, string(commonworkload.GetScope(workload)))
+	limits, err := commonqos.Ceiling(ctx, r.workloadReader(), userID, workspaceID, string(commonworkload.GetScope(workload)))
 	if err != nil {
 		return false, err
 	}
@@ -61,12 +61,12 @@ func (r *DispatcherReconciler) prepareScaleQuota(ctx context.Context, workload *
 	if err != nil {
 		return false, err
 	}
-	reason, err := commonqos.Exceeded(userID, clusterID, used, requested, limits, cpu, memory, gpu)
+	reason, err := commonqos.Exceeded(userID, workspaceID, used, requested, limits, cpu, memory, gpu)
 	if err != nil {
 		return false, err
 	}
 	if reason != "" {
-		delete(r.scaleHeld, scaleHoldKey(userID, clusterID, workload.Name))
+		delete(r.scaleHeld, scaleHoldKey(userID, workspaceID, workload.Name))
 		return false, r.restoreRunningResources(ctx, workload, running)
 	}
 	r.rememberScaleHeld(workload)
@@ -96,8 +96,8 @@ func (r *DispatcherReconciler) scaleUsage(ctx context.Context, workload *v1.Work
 	used := corev1.ResourceList{}
 	listed := &v1.WorkloadList{}
 	if err := r.workloadReader().List(ctx, listed, client.MatchingLabels{
-		v1.ClusterIdLabel: v1.GetClusterId(workload),
-		v1.UserIdLabel:    v1.GetUserId(workload),
+		v1.WorkspaceIdLabel: commonqos.WorkspaceID(workload),
+		v1.UserIdLabel:      v1.GetUserId(workload),
 	}); err != nil {
 		return nil, err
 	}
@@ -125,7 +125,7 @@ func (r *DispatcherReconciler) scaleUsage(ctx context.Context, workload *v1.Work
 // resourcesCountedForScale returns the size of item that counts against workload.
 // Caller holds scaleMu.
 func (r *DispatcherReconciler) resourcesCountedForScale(item, workload *v1.Workload) ([]v1.WorkloadResource, bool, error) {
-	key := scaleHoldKey(v1.GetUserId(item), v1.GetClusterId(item), item.Name)
+	key := scaleHoldKey(v1.GetUserId(item), commonqos.WorkspaceID(item), item.Name)
 	if held, ok := r.scaleHeld[key]; ok {
 		return held, true, nil
 	}
@@ -160,7 +160,7 @@ func (r *DispatcherReconciler) rememberScaleHeld(workload *v1.Workload) {
 		r.scaleHeld = map[string][]v1.WorkloadResource{}
 	}
 	copied := workload.DeepCopy()
-	r.scaleHeld[scaleHoldKey(v1.GetUserId(workload), v1.GetClusterId(workload), workload.Name)] = copied.Spec.Resources
+	r.scaleHeld[scaleHoldKey(v1.GetUserId(workload), commonqos.WorkspaceID(workload), workload.Name)] = copied.Spec.Resources
 }
 
 // dropScaleHeld forgets a scale decision.
@@ -170,7 +170,7 @@ func (r *DispatcherReconciler) dropScaleHeld(workload *v1.Workload) {
 	}
 	r.scaleMu.Lock()
 	defer r.scaleMu.Unlock()
-	delete(r.scaleHeld, scaleHoldKey(v1.GetUserId(workload), v1.GetClusterId(workload), workload.Name))
+	delete(r.scaleHeld, scaleHoldKey(v1.GetUserId(workload), commonqos.WorkspaceID(workload), workload.Name))
 }
 
 func (r *DispatcherReconciler) workloadReader() client.Reader {
@@ -180,8 +180,8 @@ func (r *DispatcherReconciler) workloadReader() client.Reader {
 	return r.Client
 }
 
-func scaleHoldKey(userID, clusterID, name string) string {
-	return userID + "|" + clusterID + "|" + name
+func scaleHoldKey(userID, workspaceID, name string) string {
+	return userID + "|" + workspaceID + "|" + name
 }
 
 func decodeRunningResources(raw string) ([]v1.WorkloadResource, error) {

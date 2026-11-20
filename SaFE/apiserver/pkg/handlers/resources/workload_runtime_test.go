@@ -45,7 +45,7 @@ func newRuntimeFixture(t *testing.T) *accessFixture {
 		Spec:       v1.WorkspaceSpec{Cluster: "c1"},
 	}))
 	require.NoError(t, f.cli.Create(t.Context(), &v1.Qos{
-		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+		ObjectMeta: metav1.ObjectMeta{Name: "ws1"},
 		Spec:       v1.QosSpec{MaxRuntime: map[string]int{string(v1.TrainScope): 10800}},
 	}))
 	return f
@@ -54,7 +54,7 @@ func newRuntimeFixture(t *testing.T) *accessFixture {
 func runtimeWorkload(timeout int) *v1.Workload {
 	return &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{Name: "w1", Labels: map[string]string{
-			v1.ClusterIdLabel: "c1", v1.UserIdLabel: userDefault,
+			v1.ClusterIdLabel: "c1", v1.WorkspaceIdLabel: "ws1", v1.UserIdLabel: userDefault,
 		}},
 		Spec: v1.WorkloadSpec{
 			GroupVersionKind: v1.GroupVersionKind{Kind: common.PytorchJobKind},
@@ -147,10 +147,10 @@ func TestWorkloadTimeoutCreateAboveQosLimit(t *testing.T) {
 	assert.ErrorContains(t, err, "above the limit of 3h")
 	assert.ErrorContains(t, err, "workload/long-runtime")
 
-	// A new workload has no cluster label yet; its workspace names the cluster.
+	// A new workload has no workspace label yet; its spec names the workspace.
 	requestUser, roles := f.roles(t, userDefault)
 	unlabeled := runtimeWorkload(4 * 3600)
-	v1.RemoveLabel(unlabeled, v1.ClusterIdLabel)
+	v1.RemoveLabel(unlabeled, v1.WorkspaceIdLabel)
 	_, err = f.h.authWorkloadCreateRuntime(f.ctx(userDefault, "", ""), unlabeled, requestUser, roles)
 	assert.True(t, apierrors.IsForbidden(err), "%v", err)
 

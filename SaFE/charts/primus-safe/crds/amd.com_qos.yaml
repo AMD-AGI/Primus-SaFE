@@ -22,7 +22,7 @@ spec:
   - name: v1
     schema:
       openAPIV3Schema:
-        description: Qos is the ceiling for one cluster. It does not carry per-user
+        description: Qos is the ceiling for one workspace. It does not carry per-user
           values.
         properties:
           apiVersion:
@@ -43,8 +43,8 @@ spec:
           metadata:
             type: object
           spec:
-            description: QosSpec is the ceiling for one cluster. The object name
-              is the cluster id.
+            description: QosSpec is the ceiling for one workspace. The object name
+              is the workspace id.
             properties:
               maxResources:
                 description: ResourceCap is a GPU, CPU and memory ceiling. An empty

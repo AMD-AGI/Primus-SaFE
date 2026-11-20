@@ -361,13 +361,13 @@ func TestWorkloadMutateSecrets(t *testing.T) {
 	assert.Equal(t, len(w.Spec.Secrets), 1)
 }
 
-// TestWorkloadMutateTimeout verifies an empty timeout is filled from the global qos.
+// TestWorkloadMutateTimeout verifies an empty timeout is filled from the workspace qos.
 func TestWorkloadMutateTimeout(t *testing.T) {
 	scheme := newScheme(t)
-	qos := &v1.Qos{ObjectMeta: metav1.ObjectMeta{Name: "c1"}, Spec: v1.QosSpec{MaxRuntime: map[string]int{string(v1.TrainScope): 7200}}}
+	qos := &v1.Qos{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.QosSpec{MaxRuntime: map[string]int{string(v1.TrainScope): 7200}}}
 	m := &WorkloadMutator{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(qos).Build()}
 	w := &v1.Workload{Spec: v1.WorkloadSpec{GroupVersionKind: v1.GroupVersionKind{Kind: common.PytorchJobKind}}}
-	assert.NilError(t, m.mutateTimeout(context.Background(), w, &v1.Workspace{Spec: v1.WorkspaceSpec{Cluster: "c1"}}))
+	assert.NilError(t, m.mutateTimeout(context.Background(), w, &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}))
 	assert.Assert(t, w.Spec.Timeout != nil)
 	assert.Equal(t, *w.Spec.Timeout, 7200)
 }
@@ -378,7 +378,7 @@ func TestWorkloadTimeoutCeilingOnCreateOnly(t *testing.T) {
 	ctx := context.Background()
 	c := fullWorkloadEnvClient(t)
 	assert.NilError(t, c.Create(ctx, &v1.Qos{
-		ObjectMeta: metav1.ObjectMeta{Name: "cluster1"},
+		ObjectMeta: metav1.ObjectMeta{Name: "ws1"},
 		Spec:       v1.QosSpec{MaxRuntime: map[string]int{string(v1.TrainScope): 7200}},
 	}))
 	v := &WorkloadValidator{Client: c}
@@ -399,7 +399,7 @@ func TestWorkloadTimeoutCeilingOnCreateOnly(t *testing.T) {
 func TestWorkloadTimeoutExtendedMark(t *testing.T) {
 	ctx := context.Background()
 	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1"}}
-	qos := &v1.Qos{ObjectMeta: metav1.ObjectMeta{Name: "c1"}, Spec: v1.QosSpec{MaxRuntime: map[string]int{string(v1.TrainScope): 10800}}}
+	qos := &v1.Qos{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.QosSpec{MaxRuntime: map[string]int{string(v1.TrainScope): 10800}}}
 	c := fake.NewClientBuilder().WithScheme(newScheme(t)).WithObjects(ws, qos).Build()
 	v := &WorkloadValidator{Client: c}
 	m := &WorkloadMutator{Client: c}
@@ -440,8 +440,8 @@ func TestWorkloadTimeoutExtendedMark(t *testing.T) {
 func scaleQuotaWorkload(name, gpu string, scheduled bool) *v1.Workload {
 	w := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Labels: map[string]string{
-			v1.ClusterIdLabel: "c1",
-			v1.UserIdLabel:    "alice",
+			v1.WorkspaceIdLabel: "c1",
+			v1.UserIdLabel:      "alice",
 		}},
 		Spec: v1.WorkloadSpec{
 			GroupVersionKind: v1.GroupVersionKind{Kind: common.DeploymentKind},
@@ -478,7 +478,7 @@ func TestCreateRejectsARequestLargerThanTheCeiling(t *testing.T) {
 		},
 	}
 	qos := &v1.Qos{
-		ObjectMeta: metav1.ObjectMeta{Name: "cluster1"},
+		ObjectMeta: metav1.ObjectMeta{Name: "ws1"},
 		Spec:       v1.QosSpec{MaxResources: &v1.ResourceCap{GPU: "8"}},
 	}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ws, flavor, rt, cm, qos).Build()
@@ -527,7 +527,7 @@ func TestDryRunUpdateDoesNotReserve(t *testing.T) {
 		},
 	}
 	qos := &v1.Qos{
-		ObjectMeta: metav1.ObjectMeta{Name: "cluster1"},
+		ObjectMeta: metav1.ObjectMeta{Name: "ws1"},
 		Spec:       v1.QosSpec{MaxResources: &v1.ResourceCap{GPU: "10"}},
 	}
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ws, flavor, rt, cm, qos).Build()
