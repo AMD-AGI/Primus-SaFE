@@ -5,21 +5,15 @@ import {
   cleanupHintBytes,
   matchName,
   panelsOf,
-  configDiff,
-  fieldsDiffer,
-  flattenChanges,
   formatCommand,
   formatDuration,
   freezeState,
   freezingText,
-  scatterTooltip,
   groupSamples,
   lastLine,
-  nestChanges,
   parseJSON,
   regexErrors,
   rewardOf,
-  significance,
   smoothPoints,
   splitTruncated,
   stageDurations,
@@ -33,7 +27,6 @@ import {
   fillsGapsAfterEnd,
   EXPORT_REGISTER_WAIT,
   backToRuns,
-  experimentNamesProblem,
   postTrainingIsOn,
 } from './index'
 import type { Router } from 'vue-router'
@@ -203,60 +196,6 @@ describe('stallNote', () => {
   })
 })
 
-describe('configDiff', () => {
-  it('lines up the recipe fields, hash first, and marks the ones that differ', () => {
-    const rows = configDiff([
-      {
-        choices: { lr: 1e-5, fieldMap: { prompt: 'q' } },
-        output: { base: '/a' },
-        provenance: { recipeHash: 'abcdef123' },
-      },
-      {
-        choices: { lr: 2e-5, fieldMap: { prompt: 'q' } },
-        output: { base: '/b' },
-        provenance: { recipeHash: '0123456789' },
-      },
-      undefined,
-    ])
-    expect(rows[0]).toEqual({
-      field: 'provenance.recipeHash',
-      label: 'Recipe hash',
-      values: ['abcdef1', '0123456', '—'],
-      differs: true,
-    })
-    const lr = rows.find((r) => r.field === 'choices.lr')!
-    expect(lr.label).toBe('Learning rate')
-    expect(lr.values).toEqual(['0.00001', '0.00002', '—'])
-    expect(rows.some((r) => r.field === 'output.base')).toBe(false)
-    expect(configDiff([{ runId: 'pt-a' }, { runId: 'pt-b' }])).toEqual([])
-    expect([fieldsDiffer(1), fieldsDiffer(2)]).toEqual(['1 field differs', '2 fields differ'])
-    expect(configDiff([{ a: [1, 2] }, { a: [1, 2] }])).toEqual([
-      { field: 'a', label: 'a', values: ['1, 2', '1, 2'], differs: false },
-    ])
-  })
-})
-
-describe('significance', () => {
-  it('needs a difference larger than the re-evaluation gap and two standard errors', () => {
-    const small = significance([0.3, 0.267], 0.333, 30)
-    expect(small.threshold).toBeCloseTo(0.238, 2)
-    expect(small.significant).toBe(false)
-    const large = significance([0.812, 0.806], 0.866, 500)
-    expect(large.diff).toBeCloseTo(0.057, 3)
-    expect(large.significant).toBe(true)
-    expect(significance([0.5, 0.4], 0.52).threshold).toBeCloseTo(0.1, 5)
-  })
-})
-
-describe('variant changes', () => {
-  it('flattens and nests dotted keys', () => {
-    const changes = { choices: { lr: 2e-6, lora: { rank: 32 } }, datasetId: 'd2' }
-    const flat = flattenChanges(changes)
-    expect(flat).toEqual({ 'choices.lr': 2e-6, 'choices.lora.rank': 32, datasetId: 'd2' })
-    expect(nestChanges(flat)).toEqual(changes)
-  })
-})
-
 describe('panels', () => {
   const panels = [
     { id: 'reward', series: ['rollout/raw_reward', 'eval/*'] },
@@ -410,25 +349,6 @@ describe('postTrainingEntryReasons', () => {
   })
 })
 
-describe('experimentNamesProblem', () => {
-  it('holds every run name of the experiment to what the backend takes', () => {
-    expect(experimentNamesProblem('qwen3-sft-ab', ['lr2e-6'])).toBe('')
-    expect(experimentNamesProblem('qwen3-sft-ab', ['LR'])).toContain('Variant name "LR"')
-    expect(experimentNamesProblem('e'.repeat(96), ['v'.repeat(32)])).toContain(
-      'Shorten the experiment name',
-    )
-    expect(experimentNamesProblem('e'.repeat(119), ['v'])).toBe('')
-    expect(experimentNamesProblem('e'.repeat(120), ['v'])).toContain(`${'e'.repeat(120)}-baseline`)
-  })
-
-  it('names a variant that the backend would refuse as a second run of one name', () => {
-    expect(experimentNamesProblem('qwen3-sft-ab', ['lr2e-6', 'lr2e-6'])).toContain(
-      '"lr2e-6" appears twice',
-    )
-    expect(experimentNamesProblem('qwen3-sft-ab', ['baseline'])).toContain('named "baseline"')
-  })
-})
-
 describe('backToRuns', () => {
   it('returns to the list it came from, its filters kept', () => {
     const router = { back: vi.fn(), push: vi.fn() }
@@ -512,14 +432,6 @@ describe('curvesDue', () => {
       expect(curvesDue(tab, 0, 29_990)).toBe(true)
     }
     expect(curvesDue('recipe', 0, 60_000)).toBe(false)
-  })
-})
-
-describe('scatterTooltip', () => {
-  it('shows the names as text', () => {
-    expect(scatterTooltip('<img src=x onerror=alert(1)>', 'lr', 0.1, 'gsm8k<b>', 0.8)).toBe(
-      '&lt;img src=x onerror=alert(1)&gt;<br/>lr: 0.1<br/>gsm8k&lt;b&gt;: 0.8',
-    )
   })
 })
 

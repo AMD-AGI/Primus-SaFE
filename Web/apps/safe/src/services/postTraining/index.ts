@@ -1,13 +1,9 @@
 import type { Router } from 'vue-router'
 import request from '@/services/request'
-import { textToBr } from '@/utils/sanitize'
 import type {
   Choices,
   ConfigResp,
   DiskUsage,
-  Experiment,
-  ExperimentListResp,
-  ExperimentRequest,
   ExportItem,
   FreezeOptions,
   MetricPanel,
@@ -28,9 +24,6 @@ import type {
   SegmentState,
   StageEntry,
   StageSegment,
-  TemplateBody,
-  TemplateItem,
-  TemplateListResp,
 } from './types'
 
 export * from './types'
@@ -220,28 +213,6 @@ export function rewardOf(s: RunSample): { value: string; detail: string } {
   return { value, detail: s.rewardDetail.Valid ? s.rewardDetail.String : '' }
 }
 
-/** The most characters of a run's name, <experiment>-<variant> for a run of an experiment. */
-export const MAX_RUN_NAME = 128
-const VARIANT_NAME = /^[a-z0-9][a-z0-9-]{0,31}$/
-
-/** Why an experiment with these variant names cannot be submitted under its name, or an empty string. */
-export function experimentNamesProblem(name: string, variants: string[]): string {
-  const bad = variants.find((v) => !VARIANT_NAME.test(v))
-  if (bad !== undefined)
-    return `Variant name "${bad}" must be up to 32 lowercase letters, digits and dashes.`
-  const twice = ['baseline', ...variants].find((v, i, all) => all.indexOf(v) !== i)
-  if (twice !== undefined)
-    return twice === 'baseline'
-      ? 'A variant cannot be named "baseline", the name of the run with the unchanged recipe.'
-      : `Variant name "${twice}" appears twice.`
-  const long = ['baseline', ...variants]
-    .map((v) => `${name.trim()}-${v}`)
-    .find((run) => [...run].length > MAX_RUN_NAME)
-  return long
-    ? `Shorten the experiment name: the run name ${long} has more than ${MAX_RUN_NAME} characters.`
-    : ''
-}
-
 /** Returns to the run list as it was left, its filters and page included, or opens it. */
 export function backToRuns(router: Router) {
   const back = (window.history.state as { back?: unknown } | null)?.back
@@ -311,17 +282,6 @@ export function curvesDue(tab: string, readAt: number, now = Date.now()): boolea
   return CURVE_TABS.includes(tab) && now - readAt >= CURVE_READ_MS
 }
 
-/** scatterTooltip is the HTML tooltip of a point of the Compare scatter, its names shown as text. */
-export function scatterTooltip(
-  name: string,
-  xLabel: string,
-  x: number,
-  yLabel: string,
-  y: number,
-): string {
-  return [name, `${xLabel}: ${x}`, `${yLabel}: ${y}`].map(textToBr).join('<br/>')
-}
-
 /** The training command of a recipe, one option with its values per line: `head \` then `  --flag value \`. */
 export function formatCommand(args: string[], head = 'python3 train.py'): string {
   const lines: string[][] = []
@@ -370,79 +330,6 @@ export function cleanupPostTrainingCheckpoints(runId: string, keep: 'best' | 'no
     `/post-training/runs/${runId}/checkpoints/cleanup`,
     { keep },
   )
-}
-
-/** Submits an A/B experiment; a variant that does not compile refuses the whole experiment. */
-export function submitPostTrainingExperiment(body: ExperimentRequest) {
-  return request.post<{ experimentId: string; runIds: string[] }>(
-    '/post-training/experiments',
-    body,
-    {
-      skipErrorHandler: true,
-    },
-  )
-}
-
-/** Lists a workspace's experiments, or the ones experimentIds names, with their runs. */
-export function listPostTrainingExperiments(
-  params: { workspace: string; experimentIds?: string; limit?: number },
-  quiet = false,
-) {
-  return request.get<ExperimentListResp>('/post-training/experiments', {
-    params,
-    skipErrorHandler: quiet,
-  })
-}
-
-/** Returns an experiment with its variants and runs. */
-export function getPostTrainingExperiment(experimentId: string, quiet = false) {
-  return request.get<Experiment>(`/post-training/experiments/${experimentId}`, {
-    skipErrorHandler: quiet,
-  })
-}
-
-/** Stops every unfinished run of an experiment. */
-export function stopPostTrainingExperiment(experimentId: string) {
-  return request.post<{ experimentId: string; stopped: string[] }>(
-    `/post-training/experiments/${experimentId}/stop`,
-  )
-}
-
-/** Deletes an experiment's runs, their output models when deleteModel is set, and then the experiment. */
-export function deletePostTrainingExperiment(experimentId: string, deleteModel = false) {
-  return request.delete(`/post-training/experiments/${experimentId}`, {
-    params: { deleteModel },
-    skipErrorHandler: true,
-  })
-}
-
-/** Lists a workspace's templates, optionally of one train type. */
-export function listPostTrainingTemplates(params: { workspace: string; trainType?: string }) {
-  return request.get<TemplateListResp>('/post-training/templates', { params })
-}
-
-/** Returns one template. */
-export function getPostTrainingTemplate(templateId: string) {
-  return request.get<TemplateItem>(`/post-training/templates/${templateId}`)
-}
-
-/** Saves a template in a workspace. */
-export function createPostTrainingTemplate(body: TemplateBody) {
-  return request.post<TemplateItem>('/post-training/templates', body)
-}
-
-/** Edits a template's name, description or content made on body.version; the version goes up by one, and the
- * edit is refused with 409 when someone saved the template since. */
-export function updatePostTrainingTemplate(templateId: string, body: TemplateBody) {
-  return request.put<{ templateId: string; version: number }>(
-    `/post-training/templates/${templateId}`,
-    body,
-  )
-}
-
-/** Deletes a template; runs created from it are not affected. */
-export function deletePostTrainingTemplate(templateId: string) {
-  return request.delete(`/post-training/templates/${templateId}`)
 }
 
 /** Stops a run's training workload. */
@@ -603,170 +490,6 @@ export function stallNote(
   if (run.status !== 'Running' || !since) return ''
   if (run.message?.startsWith(LOST_MESSAGE)) return 'Launcher not reporting'
   return `No progress for ${Math.max(1, Math.round((now - Date.parse(since)) / 60000))} min`
-}
-
-/** Recipe fields that differ between any two runs by construction, or repeat other fields. */
-const DIFF_SKIPPED = new Set([
-  'runId',
-  'output.base',
-  'data.train',
-  'data.eval',
-  'files',
-  'frameworkArgs',
-  'convert.dir',
-])
-
-/** Readable names of the recipe fields people compare most. */
-const DIFF_LABELS: Record<string, string> = {
-  'choices.lr': 'Learning rate',
-  'choices.minLr': 'Min learning rate',
-  'choices.batchSize': 'Batch size',
-  'choices.numEpoch': 'Epochs',
-  'choices.numRollout': 'Steps / rollouts',
-  'choices.maxTokensPerGpu': 'Max tokens per GPU',
-  'choices.saveInterval': 'Save interval',
-  'model.id': 'Base model',
-  'data.trainId': 'Dataset',
-  'provenance.recipeHash': 'Recipe hash',
-  'provenance.image': 'Image',
-}
-
-/** Flattens a recipe snapshot into dotted field paths and display values; lists are joined with commas. */
-export function flattenRecipe(value: unknown, prefix = '', out: Record<string, string> = {}) {
-  if (value === null || value === undefined) return out
-  if (Array.isArray(value)) {
-    out[prefix] = value
-      .map((v) => (typeof v === 'object' ? JSON.stringify(v) : String(v)))
-      .join(', ')
-  } else if (typeof value === 'object') {
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      const path = prefix ? `${prefix}.${k}` : k
-      if (!DIFF_SKIPPED.has(path)) flattenRecipe(v, path, out)
-    }
-  } else if (prefix) {
-    out[prefix] = String(value)
-  }
-  return out
-}
-
-/** How many recipe fields differ, as the compare and experiment pages say it. */
-export function fieldsDiffer(n: number): string {
-  return n === 1 ? '1 field differs' : `${n} fields differ`
-}
-
-export interface DiffRow {
-  field: string
-  label: string
-  values: string[]
-  differs: boolean
-}
-
-/** Lines up the recipe fields of several runs, the recipe hash first; a missing field shows as —. */
-export function configDiff(recipes: (Record<string, unknown> | undefined)[]): DiffRow[] {
-  const flat = recipes.map((r) => flattenRecipe(r ?? {}))
-  const fields = [...new Set(flat.flatMap((f) => Object.keys(f)))].sort((a, b) =>
-    a === 'provenance.recipeHash' ? -1 : b === 'provenance.recipeHash' ? 1 : a.localeCompare(b),
-  )
-  return fields.map((field) => {
-    const values = flat.map((f) => f[field] ?? '—')
-    const short = field === 'provenance.recipeHash' ? values.map((v) => v.slice(0, 7)) : values
-    return {
-      field,
-      label: DIFF_LABELS[field] ?? field,
-      values: short,
-      differs: new Set(values).size > 1,
-    }
-  })
-}
-
-/**
- * Compares a variant's benchmark score with the baseline's, all fractions in [0, 1]. The difference is from the mean
- * of the baseline's evaluations; it is significant when larger than both the gap between the baseline's two
- * evaluations and two standard errors at n questions.
- */
-export function significance(baseline: number[], variant: number, n?: number) {
-  const mean = baseline.reduce((a, b) => a + b, 0) / baseline.length
-  const gap = baseline.length > 1 ? Math.abs(baseline[0] - baseline[1]) : 0
-  const se = n ? 2 * Math.sqrt((mean * (1 - mean)) / n + (variant * (1 - variant)) / n) : 0
-  const threshold = Math.max(gap, se)
-  const diff = variant - mean
-  return { mean, diff, threshold, significant: Math.abs(diff) > threshold }
-}
-
-/** A request field an A/B variant may change: its label and where a recipe snapshot keeps it. */
-export interface VariantField {
-  key: string
-  label: string
-  recipeKey: string
-  trainType?: 'sft' | 'rl'
-}
-
-/** The fields an A/B variant may change from its baseline. */
-export const VARIANT_FIELDS: VariantField[] = [
-  { key: 'choices.lr', label: 'Learning rate', recipeKey: 'choices.lr' },
-  { key: 'choices.batchSize', label: 'Batch size', recipeKey: 'choices.batchSize' },
-  { key: 'choices.numRollout', label: 'Steps / rollouts', recipeKey: 'choices.numRollout' },
-  { key: 'method', label: 'Method', recipeKey: 'method' },
-  { key: 'choices.lora.rank', label: 'LoRA rank', recipeKey: 'choices.lora.rank' },
-  { key: 'datasetId', label: 'Dataset', recipeKey: 'data.trainId' },
-  { key: 'modelId', label: 'Base model', recipeKey: 'model.id' },
-  { key: 'resources.nodes', label: 'Nodes', recipeKey: 'layout.nodes' },
-  {
-    key: 'choices.nSamplesPerPrompt',
-    label: 'Samples per prompt',
-    recipeKey: 'choices.nSamplesPerPrompt',
-    trainType: 'rl',
-  },
-  {
-    key: 'choices.maxResponseLen',
-    label: 'Response length',
-    recipeKey: 'choices.maxResponseLen',
-    trainType: 'rl',
-  },
-  {
-    key: 'choices.correction',
-    label: 'Train–inference correction',
-    recipeKey: 'choices.correction',
-    trainType: 'rl',
-  },
-  {
-    key: 'choices.klLossCoef',
-    label: 'KL coefficient',
-    recipeKey: 'choices.klLossCoef',
-    trainType: 'rl',
-  },
-]
-
-/** Flattens a variant's changes into dotted field keys. */
-export function flattenChanges(
-  changes: Record<string, unknown> = {},
-  prefix = '',
-): Record<string, unknown> {
-  const out: Record<string, unknown> = {}
-  for (const [k, v] of Object.entries(changes)) {
-    const key = prefix ? `${prefix}.${k}` : k
-    if (v && typeof v === 'object' && !Array.isArray(v)) {
-      Object.assign(out, flattenChanges(v as Record<string, unknown>, key))
-    } else {
-      out[key] = v
-    }
-  }
-  return out
-}
-
-/** Nests dotted field keys back into a changes object. */
-export function nestChanges(flat: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(flat)) {
-    const parts = key.split('.')
-    let node = out
-    parts.slice(0, -1).forEach((p) => {
-      node[p] = (node[p] as Record<string, unknown>) ?? {}
-      node = node[p] as Record<string, unknown>
-    })
-    node[parts[parts.length - 1]] = value
-  }
-  return out
 }
 
 /** Matches a metric name against a pattern whose * matches within one path segment, as the registry does. */

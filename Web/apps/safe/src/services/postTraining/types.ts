@@ -87,9 +87,6 @@ export interface PostTrainingRun {
   diskUsage?: string
   cleanupRequest?: string
   convertWorkloadId?: string
-  templateId?: string
-  experimentId?: string
-  variantName?: string
   startTime?: NullTime
   endTime?: NullTime
   createdAt?: NullTime
@@ -219,8 +216,6 @@ export interface SubmitRequest {
   export: { hf?: boolean; peftAdapter?: boolean }
   tracking: { wandb: { enabled?: boolean; secretId?: string; project?: string; team?: string } }
   evaluation: { enabled?: boolean; benchmarks?: string[]; keepService?: boolean }
-  /** The template the request started from; the run records it with the template's version. */
-  templateId?: string
 }
 
 /** One allowed value of a wizard field, with why it is disabled. */
@@ -435,102 +430,4 @@ export interface DiskUsage {
   finalAdapter?: number
   exports?: number
   total?: number
-}
-
-/** What a template stores of a request: the options and settings, and optionally the base model and datasets. */
-export type TemplateContent = Partial<
-  Pick<
-    SubmitRequest,
-    | 'framework'
-    | 'trainType'
-    | 'method'
-    | 'preset'
-    | 'choices'
-    | 'resources'
-    | 'export'
-    | 'evaluation'
-    | 'tracking'
-    | 'modelId'
-    | 'datasetId'
-    | 'evalDatasetId'
-  >
->
-
-/** A recipe template of a workspace, with how many of its runs succeeded. */
-export interface TemplateItem {
-  templateId: string
-  workspace: string
-  name: string
-  description?: string
-  trainType: 'sft' | 'rl'
-  method: string
-  framework: string
-  /** The spec the template was saved for; empty means any spec the model matches. */
-  spec?: string
-  version: number
-  content: TemplateContent
-  sourceRunId?: string
-  userId: string
-  userName: string
-  createdAt?: NullTime
-  updatedAt?: NullTime
-  succeededRuns: number
-}
-
-export interface TemplateListResp {
-  total: number
-  items: TemplateItem[]
-}
-
-/** The body that creates a template, or the fields that edit one. */
-export interface TemplateBody {
-  workspace?: string
-  name?: string
-  description?: string
-  trainType?: string
-  method?: string
-  framework?: string
-  spec?: string
-  content?: TemplateContent
-  sourceRunId?: string
-  /** The version an edit was made on; the edit is refused when someone saved the template since. */
-  version?: number
-}
-
-/** A variant of an A/B experiment: its name and the request fields it changes from the baseline. */
-export interface ExperimentVariant {
-  name: string
-  changes?: Record<string, unknown>
-}
-
-/** An A/B experiment with its runs in variant order, the baseline first. */
-export interface Experiment {
-  experimentId: string
-  workspace: string
-  displayName: string
-  trainType: 'sft' | 'rl'
-  baselineVariant: string
-  variants: ExperimentVariant[]
-  seed: number
-  userId: string
-  userName: string
-  createdAt?: NullTime
-  runs: PostTrainingRun[]
-}
-
-export interface ExperimentListResp {
-  total: number
-  items: Experiment[]
-}
-
-/** POST /post-training/experiments: a baseline request and the variants that change it. */
-export interface ExperimentRequest {
-  displayName: string
-  baseline: SubmitRequest
-  variants: ExperimentVariant[]
-}
-
-/** A compile finding of one variant of a refused experiment. */
-export interface VariantDiagnostic extends Diagnostic {
-  variant: string
 }
