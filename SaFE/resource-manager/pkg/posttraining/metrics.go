@@ -415,7 +415,8 @@ func (m *mainMetric) observe(step int64, value float64) {
 }
 
 // rewind drops the summary points after step when a new attempt resumes from it. A main metric whose latest
-// point was replaced goes back to the last point the sparkline keeps, and is dropped when it keeps none.
+// point was replaced goes back to the last point the sparkline keeps, and is dropped when it keeps none. The
+// sparkline keeps every Stride-th point, so that point can be a few before the last one that was not replaced.
 func (s *metricSummary) rewind(step int64) {
 	if m := s.Main; m != nil {
 		kept := m.Spark[:0]

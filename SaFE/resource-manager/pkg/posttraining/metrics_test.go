@@ -216,6 +216,14 @@ func TestAResumeTakesTheMainMetricBack(t *testing.T) {
 		`"stride":2,"seen":2}}`)
 	sparse.rewind(10)
 	require.Equal(t, 0.3, sparse.Main.Value, "a resume from the latest step replaces nothing")
+
+	// A sparkline that keeps every other point goes back to the last one it kept, step 5, which is before the
+	// last point that was not replaced.
+	thinned := loadSummary(`{"main":{"name":"train/loss","step":10,"value":0.3,"spark":[{"step":1,"value":1},` +
+		`{"step":5,"value":0.6},{"step":9,"value":0.4}],"stride":2,"seen":5}}`)
+	thinned.rewind(7)
+	require.Equal(t, int64(5), thinned.Main.Step)
+	require.Equal(t, 0.6, thinned.Main.Value)
 }
 
 // A resumed attempt replaces the points after its resume step.
