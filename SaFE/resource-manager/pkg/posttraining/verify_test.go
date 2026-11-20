@@ -69,6 +69,16 @@ func TestRunVerifyScript(t *testing.T) {
 	iteration, ok = res.lastCheckpoint()
 	require.True(t, ok)
 	require.Equal(t, 10, iteration)
+
+	// A result with values that JSON does not have is still read: they count as none.
+	odd := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(odd, "result.json"),
+		[]byte(`{"stage":"export","output":"","iteration":NaN,"lastMetrics":{"train/loss":-Infinity}}`), 0o644))
+	kind, res = runVerify(t, odd)
+	require.Equal(t, markerSuccess, kind)
+	require.Equal(t, "export", res.Stage)
+	_, ok = res.lastCheckpoint()
+	require.False(t, ok)
 }
 
 // A verify job name is short and the same for a run every time.

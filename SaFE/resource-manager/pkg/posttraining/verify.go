@@ -53,7 +53,8 @@ def size(p):
 def load(name):
     try:
         with open(os.path.join(d, name)) as f:
-            return json.load(f)
+            # NaN and the infinities are no JSON: printed again they would make the whole result unreadable.
+            return json.load(f, parse_constant=lambda c: None)
     except (OSError, ValueError):
         return None
 disk = {k: size(os.path.join(d, n)) for k, n in (("checkpoints", "checkpoints"),
