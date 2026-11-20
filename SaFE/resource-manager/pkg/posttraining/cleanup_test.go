@@ -7,13 +7,16 @@ package posttraining
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
@@ -160,6 +163,32 @@ func TestAStuckWorkloadDoesNotHoldACleanupJobBackForever(t *testing.T) {
 		require.Equal(t, pendingRequeue, reconcileRun(t, r).RequeueAfter, label)
 		require.Equal(t, c.made, r.Get(ctx, cleanup, &v1.OpsJob{}) == nil, label)
 	}
+}
+
+// A workload read that fails leaves it unknown whether one holds the job back: the cleanup stops with the error and
+// makes no job.
+func TestAFailedReadOfTheWorkloadMakesNoCleanupJob(t *testing.T) {
+	ctx := context.Background()
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1",
+		Volumes: []v1.WorkspaceVolume{{Type: v1.PFS, MountPath: "/wekafs"}}}}
+	dir := testRunDir + "/checkpoints/iter_0000010"
+	cleanup := client.ObjectKey{Name: resource.DirectoryCleanupJobName("ws1", dir)}
+	run := testRunRow("Succeeded", "done")
+	run.OutputPath = testRunDir
+	run.CleanupRequest = `{"keep":"none","paths":["` + dir + `"],"attempts":1}`
+	r, _, _ := newTestReconciler(t, run, ws)
+	inner := r.Client
+	r.Client = interceptor.NewClient(inner.(client.WithWatch), interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object,
+			opts ...client.GetOption) error {
+			if _, ok := obj.(*v1.Workload); ok && key.Name == cleanup.Name {
+				return errors.New("the cache is not ready")
+			}
+			return c.Get(ctx, key, obj, opts...)
+		}})
+	_, err := r.Reconcile(ctx, ctrlruntime.Request{NamespacedName: client.ObjectKey{Name: testRun}})
+	require.ErrorContains(t, err, "the cache is not ready")
+	require.Error(t, inner.Get(ctx, cleanup, &v1.OpsJob{}))
 }
 
 // A cleanup job that is unfinished after its timeout, as when its controller lost the timer of it in a restart, has

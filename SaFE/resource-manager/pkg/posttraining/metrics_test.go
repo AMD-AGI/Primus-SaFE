@@ -171,11 +171,12 @@ func TestBackfilledPointsDoNotMoveTheMainMetricBack(t *testing.T) {
 		Spark: []summaryPoint{{Step: 1, Value: 1}, {Step: 5, Value: 0.5}}}, *in.sum.Main)
 
 	// A filled-in point past the latest one read, whose seq was followed by other metrics only, is the latest.
-	in = backfill([]string{metricLine("a1", 1, 1, `{"train/loss":1}`), metricLine("a1", 3, 2, `{"eval/acc":0.4}`)},
-		metricLine("a1", 2, 2, `{"train/loss":0.9}`))
+	in = backfill([]string{metricLine("a1", 1, 1, `{"train/loss":1,"eval/val/loss":2}`),
+		metricLine("a1", 3, 2, `{"eval/acc":0.4}`)}, metricLine("a1", 2, 2, `{"train/loss":0.9,"eval/val/loss":1.5}`))
 	in.finish()
 	require.Equal(t, []summaryPoint{{Step: 1, Value: 1}, {Step: 2, Value: 0.9}}, in.sum.Main.Spark)
 	require.Equal(t, 0.9, in.sum.Main.Value)
+	require.Equal(t, summaryPoint{Step: 2, Value: 1.5}, *in.sum.BestValLoss, "the best loss is taken from any point")
 
 	// So is the first point of the main metric, at whatever step.
 	in = backfill([]string{metricLine("a1", 2, 0, `{"eval/acc":0.4}`)}, metricLine("a1", 1, 0, `{"train/loss":2}`))

@@ -9,15 +9,24 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	mockclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
+	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 )
 
 // A finished run with gaps or a failed run's directory still needs the end-of-run backfill.
@@ -90,4 +99,53 @@ func TestAPendingBackfillDoesNotHoldExportsAndEndsInTime(t *testing.T) {
 	reconcileRun(t, r)
 	require.Error(t, r.Get(ctx, client.ObjectKeyFromObject(backfill), &v1.Workload{}), "a backfill that never ran is given up")
 	require.Contains(t, (*updates)[len(*updates)-1]["stage_history"], "did not finish within")
+}
+
+// The backfill reads the log of its pod, saves the point that was missing and leaves the main metric on the latest
+// point of the run.
+func TestTheBackfillSavesAMissingPointAndKeepsTheLatestMainMetric(t *testing.T) {
+	ctx := context.Background()
+	run := testRunRow("Succeeded", "done")
+	run.Framework, run.OutputPath = "slime", testRunDir
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: backfillWorkloadName(testRun),
+		Labels: map[string]string{v1.ClusterIdLabel: "c1"}}, Spec: v1.WorkloadSpec{Workspace: "ws1"}}
+	w.Status.Phase = v1.WorkloadSucceeded
+	r, _, _ := newTestReconciler(t, run, w)
+	loadChartRegistry(t, r)
+	main := r.newIngestion(ctx, newRunUpdate(run), loadCursor("")).mainName
+	require.NotEmpty(t, main)
+	run.MetricCursor = `{"order":["a1"],"attempts":{"a1":{"maxSeq":3,"gaps":[{"from":2,"to":2,"since":1}]}}}`
+	run.MetricSummary = `{"points":2,"main":{"name":"` + main + `","step":5,"value":0.5,` +
+		`"spark":[{"step":1,"value":1},{"step":5,"value":0.5}],"stride":1,"seen":2}}`
+	log := "2026-11-20T00:00:00Z " + metricLine("a1", 2, 2, `{"`+main+`":0.9}`) + "\n"
+	srv := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		if strings.HasSuffix(req.URL.Path, "/log") {
+			_, _ = rw.Write([]byte(log))
+			return
+		}
+		rw.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(rw).Encode(&corev1.PodList{TypeMeta: metav1.TypeMeta{Kind: "PodList", APIVersion: "v1"},
+			Items: []corev1.Pod{{ObjectMeta: metav1.ObjectMeta{Name: "p1", Namespace: "ws1"},
+				Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "main"}}}}}})
+	}))
+	defer srv.Close()
+	pods, err := kubernetes.NewForConfig(&rest.Config{Host: srv.URL})
+	require.NoError(t, err)
+	r.clientManager.AddOrReplace("c1", commonclient.NewClientFactoryWithOnlyClient(ctx, "c1", pods))
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	var saved map[string]interface{}
+	var keys []string
+	db.EXPECT().SavePostTrainingRunMetrics(gomock.Any(), testRun, gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, points []*dbclient.PostTrainingRunMetric, fields map[string]interface{}) error {
+			saved, keys = fields, pointKeys(points)
+			return nil
+		})
+	r.db = db
+	_, err = r.reconcileBackfill(ctx, run)
+	require.NoError(t, err)
+	require.Equal(t, []string{main + "@2=0.9"}, keys)
+	require.NotContains(t, saved["stage_history"], "could not be read")
+	sum := loadSummary(saved["metric_summary"].(string))
+	require.Equal(t, int64(3), sum.Points)
+	require.Equal(t, summaryPoint{Step: 5, Value: 0.5}, summaryPoint{Step: sum.Main.Step, Value: sum.Main.Value})
 }
