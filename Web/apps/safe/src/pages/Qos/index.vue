@@ -32,10 +32,13 @@
       <el-table-column label="Timeout" min-width="240">
         <template #default="{ row }">{{ formatRuntime(row.maxRuntime) || '-' }}</template>
       </el-table-column>
-      <el-table-column label="Actions" width="160" fixed="right">
+      <el-table-column label="Actions" width="220" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="router.push({ path: '/qos/edit', query: { name: row.name } })">
             Edit
+          </el-button>
+          <el-button link type="primary" @click="router.push({ path: '/qos/create', query: { from: row.name } })">
+            Clone
           </el-button>
           <el-button link type="danger" @click="onDelete(row.name)">Delete</el-button>
         </template>

@@ -15,6 +15,7 @@
       <el-button type="primary" @click="router.push({ path: '/qos/edit', query: { name: item?.name } })">
         Edit
       </el-button>
+      <el-button @click="router.push({ path: '/qos/create', query: { from: item?.name } })">Clone</el-button>
       <el-button type="danger" @click="onDelete">Delete</el-button>
       <el-button @click="router.push('/qos')">Back</el-button>
     </div>
