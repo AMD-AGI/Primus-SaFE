@@ -785,6 +785,10 @@ class Runner:
             if sampler:
                 sampler.stop()
             self.sample_tick()
+        # A command, of this attempt or an earlier one, can end within a tick of a save, before the retention ran
+        # for it; a critic can finish a save after the tick that saw the actor's.
+        self.apply_retention(self.adapter.latest_checkpoint(self.run_dir))
+        self.report_disk()
         if code != 0:
             if self.watchdog and self.watchdog.reason:
                 raise StageError("train", self.watchdog.reason)
@@ -793,16 +797,13 @@ class Runner:
             if self.reward_rejected:
                 raise StageError("train", "the reward service rejected the key", retry=False)
             raise StageError("train", "training exited with code %d" % code)
-        # The command can end within a tick of its last save, before the retention ran for it.
-        self.checkpoint_tick()
 
     def checkpoint_tick(self):
         """Notice a checkpoint that finished saving: it counts as progress and the disk usage is reported."""
         latest = self.adapter.latest_checkpoint(self.run_dir)
         if latest != self.checkpoint:
             self.checkpoint = latest
-            if self.watchdog:
-                self.watchdog.saved()
+            self.watchdog.saved()
             self.apply_retention(latest)
             self.report_disk()
 

@@ -182,30 +182,55 @@ for step in (4, 9, 11):
     os.makedirs(os.path.join(sys.argv[1], "checkpoints", "iter_%07d" % step))
     with open(os.path.join(sys.argv[1], "checkpoints", "latest_checkpointed_iteration.txt"), "w") as f:
         f.write(str(step))
+sys.exit(int(sys.argv[2]))
 """
 
 
 class SavingAdapter(SlimeAdapter):
-    """Reads slime's checkpoint trackers and trains with a command that saves three checkpoints and ends."""
+    """Reads slime's checkpoint trackers and trains with a command that saves three checkpoints and exits with
+    code."""
+
+    code = 0
 
     def train_command(self, recipe, run_dir):
-        return [sys.executable, "-c", SAVES, run_dir], {}, {}
+        return [sys.executable, "-c", SAVES, run_dir, str(self.code)], {}, {}
 
 
 def test_retention_runs_for_a_save_the_training_ended_right_after(tmp_path):
-    """A training that ends within a tick of its last save still has the retention run for that save, with a
-    watchdog that never got to tick and with none."""
-    for name in ("watched", "unwatched"):
-        (tmp_path / name).mkdir()
-        r, out = runner(tmp_path / name, {"trainType": "sft", "checkpoint": {"keepLast": 1}})
+    """A training that ends within a tick of its last save still has the retention run for that save, whether its
+    command succeeded or failed; the watchdog never got to tick."""
+    for code in (0, 1):
+        run_dir = tmp_path / str(code)
+        run_dir.mkdir()
+        r, out = runner(run_dir, {"trainType": "sft", "checkpoint": {"keepLast": 1}})
         r.adapter = SavingAdapter()
-        if name == "watched":
-            r.watchdog = launch.Watchdog(r.emitter, interval=3600)
-        r.stage_train()
-        assert kept(tmp_path / name) == [11], name
+        r.adapter.code = code
+        r.watchdog = launch.Watchdog(r.emitter, interval=3600)
+        if code:
+            with pytest.raises(stages.StageError):
+                r.stage_train()
+        else:
+            r.stage_train()
+        assert kept(run_dir) == [11], code
         notices = [m[1] for m in markers(out) if m[0] == "[STAGE]"]
         assert [n["detail"] for n in notices if n.get("state") == "retention"] == \
-            [{"deleted": [4, 9], "kept": [11]}], name
+            [{"deleted": [4, 9], "kept": [11]}], code
+        assert [n.get("state") for n in notices][-2:] == ["retention", "disk"], "the usage is reported after it"
+
+
+def test_retention_runs_for_a_save_an_earlier_attempt_ended_right_after(tmp_path):
+    """An attempt that resumes from the last save and saves nothing more still has the retention run for that save,
+    which the attempt that made it may have ended right after; a critic's checkpoints go with the actor's."""
+    for name, recipe in (("sft", {"trainType": "sft", "checkpoint": {"keepLast": 1}}), ("ppo", PPO)):
+        run_dir = tmp_path / name
+        run_dir.mkdir()
+        r, _ = runner(run_dir, recipe)
+        r.adapter = PPOAdapter()
+        save(run_dir, 4, 9, 11)
+        track(run_dir, "checkpoints", 11)
+        track(run_dir, "critic_checkpoints", 11)
+        r.stage_train()
+        assert kept(run_dir) == [11] and kept(run_dir, "critic_checkpoints") == [11], name
 
 
 def test_validation_losses_survive_a_restart(tmp_path):
