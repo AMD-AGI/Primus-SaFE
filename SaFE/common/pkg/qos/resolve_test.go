@@ -36,57 +36,21 @@ func TestResolveFallsThroughEachField(t *testing.T) {
 		MaxRuntime:   map[string]int{string(v1.TrainScope): 7200},
 	}}
 
-	got := Resolve(user, nil, cluster, "c1", string(v1.AuthoringScope))
+	got := Resolve(user, cluster, "c1", string(v1.AuthoringScope))
 	if got.GPU != "2" || got.CPU != "32" || got.Memory != "128Gi" || got.RuntimeSeconds != 3600 {
 		t.Fatalf("c1 authoring: %+v", got)
 	}
-	got = Resolve(user, nil, cluster, "c1", string(v1.TrainScope))
+	got = Resolve(user, cluster, "c1", string(v1.TrainScope))
 	if got.RuntimeSeconds != 7200 {
 		t.Fatalf("c1 train falls back to the cluster: %+v", got)
 	}
-	got = Resolve(user, nil, nil, "c2", string(v1.AuthoringScope))
+	got = Resolve(user, nil, "c2", string(v1.AuthoringScope))
 	if got != (Limits{}) {
 		t.Fatalf("a user-wide value does not apply: %+v", got)
 	}
-	got = Resolve(user, nil, cluster, "c1", "PyTorchJob")
+	got = Resolve(user, cluster, "c1", "PyTorchJob")
 	if got.RuntimeSeconds != 0 {
 		t.Fatalf("a workload kind is not a timeout key: %+v", got)
-	}
-}
-
-func TestResolveRuntimeWorkspaceLayer(t *testing.T) {
-	user := &v1.User{Spec: v1.UserSpec{Qos: &v1.UserQos{Clusters: map[string]v1.UserQosScope{
-		"c1": {MaxRuntime: map[string]int{string(v1.AuthoringScope): 600}},
-	}}}}
-	workspace := &v1.Workspace{Spec: v1.WorkspaceSpec{LowUtilization: map[v1.WorkspaceScope]v1.LowUtilizationPolicy{
-		v1.AuthoringScope: {MaxRuntime: "3h"},
-		v1.TrainScope:     {MaxRuntime: "3h"},
-		v1.InferScope:     {Threshold: 5, Window: "1h"},
-		v1.RayScope:       {MaxRuntime: "soon"},
-	}}}
-	cluster := &v1.Qos{Spec: v1.QosSpec{
-		MaxResources: &v1.ResourceCap{GPU: "8"},
-		MaxRuntime: map[string]int{
-			string(v1.TrainScope): 86400, string(v1.InferScope): 7200, string(v1.RayScope): 3600,
-		},
-	}}
-
-	for scope, want := range map[v1.WorkspaceScope]int{
-		v1.AuthoringScope: 600,   // the user on the cluster comes first
-		v1.TrainScope:     10800, // then the workspace
-		v1.InferScope:     7200,  // a policy without maxRuntime falls through
-		v1.RayScope:       3600,  // so does a bad duration
-	} {
-		got := Resolve(user, workspace, cluster, "c1", string(scope))
-		if got.RuntimeSeconds != want {
-			t.Fatalf("%s: runtime %d, want %d", scope, got.RuntimeSeconds, want)
-		}
-		if got.GPU != "8" {
-			t.Fatalf("%s: the workspace changes only the runtime: %+v", scope, got)
-		}
-	}
-	if got := Resolve(nil, workspace, nil, "c2", string(v1.TrainScope)); got.RuntimeSeconds != 10800 {
-		t.Fatalf("the workspace applies without a user or cluster qos: %+v", got)
 	}
 }
 

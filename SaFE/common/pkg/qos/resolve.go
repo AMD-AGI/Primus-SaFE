@@ -9,7 +9,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -79,15 +78,7 @@ func Load(ctx context.Context, c client.Reader, name string) (*v1.Qos, error) {
 
 // Ceiling loads the user and the cluster Qos, then resolves the workspace scope.
 // A missing user or Qos is an empty contribution, not an error.
-// The workspace maxRuntime is not considered; CeilingInWorkspace adds it.
 func Ceiling(ctx context.Context, c client.Reader, userID, clusterID, scope string) (Limits, error) {
-	return CeilingInWorkspace(ctx, c, userID, clusterID, scope, nil)
-}
-
-// CeilingInWorkspace is Ceiling with the workspace lowUtilization maxRuntime of the scope
-// between the user and the cluster runtime. A nil workspace contributes nothing.
-func CeilingInWorkspace(ctx context.Context, c client.Reader,
-	userID, clusterID, scope string, workspace *v1.Workspace) (Limits, error) {
 	var user *v1.User
 	if userID != "" {
 		user = &v1.User{}
@@ -102,14 +93,13 @@ func CeilingInWorkspace(ctx context.Context, c client.Reader,
 	if err != nil {
 		return Limits{}, err
 	}
-	return Resolve(user, workspace, clusterQos, clusterID, scope), nil
+	return Resolve(user, clusterQos, clusterID, scope), nil
 }
 
 // Resolve picks each field independently. A set value stops the search.
-// Order: this user on the cluster, then the cluster ceiling. The runtime also looks at the
-// workspace maxRuntime of the scope between the two.
+// Order: this user on the cluster, then the cluster ceiling.
 // scope is a workspace scope such as Train or Infer.
-func Resolve(user *v1.User, workspace *v1.Workspace, clusterQos *v1.Qos, clusterID, scope string) Limits {
+func Resolve(user *v1.User, clusterQos *v1.Qos, clusterID, scope string) Limits {
 	var userCluster v1.UserQosScope
 	if user != nil && user.Spec.Qos != nil {
 		if item, ok := user.Spec.Qos.Clusters[clusterID]; ok {
@@ -120,7 +110,7 @@ func Resolve(user *v1.User, workspace *v1.Workspace, clusterQos *v1.Qos, cluster
 		CPU:            firstSet(capCPU(userCluster.MaxResources), capCPU(specCap(clusterQos))),
 		Memory:         firstSet(capMemory(userCluster.MaxResources), capMemory(specCap(clusterQos))),
 		GPU:            firstSet(capGPU(userCluster.MaxResources), capGPU(specCap(clusterQos))),
-		RuntimeSeconds: firstRuntime(scope, userCluster.MaxRuntime, workspaceRuntime(workspace), specRuntime(clusterQos)),
+		RuntimeSeconds: firstRuntime(scope, userCluster.MaxRuntime, specRuntime(clusterQos)),
 	}
 }
 
@@ -189,26 +179,6 @@ func specRuntime(qos *v1.Qos) map[string]int {
 		return nil
 	}
 	return qos.Spec.MaxRuntime
-}
-
-// workspaceRuntime returns the maxRuntime of each workspace scope in seconds.
-// A scope whose maxRuntime is empty or not a positive duration is left out.
-func workspaceRuntime(workspace *v1.Workspace) map[string]int {
-	if workspace == nil {
-		return nil
-	}
-	var runtimes map[string]int
-	for scope, policy := range workspace.Spec.LowUtilization {
-		d, err := time.ParseDuration(policy.MaxRuntime)
-		if err != nil || d < time.Second {
-			continue
-		}
-		if runtimes == nil {
-			runtimes = make(map[string]int)
-		}
-		runtimes[string(scope)] = int(d / time.Second)
-	}
-	return runtimes
 }
 
 // capCPU returns the CPU ceiling, or empty when it is unset.

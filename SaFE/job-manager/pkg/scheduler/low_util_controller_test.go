@@ -19,7 +19,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/utils/pointer"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -812,35 +811,6 @@ func TestLowUtilMaxRuntimeStops(t *testing.T) {
 	}
 	assert.Assert(t, stopped != nil)
 	assert.Equal(t, stopped.Message, "stopped: running longer than 1h (workspace policy)")
-}
-
-func TestLowUtilMaxRuntimeSkipsExtendedWorkloads(t *testing.T) {
-	for _, dryRun := range []bool{false, true} {
-		policy := v1.LowUtilizationPolicy{MaxRuntime: "1h", DryRun: dryRun}
-		extended := lowUtilKeptWorkload()
-		extended.Spec.Timeout = pointer.Int(0)
-		v1.SetAnnotation(extended, v1.WorkloadRuntimeExtendedByAnnotation, "manager")
-		// A timeout filled from a larger cluster ceiling does not exempt a workload.
-		filled := lowUtilTestWorkload("filled", "a")
-		filled.Finalizers = []string{"test/keep"}
-		filled.Spec.Timeout = pointer.Int(86400)
-		r, cl, _ := newLowUtilTestController(t, &fakeGPUWindow{}, lowUtilTestWorkspace(policy), extended, filled)
-
-		r.runOnce(context.Background())
-
-		got, err := getLowUtilWorkload(t, cl, "w")
-		assert.NilError(t, err)
-		assert.Equal(t, got.Status.Phase, v1.WorkloadRunning)
-		assert.Assert(t, got.GetDeletionTimestamp().IsZero())
-		assert.Equal(t, len(lowUtilTimeline(t, cl, "w")), 0)
-		got, err = getLowUtilWorkload(t, cl, "filled")
-		assert.NilError(t, err)
-		if dryRun {
-			assert.DeepEqual(t, lowUtilReasons(lowUtilTimeline(t, cl, "filled")), []string{"DryRunMaxRuntime"})
-		} else {
-			assert.Equal(t, got.Status.Phase, v1.WorkloadStopped)
-		}
-	}
 }
 
 func TestLowUtilMaxRuntimeNotReached(t *testing.T) {

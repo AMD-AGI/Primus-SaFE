@@ -224,13 +224,11 @@ func (r *LowUtilizationController) collectCandidates(ctx context.Context) ([]low
 
 // enforceMaxRuntime stops a workload that has run for the maxRuntime of its
 // policy, or records it once in dry run, and reports whether it was stopped.
-// A workload whose runtime was extended past the ceiling is left to its own timeout.
 func (r *LowUtilizationController) enforceMaxRuntime(ctx context.Context,
 	c lowUtilCandidate, now time.Time) (bool, error) {
 	maxRuntime := parseLowUtilDuration(c.policy.MaxRuntime)
 	w := c.workload
-	if maxRuntime <= 0 || now.Sub(w.Status.StartTime.Time) < maxRuntime ||
-		v1.GetAnnotation(w, v1.WorkloadRuntimeExtendedByAnnotation) != "" {
+	if maxRuntime <= 0 || now.Sub(w.Status.StartTime.Time) < maxRuntime {
 		return false, nil
 	}
 	if c.policy.DryRun {

@@ -306,9 +306,9 @@ const (
 	WorkloadHostPathAuthzAnnotation = WorkloadPrefix + "hostpath.authorized"
 	// Set by the apiserver to the id of the user who was authorized for workload/long-runtime and
 	// gave the workload a timeout above its runtime ceiling, or no timeout; removed when a later
-	// patch brings the timeout back within it. The workspace maxRuntime then does not stop the
-	// workload. Requests cannot set it: the apiserver drops every primus-safe annotation a request
-	// carries, and the create check removes the mark before it decides.
+	// patch brings the timeout back within it. Requests cannot set it: the apiserver drops every
+	// primus-safe annotation a request carries, and the create check removes the mark before it
+	// decides.
 	WorkloadRuntimeExtendedByAnnotation = PrimusSafePrefix + "amd.com/runtime-extended-by"
 	// Set by the apiserver once the creator was authorized for workload/privileged in a workspace
 	// with a volume that has requiresPrivilegedGrant, so the dispatcher mounts such volumes into the

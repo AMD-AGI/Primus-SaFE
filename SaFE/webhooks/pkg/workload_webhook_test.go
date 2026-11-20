@@ -394,15 +394,12 @@ func TestWorkloadTimeoutCeilingOnCreateOnly(t *testing.T) {
 	assert.Assert(t, updated.Spec.Timeout == nil)
 }
 
-// TestWorkloadTimeoutWorkspaceMaxRuntime verifies the workspace maxRuntime is the create ceiling,
-// and that only a workload the apiserver marked as extended may go past it or have no timeout.
-func TestWorkloadTimeoutWorkspaceMaxRuntime(t *testing.T) {
+// TestWorkloadTimeoutExtendedMark verifies that only a workload the apiserver marked as extended
+// may go past the qos ceiling or have no timeout.
+func TestWorkloadTimeoutExtendedMark(t *testing.T) {
 	ctx := context.Background()
-	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{
-		Cluster:        "c1",
-		LowUtilization: map[v1.WorkspaceScope]v1.LowUtilizationPolicy{v1.TrainScope: {MaxRuntime: "3h"}},
-	}}
-	qos := &v1.Qos{ObjectMeta: metav1.ObjectMeta{Name: "c1"}, Spec: v1.QosSpec{MaxRuntime: map[string]int{string(v1.TrainScope): 86400}}}
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1"}}
+	qos := &v1.Qos{ObjectMeta: metav1.ObjectMeta{Name: "c1"}, Spec: v1.QosSpec{MaxRuntime: map[string]int{string(v1.TrainScope): 10800}}}
 	c := fake.NewClientBuilder().WithScheme(newScheme(t)).WithObjects(ws, qos).Build()
 	v := &WorkloadValidator{Client: c}
 	m := &WorkloadMutator{Client: c}

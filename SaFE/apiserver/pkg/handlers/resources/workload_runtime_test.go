@@ -28,8 +28,8 @@ const userManager = "manager-user"
 
 var conditionReasonPattern = regexp.MustCompile(`^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$`)
 
-// newRuntimeFixture adds a workspace ws1 whose Train scope may run 3h, and a default user who
-// manages it.
+// newRuntimeFixture adds a workspace ws1 on cluster c1, whose Qos lets Train workloads run 3h,
+// and a default user who manages ws1.
 func newRuntimeFixture(t *testing.T) *accessFixture {
 	t.Helper()
 	f := newAccessFixture(t)
@@ -42,10 +42,11 @@ func newRuntimeFixture(t *testing.T) *accessFixture {
 	require.NoError(t, f.cli.Create(t.Context(), manager))
 	require.NoError(t, f.cli.Create(t.Context(), &v1.Workspace{
 		ObjectMeta: metav1.ObjectMeta{Name: "ws1"},
-		Spec: v1.WorkspaceSpec{
-			Cluster:        "c1",
-			LowUtilization: map[v1.WorkspaceScope]v1.LowUtilizationPolicy{v1.TrainScope: {MaxRuntime: "3h"}},
-		},
+		Spec:       v1.WorkspaceSpec{Cluster: "c1"},
+	}))
+	require.NoError(t, f.cli.Create(t.Context(), &v1.Qos{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+		Spec:       v1.QosSpec{MaxRuntime: map[string]int{string(v1.TrainScope): 10800}},
 	}))
 	return f
 }
@@ -70,7 +71,7 @@ func (f *accessFixture) roles(t *testing.T, userId string) (*v1.User, []*v1.Role
 	return requestUser, f.h.accessController.GetRoles(t.Context(), requestUser)
 }
 
-func TestWorkloadTimeoutPatchAgainstWorkspaceMaxRuntime(t *testing.T) {
+func TestWorkloadTimeoutPatchAboveQosLimit(t *testing.T) {
 	f := newRuntimeFixture(t)
 	workload := runtimeWorkload(3600)
 	update := func(userId string, timeout int) (*runtimeChange, error) {
@@ -84,7 +85,7 @@ func TestWorkloadTimeoutPatchAgainstWorkspaceMaxRuntime(t *testing.T) {
 		return change, err
 	}
 
-	// The owner may shorten the timeout, but not lengthen it past the workspace limit or drop it.
+	// The owner may shorten the timeout, but not lengthen it past the qos limit or drop it.
 	_, err := update(userDefault, 1800)
 	require.NoError(t, err)
 	_, err = update(userDefault, 4*3600)
@@ -117,7 +118,7 @@ func TestWorkloadTimeoutPatchAgainstWorkspaceMaxRuntime(t *testing.T) {
 	assert.Nil(t, change)
 }
 
-func TestWorkloadTimeoutCreateAgainstWorkspaceMaxRuntime(t *testing.T) {
+func TestWorkloadTimeoutCreateAboveQosLimit(t *testing.T) {
 	f := newRuntimeFixture(t)
 	create := func(userId string, timeout int) (*v1.Workload, *metav1.Condition, error) {
 		requestUser, roles := f.roles(t, userId)
@@ -138,12 +139,19 @@ func TestWorkloadTimeoutCreateAgainstWorkspaceMaxRuntime(t *testing.T) {
 	assert.ErrorContains(t, err, "above the limit of 3h")
 	assert.ErrorContains(t, err, "workload/long-runtime")
 
+	// A new workload has no cluster label yet; its workspace names the cluster.
+	requestUser, roles := f.roles(t, userDefault)
+	unlabeled := runtimeWorkload(0)
+	v1.RemoveLabel(unlabeled, v1.ClusterIdLabel)
+	_, err = f.h.authWorkloadCreateRuntime(f.ctx(userDefault, "", ""), unlabeled, requestUser, roles)
+	assert.True(t, apierrors.IsForbidden(err), "%v", err)
+
 	workload, cond, err = create(userManager, 5*3600)
 	require.NoError(t, err)
 	assert.Equal(t, userManager, v1.GetAnnotation(workload, v1.WorkloadRuntimeExtendedByAnnotation))
 	require.NotNil(t, cond)
 	assert.Regexp(t, conditionReasonPattern, cond.Reason)
-	assert.Equal(t, "runtime set to 5h by manager-user, above the workspace limit 3h", cond.Message)
+	assert.Equal(t, "runtime set to 5h by manager-user, above the qos limit 3h", cond.Message)
 
 	workload, _, err = create(userAdmin, 0)
 	require.NoError(t, err)

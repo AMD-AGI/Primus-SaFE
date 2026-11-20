@@ -698,7 +698,7 @@ func (h *Handler) authWorkloadCreateRuntime(c *gin.Context, workload *v1.Workloa
 		return nil, err
 	}
 	v1.SetAnnotation(workload, v1.WorkloadRuntimeExtendedByAnnotation, requestUser.Name)
-	return newRuntimeExtendedCondition(fmt.Sprintf("runtime set to %s by %s, above the workspace limit %s",
+	return newRuntimeExtendedCondition(fmt.Sprintf("runtime set to %s by %s, above the qos limit %s",
 		formatRuntime(*workload.Spec.Timeout), requestUserName(c, requestUser), formatRuntime(ceiling))), nil
 }
 
@@ -775,25 +775,21 @@ func formatRuntime(seconds int) string {
 	return text
 }
 
-// runtimeCeiling is the qos timeout, in seconds, for the workload's workspace scope, including
-// the workspace maxRuntime of that scope. Zero means no timeout.
+// runtimeCeiling is the qos timeout, in seconds, for the workload's workspace scope. Zero means
+// no timeout. A workload being created has no cluster label yet; its workspace names the cluster.
 func (h *Handler) runtimeCeiling(ctx context.Context, workload *v1.Workload) (int, error) {
-	var workspace *v1.Workspace
-	if workload.Spec.Workspace != "" {
-		var err error
-		if workspace, err = h.getAdminWorkspace(ctx, workload.Spec.Workspace); err != nil {
-			if !apierrors.IsNotFound(err) {
-				return 0, err
-			}
-			workspace = nil
+	clusterID := v1.GetClusterId(workload)
+	if clusterID == "" && workload.Spec.Workspace != "" {
+		workspace, err := h.getAdminWorkspace(ctx, workload.Spec.Workspace)
+		if err != nil && !apierrors.IsNotFound(err) {
+			return 0, err
+		}
+		if workspace != nil {
+			clusterID = workspace.Spec.Cluster
 		}
 	}
-	clusterID := v1.GetClusterId(workload)
-	if clusterID == "" && workspace != nil {
-		clusterID = workspace.Spec.Cluster
-	}
-	limits, err := commonqos.CeilingInWorkspace(ctx, h.Client, v1.GetUserId(workload), clusterID,
-		string(commonworkload.GetScope(workload)), workspace)
+	limits, err := commonqos.Ceiling(ctx, h.Client, v1.GetUserId(workload), clusterID,
+		string(commonworkload.GetScope(workload)))
 	if err != nil {
 		return 0, err
 	}
