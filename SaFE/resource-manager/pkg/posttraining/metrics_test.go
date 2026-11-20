@@ -226,6 +226,36 @@ func TestAResumeTakesTheMainMetricBack(t *testing.T) {
 	require.Equal(t, 0.6, thinned.Main.Value)
 }
 
+// A read that fills the cap on points exactly stores every point it has, so only a later read finds the run at its
+// cap. That read stores no point, and still records the cap once; the reads after it leave the row alone, although
+// the summary goes on in memory.
+func TestTheCapIsRecordedByAReadThatStoresNoPoint(t *testing.T) {
+	first := newTestIngestion(2)
+	feed(first, stageLine("a1", "train", "running", `{"resumeStep":0}`),
+		metricLine("a1", 1, 1, `{"train/loss":1}`), metricLine("a1", 2, 2, `{"train/loss":0.9}`))
+	points := first.finish()
+	filled, save := first.summaryUpdate(points, "")
+	require.Len(t, points, 2)
+	require.True(t, save)
+	require.False(t, loadSummary(filled).Capped, "the cap is reached, and no point was dropped yet")
+
+	read := func(stored string, seq int) (string, bool) {
+		in := newTestIngestion(2)
+		in.cur, in.sum = first.cur, loadSummary(stored)
+		feed(in, metricLine("a1", seq, seq, `{"train/loss":0.5}`))
+		points := in.finish()
+		require.Empty(t, points)
+		return in.summaryUpdate(points, stored)
+	}
+	capped, save := read(filled, 3)
+	require.True(t, save, "the read that first drops a point records the cap")
+	require.True(t, loadSummary(capped).Capped)
+
+	later, save := read(capped, 4)
+	require.NotEqual(t, capped, later, "the main metric of the summary moved on")
+	require.False(t, save, "a read that stores nothing more leaves the row as it is")
+}
+
 // A resumed attempt replaces the points after its resume step.
 func TestIngestionResumeDropsReplacedPoints(t *testing.T) {
 	in := newTestIngestion(100)

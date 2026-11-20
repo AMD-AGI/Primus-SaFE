@@ -113,7 +113,8 @@ func (r *RunReconciler) reconcileBackfill(ctx context.Context, run *dbclient.Pos
 	if data, _ := json.Marshal(cur); string(data) != run.MetricCursor {
 		u.fields["metric_cursor"] = string(data)
 	}
-	if data, _ := json.Marshal(in.sum); len(points) > 0 && string(data) != run.MetricSummary {
+	if data, _ := json.Marshal(in.sum); (len(points) > 0 || in.capReached(run.MetricSummary)) &&
+		string(data) != run.MetricSummary {
 		u.fields["metric_summary"] = string(data)
 	}
 	if err = r.db.SavePostTrainingRunMetrics(ctx, run.RunID, points, u.columns()); err != nil {

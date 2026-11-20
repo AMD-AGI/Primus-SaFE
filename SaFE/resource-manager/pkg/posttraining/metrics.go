@@ -700,11 +700,17 @@ func (in *ingestion) addLinks(values map[string]json.RawMessage) {
 }
 
 // summaryUpdate returns the summary to store and whether this read stores it: it changed, and the read had
-// points, rejections, links, samples or a resume that rewound it.
+// points, rejections, links, samples or a resume that rewound it, or found the run at its cap on points.
 func (in *ingestion) summaryUpdate(points []*dbclient.PostTrainingRunMetric, stored string) (string, bool) {
 	data, _ := json.Marshal(in.sum)
-	return string(data), string(data) != stored &&
-		(len(points) > 0 || in.sum.Rejected > 0 || in.linked || in.sampled || in.resumeFrom != nil)
+	return string(data), string(data) != stored && (len(points) > 0 || in.sum.Rejected > 0 || in.linked ||
+		in.sampled || in.resumeFrom != nil || in.capReached(stored))
+}
+
+// capReached reports whether this read is the first to find the run at its cap on points, which the stored
+// summary does not say yet. A read that fills the cap exactly drops no point, so it is a later one that stores none.
+func (in *ingestion) capReached(stored string) bool {
+	return in.sum.Capped && !loadSummary(stored).Capped
 }
 
 // finish drops the points that a later attempt has replaced, applies the point cap and updates the summary.

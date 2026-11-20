@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -101,9 +102,11 @@ func TestAPendingBackfillDoesNotHoldExportsAndEndsInTime(t *testing.T) {
 	require.Contains(t, (*updates)[len(*updates)-1]["stage_history"], "did not finish within")
 }
 
-// The backfill reads the log of its pod, saves the point that was missing and leaves the main metric on the latest
-// point of the run.
-func TestTheBackfillSavesAMissingPointAndKeepsTheLatestMainMetric(t *testing.T) {
+// backfilled runs the end-of-run backfill of a run whose log has one point of its main metric, at step 2, that an
+// earlier read missed. summary makes the stored summary of the run from the name of its main metric and its cap on
+// points. It returns the columns and the points the backfill saved.
+func backfilled(t *testing.T, summary func(main string, maxPoints int64) string) (map[string]interface{}, []string,
+	string) {
 	ctx := context.Background()
 	run := testRunRow("Succeeded", "done")
 	run.Framework, run.OutputPath = "slime", testRunDir
@@ -112,11 +115,11 @@ func TestTheBackfillSavesAMissingPointAndKeepsTheLatestMainMetric(t *testing.T) 
 	w.Status.Phase = v1.WorkloadSucceeded
 	r, _, _ := newTestReconciler(t, run, w)
 	loadChartRegistry(t, r)
-	main := r.newIngestion(ctx, newRunUpdate(run), loadCursor("")).mainName
+	fresh := r.newIngestion(ctx, newRunUpdate(run), loadCursor(""))
+	main := fresh.mainName
 	require.NotEmpty(t, main)
 	run.MetricCursor = `{"order":["a1"],"attempts":{"a1":{"maxSeq":3,"gaps":[{"from":2,"to":2,"since":1}]}}}`
-	run.MetricSummary = `{"points":2,"main":{"name":"` + main + `","step":5,"value":0.5,` +
-		`"spark":[{"step":1,"value":1},{"step":5,"value":0.5}],"stride":1,"seen":2}}`
+	run.MetricSummary = summary(main, fresh.maxPoints)
 	log := "2026-11-20T00:00:00Z " + metricLine("a1", 2, 2, `{"`+main+`":0.9}`) + "\n"
 	srv := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		if strings.HasSuffix(req.URL.Path, "/log") {
@@ -143,9 +146,30 @@ func TestTheBackfillSavesAMissingPointAndKeepsTheLatestMainMetric(t *testing.T) 
 	r.db = db
 	_, err = r.reconcileBackfill(ctx, run)
 	require.NoError(t, err)
+	return saved, keys, main
+}
+
+// The backfill reads the log of its pod, saves the point that was missing and leaves the main metric on the latest
+// point of the run.
+func TestTheBackfillSavesAMissingPointAndKeepsTheLatestMainMetric(t *testing.T) {
+	saved, keys, main := backfilled(t, func(main string, _ int64) string {
+		return `{"points":2,"main":{"name":"` + main + `","step":5,"value":0.5,` +
+			`"spark":[{"step":1,"value":1},{"step":5,"value":0.5}],"stride":1,"seen":2}}`
+	})
 	require.Equal(t, []string{main + "@2=0.9"}, keys)
 	require.NotContains(t, saved["stage_history"], "could not be read")
 	sum := loadSummary(saved["metric_summary"].(string))
 	require.Equal(t, int64(3), sum.Points)
 	require.Equal(t, summaryPoint{Step: 5, Value: 0.5}, summaryPoint{Step: sum.Main.Step, Value: sum.Main.Value})
+}
+
+// A backfill that finds the run at its cap on points stores none of its points, and still records the cap that
+// no earlier read had found.
+func TestTheBackfillRecordsTheCapItFinds(t *testing.T) {
+	saved, keys, _ := backfilled(t, func(_ string, maxPoints int64) string {
+		return fmt.Sprintf(`{"points":%d}`, maxPoints)
+	})
+	require.Empty(t, keys)
+	require.Contains(t, saved, "metric_summary")
+	require.True(t, loadSummary(saved["metric_summary"].(string)).Capped)
 }
