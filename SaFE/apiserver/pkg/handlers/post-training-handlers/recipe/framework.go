@@ -59,7 +59,6 @@ type SubmitRequest struct {
 	Framework        string                 `json:"framework,omitempty"`
 	FrameworkOptions map[string]interface{} `json:"frameworkOptions,omitempty"`
 	Ext              map[string]interface{} `json:"ext,omitempty"`
-	TemplateID       string                 `json:"templateId,omitempty"`
 	ModelID          string                 `json:"modelId"`
 	DatasetID        string                 `json:"datasetId"`
 	EvalDatasetID    string                 `json:"evalDatasetId,omitempty"`
@@ -69,11 +68,8 @@ type SubmitRequest struct {
 	Export           Export                 `json:"export"`
 	Tracking         Tracking               `json:"tracking"`
 	Evaluation       EvaluationRequest      `json:"evaluation"`
-	// Seed fixes the training and rollout seeds; A/B experiments give every variant the same one. It is not hashed.
+	// Seed fixes the training and rollout seeds. It is not hashed.
 	Seed int `json:"seed,omitempty"`
-	// ExperimentID and VariantName place a run in an A/B experiment; only the experiment API sets them.
-	ExperimentID string `json:"-"`
-	VariantName  string `json:"-"`
 }
 
 // Choices are the training options. Zero values mean "use the default"; the framework plugin fills the defaults
@@ -433,16 +429,8 @@ type Recipe struct {
 	// Evaluation is the automatic evaluation the controller runs after registration; it is not hashed.
 	Evaluation *EvaluationRequest `json:"evaluation,omitempty"`
 	// Tracking is the W&B reporting, with the secret id only; it is not hashed.
-	Tracking *Tracking `json:"tracking,omitempty"`
-	// Template is the template and version the run started from; it is not hashed.
-	Template   *RecipeTemplate `json:"template,omitempty"`
-	Provenance Provenance      `json:"provenance"`
-}
-
-// RecipeTemplate names the template version a recipe started from.
-type RecipeTemplate struct {
-	ID      string `json:"id"`
-	Version int    `json:"version"`
+	Tracking   *Tracking  `json:"tracking,omitempty"`
+	Provenance Provenance `json:"provenance"`
 }
 
 // RecipeModel identifies the base model. Script is the framework's model script, which the launcher adapter turns
@@ -1057,7 +1045,7 @@ func rlSamples(req *SubmitRequest, fw *registry.Framework) *registry.Samples {
 }
 
 // hashInput is the part of a recipe that decides whether two runs are the same configuration. Run ids, names,
-// paths, templates, experiments, scheduling, tracking, evaluation and ext are left out.
+// paths, scheduling, tracking, evaluation and ext are left out.
 type hashInput struct {
 	Framework        string                 `json:"framework"`
 	TrainType        string                 `json:"trainType"`

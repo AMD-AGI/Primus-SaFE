@@ -51,7 +51,7 @@ const (
 	maxRetryLimit   = 3
 	maxRunSlugLen   = 30
 	maxExtBytes     = 16 * 1024
-	// maxDisplayNameLen is what the display name columns of runs and experiments hold.
+	// maxDisplayNameLen is what the display name column of a run holds.
 	maxDisplayNameLen = 128
 	rdmaResource      = "1k"
 	// nodeInitScript clears stale aiter JIT locks, which hang SGLang after a pod restart, and lets every Python
@@ -135,7 +135,6 @@ func (h *Handler) submit(c *gin.Context, reg *registry.Registry,
 // returns diagnostics without a run when the request does not compile.
 func (h *Handler) prepareRun(c *gin.Context, reg *registry.Registry,
 	req *recipe.SubmitRequest) (*preparedRun, []recipe.Diagnostic, error) {
-	ctx := c.Request.Context()
 	if strings.TrimSpace(req.DisplayName) == "" {
 		return nil, nil, commonerrors.NewBadRequest("displayName is required")
 	}
@@ -165,14 +164,6 @@ func (h *Handler) prepareRun(c *gin.Context, reg *registry.Registry,
 		return nil, res.Diagnostics, nil
 	}
 	h.markConvertCache(c, req.Workspace, res.Recipe)
-	if req.TemplateID != "" {
-		tpl, err := h.db.GetPostTrainingTemplate(ctx, req.TemplateID)
-		if err != nil || tpl.Workspace != req.Workspace {
-			return nil, nil, commonerrors.NewBadRequest(fmt.Sprintf("template %s not found in workspace %s",
-				req.TemplateID, req.Workspace))
-		}
-		res.Recipe.Template = &recipe.RecipeTemplate{ID: tpl.TemplateID, Version: tpl.Version}
-	}
 	recipeJSON, err := json.Marshal(res.Recipe)
 	if err != nil {
 		return nil, nil, commonerrors.NewInternalError("failed to encode the recipe: " + err.Error())
@@ -512,10 +503,6 @@ func runRow(c *gin.Context, req *recipe.SubmitRequest, res *recipe.Result, ws *w
 	}
 	history, _ := json.Marshal([]map[string]string{{"stage": "queued", "time": time.Now().UTC().Format(time.RFC3339)}})
 	r := res.Recipe
-	templateVersion := 0
-	if r.Template != nil {
-		templateVersion = r.Template.Version
-	}
 	return &dbclient.PostTrainingRun{
 		RunID:            runID,
 		WorkloadID:       runID,
@@ -545,10 +532,6 @@ func runRow(c *gin.Context, req *recipe.SubmitRequest, res *recipe.Result, ws *w
 		Recipe:           recipeJSON,
 		RecipeHash:       r.Provenance.RecipeHash,
 		EvalEnabled:      req.Evaluation.Enabled,
-		TemplateID:       req.TemplateID,
-		TemplateVersion:  templateVersion,
-		ExperimentID:     req.ExperimentID,
-		VariantName:      req.VariantName,
 		Ext:              ext,
 	}
 }

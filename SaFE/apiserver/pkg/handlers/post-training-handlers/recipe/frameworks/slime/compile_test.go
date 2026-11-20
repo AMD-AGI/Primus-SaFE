@@ -275,7 +275,7 @@ func TestCompileSeed(t *testing.T) {
 	res := compile(t, in)
 	require.Contains(t, strings.Join(res.Recipe.FrameworkArgs, " "), "--seed 1234 --rollout-seed 1234")
 	require.Equal(t, plain.Recipe.Provenance.RecipeHash, res.Recipe.Provenance.RecipeHash,
-		"the variants of an experiment share a seed, which is not part of the recipe hash")
+		"the seed is not part of the recipe hash")
 
 	sft := qwen3Input(t, registry.TrainTypeSFT)
 	sft.Request.Seed = 7
