@@ -125,6 +125,27 @@ func TestBuildMarkers(t *testing.T) {
 	m = buildMarkers(run, map[string][]*dbclient.PostTrainingRunMetric{"train/loss": rows("train/loss", 0, 3, 19, 1)})
 	require.Equal(t, []checkpointMark{{Step: 10}, {Step: 20}}, m.Checkpoints,
 		"steps count from 0, so a last step of 19 means 20 steps done and the checkpoint saved after them")
+
+	// slime saves once more when training ends, whatever the interval: a run that is past training has that
+	// checkpoint, and the validation loss of the last step belongs to it.
+	short := map[string][]*dbclient.PostTrainingRunMetric{
+		"train/loss": rows("train/loss", 0, 3, 6, 1), "eval/val/loss": rows("eval/val/loss", 0, 2, 7, 0.7)}
+	run.Recipe = `{"choices":{"saveInterval":200}}`
+	require.Empty(t, buildMarkers(run, short).Checkpoints, "the run is still training")
+	for _, stage := range []string{"export", "register", "eval", "done"} {
+		run.Stage = stage
+		m = buildMarkers(run, short)
+		loss := 0.7
+		require.Equal(t, []checkpointMark{{Step: 7, ValLoss: &loss}}, m.Checkpoints, stage)
+		require.Equal(t, 7, m.BestCheckpoint.Step, stage)
+	}
+	run.Recipe = `{"choices":{"saveInterval":5},"checkpoint":{"keepLast":1}}`
+	long := map[string][]*dbclient.PostTrainingRunMetric{"train/loss": rows("train/loss", 0, 3, 11, 1)}
+	require.Equal(t, []checkpointMark{{Step: 5, Deleted: true}, {Step: 10, Deleted: true}, {Step: 12}},
+		buildMarkers(run, long).Checkpoints, "the last save counts as the most recent one")
+	run.Recipe = `{"choices":{"saveInterval":6}}`
+	require.Equal(t, []checkpointMark{{Step: 6}, {Step: 12}}, buildMarkers(run, long).Checkpoints,
+		"a last step on the interval is one checkpoint")
 }
 
 // Stopping a workload records who stopped it and deletes it, and a missing one is fine.

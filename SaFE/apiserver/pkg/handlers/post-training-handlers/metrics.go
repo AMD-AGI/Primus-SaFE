@@ -350,6 +350,15 @@ func checkpointIteration(step int) int {
 	return step - 1
 }
 
+// trained reports whether a run is past training.
+func trained(run *dbclient.PostTrainingRun) bool {
+	switch run.Stage {
+	case "export", "register", "eval", "done":
+		return true
+	}
+	return false
+}
+
 // buildMarkers derives the checkpoint, best checkpoint, resume and failure markers of a run from its recipe, stage
 // history and points.
 func buildMarkers(run *dbclient.PostTrainingRun, points map[string][]*dbclient.PostTrainingRunMetric) markers {
@@ -371,14 +380,22 @@ func buildMarkers(run *dbclient.PostTrainingRun, points map[string][]*dbclient.P
 			valLoss[r.Step] = r.Value
 		}
 	}
+	steps := []int{}
 	if interval := rec.Choices.SaveInterval; interval > 0 {
 		for step := interval; step <= done; step += interval {
-			cp := checkpointMark{Step: step}
-			if v, ok := valLoss[step]; ok {
-				cp.ValLoss = &v
-			}
-			m.Checkpoints = append(m.Checkpoints, cp)
+			steps = append(steps, step)
 		}
+	}
+	// slime saves once more when training ends, whatever the interval.
+	if trained(run) && done > 0 && (len(steps) == 0 || steps[len(steps)-1] != done) {
+		steps = append(steps, done)
+	}
+	for _, step := range steps {
+		cp := checkpointMark{Step: step}
+		if v, ok := valLoss[step]; ok {
+			cp.ValLoss = &v
+		}
+		m.Checkpoints = append(m.Checkpoints, cp)
 	}
 	for i := range m.Checkpoints {
 		if cp := m.Checkpoints[i]; cp.ValLoss != nil && (m.BestCheckpoint == nil || *cp.ValLoss < *m.BestCheckpoint.ValLoss) {
