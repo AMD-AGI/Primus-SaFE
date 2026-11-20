@@ -373,21 +373,6 @@ const router = createRouter({
           component: () => import('@/pages/PostTraining/Detail.vue'),
         },
         {
-          path: '/post-training/compare',
-          name: 'PostTrainingCompare',
-          component: () => import('@/pages/PostTraining/Compare.vue'),
-        },
-        {
-          path: '/post-training/templates',
-          name: 'PostTrainingTemplates',
-          component: () => import('@/pages/PostTraining/Templates.vue'),
-        },
-        {
-          path: '/post-training/experiments/detail',
-          name: 'PostTrainingExperiment',
-          component: () => import('@/pages/PostTraining/Experiment.vue'),
-        },
-        {
           path: '/posttrain',
           name: 'PostTrain',
           component: () => import('@/pages/PostTrain/index.vue'),
