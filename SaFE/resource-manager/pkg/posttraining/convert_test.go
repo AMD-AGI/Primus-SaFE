@@ -183,6 +183,35 @@ func TestAFailedReclaimWaitsBeforeItRunsAgain(t *testing.T) {
 	require.Error(t, r.Get(ctx, client.ObjectKeyFromObject(job), &v1.OpsJob{}), "after the wait it is tried again")
 }
 
+// A reclaim job that was deleted leaves its workload, of the same name, for a while: the job is not made again
+// before the workload is gone.
+func TestNoReclaimJobIsMadeWhileTheWorkloadOfADeletedOneIsLeft(t *testing.T) {
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1",
+		Volumes: []v1.WorkspaceVolume{{Type: v1.PFS, MountPath: "/wekafs"}}}}
+	dir := "/wekafs/custom/models/post-training-cache/slime-qwen3-8B-m-gone-540ea91"
+	name := client.ObjectKey{Name: resource.DirectoryCleanupJobName("ws1", dir)}
+	left := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: name.Name, Finalizers: []string{v1.WorkloadFinalizer},
+		DeletionTimestamp: &metav1.Time{Time: time.Now()}}}
+	r, db, _ := newTestReconciler(t, testRunRow("Running", "train"), ws, left)
+	loadChartRegistry(t, r)
+	gone := &dbclient.PostTrainingConvertCache{ID: 1, Workspace: "ws1", CacheKey: "slime-qwen3-8B-m-gone-540ea91",
+		ModelID: "m-gone", Path: dir, Status: dbclient.ConvertCacheInvalid}
+	db.EXPECT().ListPostTrainingConvertCaches(gomock.Any(), gomock.Any()).Return(
+		[]*dbclient.PostTrainingConvertCache{gone}, nil).Times(2)
+	db.EXPECT().ListPostTrainingRuns(gomock.Any(), gomock.Any()).Return(nil, int64(0), nil).AnyTimes()
+	ctx := context.Background()
+	sweep := ctrlruntime.Request{NamespacedName: client.ObjectKey{Name: cacheSweepRequest}}
+	res, err := r.Reconcile(ctx, sweep)
+	require.NoError(t, err)
+	require.Equal(t, cacheSweepRequeue, res.RequeueAfter, "the sweep comes back for the cache")
+	require.Error(t, r.Get(ctx, name, &v1.OpsJob{}), "the workload of the deleted job is still there")
+	left.Finalizers = nil
+	require.NoError(t, r.Update(ctx, left))
+	_, err = r.Reconcile(ctx, sweep)
+	require.NoError(t, err)
+	require.NoError(t, r.Get(ctx, name, &v1.OpsJob{}), "the job is made once the workload is gone")
+}
+
 // The cache of a listed commit stays, whatever characters the commit has.
 func TestACommitWithAHyphenIsNotRetired(t *testing.T) {
 	kept := &v1.Model{ObjectMeta: metav1.ObjectMeta{Name: "m-kept"}}

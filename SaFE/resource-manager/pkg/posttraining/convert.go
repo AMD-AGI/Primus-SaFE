@@ -206,6 +206,10 @@ func (r *RunReconciler) reclaimCache(ctx context.Context, cache *dbclient.PostTr
 		if inUse, err := r.cacheInUse(ctx, cache); err != nil || inUse {
 			return false, err
 		}
+		// The workload of a deleted job of the name has to go first.
+		if left, err := r.jobWorkloadLeft(ctx, job.Name); err != nil || left {
+			return false, err
+		}
 		return false, client.IgnoreAlreadyExists(r.Create(ctx, job))
 	}
 	if err != nil {
