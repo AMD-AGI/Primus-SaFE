@@ -82,10 +82,6 @@ type PostTrainingRun struct {
 	// CleanupRequest is the JSON of a checkpoint cleanup the controller has yet to finish.
 	CleanupRequest    string `gorm:"column:cleanup_request" json:"cleanupRequest,omitempty" db:"cleanup_request"`
 	ConvertWorkloadID string `gorm:"column:convert_workload_id" json:"convertWorkloadId,omitempty" db:"convert_workload_id"`
-	TemplateID        string `gorm:"column:template_id" json:"templateId,omitempty" db:"template_id"`
-	TemplateVersion   int    `gorm:"column:template_version" json:"templateVersion,omitempty" db:"template_version"`
-	ExperimentID      string `gorm:"column:experiment_id" json:"experimentId,omitempty" db:"experiment_id"`
-	VariantName       string `gorm:"column:variant_name" json:"variantName,omitempty" db:"variant_name"`
 	// Ext is JSON reserved for framework plugins; the platform does not interpret it.
 	Ext string `gorm:"column:ext" json:"ext,omitempty" db:"ext"`
 
@@ -104,17 +100,15 @@ func (PostTrainingRun) TableName() string {
 
 // PostTrainingRunFilter selects runs for ListPostTrainingRuns. Zero-valued fields are ignored.
 type PostTrainingRunFilter struct {
-	Workspace    string
-	Framework    string
-	TrainType    string
-	Method       string
-	Statuses     []string
-	Stage        string
-	BaseModelID  string
-	UserID       string
-	TemplateID   string
-	ExperimentID string
-	Search       string // matches display_name ILIKE %search%, or the run_id
+	Workspace   string
+	Framework   string
+	TrainType   string
+	Method      string
+	Statuses    []string
+	Stage       string
+	BaseModelID string
+	UserID      string
+	Search      string // matches display_name ILIKE %search%, or the run_id
 	// CleanupRequested selects the runs with a checkpoint cleanup to finish.
 	CleanupRequested bool
 	Limit            int
@@ -181,12 +175,6 @@ func (c *Client) ListPostTrainingRuns(
 	}
 	if filter.UserID != "" {
 		query = query.Where("user_id = ?", filter.UserID)
-	}
-	if filter.TemplateID != "" {
-		query = query.Where("template_id = ?", filter.TemplateID)
-	}
-	if filter.ExperimentID != "" {
-		query = query.Where("experiment_id = ?", filter.ExperimentID)
 	}
 	if filter.CleanupRequested {
 		query = query.Where("cleanup_request IS NOT NULL AND cleanup_request <> ''")

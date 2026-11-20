@@ -27,7 +27,7 @@ func TestPostTrainingRunCRUD(t *testing.T) {
 	_, _ = c.GetPostTrainingRun(ctx, "r1")
 	_, _, _ = c.ListPostTrainingRuns(ctx, PostTrainingRunFilter{
 		Workspace: "ws", Framework: "slime", TrainType: "sft", Method: "full", Statuses: []string{"Running"},
-		Stage: "train", BaseModelID: "m", UserID: "u", TemplateID: "t", ExperimentID: "e", Search: "x",
+		Stage: "train", BaseModelID: "m", UserID: "u", Search: "x",
 		Limit: 10, Offset: 10,
 	})
 	_ = c.SetPostTrainingRunDeleted(ctx, "r1")
