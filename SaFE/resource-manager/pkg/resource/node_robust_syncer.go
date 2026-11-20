@@ -448,11 +448,17 @@ func buildNodeSyncPayload(node *v1.Node, flavor *v1.NodeFlavor) robustclient.Nod
 			Generation:   ref.Generation,
 			HostKey:      ref.HostKey,
 		}
-		payload.Address = v1.GetAnnotation(node, v1.ExternalFrontEndIPv4Annotation)
+		// The front-end IPv4 is the only scrape address of an external node, so its
+		// absence is sent as an empty address and clears the one Robust holds.
+		address := v1.GetAnnotation(node, v1.ExternalFrontEndIPv4Annotation)
+		payload.Address = &address
 	} else {
-		payload.Address = node.Spec.PrivateIP
-		if payload.Address == "" {
-			payload.Address = node.Status.MachineStatus.PrivateIP
+		address := node.Spec.PrivateIP
+		if address == "" {
+			address = node.Status.MachineStatus.PrivateIP
+		}
+		if address != "" {
+			payload.Address = &address
 		}
 	}
 	return payload

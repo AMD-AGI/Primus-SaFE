@@ -92,8 +92,9 @@ type NodeSyncPayload struct {
 	// CPU cores.
 	CPU   int   `json:"cpu"`
 	MemMB int64 `json:"mem_mb"`
-	// The address Robust scrapes the host exporters on.
-	Address string `json:"address,omitempty"`
+	// The address Robust scrapes the host exporters on. Nil keeps what Robust
+	// holds; an empty string clears it.
+	Address *string `json:"address,omitempty"`
 	// One of the NodeSyncLifecycle values; External is set only for external nodes.
 	Lifecycle string            `json:"lifecycle"`
 	External  *NodeSyncExternal `json:"external,omitempty"`

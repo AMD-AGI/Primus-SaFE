@@ -98,7 +98,7 @@ func TestBuildNodeSyncPayloadManaged(t *testing.T) {
 	assert.Equal(t, "MI300X", p.GPUModel)
 	assert.Equal(t, 128, p.CPU)
 	assert.Equal(t, int64(1024*1024), p.MemMB)
-	assert.Equal(t, "10.0.0.1", p.Address)
+	assert.Equal(t, "10.0.0.1", *p.Address)
 	assert.Equal(t, robustclient.NodeSyncLifecycleManaged, p.Lifecycle)
 	assert.Nil(t, p.External)
 	assert.Equal(t, "42", p.ResourceVersion)
@@ -106,7 +106,12 @@ func TestBuildNodeSyncPayloadManaged(t *testing.T) {
 	// The private IP falls back to the one the machine reports.
 	n.Spec.PrivateIP = ""
 	n.Status.MachineStatus.PrivateIP = "10.0.0.2"
-	assert.Equal(t, "10.0.0.2", buildNodeSyncPayload(n, nil).Address)
+	assert.Equal(t, "10.0.0.2", *buildNodeSyncPayload(n, nil).Address)
+
+	// A managed node whose address is not known yet leaves the one Robust holds.
+	n.Status.MachineStatus.PrivateIP = ""
+	assert.Nil(t, buildNodeSyncPayload(n, nil).Address)
+	n.Status.MachineStatus.PrivateIP = "10.0.0.2"
 
 	// Without a flavor the default GPU resource is counted and the model is unknown.
 	p = buildNodeSyncPayload(n, nil)
@@ -140,7 +145,7 @@ func TestBuildNodeSyncPayloadExternal(t *testing.T) {
 	assert.Equal(t, &robustclient.NodeSyncExternal{
 		Provider: "spur", AllocationID: "alloc-1", Generation: 3, HostKey: "host-7",
 	}, p.External)
-	assert.Equal(t, "203.0.113.5", p.Address)
+	assert.Equal(t, "203.0.113.5", *p.Address)
 	assert.Equal(t, "vk-1", p.Hostname)
 	assert.Equal(t, "ws-ext", p.Workspace)
 	assert.Equal(t, robustclient.NodeSyncPhaseReady, p.Phase)
@@ -152,11 +157,12 @@ func TestBuildNodeSyncPayloadExternal(t *testing.T) {
 	p = buildNodeSyncPayload(n, nil)
 	require.NotNil(t, p.External)
 	assert.Empty(t, p.External.HostKey)
-	assert.Empty(t, p.Address, "an external node never reports the private IP")
+	require.NotNil(t, p.Address)
+	assert.Empty(t, *p.Address, "an external node never reports the private IP")
 	body, err := json.Marshal(p)
 	require.NoError(t, err)
 	assert.NotContains(t, string(body), "host_key")
-	assert.NotContains(t, string(body), `"address"`)
+	assert.Contains(t, string(body), `"address":""`, "a missing front-end IPv4 clears the address Robust holds")
 
 	// A stale provider observation is not ready.
 	stale := syncExternalNode("vk-3", "h", "")
