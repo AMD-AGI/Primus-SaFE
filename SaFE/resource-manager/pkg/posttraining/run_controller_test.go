@@ -254,13 +254,18 @@ func TestVerifyRegistersCompleteOutputOfLostWorkload(t *testing.T) {
 	require.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: verifyJobName(testRun)}, job))
 	job.Status.Phase = v1.OpsJobSucceeded
 	job.Status.Outputs = []v1.Parameter{{Name: "result", Value: commonopsjob.FilterResultLog([]byte(
-		`[SUCCESS] VERIFY={"output":"` + testRunDir + `/final_model","disk":{"finalModel":9,"total":9}}`))}}
+		`[SUCCESS] VERIFY={"stage":"export","output":"` + testRunDir + `/final_model","iteration":10,` +
+			`"disk":{"finalModel":9,"total":9}}`))}}
 	require.NoError(t, r.Update(context.Background(), job))
 	reconcileRun(t, r)
 	last := (*updates)[len(*updates)-1]
 	require.Equal(t, "register", last["stage"])
 	require.Equal(t, `{"finalModel":9,"total":9}`, last["disk_usage"])
 	require.NotEmpty(t, last["output_model_id"])
+	// The run keeps the last checkpoint the launcher wrote down, in a line that is no result marker of an attempt.
+	line := `[SUCCESS] {"run":"` + testRun + `","stage":"export","output":"` + testRunDir + `/final_model","iteration":10}`
+	require.Equal(t, line, last["result_line"])
+	require.Nil(t, lastResult(line, testRun))
 }
 
 // A pending run whose workload was never created gets no event of a workload: the sweep of the unfinished runs
@@ -377,6 +382,7 @@ func TestVerifyEndsALostRunThatExportsNoModel(t *testing.T) {
 		reconcileRun(t, r)
 		last := (*updates)[len(*updates)-1]
 		require.Equal(t, status, last["status"], "exportHf=%s", exportHf)
+		require.NotContains(t, last, "result_line", "a result without the last checkpoint leaves the line as it is")
 	}
 }
 

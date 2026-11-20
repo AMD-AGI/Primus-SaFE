@@ -79,10 +79,25 @@ sys.exit(1)
 
 // verifyResult is what the verification job reports about a run directory.
 type verifyResult struct {
-	Output string          `json:"output"`
-	Stage  string          `json:"stage"`
-	Reason string          `json:"reason"`
-	Disk   json.RawMessage `json:"disk"`
+	Output string `json:"output"`
+	Stage  string `json:"stage"`
+	Reason string `json:"reason"`
+	// Iteration is the last checkpoint the launcher wrote down with its result.
+	Iteration *int            `json:"iteration"`
+	Disk      json.RawMessage `json:"disk"`
+}
+
+// verifiedResultLine is the result line of a run whose result the verification job found: it keeps the last
+// checkpoint the launcher wrote down, as the line of a result that was read does. Naming no attempt, it is no
+// result marker of one.
+func verifiedResultLine(runID string, res *verifyResult) string {
+	data, _ := json.Marshal(struct {
+		Run       string `json:"run"`
+		Stage     string `json:"stage"`
+		Output    string `json:"output"`
+		Iteration int    `json:"iteration"`
+	}{runID, res.Stage, res.Output, *res.Iteration})
+	return markerSuccess + " " + string(data)
 }
 
 // verifyJobName is the name of the job that checks a run's directory.
@@ -127,6 +142,9 @@ func (r *RunReconciler) verify(ctx context.Context, u *runUpdate, endTime time.T
 	// A finished launcher reports no output for a run that exports no model, which register ends as succeeded.
 	exports := parseRecipe(run).Output.ExportHF
 	if kind == markerSuccess && (res.Output != "" || (exports != nil && !*exports)) {
+		if res.Iteration != nil {
+			u.set("result_line", run.ResultLine, verifiedResultLine(run.RunID, res))
+		}
 		return r.register(ctx, u, &marker{Kind: markerSuccess, Body: markerBody{Run: run.RunID, Output: res.Output}}, endTime)
 	}
 	stage, reason := fallbackStage, fallbackReason

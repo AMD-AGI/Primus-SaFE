@@ -74,7 +74,8 @@ type PostTrainingRun struct {
 	MetricCursor  string `gorm:"column:metric_cursor" json:"-" db:"metric_cursor"`
 	MetricSummary string `gorm:"column:metric_summary" json:"metricSummary,omitempty" db:"metric_summary"`
 	MetricGap     bool   `gorm:"column:metric_gap" json:"metricGap" db:"metric_gap"`
-	// ResultLine is the JSON of the last [SUCCESS] or [ERROR] marker the controller read.
+	// ResultLine is the last [SUCCESS] or [ERROR] marker the controller read, or the result the verification job
+	// found for a run whose marker was lost.
 	ResultLine string `gorm:"column:result_line" json:"resultLine,omitempty" db:"result_line"`
 	// StalledSince is the last progress time of a run marked stalled, NULL while it makes progress.
 	StalledSince pq.NullTime `gorm:"column:stalled_since" json:"stalledSince,omitempty" db:"stalled_since"`
