@@ -208,15 +208,33 @@ func TestTheLastSaveIsTheOneTheLauncherReported(t *testing.T) {
 		require.Equal(t, want, buildMarkers(run, whole).Checkpoints, "keepLast %d", keepLast)
 	}
 
-	// Points cut at the cap end before the last save, also when they end at a save of the interval; a run without
-	// points lists nothing.
-	capped := &dbclient.PostTrainingRun{TrainType: "sft", Status: "Failed", Stage: "export",
-		MetricSummary: `{"points":500000,"capped":true}`,
-		Recipe:        `{"choices":{"saveInterval":500},"checkpoint":{"keepLast":1}}`}
-	require.Equal(t, []checkpointMark{{Step: 500, Deleted: true}, {Step: 1000, Deleted: true}},
-		buildMarkers(capped, whole).Checkpoints)
-	capped.MetricSummary, capped.MetricGap = "", true
-	require.Empty(t, buildMarkers(capped, nil).Checkpoints)
+	// Points cut at the cap end before the training did, by a number of saves that is not known: no save listed is
+	// known to be one the retention kept, with a gap or without, and only the best one is safe. A run that is still
+	// training lists its saves as its points have them, and a run without points lists nothing.
+	capped := func(keepLast int, change func(*dbclient.PostTrainingRun)) *dbclient.PostTrainingRun {
+		run := &dbclient.PostTrainingRun{TrainType: "sft", Status: "Failed", Stage: "export",
+			MetricSummary: `{"points":500000,"capped":true}`, Recipe: fmt.Sprintf(
+				`{"choices":{"saveInterval":500},"checkpoint":{"keepLast":%d,"keepBest":true}}`, keepLast)}
+		change(run)
+		return run
+	}
+	asIs := func(*dbclient.PostTrainingRun) {}
+	withGap := func(run *dbclient.PostTrainingRun) { run.MetricGap = true }
+	gone := []checkpointMark{{Step: 500, Deleted: true}, {Step: 1000, Deleted: true}}
+	for _, keepLast := range []int{1, 2} {
+		require.Equal(t, gone, buildMarkers(capped(keepLast, asIs), whole).Checkpoints, "keepLast %d", keepLast)
+		require.Equal(t, gone, buildMarkers(capped(keepLast, withGap), whole).Checkpoints, "keepLast %d", keepLast)
+	}
+	loss := 0.4
+	scored := map[string][]*dbclient.PostTrainingRunMetric{"train/loss": whole["train/loss"],
+		valLossMetric: rows(valLossMetric, 500, loss)}
+	require.Equal(t, []checkpointMark{{Step: 500, ValLoss: &loss}, {Step: 1000, Deleted: true}},
+		buildMarkers(capped(2, asIs), scored).Checkpoints)
+	training := capped(1, func(run *dbclient.PostTrainingRun) { run.Status, run.Stage = "Running", "train" })
+	require.Equal(t, []checkpointMark{{Step: 500, Deleted: true}, {Step: 1000}},
+		buildMarkers(training, whole).Checkpoints)
+	empty := capped(1, func(run *dbclient.PostTrainingRun) { run.MetricSummary, run.MetricGap = "", true })
+	require.Empty(t, buildMarkers(empty, nil).Checkpoints)
 }
 
 // Stopping a workload records who stopped it and deletes it, and a missing one is fine.

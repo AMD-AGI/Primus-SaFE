@@ -463,10 +463,17 @@ func buildMarkers(run *dbclient.PostTrainingRun, points map[string][]*dbclient.P
 		}
 	}
 	if keep := rec.Checkpoint.KeepLast; keep > 0 {
-		// A last save whose step is not known is one of those the retention kept. It is not listed, unless the
-		// points end at the last step listed, which then is that save; points cut at the cap end before it.
-		if trained(run) && last == 0 && (pointsCapped(run) || len(steps) == 0 || steps[len(steps)-1] != done) {
-			keep--
+		if trained(run) && last == 0 {
+			switch {
+			// Points cut at the cap end before the training did, by a number of saves that is not known: no save
+			// listed is known to be one of those the retention kept.
+			case pointsCapped(run):
+				keep = 0
+			// A last save whose step is not known is one of those the retention kept. It is not listed, unless
+			// the points end at the last step listed, which then is that save.
+			case len(steps) == 0 || steps[len(steps)-1] != done:
+				keep--
+			}
 		}
 		for i := range m.Checkpoints {
 			recent := i >= len(m.Checkpoints)-keep
