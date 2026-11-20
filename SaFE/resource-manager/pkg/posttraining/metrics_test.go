@@ -256,6 +256,41 @@ func TestTheCapIsRecordedByAReadThatStoresNoPoint(t *testing.T) {
 	require.False(t, save, "a read that stores nothing more leaves the row as it is")
 }
 
+// The read that records the cap stores no more than that: its points stay in memory and may be older than the last
+// one stored. A rejection that an earlier read counted is no reason to store the summary again; a new one is.
+func TestTheReadThatRecordsTheCapKeepsTheStoredSummary(t *testing.T) {
+	first := newTestIngestion(2)
+	feed(first, stageLine("a1", "train", "running", `{"resumeStep":0}`),
+		metricLine("a1", 1, 1, `{"train/loss":1}`), metricLine("a1", 3, 3, `{"train/loss":0.8,"bad":"x"}`))
+	points := first.finish()
+	filled, save := first.summaryUpdate(points, "")
+	require.Len(t, points, 2)
+	require.True(t, save)
+	require.Equal(t, int64(1), loadSummary(filled).Rejected)
+
+	read := func(stored, line string) (string, bool) {
+		in := newTestIngestion(2)
+		in.cur, in.sum = first.cur, loadSummary(stored)
+		feed(in, line)
+		points := in.finish()
+		require.Empty(t, points)
+		return in.summaryUpdate(points, stored)
+	}
+	// The line of seq 2, which the first read missed, comes with the read that finds the cap.
+	capped, save := read(filled, metricLine("a1", 2, 2, `{"train/loss":0.9}`))
+	require.True(t, save)
+	sum := loadSummary(capped)
+	require.True(t, sum.Capped)
+	require.Equal(t, summaryPoint{Step: 3, Value: 0.8}, summaryPoint{Step: sum.Main.Step, Value: sum.Main.Value},
+		"the main metric stays on the last point stored")
+
+	_, save = read(capped, metricLine("a1", 4, 4, `{"train/loss":0.7}`))
+	require.False(t, save, "the rejection an earlier read counted is no reason to store the summary again")
+	again, save := read(capped, metricLine("a1", 5, 5, `{"train/loss":0.6,"bad":"x"}`))
+	require.True(t, save, "a new rejection is")
+	require.Equal(t, int64(2), loadSummary(again).Rejected)
+}
+
 // A resumed attempt replaces the points after its resume step.
 func TestIngestionResumeDropsReplacedPoints(t *testing.T) {
 	in := newTestIngestion(100)

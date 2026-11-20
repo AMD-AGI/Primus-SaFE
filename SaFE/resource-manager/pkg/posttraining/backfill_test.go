@@ -172,4 +172,10 @@ func TestTheBackfillRecordsTheCapItFinds(t *testing.T) {
 	require.Empty(t, keys)
 	require.Contains(t, saved, "metric_summary")
 	require.True(t, loadSummary(saved["metric_summary"].(string)).Capped)
+
+	saved, keys, _ = backfilled(t, func(_ string, maxPoints int64) string {
+		return fmt.Sprintf(`{"points":%d,"capped":true}`, maxPoints)
+	})
+	require.Empty(t, keys)
+	require.NotContains(t, saved, "metric_summary", "a run whose cap is recorded keeps its summary")
 }

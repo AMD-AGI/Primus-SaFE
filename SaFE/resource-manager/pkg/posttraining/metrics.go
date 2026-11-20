@@ -700,11 +700,23 @@ func (in *ingestion) addLinks(values map[string]json.RawMessage) {
 }
 
 // summaryUpdate returns the summary to store and whether this read stores it: it changed, and the read had
-// points, rejections, links, samples or a resume that rewound it, or found the run at its cap on points.
+// points, rejections, links, samples or a resume that rewound it. A read that only found the run at its cap on
+// points stores the summary it started from with the cap: its points stay in memory, and may be older than the
+// last one stored.
 func (in *ingestion) summaryUpdate(points []*dbclient.PostTrainingRunMetric, stored string) (string, bool) {
 	data, _ := json.Marshal(in.sum)
-	return string(data), string(data) != stored && (len(points) > 0 || in.sum.Rejected > 0 || in.linked ||
-		in.sampled || in.resumeFrom != nil || in.capReached(stored))
+	was := loadSummary(stored)
+	switch {
+	case string(data) == stored:
+		return stored, false
+	case len(points) > 0 || in.sum.Rejected > was.Rejected || in.linked || in.sampled || in.resumeFrom != nil:
+		return string(data), true
+	case in.capReached(stored):
+		was.Capped = true
+		data, _ = json.Marshal(was)
+		return string(data), true
+	}
+	return string(data), false
 }
 
 // capReached reports whether this read is the first to find the run at its cap on points, which the stored
