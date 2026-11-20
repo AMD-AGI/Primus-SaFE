@@ -88,8 +88,9 @@ func diskJobName(runID string) string {
 }
 
 // reconcileCleanup removes the directories of a requested checkpoint cleanup with model-cleanup jobs, then
-// counts the run directory again, stores the usage, records the cleanup and clears the request. A failed job is
-// tried again after cleanupRetry; a cleanup that cannot run, or failed cleanupAttempts times, is given up.
+// counts the run directory again, stores the usage, records the cleanup and clears the request. A job that failed,
+// or is unfinished past its timeout, is tried again after cleanupRetry; a cleanup that cannot run, or failed
+// cleanupAttempts times, is given up.
 func (r *RunReconciler) reconcileCleanup(ctx context.Context, run *dbclient.PostTrainingRun) (ctrlruntime.Result, error) {
 	var plan checkpointCleanup
 	if err := json.Unmarshal([]byte(run.CleanupRequest), &plan); err != nil {
@@ -256,12 +257,16 @@ func jobEnd(job *v1.OpsJob) time.Time {
 	return job.CreationTimestamp.Time
 }
 
-// jobFailure returns the reason a failed OpsJob gives: the message of its failed completion condition.
+// jobFailure returns the reason a cleanup job failed: the message of its failed completion condition, or that it
+// ran out of time for one that counts as failed because it was left unfinished past its timeout.
 func jobFailure(job *v1.OpsJob) string {
 	for _, c := range job.Status.Conditions {
 		if c.Reason == "JobFailed" && c.Message != "" {
 			return c.Message
 		}
+	}
+	if job.Status.Phase != v1.OpsJobFailed {
+		return "the cleanup job did not finish within its timeout"
 	}
 	return "the cleanup job failed"
 }
@@ -279,7 +284,8 @@ func (r *RunReconciler) jobWorkloadLeft(ctx context.Context, name string) (bool,
 	return w.GetDeletionTimestamp().IsZero() || time.Since(w.GetDeletionTimestamp().Time) < leftoverWait, nil
 }
 
-// countRunDir counts a run directory with a model-inspect job and returns the usage JSON once the job is done.
+// countRunDir counts a run directory with a model-inspect job and returns the usage JSON once the job is done. A
+// job that failed, or is unfinished past its timeout, is done without a usage.
 func (r *RunReconciler) countRunDir(ctx context.Context, run *dbclient.PostTrainingRun) (string, bool, error) {
 	job := &v1.OpsJob{}
 	err := r.Get(ctx, client.ObjectKey{Name: diskJobName(run.RunID)}, job)

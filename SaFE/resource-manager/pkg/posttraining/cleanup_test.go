@@ -240,6 +240,20 @@ func TestAJobLeftUnfinishedPastItsTimeoutHasFailed(t *testing.T) {
 	require.Zero(t, reconcileRun(t, r).RequeueAfter)
 	require.Error(t, r.Get(ctx, disk, &v1.OpsJob{}))
 	require.Equal(t, "", (*updates)[len(*updates)-1]["cleanup_request"], "the cleanup ends without a new count")
+
+	// A cleanup given up on such a job says that the job ran out of time, which a job that failed did not.
+	for phase, reason := range map[v1.OpsJobPhase]string{
+		v1.OpsJobRunning: "the cleanup job did not finish within its timeout", v1.OpsJobFailed: "the cleanup job failed"} {
+		last := cleaning()
+		last.CleanupRequest = fmt.Sprintf(`{"keep":"none","paths":["%s"],"attempts":%d}`, dir, cleanupAttempts-1)
+		job := aged(cleanup.Name, time.Hour, time.Hour+cleanupRetry+time.Minute)
+		job.Status.Phase = phase
+		r, _, updates = newTestReconciler(t, last, ws, job)
+		reconcileRun(t, r)
+		history := (*updates)[len(*updates)-1]["stage_history"]
+		require.Contains(t, history, `"event":"checkpoints-cleanup-failed"`, phase)
+		require.Contains(t, history, `"message":"`+reason+`"`, phase)
+	}
 }
 
 // A failed cleanup job counts as one failed attempt, however often the run is reconciled while the job is deleted.
