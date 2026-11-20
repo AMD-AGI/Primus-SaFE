@@ -216,7 +216,7 @@ func runCall(ctx context.Context, handle gin.HandlerFunc, body string) (int, str
 // first read finds no cleanup, the read after the job was made finds one.
 func exportEndpoint(t *testing.T) (*Handler, *mockclient.MockInterface) {
 	db := mockclient.NewMockInterface(gomock.NewController(t))
-	h := templateHandler(t, db)
+	h := memberHandler(t, db)
 	ctx := context.Background()
 	nf := flavor()
 	nf.Name = "mi355x"

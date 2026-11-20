@@ -79,8 +79,8 @@ func testContext() *gin.Context {
 	return c
 }
 
-// templateHandler returns a handler with Post Training on whose user u1 is a member of workspace ws1.
-func templateHandler(t *testing.T, db dbclient.Interface) *Handler {
+// memberHandler returns a handler with Post Training on whose user u1 is a member of workspace ws1.
+func memberHandler(t *testing.T, db dbclient.Interface) *Handler {
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1.AddToScheme(scheme))
 	require.NoError(t, corev1.AddToScheme(scheme))
@@ -108,7 +108,7 @@ func TestTheRunListLinksTheLatestVerifiedRunOfItsWorkspace(t *testing.T) {
 	c.Request = httptest.NewRequest("GET", "/?workspace=ws1", nil)
 	c.Set(common.UserId, "u1")
 	c.Set(common.UserName, "alice")
-	templateHandler(t, db).ListRuns(c)
+	memberHandler(t, db).ListRuns(c)
 	require.Equal(t, 200, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), `"verifiedRuns":3`)
 	require.Contains(t, w.Body.String(), `"latestVerifiedRun":"pt-0"`)

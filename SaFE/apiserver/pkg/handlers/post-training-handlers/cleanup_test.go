@@ -203,7 +203,7 @@ func TestACleanupGivesWayToAnExportThatStartedMeanwhile(t *testing.T) {
 // shows a running export that the cache does not show yet.
 func cleanupEndpoint(t *testing.T) (*Handler, *mockclient.MockInterface) {
 	db := mockclient.NewMockInterface(gomock.NewController(t))
-	h := templateHandler(t, db)
+	h := memberHandler(t, db)
 	h.reader = exportHandler(t, exportJob("pt-1-x20-b", "Running", 2)).client
 	run := cleanupRun("Succeeded")
 	run.Workspace, run.UserID, run.WorkloadID = "ws1", "u1", "pt-1"

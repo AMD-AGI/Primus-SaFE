@@ -356,7 +356,7 @@ func TestFrameworkOf(t *testing.T) {
 // A curve request reads at most the newest points of the run.
 func TestACurveRequestReadsAtMostTheNewestPoints(t *testing.T) {
 	db := mockclient.NewMockInterface(gomock.NewController(t))
-	h := templateHandler(t, db)
+	h := memberHandler(t, db)
 	db.EXPECT().ListPostTrainingRuns(gomock.Any(), gomock.Any()).Return(nil, int64(0), nil).AnyTimes()
 	db.EXPECT().GetPostTrainingRun(gomock.Any(), "pt-1").Return(&dbclient.PostTrainingRun{RunID: "pt-1",
 		Workspace: "ws1", UserID: "u1", TrainType: "sft"}, nil)
