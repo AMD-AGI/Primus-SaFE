@@ -279,8 +279,14 @@ func (h *Handler) createWorkloadImplWithHook(c *gin.Context, workload *v1.Worklo
 			klog.ErrorS(err, "post-create workload cleanup failed", "workload", workload.Name)
 		}
 	}
-	if err = h.updateWorkloadPhase(c.Request.Context(), workload, v1.WorkloadPending, runtimeCond); err != nil {
+	if err = h.updateWorkloadPhase(c.Request.Context(), workload, v1.WorkloadPending, nil); err != nil {
 		return nil, err
+	}
+	// Written on its own: the Pending patch is dropped once a controller has set a phase.
+	if runtimeCond != nil {
+		if err = h.appendWorkloadCondition(c.Request.Context(), workload, runtimeCond); err != nil {
+			klog.ErrorS(err, "failed to record the runtime extension", "workload", workload.Name)
+		}
 	}
 	klog.Infof("create workload, name: %s, user: %s/%s, priority: %d, timeout: %d, resources: %s",
 		workload.Name, c.GetString(common.UserName), c.GetString(common.UserId),

@@ -191,6 +191,31 @@ func TestAppendWorkloadConditionKeepsEveryEntry(t *testing.T) {
 	assert.Equal(t, []string{"AdminScheduled/", "RuntimeExtended/first", "RuntimeExtended/second"}, messages)
 }
 
+// TestRuntimeExtendedKeptAfterControllerPhase follows the create path when a controller sets the
+// phase before the apiserver publishes Pending: the Pending patch is skipped, the entry is not.
+func TestRuntimeExtendedKeptAfterControllerPhase(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1.AddToScheme(scheme))
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(runtimeWorkload(5 * 3600)).
+		WithStatusSubresource(&v1.Workload{}).Build()
+	h := &Handler{Client: cli}
+
+	created := &v1.Workload{}
+	require.NoError(t, cli.Get(t.Context(), client.ObjectKey{Name: "w1"}, created))
+	scheduled := created.DeepCopy()
+	scheduled.Status.Phase = v1.WorkloadRunning
+	require.NoError(t, cli.Status().Update(t.Context(), scheduled))
+
+	require.NoError(t, h.updateWorkloadPhase(t.Context(), created, v1.WorkloadPending, nil))
+	require.NoError(t, h.appendWorkloadCondition(t.Context(), created, newRuntimeExtendedCondition("set")))
+
+	stored := &v1.Workload{}
+	require.NoError(t, cli.Get(t.Context(), client.ObjectKey{Name: "w1"}, stored))
+	assert.Equal(t, v1.WorkloadRunning, stored.Status.Phase)
+	require.Len(t, stored.Status.Conditions, 1)
+	assert.Equal(t, string(v1.RuntimeExtended), stored.Status.Conditions[0].Type)
+}
+
 func TestFormatRuntime(t *testing.T) {
 	for seconds, want := range map[int]string{0: "unlimited", -1: "unlimited", 90: "1m30s", 1800: "30m",
 		3600: "1h", 5400: "1h30m", 10800: "3h", 3661: "1h1m1s"} {
