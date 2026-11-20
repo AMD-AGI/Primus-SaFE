@@ -56,7 +56,9 @@ func TestRunVerifyScript(t *testing.T) {
 	kind, res = runVerify(t, dir)
 	require.Equal(t, markerSuccess, kind)
 	require.Equal(t, final, res.Output)
-	require.Equal(t, 10, *res.Iteration, "the result names the last checkpoint")
+	iteration, ok := res.lastCheckpoint()
+	require.True(t, ok, "the result names the last checkpoint")
+	require.Equal(t, 10, iteration)
 
 	bare := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(bare, "result.json"),
@@ -64,7 +66,9 @@ func TestRunVerifyScript(t *testing.T) {
 	kind, res = runVerify(t, bare)
 	require.Equal(t, markerSuccess, kind, "a launcher that finished without exporting wrote a result with no output")
 	require.Empty(t, res.Output)
-	require.Equal(t, 10, *res.Iteration)
+	iteration, ok = res.lastCheckpoint()
+	require.True(t, ok)
+	require.Equal(t, 10, iteration)
 }
 
 // A verify job name is short and the same for a run every time.

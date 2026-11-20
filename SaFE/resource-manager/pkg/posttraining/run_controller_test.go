@@ -386,6 +386,38 @@ func TestVerifyEndsALostRunThatExportsNoModel(t *testing.T) {
 	}
 }
 
+// The last checkpoint a verification finds is kept when it is a whole number that is not negative, also for a run
+// that exports no model; any other value is ignored and fails no run whose launcher finished.
+func TestTheVerifiedCheckpointIsKeptOnlyAsAWholeNumber(t *testing.T) {
+	line := func(iteration string) string {
+		return `[SUCCESS] {"run":"` + testRun + `","stage":"export","output":"","iteration":` + iteration + `}`
+	}
+	for raw, want := range map[string]string{`5`: line("5"), `0`: line("0"), `10.0`: "", `"10"`: "", `-1`: "",
+		`null`: ""} {
+		run := testRunRow("Running", "export")
+		run.OutputPath = testRunDir
+		run.Recipe = `{"output":{"base":"` + testRunDir + `","exportHf":false}}`
+		r, db, updates := newTestReconciler(t, run)
+		db.EXPECT().GetWorkload(gomock.Any(), testRun).Return(nil, errors.New("not found")).AnyTimes()
+		db.EXPECT().ListWorkloadPods(gomock.Any(), testRun, "uid1").Return(nil, nil).AnyTimes()
+		reconcileRun(t, r)
+		job := &v1.OpsJob{}
+		require.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: verifyJobName(testRun)}, job))
+		job.Status.Phase = v1.OpsJobSucceeded
+		job.Status.Outputs = []v1.Parameter{{Name: "result", Value: commonopsjob.FilterResultLog([]byte(
+			`[SUCCESS] VERIFY={"stage":"export","output":"","iteration":` + raw + `,"disk":{"total":9}}`))}}
+		require.NoError(t, r.Update(context.Background(), job))
+		reconcileRun(t, r)
+		last := (*updates)[len(*updates)-1]
+		require.Equal(t, "Succeeded", last["status"], "iteration %s", raw)
+		if want == "" {
+			require.NotContains(t, last, "result_line", "iteration %s", raw)
+		} else {
+			require.Equal(t, want, last["result_line"], "iteration %s", raw)
+		}
+	}
+}
+
 // A preempted run stays running while it waits to be rescheduled.
 func TestPreemptedRunKeepsRunning(t *testing.T) {
 	w := endedWorkload(v1.WorkloadPending)

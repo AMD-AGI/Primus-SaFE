@@ -11,6 +11,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"time"
 
@@ -82,21 +83,29 @@ type verifyResult struct {
 	Output string `json:"output"`
 	Stage  string `json:"stage"`
 	Reason string `json:"reason"`
-	// Iteration is the last checkpoint the launcher wrote down with its result.
-	Iteration *int            `json:"iteration"`
+	// Iteration is the last checkpoint the launcher wrote down with its result. It is kept as written: a value
+	// of another form must not make the rest of the result unreadable.
+	Iteration json.RawMessage `json:"iteration"`
 	Disk      json.RawMessage `json:"disk"`
+}
+
+// lastCheckpoint returns the last checkpoint the result names, when it names one as a whole number that is not
+// negative.
+func (v *verifyResult) lastCheckpoint() (int, bool) {
+	n, err := strconv.Atoi(string(v.Iteration))
+	return n, err == nil && n >= 0
 }
 
 // verifiedResultLine is the result line of a run whose result the verification job found: it keeps the last
 // checkpoint the launcher wrote down, as the line of a result that was read does. Naming no attempt, it is no
 // result marker of one.
-func verifiedResultLine(runID string, res *verifyResult) string {
+func verifiedResultLine(runID string, res *verifyResult, iteration int) string {
 	data, _ := json.Marshal(struct {
 		Run       string `json:"run"`
 		Stage     string `json:"stage"`
 		Output    string `json:"output"`
 		Iteration int    `json:"iteration"`
-	}{runID, res.Stage, res.Output, *res.Iteration})
+	}{runID, res.Stage, res.Output, iteration})
 	return markerSuccess + " " + string(data)
 }
 
@@ -142,8 +151,8 @@ func (r *RunReconciler) verify(ctx context.Context, u *runUpdate, endTime time.T
 	// A finished launcher reports no output for a run that exports no model, which register ends as succeeded.
 	exports := parseRecipe(run).Output.ExportHF
 	if kind == markerSuccess && (res.Output != "" || (exports != nil && !*exports)) {
-		if res.Iteration != nil {
-			u.set("result_line", run.ResultLine, verifiedResultLine(run.RunID, res))
+		if iteration, ok := res.lastCheckpoint(); ok {
+			u.set("result_line", run.ResultLine, verifiedResultLine(run.RunID, res, iteration))
 		}
 		return r.register(ctx, u, &marker{Kind: markerSuccess, Body: markerBody{Run: run.RunID, Output: res.Output}}, endTime)
 	}
