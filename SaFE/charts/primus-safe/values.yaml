@@ -288,8 +288,9 @@ console:
   # Path prefixes on the console's own host that the console returns to with a full-page navigation
   # after a sign-in another web app started with /login?redirect=<path under the prefix>. Each is a
   # plain path ("/dispatron", "/apps/x"): no trailing slash, no "." or ".." segment; others are
-  # ignored. Unset (the default) is /dispatron, /autopilot, /binding and /blog-drafts; [] allows none.
-  # return_prefixes: ["/dispatron", "/autopilot", "/binding", "/blog-drafts"]
+  # ignored. Unset (the default) is /dispatron, /autopilot, /binding, /blog-drafts and /identity;
+  # [] allows none.
+  # return_prefixes: ["/dispatron", "/autopilot", "/binding", "/blog-drafts", "/identity"]
 # Pluggable authentication, in the Kubernetes style. Authorization (roles, workspaces) always stays in SaFE.
 # See docs/apis/external-authentication.md.
 auth:
