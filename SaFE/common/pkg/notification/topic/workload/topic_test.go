@@ -83,6 +83,29 @@ func TestBuildMessageLowUtilization(t *testing.T) {
 	assert.Contains(t, content, "2026-01-02 12:30:00 UTC")
 }
 
+func TestBuildMessageLowUtilizationRules(t *testing.T) {
+	data := map[string]interface{}{
+		"condition": ConditionLowUtilization,
+		"workload":  &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w1"}},
+		"users":     []*v1.User{notifiedUser()},
+		"lowUtilization": &LowUtilizationNotice{
+			StopTime: "2026-01-02 12:30:00 UTC",
+			Rules: []string{
+				"low GPU utilization below 11% for 30m: mode Average, observed max 3.0%",
+				"low GPU utilization below 30% for 1h: mode Average, observed max 25.0%",
+			},
+		},
+	}
+	msgs, err := (&Topic{}).BuildMessage(context.Background(), data)
+	assert.NoError(t, err)
+	assert.Len(t, msgs, 1)
+	content := msgs[0].Email.Content
+	assert.Contains(t, content, "low GPU utilization below 11% for 30m: mode Average, observed max 3.0%<br>"+
+		"low GPU utilization below 30% for 1h: mode Average, observed max 25.0%")
+	assert.NotContains(t, content, "GPU Threshold")
+	assert.Contains(t, content, "2026-01-02 12:30:00 UTC")
+}
+
 func TestBuildMessageStoppedShowsReason(t *testing.T) {
 	data := map[string]interface{}{
 		"condition": string(v1.WorkloadStopped),

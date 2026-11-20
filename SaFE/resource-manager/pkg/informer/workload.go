@@ -9,6 +9,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -118,18 +120,64 @@ func (w *WorkloadInformer) submitLowUtilizationNotification(workload *v1.Workloa
 		return
 	}
 	notifyBefore, _ := time.ParseDuration(policy.NotifyBefore)
+	notice := &workloadtopic.LowUtilizationNotice{
+		Threshold: policy.Threshold,
+		Window:    policy.Window,
+		StopTime:  detected.Add(notifyBefore).UTC().Format(time.DateTime) + " UTC",
+		Rules:     lowUtilizationDetections(workload),
+	}
+	// job-manager writes the detected-at mark before the Detected entries, so they may not be here yet.
+	if len(notice.Rules) == 0 {
+		for _, rule := range policy.Rules {
+			notice.Rules = append(notice.Rules, fmt.Sprintf("low GPU utilization below %d%% for %s", rule.Threshold, rule.Window))
+		}
+	}
 	notifyData := map[string]interface{}{
-		"topic":     model.TopicWorkload,
-		"condition": workloadtopic.ConditionLowUtilization,
-		"workload":  workload,
-		"lowUtilization": &workloadtopic.LowUtilizationNotice{
-			Threshold: policy.Threshold,
-			Window:    policy.Window,
-			StopTime:  detected.Add(notifyBefore).UTC().Format(time.DateTime) + " UTC",
-		},
+		"topic":          model.TopicWorkload,
+		"condition":      workloadtopic.ConditionLowUtilization,
+		"workload":       workload,
+		"lowUtilization": notice,
 	}
 	uid := fmt.Sprintf("%s-%s-%s", workload.Name, workloadtopic.ConditionLowUtilization, detectedAt)
 	w.submit(ctx, workload, uid, notifyData)
+}
+
+// lowUtilizationDetections returns the descriptions of the AdminLowUtilization
+// Detected_<n>[_<rule>] entries of the latest idle episode, or nil when that
+// episode has recovered.
+func lowUtilizationDetections(workload *v1.Workload) []string {
+	latest := 0
+	byEpisode := make(map[int][]string)
+	for _, c := range workload.Status.Conditions {
+		if c.Type != string(v1.AdminLowUtilization) {
+			continue
+		}
+		suffix, ok := strings.CutPrefix(c.Reason, "Detected_")
+		if !ok {
+			continue
+		}
+		index, _, _ := strings.Cut(suffix, "_")
+		n, err := strconv.Atoi(index)
+		if err != nil {
+			continue
+		}
+		description, _, _ := strings.Cut(c.Message, "; ")
+		byEpisode[n] = append(byEpisode[n], description)
+		latest = max(latest, n)
+	}
+	if hasCondition(workload, string(v1.AdminLowUtilization), fmt.Sprintf("Recovered_%d", latest)) {
+		return nil
+	}
+	return byEpisode[latest]
+}
+
+func hasCondition(workload *v1.Workload, conditionType, reason string) bool {
+	for _, c := range workload.Status.Conditions {
+		if c.Type == conditionType && c.Reason == reason {
+			return true
+		}
+	}
+	return false
 }
 
 func (w *WorkloadInformer) submit(ctx context.Context,

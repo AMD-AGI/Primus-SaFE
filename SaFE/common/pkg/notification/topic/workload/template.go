@@ -53,6 +53,12 @@ const emailTemplate = `<!DOCTYPE html>
             </tr>
             {{end}}
             {{if .PlannedStopTime}}
+            {{if .LowUtilRules}}
+            <tr>
+              <td style="color: #555; font-weight: bold;">Low Utilization</td>
+              <td>{{range $i, $rule := .LowUtilRules}}{{if $i}}<br>{{end}}{{$rule}}{{end}}</td>
+            </tr>
+            {{else}}
             <tr>
               <td style="color: #555; font-weight: bold;">GPU Threshold</td>
               <td>{{.LowUtilThreshold}}</td>
@@ -61,6 +67,7 @@ const emailTemplate = `<!DOCTYPE html>
               <td style="color: #555; font-weight: bold;">Window</td>
               <td>{{.LowUtilWindow}}</td>
             </tr>
+            {{end}}
             <tr>
               <td style="color: #555; font-weight: bold;">Planned Stop</td>
               <td>{{.PlannedStopTime}}</td>

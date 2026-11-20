@@ -100,6 +100,87 @@ func TestOnUpdateNotifiesLowUtilizationOnce(t *testing.T) {
 	}, *notice)
 }
 
+func rulesWorkspace() *v1.Workspace {
+	ws := lowUtilWorkspace(false)
+	ws.Spec.LowUtilization[v1.TrainScope] = v1.LowUtilizationPolicy{
+		Rules:        []v1.LowUtilizationRule{{Threshold: 11, Window: "30m"}, {Threshold: 30, Window: "1h"}},
+		Mode:         v1.LowUtilizationAverage,
+		NotifyBefore: "30m",
+	}
+	return ws
+}
+
+func lowUtilEntry(reason, message string) metav1.Condition {
+	return metav1.Condition{Type: string(v1.AdminLowUtilization), Status: metav1.ConditionTrue, Reason: reason, Message: message}
+}
+
+// notifyLowUtilization runs the detection update for a workload carrying the given timeline.
+func notifyLowUtilization(t *testing.T, ws *v1.Workspace, conds ...metav1.Condition) *workloadtopic.LowUtilizationNotice {
+	t.Helper()
+	got := captureNotifications(t)
+	w := newInformer(t, notifiedOwner(), ws)
+	oldW := ownedTrainingWorkload(v1.WorkloadRunning)
+	oldW.Status.Conditions = conds
+	newW := oldW.DeepCopy()
+	v1.SetAnnotation(newW, v1.WorkloadLowUtilDetectedAtAnnotation, "2026-01-02T12:00:00Z")
+	w.OnUpdate(oldW, newW)
+	assert.Len(t, *got, 1)
+	notice, ok := (*got)[0].data["lowUtilization"].(*workloadtopic.LowUtilizationNotice)
+	assert.True(t, ok)
+	return notice
+}
+
+func TestLowUtilizationNoticeShowsMatchedRules(t *testing.T) {
+	notice := notifyLowUtilization(t, rulesWorkspace(),
+		lowUtilEntry("Detected_1_lt11_30m", "low GPU utilization below 11% for 30m: mode Average, observed max 9.0%; dry run"),
+		lowUtilEntry("Recovered_1", "GPU utilization recovered: observed max 50.0%"),
+		lowUtilEntry("Detected_2_lt11_30m", "low GPU utilization below 11% for 30m: mode Average, observed max 3.0%; "+
+			"the workload will be stopped at 2026-01-02T12:30:00Z if it stays idle"),
+		lowUtilEntry("Detected_2_lt30_1h", "low GPU utilization below 30% for 1h: mode Average, observed max 25.0%; "+
+			"the workload will be stopped at 2026-01-02T12:30:00Z if it stays idle"))
+
+	assert.Equal(t, workloadtopic.LowUtilizationNotice{
+		StopTime: "2026-01-02 12:30:00 UTC",
+		Rules: []string{
+			"low GPU utilization below 11% for 30m: mode Average, observed max 3.0%",
+			"low GPU utilization below 30% for 1h: mode Average, observed max 25.0%",
+		},
+	}, *notice)
+}
+
+func TestLowUtilizationNoticeRulesBeforeTheirEntries(t *testing.T) {
+	notice := notifyLowUtilization(t, rulesWorkspace())
+
+	assert.Equal(t, []string{"low GPU utilization below 11% for 30m", "low GPU utilization below 30% for 1h"}, notice.Rules)
+}
+
+func TestLowUtilizationNoticeLegacyPolicyEntry(t *testing.T) {
+	notice := notifyLowUtilization(t, lowUtilWorkspace(false),
+		lowUtilEntry("Detected_1", "low GPU utilization: mode Average, threshold 5%, window 1h, observed max 1.0%; "+
+			"the workload will be stopped at 2026-01-02T12:30:00Z if it stays idle"))
+
+	assert.Equal(t, workloadtopic.LowUtilizationNotice{
+		Threshold: 5, Window: "1h", StopTime: "2026-01-02 12:30:00 UTC",
+		Rules: []string{"low GPU utilization: mode Average, threshold 5%, window 1h, observed max 1.0%"},
+	}, *notice)
+}
+
+func TestLowUtilizationDetections(t *testing.T) {
+	w := ownedTrainingWorkload(v1.WorkloadRunning)
+	assert.Nil(t, lowUtilizationDetections(w))
+
+	w.Status.Conditions = []metav1.Condition{
+		lowUtilEntry("Detected_1_lt11_30m", "a; x"),
+		lowUtilEntry("Detected_x_lt5_1h", "bad index"),
+		{Type: string(v1.AdminStopped), Reason: "Detected_9", Message: "other type"},
+	}
+	assert.Equal(t, []string{"a"}, lowUtilizationDetections(w))
+
+	// The latest episode has recovered: nothing describes the current detection.
+	w.Status.Conditions = append(w.Status.Conditions, lowUtilEntry("Recovered_1", "recovered"))
+	assert.Nil(t, lowUtilizationDetections(w))
+}
+
 func TestOnUpdateSkipsLowUtilizationDryRun(t *testing.T) {
 	got := captureNotifications(t)
 	w := newInformer(t, notifiedOwner(), lowUtilWorkspace(true))

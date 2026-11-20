@@ -73,6 +73,7 @@ func (t *Topic) BuildMessage(ctx context.Context, data map[string]interface{}) (
 		if notice := topicData.LowUtilization; notice != nil {
 			emailData.LowUtilThreshold = fmt.Sprintf("%d%%", notice.Threshold)
 			emailData.LowUtilWindow = notice.Window
+			emailData.LowUtilRules = notice.Rules
 			emailData.PlannedStopTime = notice.StopTime
 		}
 	}
@@ -109,6 +110,8 @@ type LowUtilizationNotice struct {
 	Threshold int    `json:"threshold" yaml:"threshold"`
 	Window    string `json:"window" yaml:"window"`
 	StopTime  string `json:"stopTime" yaml:"stopTime"`
+	// One description per idle rule; when set it is shown instead of Threshold and Window.
+	Rules []string `json:"rules,omitempty" yaml:"rules,omitempty"`
 }
 
 type EmailData struct {
@@ -123,6 +126,7 @@ type EmailData struct {
 
 	LowUtilThreshold string
 	LowUtilWindow    string
+	LowUtilRules     []string
 	PlannedStopTime  string
 }
 
