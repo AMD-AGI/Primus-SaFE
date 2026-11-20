@@ -486,6 +486,8 @@ type ingestion struct {
 	// samples are the [SAMPLE] markers read, with their attempts; sampled is set when the stored samples changed.
 	samples []pendingSample
 	sampled bool
+	// backfill is set for the read of the end-of-run backfill, whose points are older than the newest one read.
+	backfill bool
 }
 
 // pendingSample is a read sample of an attempt, kept until the attempts it belongs after are known.
@@ -728,7 +730,10 @@ func (in *ingestion) summarize(p *dbclient.PostTrainingRunMetric) {
 		if in.sum.Main == nil || in.sum.Main.Name != in.mainName {
 			in.sum.Main = &mainMetric{Name: in.mainName}
 		}
-		in.sum.Main.observe(int64(p.Step), p.Value)
+		// A back-filled point may move the main metric forward only.
+		if m := in.sum.Main; !in.backfill || m.Seen == 0 || int64(p.Step) > m.Step {
+			m.observe(int64(p.Step), p.Value)
+		}
 	}
 	if valLossPattern.MatchString(p.Name) && (in.sum.BestValLoss == nil || p.Value < in.sum.BestValLoss.Value) {
 		in.sum.BestValLoss = &summaryPoint{Step: int64(p.Step), Value: p.Value}

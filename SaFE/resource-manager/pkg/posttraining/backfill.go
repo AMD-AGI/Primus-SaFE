@@ -98,6 +98,7 @@ func (r *RunReconciler) reconcileBackfill(ctx context.Context, run *dbclient.Pos
 	}
 	u := newRunUpdate(run)
 	in := r.newIngestion(ctx, u, cur)
+	in.backfill = true
 	message := "backfilled"
 	if err = r.readBackfill(ctx, w, in); err != nil {
 		message = "the backfill log could not be read: " + err.Error()

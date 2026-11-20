@@ -147,6 +147,43 @@ func TestAttemptCursorGaps(t *testing.T) {
 	require.False(t, cur.hasGap(now.Add(time.Hour)))
 }
 
+// The points of the end-of-run backfill fill their gaps and are saved once, and they move the main metric of the
+// run list forward only: it stays on the latest step, not on the last point that was filled in.
+func TestBackfilledPointsDoNotMoveTheMainMetricBack(t *testing.T) {
+	backfill := func(live []string, filled ...string) *ingestion {
+		first := newTestIngestion(100)
+		feed(first, append([]string{stageLine("a1", "train", "running", "")}, live...)...)
+		first.finish()
+		in := newTestIngestion(100)
+		in.cur, in.sum, in.backfill = first.cur, first.sum, true
+		feed(in, filled...)
+		return in
+	}
+	in := backfill([]string{metricLine("a1", 1, 1, `{"train/loss":1}`), metricLine("a1", 6, 5, `{"train/loss":0.5}`)},
+		metricLine("a1", 2, 2, `{"train/loss":0.9}`), metricLine("a1", 3, 3, `{"train/loss":0.8}`),
+		metricLine("a1", 4, 4, `{"train/loss":0.7}`), metricLine("a1", 5, 5, `{"train/loss":0.6}`),
+		metricLine("a1", 3, 3, `{"train/loss":0.8}`))
+	require.Equal(t, []string{"train/loss@2=0.9", "train/loss@3=0.8", "train/loss@4=0.7", "train/loss@5=0.6"},
+		pointKeys(in.finish()))
+	require.Empty(t, in.cur.Attempts["a1"].Gaps)
+	require.Equal(t, int64(6), in.sum.Points)
+	require.Equal(t, mainMetric{Name: "train/loss", Step: 5, Value: 0.5, Stride: 1, Seen: 2,
+		Spark: []summaryPoint{{Step: 1, Value: 1}, {Step: 5, Value: 0.5}}}, *in.sum.Main)
+
+	// A filled-in point past the latest one read, whose seq was followed by other metrics only, is the latest.
+	in = backfill([]string{metricLine("a1", 1, 1, `{"train/loss":1}`), metricLine("a1", 3, 2, `{"eval/acc":0.4}`)},
+		metricLine("a1", 2, 2, `{"train/loss":0.9}`))
+	in.finish()
+	require.Equal(t, []summaryPoint{{Step: 1, Value: 1}, {Step: 2, Value: 0.9}}, in.sum.Main.Spark)
+	require.Equal(t, 0.9, in.sum.Main.Value)
+
+	// So is the first point of the main metric, at whatever step.
+	in = backfill([]string{metricLine("a1", 2, 0, `{"eval/acc":0.4}`)}, metricLine("a1", 1, 0, `{"train/loss":2}`))
+	in.finish()
+	require.Equal(t, mainMetric{Name: "train/loss", Value: 2, Stride: 1, Seen: 1,
+		Spark: []summaryPoint{{Value: 2}}}, *in.sum.Main)
+}
+
 // A resumed attempt replaces the points after its resume step.
 func TestIngestionResumeDropsReplacedPoints(t *testing.T) {
 	in := newTestIngestion(100)
