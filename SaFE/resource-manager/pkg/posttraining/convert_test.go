@@ -214,7 +214,7 @@ func TestAReclaimJobLeftUnfinishedPastItsTimeoutIsTriedAgain(t *testing.T) {
 }
 
 // A reclaim job that was deleted leaves its workload, of the same name, for a while: the job is not made again
-// before the workload is gone.
+// while that workload holds it back.
 func TestNoReclaimJobIsMadeWhileTheWorkloadOfADeletedOneIsLeft(t *testing.T) {
 	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1",
 		Volumes: []v1.WorkspaceVolume{{Type: v1.PFS, MountPath: "/wekafs"}}}}

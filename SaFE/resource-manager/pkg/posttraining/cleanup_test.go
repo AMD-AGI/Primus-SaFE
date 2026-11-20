@@ -134,8 +134,7 @@ func TestNoCleanupJobIsMadeWhileTheWorkloadOfADeletedOneIsLeft(t *testing.T) {
 }
 
 // A workload that has been deleted for longer than leftoverWait is stuck and no longer holds a job of its name
-// back: the job is made, and its timeout and the attempts end the cleanup. One that is not deleted yet is waited
-// for: it goes with the job that owns it.
+// back: the job is made. One that is not deleted yet is waited for: it goes with the job that owns it.
 func TestAStuckWorkloadDoesNotHoldACleanupJobBackForever(t *testing.T) {
 	ctx := context.Background()
 	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1",

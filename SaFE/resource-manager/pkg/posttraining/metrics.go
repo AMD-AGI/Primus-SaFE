@@ -494,7 +494,7 @@ type ingestion struct {
 	// samples are the [SAMPLE] markers read, with their attempts; sampled is set when the stored samples changed.
 	samples []pendingSample
 	sampled bool
-	// backfill is set for the read of the end-of-run backfill, whose points are older than the newest one read.
+	// backfill is set for the read of the end-of-run backfill, whose points fill the gaps of earlier reads.
 	backfill bool
 }
 

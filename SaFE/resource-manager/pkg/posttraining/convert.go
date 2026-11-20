@@ -169,10 +169,10 @@ func commitRetired(key string, commits map[string]bool) bool {
 }
 
 // reclaimCache removes a cache directory with a model-cleanup job: one sweep marks the record invalid, the next
-// checks once more that no run took the cache meanwhile and starts the job, and the record is deleted once the job
-// succeeded. A failed job, or one that is unfinished after its timeout, is kept for cacheReclaimRetry and then
-// deleted, so a later sweep tries again. A record whose path is not a cache directory loses only the record. It
-// reports whether the cache is gone.
+// checks once more that no run took the cache meanwhile and starts the job, unless the workload of a deleted one
+// holds it back, and the record is deleted once the job succeeded. A failed job, or one that is unfinished after
+// its timeout, is kept for cacheReclaimRetry and then deleted, so a later sweep tries again. A record whose path is
+// not a cache directory loses only the record. It reports whether the cache is gone.
 func (r *RunReconciler) reclaimCache(ctx context.Context, cache *dbclient.PostTrainingConvertCache) (bool, error) {
 	if path.Base(cache.Path) != cache.CacheKey || path.Base(path.Dir(cache.Path)) != convertCacheDir {
 		klog.InfoS("dropping a conversion cache record whose path is not a cache directory", "cache", cache.CacheKey,
@@ -206,7 +206,7 @@ func (r *RunReconciler) reclaimCache(ctx context.Context, cache *dbclient.PostTr
 		if inUse, err := r.cacheInUse(ctx, cache); err != nil || inUse {
 			return false, err
 		}
-		// The workload of a deleted job of the name has to go first.
+		// No job is made while the workload of a deleted one of its name holds it back.
 		if left, err := r.jobWorkloadLeft(ctx, job.Name); err != nil || left {
 			return false, err
 		}
