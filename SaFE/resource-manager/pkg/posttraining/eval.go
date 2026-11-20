@@ -12,14 +12,12 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/lib/pq"
-	"gorm.io/gorm"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -47,11 +45,9 @@ const (
 	evalBenchmarksAnnotation = v1.PostTrainingPrefix + "eval-benchmarks"
 	evalJobAnnotation        = v1.PostTrainingPrefix + "eval-job"
 
-	// evalStartedEvent is the stage_history event that records the service of the automatic evaluation;
-	// evalRepeatedEvent records the second one of an A/B baseline.
-	evalStartedEvent  = "evaluate"
-	evalRepeatedEvent = "evaluate-repeat"
-	evalFailedEvent   = "evaluate-failed"
+	// evalStartedEvent is the stage_history event that records the service of the automatic evaluation.
+	evalStartedEvent = "evaluate"
+	evalFailedEvent  = "evaluate-failed"
 
 	defaultEvalPort      = 8000
 	defaultEvalReadiness = "/v1/models"
@@ -163,7 +159,7 @@ func (r *RunReconciler) advanceEvaluation(ctx context.Context, run *dbclient.Pos
 	if job.Status.Phase != v1.OpsJobSucceeded && job.Status.Phase != v1.OpsJobFailed {
 		return evalRequeue, nil
 	}
-	if v1.GetAnnotation(s, evalAutoAnnotation) == v1.TrueStr && !hasEvent(newRunUpdate(run).history, evalRepeatedEvent) {
+	if v1.GetAnnotation(s, evalAutoAnnotation) == v1.TrueStr {
 		r.notify(ctx, run, nil, posttrainingrun.EventEvaluated, nil)
 	}
 	return 0, r.finishEvaluation(ctx, run, s, true)
@@ -190,48 +186,15 @@ func (r *RunReconciler) finishEvaluation(ctx context.Context, run *dbclient.Post
 		return nil
 	}
 	u := newRunUpdate(run)
-	repeated, err := r.repeatBaselineEvaluation(ctx, run, u)
-	if err != nil {
-		return err
-	}
-	if !repeated {
-		// A service may be finished more than once, as when its delete failed. While the service of the latest
-		// automatic evaluation still evaluates, another one does not move the run on: the latest one will.
-		if last := lastEvalService(u.history); last != "" && last != s.Name {
-			if later, err := r.evaluating(ctx, last); err != nil || later {
-				return err
-			}
+	// A service may be finished more than once, as when its delete failed. While the service of the latest
+	// automatic evaluation still evaluates, another one does not move the run on: the latest one will.
+	if last := lastEvalService(u.history); last != "" && last != s.Name {
+		if later, err := r.evaluating(ctx, last); err != nil || later {
+			return err
 		}
-		u.moveTo("done")
 	}
+	u.moveTo("done")
 	return r.save(ctx, u)
-}
-
-// repeatBaselineEvaluation evaluates the baseline of an A/B experiment a second time on the same benchmarks, so the
-// experiment can tell evaluation noise from a real difference. It returns whether it started the second evaluation.
-func (r *RunReconciler) repeatBaselineEvaluation(ctx context.Context, run *dbclient.PostTrainingRun, u *runUpdate) (bool, error) {
-	if run.ExperimentID == "" || hasEvent(u.history, evalRepeatedEvent) {
-		return false, nil
-	}
-	exp, err := r.db.GetPostTrainingExperiment(ctx, run.ExperimentID)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return false, nil
-		}
-		return false, err
-	}
-	rec := parseRecipe(run)
-	if exp.BaselineVariant != run.VariantName || rec.Evaluation == nil || len(rec.Evaluation.Benchmarks) == 0 {
-		return false, nil
-	}
-	name, err := r.startEvaluation(ctx, run, run.OutputModelID, evalRequest{Benchmarks: rec.Evaluation.Benchmarks}, true)
-	if err != nil {
-		klog.ErrorS(err, "failed to repeat the baseline evaluation", "run", run.RunID)
-		u.event(evalFailedEvent, err.Error())
-		return false, nil
-	}
-	u.event(evalRepeatedEvent, name)
-	return true, nil
 }
 
 // cancelOrphanJobs stops the evaluation jobs of a run whose inference service is gone.
@@ -354,7 +317,7 @@ func hasEvent(history []stageEntry, event string) bool {
 // lastEvalService returns the service the latest automatic evaluation of the history started, or "".
 func lastEvalService(history []stageEntry) string {
 	for i := len(history) - 1; i >= 0; i-- {
-		if e := history[i]; e.Event == evalStartedEvent || e.Event == evalRepeatedEvent {
+		if e := history[i]; e.Event == evalStartedEvent {
 			return e.Message
 		}
 	}

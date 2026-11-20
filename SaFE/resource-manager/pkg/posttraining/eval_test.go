@@ -337,36 +337,11 @@ func autoService(name string) *v1.Workload {
 		Annotations: map[string]string{evalAutoAnnotation: v1.TrueStr}}}
 }
 
-// An experiment's baseline is evaluated twice, on a new service each time, and not more.
-func TestBaselineIsEvaluatedTwice(t *testing.T) {
-	run, objs := evalFixtures("eval")
-	run.ExperimentID, run.VariantName = "exp-1", "baseline"
-	first := autoService("pt-eval-1")
-	r, db, updates := newTestReconciler(t, run, append(objs, first)...)
-	loadChartRegistry(t, r)
-	db.EXPECT().GetPostTrainingExperiment(gomock.Any(), "exp-1").Return(
-		&dbclient.PostTrainingExperiment{ExperimentID: "exp-1", BaselineVariant: "baseline"}, nil).Times(1)
-	ctx := context.Background()
-
-	require.NoError(t, r.finishEvaluation(ctx, run, first, true))
-	last := (*updates)[len(*updates)-1]
-	require.NotContains(t, last, "stage", "the run waits for the second evaluation")
-	require.Contains(t, last["stage_history"], `"event":"evaluate-repeat"`)
-	services := evalServices(t, r)
-	require.Len(t, services, 1, "the first service is gone and the second one serves")
-	require.Equal(t, v1.TrueStr, services[0].Annotations[evalAutoAnnotation])
-
-	run.StageHistory = last["stage_history"].(string)
-	require.NoError(t, r.finishEvaluation(ctx, run, &services[0], true))
-	require.Equal(t, "done", (*updates)[len(*updates)-1]["stage"], "the baseline is evaluated twice, not more")
-}
-
-// Finishing the baseline's first service once more, as when its delete failed, does not end the repeated evaluation:
-// only the service of the latest automatic evaluation moves the run on.
+// Finishing an earlier service once more, as when its delete failed, does not end the evaluation that a later
+// service runs: only the service of the latest automatic evaluation moves the run on.
 func TestFinishingAnEarlierServiceAgainDoesNotEndTheRun(t *testing.T) {
 	run, objs := evalFixtures("eval")
-	run.ExperimentID, run.VariantName = "exp-1", "baseline"
-	run.StageHistory = `[{"stage":"eval","event":"evaluate-repeat","message":"pt-eval-2"}]`
+	run.StageHistory = `[{"stage":"eval","event":"evaluate","message":"pt-eval-2"}]`
 	first := autoService("pt-eval-1")
 	r, _, updates := newTestReconciler(t, run, append(objs, first, autoService("pt-eval-2"))...)
 	loadChartRegistry(t, r)
@@ -381,98 +356,15 @@ func TestFinishingAnEarlierServiceAgainDoesNotEndTheRun(t *testing.T) {
 
 // A service ends the run when the service of the latest automatic evaluation in the history evaluates no more.
 // Here the history names the kept first service, whose evaluation ended: the save of the second one's start
-// failed, and the baseline cannot be evaluated a third time.
+// failed.
 func TestAServiceEndsTheRunWhenTheLatestOneInTheHistoryEvaluatesNoMore(t *testing.T) {
 	run, objs := evalFixtures("eval")
-	run.ExperimentID, run.VariantName = "exp-1", "baseline"
 	run.StageHistory = `[{"stage":"eval","event":"evaluate","message":"pt-eval-1"}]`
 	first, second := autoService("pt-eval-1"), autoService("pt-eval-2")
 	first.Annotations[evalKeepAnnotation] = v1.TrueStr
 	first.Annotations[v1.PostTrainingEvalDoneAnnotation] = v1.TrueStr
-	// Without its model the baseline cannot be evaluated again.
-	r, db, updates := newTestReconciler(t, run, objs[0], objs[1], first, second)
-	db.EXPECT().GetPostTrainingExperiment(gomock.Any(), "exp-1").Return(
-		&dbclient.PostTrainingExperiment{ExperimentID: "exp-1", BaselineVariant: "baseline"}, nil)
+	r, _, updates := newTestReconciler(t, run, append(objs, first, second)...)
 	require.NoError(t, r.finishEvaluation(context.Background(), run, second, true))
 	require.NotEmpty(t, *updates, "the run is saved")
-	last := (*updates)[len(*updates)-1]
-	require.Equal(t, "done", last["stage"])
-	require.Contains(t, last["stage_history"], `"event":"evaluate-failed"`)
-}
-
-// The baseline's first service, still being deleted, does not end the repeated evaluation.
-func TestABaselineServiceStillBeingDeletedDoesNotEndTheRepeat(t *testing.T) {
-	run, objs := evalFixtures("eval")
-	run.ExperimentID, run.VariantName = "exp-1", "baseline"
-	first := autoService("pt-eval-1")
-	first.Finalizers = []string{"primus-safe/workload"}
-	r, db, updates := newTestReconciler(t, run, append(objs, first)...)
-	loadChartRegistry(t, r)
-	db.EXPECT().GetPostTrainingExperiment(gomock.Any(), "exp-1").Return(
-		&dbclient.PostTrainingExperiment{ExperimentID: "exp-1", BaselineVariant: "baseline"}, nil).Times(1)
-	ctx := context.Background()
-	require.NoError(t, r.finishEvaluation(ctx, run, first, true))
-	run.StageHistory = (*updates)[len(*updates)-1]["stage_history"].(string)
-	services := evalServices(t, r)
-	require.Len(t, services, 2, "the webhook's finalizer keeps the first service while it is deleted")
-	for i := range services {
-		if s := &services[i]; s.Name != first.Name {
-			s.CreationTimestamp = metav1.Now()
-			require.NoError(t, r.Update(ctx, s))
-		}
-	}
-
-	seen := len(*updates)
-	_, err := r.reconcileEvaluations(ctx, run)
-	require.NoError(t, err)
-	for _, u := range (*updates)[seen:] {
-		require.NotEqual(t, "done", u["stage"], "the repeated evaluation has only started")
-	}
-}
-
-// The baseline's first service, deleted by its user and still listed, does not end the repeated evaluation either.
-func TestABaselineServiceItsUserDeletedDoesNotEndTheRepeat(t *testing.T) {
-	run, objs := evalFixtures("eval")
-	run.ExperimentID, run.VariantName = "exp-1", "baseline"
-	first := autoService("pt-eval-1")
-	first.Finalizers = []string{"primus-safe/workload"}
-	r, db, updates := newTestReconciler(t, run, append(objs, first)...)
-	loadChartRegistry(t, r)
-	db.EXPECT().GetPostTrainingExperiment(gomock.Any(), "exp-1").Return(
-		&dbclient.PostTrainingExperiment{ExperimentID: "exp-1", BaselineVariant: "baseline"}, nil).Times(1)
-	ctx := context.Background()
-	require.NoError(t, r.Delete(ctx, first))
-
-	_, err := r.reconcileEvaluations(ctx, run)
-	require.NoError(t, err)
-	run.StageHistory = (*updates)[len(*updates)-1]["stage_history"].(string)
-	require.Contains(t, run.StageHistory, `"event":"evaluate-repeat"`)
-	services := evalServices(t, r)
-	require.Len(t, services, 2, "the finalizer keeps the deleted service listed next to the second one")
-	for i := range services {
-		if s := &services[i]; s.Name != first.Name {
-			s.CreationTimestamp = metav1.Now()
-			require.NoError(t, r.Update(ctx, s))
-		}
-	}
-
-	seen := len(*updates)
-	_, err = r.reconcileEvaluations(ctx, run)
-	require.NoError(t, err)
-	for _, u := range (*updates)[seen:] {
-		require.NotEqual(t, "done", u["stage"], "the repeated evaluation has only started")
-	}
-}
-
-// A variant of an experiment is evaluated once and its service removed.
-func TestVariantIsEvaluatedOnce(t *testing.T) {
-	run, objs := evalFixtures("eval")
-	run.ExperimentID, run.VariantName = "exp-1", "tis"
-	s := autoService("pt-eval-2")
-	r, db, updates := newTestReconciler(t, run, append(objs, s)...)
-	db.EXPECT().GetPostTrainingExperiment(gomock.Any(), "exp-1").Return(
-		&dbclient.PostTrainingExperiment{ExperimentID: "exp-1", BaselineVariant: "baseline"}, nil)
-	require.NoError(t, r.finishEvaluation(context.Background(), run, s, true))
 	require.Equal(t, "done", (*updates)[len(*updates)-1]["stage"])
-	require.Empty(t, evalServices(t, r))
 }
