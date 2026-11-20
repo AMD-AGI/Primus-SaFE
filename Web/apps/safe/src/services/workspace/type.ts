@@ -60,6 +60,23 @@ export type PvPrefill = {
   accessMode?: AccessMode
 }
 
+export type LowUtilizationMode = 'Average' | 'Min'
+export interface LowUtilizationRule {
+  threshold: number
+  window: string
+}
+export interface LowUtilizationPolicy {
+  // Legacy single rule, only used when rules is empty
+  threshold?: number
+  window?: string
+  rules?: LowUtilizationRule[]
+  mode: LowUtilizationMode
+  gracePeriod?: string
+  notifyBefore?: string
+  cooldown?: string
+  dryRun?: boolean
+}
+
 // Edit + Create
 export interface BaseSubmitWsData {
   description?: string
@@ -72,6 +89,7 @@ export interface BaseSubmitWsData {
   managers?: string[]
   volumes?: Volume[]
   idleTime?: Record<string, string>
+  lowUtilization?: Record<string, LowUtilizationPolicy>
 }
 
 export interface SubmitWorkspaceRequest extends BaseSubmitWsData {

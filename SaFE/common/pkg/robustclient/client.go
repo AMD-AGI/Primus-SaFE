@@ -8,7 +8,12 @@ package robustclient
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -73,17 +78,78 @@ func NewClient(cfg ClientConfig) *Client {
 	}
 }
 
-// RegisterCluster adds or updates a cluster endpoint.
+// RegisterCluster adds or updates a cluster endpoint that uses the global service token.
 func (c *Client) RegisterCluster(clusterName, endpoint string) {
+	c.RegisterClusterWithToken(clusterName, endpoint, "", nil)
+}
+
+// RegisterClusterWithToken adds or updates a cluster endpoint. tokenSecret names
+// the Secret (<namespace>/<name>) that token reads the cluster's own service
+// token from; with tokenSecret empty the cluster uses the global token.
+func (c *Client) RegisterClusterWithToken(clusterName, endpoint, tokenSecret string, token func() string) {
+	c.register(clusterName, endpoint, tokenSecret, token, "", "", &http.Client{Timeout: c.defaults.Timeout})
+}
+
+// RegisterClusterWithCA is RegisterClusterWithToken for a Robust API whose
+// certificate chains to one of the PEM certificates in caPEM: the cluster's
+// client trusts the system pool plus those. caSecret names the Secret caPEM
+// came from; an empty caPEM trusts the system pool only. A caPEM without any
+// certificate is an error and registers nothing.
+func (c *Client) RegisterClusterWithCA(clusterName, endpoint, tokenSecret string, token func() string,
+	caSecret string, caPEM []byte) error {
+	if len(caPEM) == 0 {
+		c.register(clusterName, endpoint, tokenSecret, token, caSecret, "", &http.Client{Timeout: c.defaults.Timeout})
+		return nil
+	}
+	pool, err := certPoolWithPEM(caPEM)
+	if err != nil {
+		return err
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
+	httpClient := &http.Client{Timeout: c.defaults.Timeout, Transport: transport}
+	c.register(clusterName, endpoint, tokenSecret, token, caSecret, CAHash(caPEM), httpClient)
+	return nil
+}
+
+func (c *Client) register(clusterName, endpoint, tokenSecret string, token func() string,
+	caSecret, caHash string, httpClient *http.Client) {
+	if tokenSecret == "" || token == nil {
+		tokenSecret, token = "", c.defaults.ServiceToken
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.clusters[clusterName] = &ClusterClient{
 		clusterName: clusterName,
 		baseURL:     endpoint,
-		httpClient:  &http.Client{Timeout: c.defaults.Timeout},
-		token:       c.defaults.ServiceToken,
+		httpClient:  httpClient,
+		token:       token,
+		tokenSecret: tokenSecret,
+		caSecret:    caSecret,
+		caHash:      caHash,
 	}
 	klog.V(2).Infof("[robustclient] registered cluster %s -> %s", clusterName, endpoint)
+}
+
+// certPoolWithPEM returns the system pool plus the certificates in caPEM.
+func certPoolWithPEM(caPEM []byte) (*x509.CertPool, error) {
+	pool, err := x509.SystemCertPool()
+	if err != nil {
+		pool = x509.NewCertPool()
+	}
+	if !pool.AppendCertsFromPEM(caPEM) {
+		return nil, errors.New("no PEM certificate found")
+	}
+	return pool, nil
+}
+
+// CAHash identifies the content of a CA bundle, "" for none.
+func CAHash(caPEM []byte) string {
+	if len(caPEM) == 0 {
+		return ""
+	}
+	sum := sha256.Sum256(caPEM)
+	return hex.EncodeToString(sum[:])
 }
 
 // RemoveCluster removes a cluster endpoint.
@@ -117,6 +183,11 @@ type ClusterClient struct {
 	baseURL     string
 	httpClient  *http.Client
 	token       func() string
+	tokenSecret string
+	// caSecret names the Secret of the extra CA the client trusts, and
+	// caHash its content; both are "" when only the system pool is trusted.
+	caSecret string
+	caHash   string
 }
 
 // do sends req with the service token attached. Every request goes through
@@ -132,6 +203,30 @@ func (cc *ClusterClient) do(req *http.Request) (*http.Response, error) {
 
 func (cc *ClusterClient) ClusterName() string { return cc.clusterName }
 func (cc *ClusterClient) BaseURL() string     { return cc.baseURL }
+
+// TokenSecret is the <namespace>/<name> of the Secret holding this cluster's
+// own service token, or "" when it uses the global one.
+func (cc *ClusterClient) TokenSecret() string { return cc.tokenSecret }
+
+// CASecret is the <namespace>/<name> of the Secret whose CA the client trusts
+// on top of the system pool, or "" when it trusts the system pool only.
+func (cc *ClusterClient) CASecret() string { return cc.caSecret }
+
+// CAHash identifies the extra CA the client trusts, "" when none was loaded.
+func (cc *ClusterClient) CAHash() string { return cc.caHash }
+
+// Transport is the round tripper this cluster's requests use, which trusts
+// its extra CA; nil means http.DefaultTransport.
+func (cc *ClusterClient) Transport() http.RoundTripper { return cc.httpClient.Transport }
+
+// ServiceToken returns the service token this cluster's requests carry, for
+// callers that build their own requests to the same Robust API.
+func (cc *ClusterClient) ServiceToken() string {
+	if cc.token == nil {
+		return ""
+	}
+	return cc.token()
+}
 
 // Get sends a GET request to the robust-analyzer and decodes the response envelope.
 func (cc *ClusterClient) Get(ctx context.Context, path string, query url.Values, out interface{}) error {
@@ -219,8 +314,8 @@ func (cc *ClusterClient) doRaw(req *http.Request, path string) ([]byte, error) {
 		return nil, fmt.Errorf("read robust-api response: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("robust-api %s %s returned HTTP %d: %s",
-			cc.clusterName, path, resp.StatusCode, truncate(string(respBody), 200))
+		return nil, &StatusError{StatusCode: resp.StatusCode, msg: fmt.Sprintf("robust-api %s %s returned HTTP %d: %s",
+			cc.clusterName, path, resp.StatusCode, truncate(string(respBody), 200))}
 	}
 	return respBody, nil
 }
@@ -256,8 +351,8 @@ func (cc *ClusterClient) doAndDecode(req *http.Request, out interface{}) error {
 	}
 
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("robust-api %s returned %d: %s",
-			req.URL.Path, resp.StatusCode, truncate(string(body), 500))
+		return &StatusError{StatusCode: resp.StatusCode, msg: fmt.Sprintf("robust-api %s returned %d: %s",
+			req.URL.Path, resp.StatusCode, truncate(string(body), 500))}
 	}
 
 	if out == nil {

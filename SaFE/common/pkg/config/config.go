@@ -236,6 +236,30 @@ func GetWorkloadTTLSecond() int {
 	return getInt(workloadTTLSecond, 60)
 }
 
+// GetWorkloadRobustSyncIntervalSecond returns how often, in seconds, each cluster's
+// workloads are reconciled against Robust.
+func GetWorkloadRobustSyncIntervalSecond() int {
+	return getInt(workloadRobustSyncInterval, 60)
+}
+
+// GetWorkloadRobustSyncRetentionDay returns for how many days after its end a
+// workload kept only in the database is still synced to Robust.
+func GetWorkloadRobustSyncRetentionDay() int {
+	return getInt(workloadRobustSyncRetention, 7)
+}
+
+// IsWorkloadRobustNodeSyncEnable reports whether resource-manager syncs the
+// nodes SaFE manages to Robust, on the workload sync's reconcile interval.
+func IsWorkloadRobustNodeSyncEnable() bool {
+	return getBool(workloadRobustNodeSync, true)
+}
+
+// IsWorkloadLowUtilizationEnable reports whether job-manager stops running
+// workloads under their workspace's low GPU utilization policy.
+func IsWorkloadLowUtilizationEnable() bool {
+	return getBool(workloadLowUtilEnable, false)
+}
+
 // IsOpenSearchEnable returns whether OpenSearch is enabled.
 func IsOpenSearchEnable() bool {
 	return getBool(openSearchEnable, false)
@@ -772,6 +796,20 @@ func GetRobustServiceToken() string {
 		return ""
 	}
 	return strings.TrimSpace(getFromFile(robustSecretPath, RobustServiceTokenKey))
+}
+
+// GetRobustServiceTokenSecret returns the name of the Secret, in the SaFE
+// namespace, that holds the shared service token under RobustServiceTokenKey,
+// for consumers that reference it instead of reading the mount. "" when not configured.
+func GetRobustServiceTokenSecret() string {
+	return strings.TrimSpace(getString(robustServiceTokenSecret, ""))
+}
+
+// GetRobustManagementCluster returns the name of the Cluster CR that SaFE itself
+// runs in, the only cluster allowed to reach Robust through the in-cluster
+// services when its CR has no endpoint annotation. "" when not configured.
+func GetRobustManagementCluster() string {
+	return getString(robustManagementCluster, "")
 }
 
 // GetLangfuseProxyPublicKey returns the shared Langfuse project public key from secret.

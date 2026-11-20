@@ -477,8 +477,9 @@ func (r *AddonController) getCluster(ctx context.Context, cluster *corev1.Object
 }
 
 const (
-	robustAddonPrefix        = "primus-robust"
-	annotationRobustEndpoint = "primus-safe.amd.com/robust-api-endpoint"
+	robustAddonPrefix           = "primus-robust"
+	annotationRobustEndpoint    = "primus-safe.amd.com/robust-api-endpoint"
+	annotationRobustTokenSecret = "primus-safe.amd.com/robust-service-token-secret"
 	// The primus-robust chart serves the Robust API from the "robust-api"
 	// Service on port 8085: a standalone robust-api Deployment, or
 	// robust-manager's compatibility Service when that is enabled. Its
@@ -537,7 +538,7 @@ func (r *AddonController) registerRobustEndpointIfApplicable(ctx context.Context
 	// across cluster boundaries. We only fill in a first-install default.
 	if existing, ok := cluster.Annotations[annotationRobustEndpoint]; ok && existing != "" {
 		if r.grafanaSyncer != nil {
-			r.grafanaSyncer.SyncClusterDatasources(ctx, clusterRef.Name, existing)
+			r.grafanaSyncer.SyncClusterDatasources(ctx, clusterRef.Name, existing, cluster.Annotations[annotationRobustTokenSecret])
 		}
 		return
 	}
@@ -551,7 +552,7 @@ func (r *AddonController) registerRobustEndpointIfApplicable(ctx context.Context
 	klog.Infof("[addon] registered robust-api endpoint for cluster %s: %s", clusterRef.Name, endpoint)
 
 	if r.grafanaSyncer != nil {
-		r.grafanaSyncer.SyncClusterDatasources(ctx, clusterRef.Name, endpoint)
+		r.grafanaSyncer.SyncClusterDatasources(ctx, clusterRef.Name, endpoint, cluster.Annotations[annotationRobustTokenSecret])
 	}
 }
 

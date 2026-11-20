@@ -40,6 +40,12 @@ data:
     workload:
       # The maximum percentage of ephemeral storage that can be used by a workload.
       max_ephemeral_store_percent: {{ default 0.6 (default .Values.workload).max_ephemeral_store_percent }}
+      # Seconds between reconciles of each cluster's workloads against Robust's sync digest.
+      robust_sync_interval_second: {{ default 60 (default .Values.workload).robust_sync_interval_second }}
+      # Days after its end that a workload kept only in the database is still synced to Robust.
+      robust_sync_retention_day: {{ default 7 (default .Values.workload).robust_sync_retention_day }}
+      # Whether the nodes SaFE manages are synced to Robust as well.
+      robust_node_sync_enable: {{ ne (toString (default dict .Values.workload).robust_node_sync_enable) "false" }}
     db:
       # Whether to enable database, The database will store some historical data regarding workloads, faults, and ops jobs.
       enable: {{ .Values.db.enable }}
@@ -48,11 +54,19 @@ data:
       # The ssl mode of db
       ssl_mode: {{ default "require" (default .Values.db).ssl_mode }}
       target_session_attrs: {{ include "primus-safe.dbTargetSessionAttrs" . }}
-    {{- if (default dict .Values.robust).service_token_secret }}
+    {{- if or (default dict .Values.robust).service_token_secret (default dict .Values.robust).management_cluster }}
     robust:
+      {{- if .Values.robust.service_token_secret }}
       # Directory of the mounted Robust service token (key service-token), sent
       # as X-Robust-Service-Token on every call to the Robust API.
       secret_path: {{ default "/etc/secrets/robust" .Values.robust.secret_path }}
+      # The same Secret by name; Grafana datasources reference it for the token header.
+      service_token_secret: {{ .Values.robust.service_token_secret | quote }}
+      {{- end }}
+      {{- if .Values.robust.management_cluster }}
+      # The Cluster CR SaFE runs in, the only one that may use the in-cluster Robust services.
+      management_cluster: {{ .Values.robust.management_cluster | quote }}
+      {{- end }}
     {{- end }}
     opensearch:
       # Whether to enable opensearch, it is used for log search.

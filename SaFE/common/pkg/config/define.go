@@ -67,6 +67,12 @@ const (
 	maxEphemeralStorePercent  = workloadPrefix + "max_ephemeral_store_percent"
 	workloadHangCheckInterval = workloadPrefix + "hang_check_interval"
 	workloadTTLSecond         = workloadPrefix + "ttl_second"
+	// How often each cluster's workloads are reconciled against Robust's sync digest,
+	// and for how long an ended workload kept only in the database is still synced.
+	workloadRobustSyncInterval  = workloadPrefix + "robust_sync_interval_second"
+	workloadRobustSyncRetention = workloadPrefix + "robust_sync_retention_day"
+	workloadRobustNodeSync      = workloadPrefix + "robust_node_sync_enable"
+	workloadLowUtilEnable       = workloadPrefix + "low_utilization_enable"
 
 	// opensearch
 	openSearchPrefix      = "opensearch."
@@ -195,8 +201,10 @@ const (
 
 	// robust: credentials SaFE presents to the Robust API (robust-api module of
 	// robust-manager / robust-analyzer) on the data clusters.
-	robustPrefix     = "robust."
-	robustSecretPath = robustPrefix + "secret_path"
+	robustPrefix             = "robust."
+	robustSecretPath         = robustPrefix + "secret_path"
+	robustServiceTokenSecret = robustPrefix + "service_token_secret"
+	robustManagementCluster  = robustPrefix + "management_cluster"
 
 	// langfuse_proxy
 	langfuseProxyPrefix     = "langfuse_proxy."

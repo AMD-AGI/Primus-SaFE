@@ -52,6 +52,13 @@ const (
 	AdminFailover WorkloadConditionType = "AdminFailover"
 	AdminFailed   WorkloadConditionType = "AdminFailed"
 	AdminStopped  WorkloadConditionType = "AdminStopped"
+
+	AdminLowUtilization WorkloadConditionType = "AdminLowUtilization"
+	// A timeout above the runtime ceiling was set by a user holding workload/long-runtime.
+	RuntimeExtended WorkloadConditionType = "RuntimeExtended"
+	// The workload was exempted from, or put back under, the low utilization policy by a user
+	// holding workload/low-util-exempt. Reason Set or Cleared.
+	LowUtilizationExempt WorkloadConditionType = "LowUtilizationExempt"
 )
 
 type WorkloadResource struct {

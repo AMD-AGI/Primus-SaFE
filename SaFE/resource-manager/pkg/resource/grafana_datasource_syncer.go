@@ -17,6 +17,9 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
+
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/robustclient"
 )
 
 var grafanaDatasourceGVR = schema.GroupVersionResource{
@@ -31,6 +34,8 @@ type GrafanaDatasourceSyncer struct {
 	namespace  string
 	crdReady   bool
 	crdChecked bool
+	// tokenSecret is the Secret in namespace holding the global Robust service token.
+	tokenSecret string
 }
 
 // NewGrafanaDatasourceSyncer creates a syncer that targets the given namespace.
@@ -40,8 +45,9 @@ func NewGrafanaDatasourceSyncer(cfg *rest.Config, namespace string) (*GrafanaDat
 		return nil, fmt.Errorf("create dynamic client: %w", err)
 	}
 	return &GrafanaDatasourceSyncer{
-		dynClient: dc,
-		namespace: namespace,
+		dynClient:   dc,
+		namespace:   namespace,
+		tokenSecret: commonconfig.GetRobustServiceTokenSecret(),
 	}, nil
 }
 
@@ -75,10 +81,13 @@ func isNoGrafanaCRD(err error) bool {
 
 // SyncClusterDatasources creates/updates the Prometheus and JSON-API datasources
 // for a data-plane cluster identified by clusterName and its robust-api endpoint.
-func (s *GrafanaDatasourceSyncer) SyncClusterDatasources(ctx context.Context, clusterName, robustEndpoint string) {
+// tokenSecretRef is the cluster's own token Secret (<namespace>/<name>), or ""
+// for the global one.
+func (s *GrafanaDatasourceSyncer) SyncClusterDatasources(ctx context.Context, clusterName, robustEndpoint, tokenSecretRef string) {
 	if !s.ensureCRD(ctx) {
 		return
 	}
+	tokenSecret := s.resolveTokenSecret(clusterName, tokenSecretRef)
 
 	promName := clusterName + "-prometheus"
 	promURL := strings.TrimRight(robustEndpoint, "/") + "/api/v1/vm-proxy"
@@ -86,6 +95,7 @@ func (s *GrafanaDatasourceSyncer) SyncClusterDatasources(ctx context.Context, cl
 		"timeInterval":  "30s",
 		"tlsSkipVerify": true,
 	})
+	withServiceToken(promDS, tokenSecret)
 	if err := s.applyDatasource(ctx, promDS); err != nil {
 		klog.Warningf("[grafana-syncer] sync prometheus datasource for %s: %v", clusterName, err)
 	}
@@ -93,8 +103,55 @@ func (s *GrafanaDatasourceSyncer) SyncClusterDatasources(ctx context.Context, cl
 	jsonName := clusterName + "-robust-api"
 	// Use the explicit name as UID for the JSON API to match future dashboard variables.
 	jsonDS := s.buildDatasource(jsonName, "marcusolsson-json-datasource", robustEndpoint, clusterName, jsonName, nil)
+	withServiceToken(jsonDS, tokenSecret)
 	if err := s.applyDatasource(ctx, jsonDS); err != nil {
 		klog.Warningf("[grafana-syncer] sync json-api datasource for %s: %v", clusterName, err)
+	}
+}
+
+// resolveTokenSecret returns the name of the Secret the datasources of a
+// cluster read the service token from, or "" for none. The operator resolves
+// secretKeyRef in the datasource's own namespace only.
+func (s *GrafanaDatasourceSyncer) resolveTokenSecret(clusterName, ref string) string {
+	if ref == "" {
+		if s.tokenSecret == "" {
+			klog.Warningf("[grafana-syncer] no Robust service token Secret configured; "+
+				"datasources of %s send no %s", clusterName, robustclient.ServiceTokenHeader)
+		}
+		return s.tokenSecret
+	}
+	namespace, name, ok := strings.Cut(ref, "/")
+	if !ok || namespace != s.namespace || name == "" || strings.Contains(name, "/") {
+		klog.Warningf("[grafana-syncer] cluster %s: token Secret %q is not a Secret in %s; "+
+			"its datasources send no %s", clusterName, ref, s.namespace, robustclient.ServiceTokenHeader)
+		return ""
+	}
+	return name
+}
+
+// withServiceToken makes the datasource send the service token from secretName
+// as a secure custom header, so the token stays out of the CR.
+func withServiceToken(ds *unstructured.Unstructured, secretName string) {
+	if secretName == "" {
+		return
+	}
+	spec := ds.Object["spec"].(map[string]interface{})
+	datasource := spec["datasource"].(map[string]interface{})
+	datasource["jsonData"].(map[string]interface{})["httpHeaderName1"] = robustclient.ServiceTokenHeader
+	// The operator substitutes ${<key>} with the referenced Secret value.
+	datasource["secureJsonData"] = map[string]interface{}{
+		"httpHeaderValue1": "${" + commonconfig.RobustServiceTokenKey + "}",
+	}
+	spec["valuesFrom"] = []interface{}{
+		map[string]interface{}{
+			"targetPath": "secureJsonData.httpHeaderValue1",
+			"valueFrom": map[string]interface{}{
+				"secretKeyRef": map[string]interface{}{
+					"name": secretName,
+					"key":  commonconfig.RobustServiceTokenKey,
+				},
+			},
+		},
 	}
 }
 

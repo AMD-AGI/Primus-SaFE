@@ -7,6 +7,7 @@ package robustclient
 
 import (
 	"context"
+	"encoding/pem"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -156,4 +157,42 @@ func TestDefaultEndpoint(t *testing.T) {
 		return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
 	}
 	assert.Equal(t, "http://robust-analyzer.primus-robust.svc:8085", d.defaultEndpoint(context.Background()))
+}
+
+// tlsServer serves the Robust envelope over TLS with a certificate signed by
+// a test CA, returned as PEM.
+func tlsServer(t *testing.T) (*httptest.Server, []byte) {
+	t.Helper()
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"meta":{"code":2000},"data":{}}`))
+	}))
+	t.Cleanup(srv.Close)
+	return srv, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})
+}
+
+// A Robust API signed by a private CA is reached only by a client trusting
+// that CA; verification is never skipped.
+func TestRegisterClusterWithCA(t *testing.T) {
+	srv, caPEM := tlsServer(t)
+	ctx := context.Background()
+	rc := NewClient(ClientConfig{})
+
+	assert.NoError(t, rc.RegisterClusterWithCA("ca", srv.URL, "", nil, "ns/ca", caPEM))
+	cc := rc.ForCluster("ca")
+	assert.Equal(t, "ns/ca", cc.CASecret())
+	assert.Equal(t, CAHash(caPEM), cc.CAHash())
+	assert.NoError(t, cc.Get(ctx, "/x", nil, nil))
+
+	rc.RegisterCluster("plain", srv.URL)
+	assert.ErrorContains(t, rc.ForCluster("plain").Get(ctx, "/x", nil, nil), "certificate")
+
+	// No CA keeps the reference and trusts the system pool only.
+	assert.NoError(t, rc.RegisterClusterWithCA("none", srv.URL, "", nil, "ns/ca", nil))
+	assert.Equal(t, "ns/ca", rc.ForCluster("none").CASecret())
+	assert.Equal(t, "", rc.ForCluster("none").CAHash())
+	assert.ErrorContains(t, rc.ForCluster("none").Get(ctx, "/x", nil, nil), "certificate")
+
+	// A bundle without a certificate registers nothing.
+	assert.Error(t, rc.RegisterClusterWithCA("bad", srv.URL, "", nil, "ns/ca", []byte("not a pem")))
+	assert.Nil(t, rc.ForCluster("bad"))
 }

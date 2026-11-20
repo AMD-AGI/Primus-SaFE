@@ -156,6 +156,28 @@ func TestChartRendersACustomRobustSecret(t *testing.T) {
 	}
 }
 
+// TestChartNamesTheRobustSecretForGrafana: resource-manager points the Grafana
+// datasources at the mounted Secret by name, so the two must agree.
+func TestChartNamesTheRobustSecretForGrafana(t *testing.T) {
+	loadRendered(t, renderConfigMapData(t, "release-name-resource-manager", "config.yaml"))
+	testifyassert.Equal(t, "robust-service-token", GetRobustServiceTokenSecret())
+
+	loadRendered(t, renderConfigMapData(t, "release-name-resource-manager", "config.yaml",
+		"--set", "robust.service_token_secret=other"))
+	testifyassert.Equal(t, "other", GetRobustServiceTokenSecret())
+}
+
+// TestChartRendersTheRobustNodeSyncSwitch: on by default, and an explicit false
+// must survive the template.
+func TestChartRendersTheRobustNodeSyncSwitch(t *testing.T) {
+	loadRendered(t, renderConfigMapData(t, "release-name-resource-manager", "config.yaml"))
+	testifyassert.True(t, IsWorkloadRobustNodeSyncEnable())
+
+	loadRendered(t, renderConfigMapData(t, "release-name-resource-manager", "config.yaml",
+		"--set", "workload.robust_node_sync_enable=false"))
+	testifyassert.False(t, IsWorkloadRobustNodeSyncEnable())
+}
+
 // TestRobustServiceTokenNeedsAConfiguredDirectory: with robust.secret_path
 // unset the getter must not fall back to a file in the working directory.
 func TestRobustServiceTokenNeedsAConfiguredDirectory(t *testing.T) {

@@ -66,6 +66,9 @@ type CreateWorkloadRequest struct {
 	// role / kv-backend / multinode knobs) and is converted into
 	// primus-safe.infera.* annotations on the resulting Workload CR.
 	InferaOptions *DynamoOptions `json:"inferaOptions,omitempty"`
+	// Keep the workload out of its workspace's low utilization policy. Setting it requires the
+	// workload/low-util-exempt grant in the workspace.
+	LowUtilizationExempt *bool `json:"lowUtilizationExempt,omitempty"`
 }
 
 // DynamoOptions describes the dynamo-specific knobs that the API server
@@ -299,6 +302,8 @@ type GetWorkloadResponse struct {
 	ForceHostNetwork bool `json:"forceHostNetwork"`
 	// Extra host paths mounted into the workload (spec.hostpath)
 	Hostpath []string `json:"hostpath,omitempty"`
+	// Whether the workload is kept out of its workspace's low utilization policy
+	LowUtilizationExempt bool `json:"lowUtilizationExempt"`
 }
 
 // WorkloadNodesHistoryItem describes one earlier run of the same workload id.
@@ -348,6 +353,9 @@ type PatchWorkloadRequest struct {
 	CronJobs *[]v1.CronJob `json:"cronJobs,omitempty"`
 	// Service configuration
 	Service *v1.Service `json:"service,omitempty"`
+	// Set or clear the exemption of the workload from its workspace's low utilization policy.
+	// A change requires the workload/low-util-exempt grant in the workspace.
+	LowUtilizationExempt *bool `json:"lowUtilizationExempt,omitempty"`
 }
 
 type GetPodLogRequest struct {

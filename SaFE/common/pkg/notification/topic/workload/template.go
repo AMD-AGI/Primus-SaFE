@@ -21,7 +21,11 @@ const emailTemplate = `<!DOCTYPE html>
       <tr>
         <td style="padding: 24px;">
           <p>Hello,</p>
+          {{if .PlannedStopTime}}
+          <p>The GPU utilization of your workload has stayed below the workspace threshold. It will be stopped at the planned time unless its utilization recovers:</p>
+          {{else}}
           <p>Your workload status has been updated:</p>
+          {{end}}
 
           <table cellpadding="6" cellspacing="0" width="100%" style="border-collapse: collapse; margin-top: 10px;">
             <tr>
@@ -40,6 +44,33 @@ const emailTemplate = `<!DOCTYPE html>
             <tr>
               <td style="color: #555; font-weight: bold;">Error</td>
               <td style="color: #c53030;">{{.ErrorMessage}}</td>
+            </tr>
+            {{end}}
+            {{if .StopReason}}
+            <tr>
+              <td style="color: #555; font-weight: bold;">Reason</td>
+              <td>{{.StopReason}}</td>
+            </tr>
+            {{end}}
+            {{if .PlannedStopTime}}
+            {{if .LowUtilRules}}
+            <tr>
+              <td style="color: #555; font-weight: bold;">Low Utilization</td>
+              <td>{{range $i, $rule := .LowUtilRules}}{{if $i}}<br>{{end}}{{$rule}}{{end}}</td>
+            </tr>
+            {{else}}
+            <tr>
+              <td style="color: #555; font-weight: bold;">GPU Threshold</td>
+              <td>{{.LowUtilThreshold}}</td>
+            </tr>
+            <tr>
+              <td style="color: #555; font-weight: bold;">Window</td>
+              <td>{{.LowUtilWindow}}</td>
+            </tr>
+            {{end}}
+            <tr>
+              <td style="color: #555; font-weight: bold;">Planned Stop</td>
+              <td>{{.PlannedStopTime}}</td>
             </tr>
             {{end}}
           </table>

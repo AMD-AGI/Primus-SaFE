@@ -224,6 +224,9 @@ const (
 	ExternalValidUntilAnnotationLegacy      = ExternalExecutionPrefixLegacy + "valid-until"
 	ExternalAllocationPhaseAnnotation       = ExternalExecutionPrefix + "allocation-phase"
 	ExternalAllocationPhaseAnnotationLegacy = ExternalExecutionPrefixLegacy + "allocation-phase"
+	// ExternalFrontEndIPv4Annotation is the front-end IPv4 of the host behind a virtual
+	// kubelet. SaFE mirrors it onto the admitted Node on every reconcile.
+	ExternalFrontEndIPv4Annotation = ExternalExecutionPrefix + "front-end-ipv4"
 	// ExternalBookingKeyMaxLen is the Kubernetes label/taint value limit. Autopilot
 	// ledger.BookingKey refuses longer <namespace>.<prName> pairs.
 	ExternalBookingKeyMaxLen = 63
@@ -274,6 +277,19 @@ const (
 	WorkloadUidLabel             = WorkloadPrefix + "uid"
 	WorkloadDispatchedAnnotation = WorkloadPrefix + "dispatched"
 	WorkloadScheduledAnnotation  = WorkloadPrefix + "scheduled"
+	// "true" keeps the workload out of its workspace's low GPU utilization policy.
+	WorkloadLowUtilExemptAnnotation = "primus-safe.amd.com/low-util-exempt"
+	// RFC3339 time the workload was first found idle under the low GPU utilization policy.
+	WorkloadLowUtilDetectedAtAnnotation = "primus-safe.amd.com/low-util-detected-at"
+	// RFC3339 time the stop countdown of an idle workload started: its detection, or the switch
+	// of a dry-run policy to enforcement. Absent while the policy is a dry run.
+	WorkloadLowUtilEnforcedAtAnnotation = "primus-safe.amd.com/low-util-enforced-at"
+	// RFC3339 time the owner was last told of a low GPU utilization stop. Written after the
+	// Detected entries the notice lists, and kept when the workload recovers.
+	WorkloadLowUtilNotifiedAtAnnotation = "primus-safe.amd.com/low-util-notified-at"
+	// RFC3339 time a detected workload was first found active again. Its detection is cleared
+	// once it stays active for the policy cooldown.
+	WorkloadLowUtilActiveSinceAnnotation = "primus-safe.amd.com/low-util-active-since"
 	// QosRunningResourcesAnnotation stores the resource list still running while a
 	// larger spec waits for the dispatcher to admit it.
 	QosRunningResourcesAnnotation     = WorkloadPrefix + "qos.running.resources"
@@ -297,6 +313,12 @@ const (
 	// so the workload may mount host paths its workspace does not declare. Requests cannot set it:
 	// the apiserver drops every primus-safe annotation a request carries.
 	WorkloadHostPathAuthzAnnotation = WorkloadPrefix + "hostpath.authorized"
+	// Set by the apiserver to the id of the user who was authorized for workload/long-runtime and
+	// gave the workload a timeout above its runtime ceiling, or no timeout; removed when a later
+	// patch brings the timeout back within it. Requests cannot set it: the apiserver drops every
+	// primus-safe annotation a request carries, and the create check removes the mark before it
+	// decides.
+	WorkloadRuntimeExtendedByAnnotation = PrimusSafePrefix + "amd.com/runtime-extended-by"
 	// Set by the apiserver once the creator was authorized for workload/privileged in a workspace
 	// with a volume that has requiresPrivilegedGrant, so the dispatcher mounts such volumes into the
 	// workload. Requests cannot set it: the apiserver drops every primus-safe annotation a request

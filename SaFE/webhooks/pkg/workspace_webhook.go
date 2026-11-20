@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -851,6 +852,9 @@ func (v *WorkspaceValidator) validateCommon(ctx context.Context, newWorkspace, o
 	if err := v.validateVolumes(newWorkspace, oldWorkspace); err != nil {
 		return err
 	}
+	if err := validateLowUtilization(newWorkspace); err != nil {
+		return err
+	}
 	if err := validateDNSName(v1.GetDisplayName(newWorkspace), ""); err != nil {
 		return err
 	}
@@ -884,6 +888,91 @@ func (v *WorkspaceValidator) validateRequiredParams(workspace *v1.Workspace) err
 		return err
 	}
 	return nil
+}
+
+const maxLowUtilizationRules = 5
+
+// validateLowUtilization checks every scope's low-utilization policy.
+func validateLowUtilization(workspace *v1.Workspace) error {
+	validScopes := sets.NewSetByKeys(string(v1.TrainScope), string(v1.InferScope), string(v1.AuthoringScope),
+		string(v1.CICDScope), string(v1.RayScope), string(v1.SandboxScope))
+	var errs []error
+	for _, scope := range sortedLowUtilizationScopes(workspace.Spec.LowUtilization) {
+		policy := workspace.Spec.LowUtilization[scope]
+		prefix := fmt.Sprintf("lowUtilization[%s]", scope)
+		if !validScopes.Has(string(scope)) {
+			errs = append(errs, fmt.Errorf("%s: invalid scope", prefix))
+		}
+		legacy := policy.Threshold != 0 || policy.Window != ""
+		switch {
+		case legacy && len(policy.Rules) > 0:
+			errs = append(errs, fmt.Errorf("%s: set either rules or the legacy threshold and window, not both", prefix))
+		case legacy:
+			_, ruleErrs := validateLowUtilizationRule(prefix, v1.LowUtilizationRule{Threshold: policy.Threshold, Window: policy.Window})
+			errs = append(errs, ruleErrs...)
+		case len(policy.Rules) == 0:
+			errs = append(errs, fmt.Errorf("%s: set at least one rule or the legacy threshold and window", prefix))
+		}
+		if len(policy.Rules) > maxLowUtilizationRules {
+			errs = append(errs, fmt.Errorf("%s: at most %d rules, got %d", prefix, maxLowUtilizationRules, len(policy.Rules)))
+		}
+		windows := make(map[time.Duration]int, len(policy.Rules))
+		for i, rule := range policy.Rules {
+			rulePrefix := fmt.Sprintf("%s.rules[%d]", prefix, i)
+			window, ruleErrs := validateLowUtilizationRule(rulePrefix, rule)
+			errs = append(errs, ruleErrs...)
+			if window == 0 {
+				continue
+			}
+			if first, ok := windows[window]; ok {
+				errs = append(errs, fmt.Errorf("%s: window %s repeats the window of rules[%d]", rulePrefix, rule.Window, first))
+			} else {
+				windows[window] = i
+			}
+		}
+		if (legacy || len(policy.Rules) > 0 || policy.Mode != "") &&
+			policy.Mode != v1.LowUtilizationAverage && policy.Mode != v1.LowUtilizationMin {
+			errs = append(errs, fmt.Errorf("%s: invalid mode %q, supported: [%s, %s]",
+				prefix, policy.Mode, v1.LowUtilizationAverage, v1.LowUtilizationMin))
+		}
+		for name, value := range map[string]string{"gracePeriod": policy.GracePeriod, "notifyBefore": policy.NotifyBefore,
+			"cooldown": policy.Cooldown} {
+			if value == "" {
+				continue
+			}
+			if d, err := time.ParseDuration(value); err != nil {
+				errs = append(errs, fmt.Errorf("%s: invalid %s %q: %v", prefix, name, value, err))
+			} else if d < 0 {
+				errs = append(errs, fmt.Errorf("%s: %s must not be negative, got %s", prefix, name, value))
+			}
+		}
+	}
+	return utilerrors.NewAggregate(errs)
+}
+
+// validateLowUtilizationRule returns the rule's window, 0 when it is invalid, and the rule's errors.
+func validateLowUtilizationRule(prefix string, rule v1.LowUtilizationRule) (time.Duration, []error) {
+	var errs []error
+	if rule.Threshold < 0 || rule.Threshold > 100 {
+		errs = append(errs, fmt.Errorf("%s: threshold must be between 0 and 100, got %d", prefix, rule.Threshold))
+	}
+	window, err := time.ParseDuration(rule.Window)
+	if err != nil {
+		return 0, append(errs, fmt.Errorf("%s: invalid window %q: %v", prefix, rule.Window, err))
+	}
+	if window < 5*time.Minute || window > 24*time.Hour {
+		return 0, append(errs, fmt.Errorf("%s: window must be between 5m and 24h, got %s", prefix, rule.Window))
+	}
+	return window, errs
+}
+
+func sortedLowUtilizationScopes(policies map[v1.WorkspaceScope]v1.LowUtilizationPolicy) []v1.WorkspaceScope {
+	scopes := make([]v1.WorkspaceScope, 0, len(policies))
+	for scope := range policies {
+		scopes = append(scopes, scope)
+	}
+	sort.Slice(scopes, func(i, j int) bool { return scopes[i] < scopes[j] })
+	return scopes
 }
 
 // validateScaleDown ensuring that workspaces created from

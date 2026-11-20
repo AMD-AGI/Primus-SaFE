@@ -394,6 +394,49 @@ func TestWorkloadTimeoutCeilingOnCreateOnly(t *testing.T) {
 	assert.Assert(t, updated.Spec.Timeout == nil)
 }
 
+// TestWorkloadTimeoutExtendedMark verifies that only a workload the apiserver marked as extended
+// may go past the qos ceiling or have no timeout.
+func TestWorkloadTimeoutExtendedMark(t *testing.T) {
+	ctx := context.Background()
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1"}}
+	qos := &v1.Qos{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.QosSpec{MaxRuntime: map[string]int{string(v1.TrainScope): 10800}}}
+	c := fake.NewClientBuilder().WithScheme(newScheme(t)).WithObjects(ws, qos).Build()
+	v := &WorkloadValidator{Client: c}
+	m := &WorkloadMutator{Client: c}
+	workload := func(timeout *int, extended bool) *v1.Workload {
+		w := &v1.Workload{
+			ObjectMeta: metav1.ObjectMeta{Name: "w", Labels: map[string]string{v1.ClusterIdLabel: "c1"}},
+			Spec: v1.WorkloadSpec{
+				GroupVersionKind: v1.GroupVersionKind{Kind: common.PytorchJobKind},
+				Workspace:        "ws1",
+				Timeout:          timeout,
+			},
+		}
+		if extended {
+			v1.SetAnnotation(w, v1.WorkloadRuntimeExtendedByAnnotation, "manager")
+		}
+		return w
+	}
+
+	filled := workload(nil, false)
+	assert.NilError(t, m.mutateTimeout(ctx, filled, ws))
+	assert.Equal(t, *filled.Spec.Timeout, 10800)
+	zero := workload(pointer.Int(0), false)
+	assert.NilError(t, m.mutateTimeout(ctx, zero, ws))
+	assert.Equal(t, *zero.Spec.Timeout, 10800)
+	assert.NilError(t, v.validateTimeout(ctx, zero))
+	assert.NilError(t, v.validateTimeout(ctx, workload(pointer.Int(10800), false)))
+	err := v.validateTimeout(ctx, workload(pointer.Int(20000), false))
+	assert.ErrorContains(t, err, "exceeds the qos limit of 10800 seconds")
+	assert.Assert(t, v.validateTimeout(ctx, workload(pointer.Int(0), false)) != nil)
+
+	assert.NilError(t, v.validateTimeout(ctx, workload(pointer.Int(20000), true)))
+	unlimited := workload(pointer.Int(0), true)
+	assert.NilError(t, m.mutateTimeout(ctx, unlimited, ws))
+	assert.Equal(t, *unlimited.Spec.Timeout, 0)
+	assert.NilError(t, v.validateTimeout(ctx, unlimited))
+}
+
 func scaleQuotaWorkload(name, gpu string, scheduled bool) *v1.Workload {
 	w := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Labels: map[string]string{

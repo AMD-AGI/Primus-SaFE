@@ -206,6 +206,14 @@ robust:
   service_token_secret: "robust-service-token"
   # Where the Secret is mounted in the three components.
   secret_path: "/etc/secrets/robust"
+  # Name of the Cluster CR SaFE itself runs in. Only that cluster may use the
+  # in-cluster Robust services when its CR has no
+  # primus-safe.amd.com/robust-api-endpoint annotation; any other cluster
+  # without the annotation gets no Robust client. Empty: the single Cluster
+  # CR, else the only one labeled primus-safe.cluster.control-plane; with
+  # neither, every cluster without the annotation uses the in-cluster
+  # services and a warning is logged. Set from .env robust_management_cluster.
+  management_cluster: ""
 opensearch:
   # Log search feature flag. When true, log search endpoints are available.
   # Queries are proxied through robust-api on data clusters (no direct OpenSearch connection).
@@ -573,6 +581,14 @@ external_execution:
 workload:
   # Seconds to keep a finished workload before TTL deletion.
   ttl_second: 60
+  # Seconds between reconciles of each cluster's workloads against Robust's sync digest.
+  robust_sync_interval_second: 60
+  # Days after its end that a workload kept only in the database is still synced to Robust.
+  robust_sync_retention_day: 7
+  # Whether the nodes SaFE manages are synced to Robust along with the workloads.
+  robust_node_sync_enable: true
+  # Whether job-manager stops running workloads under their workspace's low GPU utilization policy.
+  low_utilization_enable: false
 sandbox:
   enable: true
   namespace: "agent-sandbox-system"

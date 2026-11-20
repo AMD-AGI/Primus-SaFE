@@ -88,6 +88,31 @@ var (
 		Help:    "Duration of the ARC controller log lookup for CI/CD failure enrichment, by result.",
 		Buckets: prometheus.DefBuckets,
 	}, []string{"result"})
+
+	// LowUtilDetectedTotal counts workloads first found idle under a low GPU utilization policy.
+	LowUtilDetectedTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "safe_low_util_detected_total",
+		Help: "Total workloads first found idle under a low GPU utilization policy, by cluster.",
+	}, []string{"cluster"})
+
+	// LowUtilStoppedTotal counts workloads stopped by a low GPU utilization policy.
+	LowUtilStoppedTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "safe_low_util_stopped_total",
+		Help: "Total workloads stopped by a low GPU utilization policy, by cluster.",
+	}, []string{"cluster"})
+
+	// LowUtilSkippedNoDataTotal counts evaluations left undecided because Robust
+	// returned too few samples, so the workload's state was not changed.
+	LowUtilSkippedNoDataTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "safe_low_util_skipped_no_data_total",
+		Help: "Total low GPU utilization evaluations skipped for missing samples, by cluster.",
+	}, []string{"cluster"})
+
+	// LowUtilClusterSkippedTotal counts evaluation rounds that skipped a whole cluster.
+	LowUtilClusterSkippedTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "safe_low_util_cluster_skipped_total",
+		Help: "Total low GPU utilization rounds that skipped a cluster, by reason (unsupported/no_client/error).",
+	}, []string{"cluster", "reason"})
 )
 
 // ObserveCICDFailureEnrichment records one enrichment lookup. It matches the
@@ -112,5 +137,9 @@ func init() {
 		WorkloadPhaseTotal,
 		WorkloadRescheduleTotal,
 		CICDFailureEnrichmentDuration,
+		LowUtilDetectedTotal,
+		LowUtilStoppedTotal,
+		LowUtilSkippedNoDataTotal,
+		LowUtilClusterSkippedTotal,
 	)
 }

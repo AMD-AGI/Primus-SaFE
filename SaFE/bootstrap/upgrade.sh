@@ -705,6 +705,94 @@ resolve_user_dir_mounts() {
   fi
 }
 
+# resolve_low_utilization sets LOW_UTILIZATION_ENABLE to the workload.low_utilization_enable the upgrade
+# renders. workload_low_utilization_enable in .env (true or false) wins. Without it the running release
+# keeps its value, as for resolve_user_dir_mounts: otherwise every upgrade would render the chart's false
+# and job-manager would stop enforcing the workspaces' low GPU utilization policies. A release that
+# cannot be read stops the upgrade rather than guessing.
+resolve_low_utilization() {
+  local releases live
+  LOW_UTILIZATION_ENABLE=""
+  if [[ -n "${workload_low_utilization_enable:-}" ]]; then
+    if [[ "$workload_low_utilization_enable" != "true" && "$workload_low_utilization_enable" != "false" ]]; then
+      echo "Error: workload_low_utilization_enable in .env is '$workload_low_utilization_enable'; set it to true or false" >&2
+      return 1
+    fi
+    LOW_UTILIZATION_ENABLE="$workload_low_utilization_enable"
+    return 0
+  fi
+  if ! releases=$(helm -n "$NAMESPACE" list); then
+    echo "Error: cannot list the helm releases in $NAMESPACE, so workload.low_utilization_enable of the running release is unknown" >&2
+    return 1
+  fi
+  if ! grep -q "^$chart_name " <<<"$releases"; then
+    return 0 # nothing installed yet: the chart default applies
+  fi
+  if command -v jq &> /dev/null; then
+    if ! live=$(helm -n "$NAMESPACE" get values "$chart_name" -o json); then
+      echo "Error: cannot read the values of release $chart_name, so its workload.low_utilization_enable is unknown" >&2
+      return 1
+    fi
+    if ! LOW_UTILIZATION_ENABLE=$(jq -r '.workload.low_utilization_enable // empty | tostring' <<<"$live"); then
+      echo "Error: cannot read workload.low_utilization_enable from the values of release $chart_name" >&2
+      return 1
+    fi
+  else
+    if ! live=$(helm -n "$NAMESPACE" get values "$chart_name" -o yaml); then
+      echo "Error: cannot read the values of release $chart_name, so its workload.low_utilization_enable is unknown" >&2
+      return 1
+    fi
+    LOW_UTILIZATION_ENABLE=$(awk '/^workload:/ {a = 1; next} /^[^ #]/ {a = 0} a && /^  low_utilization_enable:/ {gsub(/["\047]/, "", $2); print $2; exit}' <<<"$live")
+  fi
+  if [[ "$LOW_UTILIZATION_ENABLE" != "true" && "$LOW_UTILIZATION_ENABLE" != "false" ]]; then
+    LOW_UTILIZATION_ENABLE=""
+  fi
+}
+
+# resolve_robust_management_cluster sets ROBUST_MANAGEMENT_CLUSTER to the robust.management_cluster the
+# upgrade renders: the name of the Cluster CR SaFE runs in, the one cluster that may use the in-cluster
+# Robust services. robust_management_cluster in .env wins. Without it the running release keeps its value:
+# otherwise every upgrade would render the chart's empty value and, with several clusters, the management
+# cluster could lose its Robust client. A release that cannot be read stops the upgrade rather than guessing.
+resolve_robust_management_cluster() {
+  local releases live
+  ROBUST_MANAGEMENT_CLUSTER=""
+  if [[ -n "${robust_management_cluster:-}" ]]; then
+    if [[ ! "$robust_management_cluster" =~ ^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$ ]]; then
+      echo "Error: robust_management_cluster in .env is '$robust_management_cluster'; set it to the name of a Cluster CR" >&2
+      return 1
+    fi
+    ROBUST_MANAGEMENT_CLUSTER="$robust_management_cluster"
+    return 0
+  fi
+  if ! releases=$(helm -n "$NAMESPACE" list); then
+    echo "Error: cannot list the helm releases in $NAMESPACE, so robust.management_cluster of the running release is unknown" >&2
+    return 1
+  fi
+  if ! grep -q "^$chart_name " <<<"$releases"; then
+    return 0 # nothing installed yet: the chart default applies
+  fi
+  if command -v jq &> /dev/null; then
+    if ! live=$(helm -n "$NAMESPACE" get values "$chart_name" -o json); then
+      echo "Error: cannot read the values of release $chart_name, so its robust.management_cluster is unknown" >&2
+      return 1
+    fi
+    if ! ROBUST_MANAGEMENT_CLUSTER=$(jq -r '.robust.management_cluster // empty | tostring' <<<"$live"); then
+      echo "Error: cannot read robust.management_cluster from the values of release $chart_name" >&2
+      return 1
+    fi
+  else
+    if ! live=$(helm -n "$NAMESPACE" get values "$chart_name" -o yaml); then
+      echo "Error: cannot read the values of release $chart_name, so its robust.management_cluster is unknown" >&2
+      return 1
+    fi
+    ROBUST_MANAGEMENT_CLUSTER=$(awk '/^robust:/ {a = 1; next} /^[^ #]/ {a = 0} a && /^  management_cluster:/ {gsub(/["\047]/, "", $2); print $2; exit}' <<<"$live")
+  fi
+  if [[ ! "$ROBUST_MANAGEMENT_CLUSTER" =~ ^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$ ]]; then
+    ROBUST_MANAGEMENT_CLUSTER=""
+  fi
+}
+
 # resolve_console_return_prefixes sets CONSOLE_RETURN_PREFIXES to the console.return_prefixes (JSON) the
 # upgrade renders, or "" for the apiserver's default. console_return_prefixes in .env wins. Without it the
 # running release keeps its list: helm renders every value from the chart defaults and the files it is
@@ -752,6 +840,10 @@ resolve_console_return_prefixes() {
 check_live_auth
 # ... and must not silently turn the per-user directories of external Pods off.
 resolve_user_dir_mounts || exit 1
+# ... and must not silently turn the low GPU utilization policies off.
+resolve_low_utilization || exit 1
+# ... and must not silently forget which cluster may use the in-cluster Robust services.
+resolve_robust_management_cluster || exit 1
 # ... and must not silently drop the console's return prefixes.
 resolve_console_return_prefixes || exit 1
 
@@ -884,6 +976,12 @@ if [[ -n "${external_enable:-${external_execution_enabled:-}}" ]]; then
 fi
 if [[ -n "$USER_DIR_MOUNTS" ]]; then
   sed -i '/^external_execution:/,/^[a-z]/ s/user_dir_mounts: .*/user_dir_mounts: '"$USER_DIR_MOUNTS"'/' "$values_yaml"
+fi
+if [[ -n "$LOW_UTILIZATION_ENABLE" ]]; then
+  sed -i '/^workload:/,/^[a-z]/ s/^  low_utilization_enable: .*/  low_utilization_enable: '"$LOW_UTILIZATION_ENABLE"'/' "$values_yaml"
+fi
+if [[ -n "$ROBUST_MANAGEMENT_CLUSTER" ]]; then
+  sed -i '/^robust:/,/^[a-z]/ s/^  management_cluster: .*/  management_cluster: "'"$ROBUST_MANAGEMENT_CLUSTER"'"/' "$values_yaml"
 fi
 
 # Configure metrics port if defined in .env

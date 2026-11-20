@@ -52,7 +52,7 @@ const (
 // the incoming ?cluster=<name> query parameter.
 //
 // The handler is stateless with respect to the request but maintains a
-// cache of reverse-proxy instances keyed by resolved target URL so we don't
+// cache of reverse-proxy instances keyed by target URL and CA so we don't
 // re-parse and reallocate the proxy on every call.
 type Handler struct {
 	rc *robustclient.Client
@@ -96,6 +96,11 @@ func (h *Handler) Register(engine *gin.Engine) {
 
 // proxy is the single request handler for Lens-compat traffic.
 func (h *Handler) proxy(c *gin.Context) {
+	if !isReadOnlyRoute(c.Request.Method, strings.TrimPrefix(c.Request.URL.Path, Prefix)) {
+		apiutils.AbortWithApiError(c, commonerrors.NewForbidden(
+			fmt.Sprintf("%s %s is not served by lens-compat", c.Request.Method, c.Request.URL.Path)))
+		return
+	}
 	cluster := strings.TrimSpace(c.Query(clusterQueryParam))
 	if cluster == "" {
 		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest(
@@ -116,7 +121,7 @@ func (h *Handler) proxy(c *gin.Context) {
 	}
 
 	baseURL := cc.BaseURL()
-	proxy, err := h.getOrCreateProxy(baseURL, cluster)
+	proxy, err := h.getOrCreateProxy(cc, cluster)
 	if err != nil {
 		apiutils.AbortWithApiError(c, commonerrors.NewInternalError(
 			fmt.Sprintf("lens-compat parse target URL %q: %v", baseURL, err)))
@@ -135,6 +140,13 @@ func (h *Handler) proxy(c *gin.Context) {
 			c.Request.Header.Set(common.UserName, s)
 		}
 	}
+	// The SaFE credentials stay here; Robust only trusts the cluster's service token.
+	c.Request.Header.Del("Cookie")
+	c.Request.Header.Del("Authorization")
+	c.Request.Header.Del(robustclient.ServiceTokenHeader)
+	if token := cc.ServiceToken(); token != "" {
+		c.Request.Header.Set(robustclient.ServiceTokenHeader, token)
+	}
 
 	start := time.Now()
 	proxy.ServeHTTP(c.Writer, c.Request)
@@ -145,11 +157,15 @@ func (h *Handler) proxy(c *gin.Context) {
 	apimetrics.DependencyDuration.WithLabelValues("robust_analyzer", result).Observe(time.Since(start).Seconds())
 }
 
-// getOrCreateProxy returns a reverse proxy for the given robust-analyzer
-// base URL, creating one lazily on first use.
-func (h *Handler) getOrCreateProxy(baseURL, cluster string) (*httputil.ReverseProxy, error) {
+// getOrCreateProxy returns a reverse proxy for the cluster's robust-analyzer,
+// creating one lazily on first use. It sends through the cluster client's
+// transport, so a private CA is trusted, and is cached per base URL and CA so
+// a changed CA takes effect.
+func (h *Handler) getOrCreateProxy(cc *robustclient.ClusterClient, cluster string) (*httputil.ReverseProxy, error) {
+	baseURL := cc.BaseURL()
+	key := baseURL + "|" + cc.CAHash()
 	h.mu.RLock()
-	if p, ok := h.proxies[baseURL]; ok {
+	if p, ok := h.proxies[key]; ok {
 		h.mu.RUnlock()
 		return p, nil
 	}
@@ -161,6 +177,7 @@ func (h *Handler) getOrCreateProxy(baseURL, cluster string) (*httputil.ReversePr
 	}
 
 	proxy := httputil.NewSingleHostReverseProxy(target)
+	proxy.Transport = cc.Transport()
 	originalDirector := proxy.Director
 	proxy.Director = func(req *http.Request) {
 		// Rewrite  /lens/v1/<rest>  →  /api/v1/<rest>
@@ -187,10 +204,10 @@ func (h *Handler) getOrCreateProxy(baseURL, cluster string) (*httputil.ReversePr
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	// Double-check in case a concurrent caller beat us to it.
-	if p, ok := h.proxies[baseURL]; ok {
+	if p, ok := h.proxies[key]; ok {
 		return p, nil
 	}
-	h.proxies[baseURL] = proxy
+	h.proxies[key] = proxy
 	return proxy, nil
 }
 

@@ -135,6 +135,107 @@
             </div>
           </el-form-item>
 
+          <el-form-item label="Low GPU Util" v-if="selectedScopes.length">
+            <div class="limit-entries">
+              <div v-for="scope in lowUtilConfiguredScopes" :key="scope" class="low-util-entry">
+                <div class="limit-row low-util-row">
+                  <el-tag closable effect="plain" @close="removeLowUtilScope(scope)">{{ scope }}</el-tag>
+                  <el-select v-model="form.lowUtilization[scope].mode" size="small" class="limit-input">
+                    <el-option label="Average" value="Average" />
+                    <el-option label="Min" value="Min" />
+                  </el-select>
+                  <span class="limit-unit">grace</span>
+                  <el-input-number
+                    v-model="form.lowUtilization[scope].gracePeriod"
+                    :min="0"
+                    :step="5"
+                    :precision="0"
+                    controls-position="right"
+                    size="small"
+                    class="limit-input"
+                  />
+                  <span class="limit-unit">min, notify</span>
+                  <el-input-number
+                    v-model="form.lowUtilization[scope].notifyBefore"
+                    :min="0"
+                    :step="5"
+                    :precision="0"
+                    controls-position="right"
+                    size="small"
+                    class="limit-input"
+                  />
+                  <span class="limit-unit">min before stop, cooldown</span>
+                  <el-input-number
+                    v-model="form.lowUtilization[scope].cooldown"
+                    :min="0"
+                    :step="5"
+                    :precision="0"
+                    controls-position="right"
+                    size="small"
+                    class="limit-input"
+                    placeholder="default"
+                  />
+                  <span class="limit-unit">min</span>
+                  <el-checkbox v-model="form.lowUtilization[scope].dryRun" size="small">Dry run</el-checkbox>
+                </div>
+                <div
+                  v-for="(rule, i) in form.lowUtilization[scope].rules"
+                  :key="i"
+                  class="limit-row low-util-rule"
+                >
+                  <span class="limit-unit">below</span>
+                  <el-input-number
+                    v-model="rule.threshold"
+                    :min="0"
+                    :max="100"
+                    :precision="0"
+                    controls-position="right"
+                    size="small"
+                    class="limit-input"
+                  />
+                  <span class="limit-unit">% for</span>
+                  <el-input-number
+                    v-model="rule.window"
+                    :min="5"
+                    :max="1440"
+                    :step="5"
+                    :precision="0"
+                    controls-position="right"
+                    size="small"
+                    class="limit-input"
+                  />
+                  <span class="limit-unit">min</span>
+                  <el-button
+                    v-if="form.lowUtilization[scope].rules.length > 1"
+                    type="danger"
+                    link
+                    @click="removeLowUtilRule(scope, i)"
+                  >
+                    Remove
+                  </el-button>
+                </div>
+                <el-button
+                  v-if="form.lowUtilization[scope].rules.length < LOW_UTIL_MAX_RULES"
+                  size="small"
+                  text
+                  type="primary"
+                  class="low-util-rule"
+                  @click="addLowUtilRule(scope)"
+                >
+                  + Rule
+                </el-button>
+              </div>
+              <el-dropdown v-if="lowUtilAvailableScopes.length" trigger="click" @command="addLowUtilScope">
+                <el-button size="small" text type="primary">+ Add</el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item v-for="s in lowUtilAvailableScopes" :key="s" :command="s">{{ s }}</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </div>
+          </el-form-item>
+
           <el-row :gutter="16">
             <el-col :span="12">
               <el-form-item label="Replica" prop="replica">
@@ -342,7 +443,17 @@ import type {
   UserT,
   VolumeWithStrategy,
   PfsVolumeWithStrategy,
+  LowUtilizationPolicy,
 } from '@/services'
+import {
+  LOW_UTIL_MAX_RULES,
+  type LowUtilizationFormEntry,
+  buildLowUtilization,
+  goDurationToMinutes,
+  minutesToGoDuration,
+  newLowUtilizationEntry,
+  parseLowUtilization,
+} from './lowUtilizationForm'
 import {
   addWorkspace,
   editWorkspace,
@@ -386,6 +497,7 @@ const initialForm = reactive({
   volumes: [] as Volume[],
   scopes: ['Train', 'Infer', 'Authoring'],
   idleTime: {} as Record<string, number | undefined>,
+  lowUtilization: {} as Record<string, LowUtilizationFormEntry>,
 })
 
 const form = reactive({ ...initialForm })
@@ -486,6 +598,8 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
       }
     })
 
+    const lowUtilization = buildLowUtilization(form.lowUtilization, lowUtilConfiguredScopes.value)
+
     const { managers, ...payload } = form
 
     if (!isEdit.value) {
@@ -493,12 +607,19 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
         ...payload,
         volumes: volumesPayload,
         idleTime,
+        lowUtilization,
       })
       ElMessage({ message: 'Create successful', type: 'success' })
     } else {
-      const { name: _n, ...payload } = form
+      const { name: _n, lowUtilization: _l, ...payload } = form
       if (!props.wsid) return
-      await editWorkspace(props.wsid, { ...payload, volumes: volumesPayload, idleTime })
+      const lowUtilTouched = JSON.stringify(form.lowUtilization) !== lowUtilBaseline.value
+      await editWorkspace(props.wsid, {
+        ...payload,
+        volumes: volumesPayload,
+        idleTime,
+        ...(lowUtilTouched ? { lowUtilization } : {}),
+      })
       ElMessage({ message: 'Edit successful', type: 'success' })
     }
 
@@ -560,6 +681,12 @@ const setInitialFormValues = async () => {
     parsedIdleTime[scope] = goDurationToMinutes(dur as string)
   }
   form.idleTime = parsedIdleTime
+
+  const parsedLowUtil = parseLowUtilization(
+    ((res as any).lowUtilization ?? {}) as Record<string, LowUtilizationPolicy>,
+  )
+  form.lowUtilization = parsedLowUtil
+  lowUtilBaseline.value = JSON.stringify(parsedLowUtil)
 
   form.volumes = (res.volumes ?? []).map((v: any) => {
     if (v.type === 'hostpath')
@@ -676,21 +803,25 @@ const removeIdleTimeScope = (scope: string) => {
   delete form.idleTime[scope]
 }
 
-// Convert minutes (number) to Go duration string: 15 → "0h15m", 90 → "1h30m"
-const minutesToGoDuration = (minutes: number): string => {
-  const h = Math.floor(minutes / 60)
-  const m = minutes % 60
-  return `${h}h${m}m`
+// The loaded policies, to leave them out of an edit that did not change them
+const lowUtilBaseline = ref('')
+const lowUtilConfiguredScopes = computed(() =>
+  selectedScopes.value.filter((s) => s in form.lowUtilization),
+)
+const lowUtilAvailableScopes = computed(() =>
+  selectedScopes.value.filter((s) => !(s in form.lowUtilization)),
+)
+const addLowUtilScope = (scope: string) => {
+  form.lowUtilization[scope] = newLowUtilizationEntry()
 }
-
-// Convert Go duration string to minutes: "0h15m0s" → 15, "1h30m0s" → 90
-const goDurationToMinutes = (dur: string): number | undefined => {
-  if (!dur) return undefined
-  const hMatch = dur.match(/(\d+)h/)
-  const mMatch = dur.match(/(\d+)m/)
-  const h = hMatch ? parseInt(hMatch[1], 10) : 0
-  const m = mMatch ? parseInt(mMatch[1], 10) : 0
-  return (h * 60 + m) || undefined
+const removeLowUtilScope = (scope: string) => {
+  delete form.lowUtilization[scope]
+}
+const addLowUtilRule = (scope: string) => {
+  form.lowUtilization[scope].rules.push({ threshold: 5, window: 60 })
+}
+const removeLowUtilRule = (scope: string, index: number) => {
+  form.lowUtilization[scope].rules.splice(index, 1)
 }
 
 // Watch volumes strategy and KV changes
@@ -819,6 +950,22 @@ html.dark .section-card:hover {
 
 .limit-input {
   width: 100px;
+}
+
+.low-util-row {
+  flex-wrap: wrap;
+}
+
+.low-util-entry {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+}
+
+.low-util-rule {
+  margin-left: 16px;
 }
 
 .limit-unit {

@@ -275,6 +275,58 @@ func TestAdmitVirtualKubeletReplacesStaleAllocation(t *testing.T) {
 	}
 }
 
+// The front-end IPv4 is an observation: it is copied on create and follows the
+// virtual kubelet on every later admission, including its removal.
+func TestAdmitVirtualKubeletMirrorsFrontEndIPv4(t *testing.T) {
+	viper.Set("external_execution.enabled", true)
+	t.Cleanup(func() { viper.Set("external_execution.enabled", false) })
+	ws := &v1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{Name: "ws-ext", Labels: map[string]string{v1.WorkspaceExternalLabel: "true"}},
+		Spec:       v1.WorkspaceSpec{Cluster: "crusoe", NodeFlavor: "vk-mi355x"},
+	}
+	r := newNodeK8sReconciler(t, ws)
+	vk := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
+		Name: "vk-fe",
+		Labels: map[string]string{
+			v1.VirtualKubeletTypeLabelKey: v1.VirtualKubeletTypeLabelValue,
+			v1.ExternalWorkspaceLabel:     "ws-ext",
+			v1.ExternalProviderLabel:      "spur",
+			v1.ExternalAllocationIdLabel:  "alloc-1",
+			v1.ExternalGenerationLabel:    "1",
+		},
+		Annotations: map[string]string{v1.ExternalFrontEndIPv4Annotation: "10.0.0.1"},
+	}}
+	admitted := func() *v1.Node {
+		t.Helper()
+		if name, err := r.admitVirtualKubelet(context.Background(), "crusoe", vk); err != nil || name != "vk-fe" {
+			t.Fatalf("admit: name=%q err=%v", name, err)
+		}
+		node := &v1.Node{}
+		if err := r.Get(context.Background(), client.ObjectKey{Name: "vk-fe"}, node); err != nil {
+			t.Fatal(err)
+		}
+		return node
+	}
+
+	if got := v1.GetAnnotation(admitted(), v1.ExternalFrontEndIPv4Annotation); got != "10.0.0.1" {
+		t.Fatalf("after create: front-end IPv4 = %q, want 10.0.0.1", got)
+	}
+
+	vk.Annotations[v1.ExternalFrontEndIPv4Annotation] = "10.0.0.2"
+	node := admitted()
+	if got := v1.GetAnnotation(node, v1.ExternalFrontEndIPv4Annotation); got != "10.0.0.2" {
+		t.Fatalf("after update: front-end IPv4 = %q, want 10.0.0.2", got)
+	}
+	if node.Spec.ExternalRef.AllocationId != "alloc-1" {
+		t.Fatalf("an address change must keep the allocation, got %q", node.Spec.ExternalRef.AllocationId)
+	}
+
+	delete(vk.Annotations, v1.ExternalFrontEndIPv4Annotation)
+	if _, ok := admitted().Annotations[v1.ExternalFrontEndIPv4Annotation]; ok {
+		t.Fatal("after removal: the SaFE Node still carries the front-end IPv4")
+	}
+}
+
 func TestAdmitVirtualKubeletSkipsIncompleteIdentity(t *testing.T) {
 	viper.Set("external_execution.enabled", false)
 	r := newNodeK8sReconciler(t)

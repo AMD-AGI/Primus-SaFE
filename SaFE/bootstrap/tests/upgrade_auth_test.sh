@@ -351,11 +351,13 @@ FAKE_LIST_FAIL=1 run_upgrade "$LIVE_EXTERNAL" ""
 expect "releases cannot be listed: refused" refused
 expect "releases cannot be listed: says so" grep -q 'cannot list the helm releases' "$OUT/log"
 # but an explicit mode needs no reading of the release's values (nor do explicit SSO settings, nor
-# an explicit external_user_dir_mounts, nor explicit console_return_prefixes)
+# an explicit external_user_dir_mounts, nor explicit console_return_prefixes or robust_management_cluster)
 FAKE_GET_FAIL=1 run_upgrade "$LIVE_EXTERNAL" "$AUTH_ENV
 oidc_login_enable=false
 sso_bridge_allowlist='[]'
 external_user_dir_mounts=true
+workload_low_utilization_enable=true
+robust_management_cluster=tw-project2
 console_return_prefixes='[]'"
 expect "release values cannot be read, .env has every key: applied" applied
 
@@ -653,6 +655,60 @@ expect "external_user_dir_mounts=yes: names the key" grep -q 'external_user_dir_
 FAKE_GET_FAIL=1 run_upgrade '{"external_execution":{"user_dir_mounts":true}}' ""
 expect "live user_dir_mounts cannot be read: refused" refused
 
+# workload.low_utilization_enable: .env wins, otherwise the running release keeps its value, so an
+# upgrade never silently stops enforcing the low GPU utilization policies.
+low_util() { grep -qE "^ +low_utilization_enable: $1\$" "$OUT/rendered.yaml"; }
+run_upgrade "" ""
+expect "low_utilization, fresh install: chart default false" low_util false
+for jqmode in jq nojq; do
+  rp=""; [[ "$jqmode" == "nojq" ]] && rp="$NOJQ"
+  RUN_PATH="${rp:-}" run_upgrade '{"workload":{"low_utilization_enable":true}}' ""
+  expect "$jqmode, live low_utilization on, no .env key: applied" applied
+  expect "$jqmode, live low_utilization on, no .env key: stays on" low_util true
+  RUN_PATH="${rp:-}" run_upgrade '{"workload":{"ttl_second":60}}' ""
+  expect "$jqmode, live release without the value: chart default false" low_util false
+done
+run_upgrade '{"workload":{"low_utilization_enable":false}}' 'workload_low_utilization_enable=true'
+expect "live off, .env workload_low_utilization_enable=true: applied" applied
+expect "live off, .env workload_low_utilization_enable=true: on" low_util true
+run_upgrade '{"workload":{"low_utilization_enable":true}}' 'workload_low_utilization_enable=false'
+expect "live on, .env workload_low_utilization_enable=false: applied" applied
+expect "live on, .env workload_low_utilization_enable=false: off on purpose" low_util false
+run_upgrade "" 'workload_low_utilization_enable=yes'
+expect "workload_low_utilization_enable=yes: refused" refused
+expect "workload_low_utilization_enable=yes: names the key" grep -q 'workload_low_utilization_enable in .env is' "$OUT/log"
+FAKE_GET_FAIL=1 run_upgrade '{"workload":{"low_utilization_enable":true}}' "external_user_dir_mounts=false"
+expect "live low_utilization cannot be read: refused" refused
+
+# robust.management_cluster: .env wins, otherwise the running release keeps its value, so an upgrade
+# never silently leaves the management cluster without its Robust client on a multi-cluster install.
+mgmt_cluster() { grep -qE "^ +management_cluster: \"$1\"\$" "$OUT/rendered.yaml"; }
+no_mgmt_cluster() { ! grep -q 'management_cluster:' "$OUT/rendered.yaml"; }
+run_upgrade "" ""
+expect "management cluster, fresh install: applied" applied
+expect "management cluster, fresh install: not set" no_mgmt_cluster
+for jqmode in jq nojq; do
+  rp=""; [[ "$jqmode" == "nojq" ]] && rp="$NOJQ"
+  RUN_PATH="${rp:-}" run_upgrade '{"robust":{"management_cluster":"tw-project2"}}' ""
+  expect "$jqmode, live management cluster, no .env key: applied" applied
+  expect "$jqmode, live management cluster, no .env key: kept" mgmt_cluster tw-project2
+  RUN_PATH="${rp:-}" run_upgrade '{"workload":{"ttl_second":60}}' ""
+  expect "$jqmode, live release without the value: not set" no_mgmt_cluster
+done
+run_upgrade '{"robust":{"management_cluster":"tw-project2"}}' 'robust_management_cluster=crusoe'
+expect "live management cluster, .env robust_management_cluster: applied" applied
+expect "live management cluster, .env robust_management_cluster: wins" mgmt_cluster crusoe
+run_upgrade "" 'robust_management_cluster="Bad Name"'
+expect "robust_management_cluster='Bad Name': refused" refused
+expect "robust_management_cluster='Bad Name': names the key" grep -q 'robust_management_cluster in .env is' "$OUT/log"
+FAKE_GET_FAIL=1 run_upgrade '{"robust":{"management_cluster":"tw-project2"}}' "$AUTH_ENV
+oidc_login_enable=false
+sso_bridge_allowlist='[]'
+external_user_dir_mounts=false
+workload_low_utilization_enable=false"
+expect "live management cluster cannot be read: refused" refused
+expect "live management cluster cannot be read: says so" grep -q 'robust.management_cluster is unknown' "$OUT/log"
+
 # console.return_prefixes: .env wins (a JSON array of path prefixes); otherwise the running release keeps
 # its list, so an upgrade never silently sends an app added to it back to the console's 404 page.
 CRP='console_return_prefixes='"'"'["/dispatron","/autopilot","/binding","/blog-drafts","/claw-api"]'"'"
@@ -689,7 +745,8 @@ expect "no jq, live return prefixes, no .env key: refused" refused
 expect "no jq, live return prefixes, no .env key: names the key" grep -q 'Add console_return_prefixes to .env' "$OUT/log"
 RUN_PATH="$NOJQ" run_upgrade '{"console":{"access_contact":"x"}}' ""
 expect "no jq, live release without return prefixes: applied" applied
-FAKE_GET_FAIL=1 run_upgrade "$LIVE_CRP" "external_user_dir_mounts=false"
+FAKE_GET_FAIL=1 run_upgrade "$LIVE_CRP" "external_user_dir_mounts=false
+workload_low_utilization_enable=false"
 expect "live return prefixes cannot be read: refused" refused
 run_upgrade "$LIVE_BUILTIN" "$SSO_ON
 $AUTH_ENV
