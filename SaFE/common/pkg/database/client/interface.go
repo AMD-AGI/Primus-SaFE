@@ -41,8 +41,6 @@ type Interface interface {
 	PostTrainingRunInterface
 	PostTrainingRunMetricInterface
 	PostTrainingConvertCacheInterface
-	PostTrainingTemplateInterface
-	PostTrainingExperimentInterface
 	PostTrainingRunSampleInterface
 }
 
@@ -311,24 +309,6 @@ type PostTrainingRunSampleInterface interface {
 	ListPostTrainingRunSamples(ctx context.Context, filter PostTrainingRunSampleFilter) ([]*PostTrainingRunSample, error)
 	ListPostTrainingRunSampleSteps(ctx context.Context, runID, kind string) ([]PostTrainingRunSampleStep, error)
 	DeletePostTrainingRunSamples(ctx context.Context, runID string, afterStep *int) error
-}
-
-// PostTrainingTemplateInterface defines database operations for the recipe templates of Post Training.
-type PostTrainingTemplateInterface interface {
-	CreatePostTrainingTemplate(ctx context.Context, t *PostTrainingTemplate) error
-	GetPostTrainingTemplate(ctx context.Context, templateID string) (*PostTrainingTemplate, error)
-	ListPostTrainingTemplates(ctx context.Context, filter PostTrainingTemplateFilter) ([]*PostTrainingTemplate, int64, error)
-	UpdatePostTrainingTemplate(ctx context.Context, templateID string, version int, fields map[string]interface{}) (int, error)
-	SetPostTrainingTemplateDeleted(ctx context.Context, templateID string) error
-	CountPostTrainingRunsByTemplate(ctx context.Context, templateIDs []string) (map[string]int, error)
-}
-
-// PostTrainingExperimentInterface defines database operations for the A/B experiments of Post Training.
-type PostTrainingExperimentInterface interface {
-	CreatePostTrainingExperiment(ctx context.Context, e *PostTrainingExperiment) error
-	GetPostTrainingExperiment(ctx context.Context, experimentID string) (*PostTrainingExperiment, error)
-	ListPostTrainingExperiments(ctx context.Context, filter PostTrainingExperimentFilter) ([]*PostTrainingExperiment, int64, error)
-	SetPostTrainingExperimentDeleted(ctx context.Context, experimentID string) error
 }
 
 // PostTrainingConvertCacheInterface defines database operations for the shared weight conversions of Post
