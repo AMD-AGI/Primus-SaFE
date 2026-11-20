@@ -146,6 +146,16 @@ func TestBuildMarkers(t *testing.T) {
 	run.Recipe = `{"choices":{"saveInterval":6}}`
 	require.Equal(t, []checkpointMark{{Step: 6}, {Step: 12}}, buildMarkers(run, long).Checkpoints,
 		"a last step on the interval is one checkpoint")
+
+	// Stored points that stop short of the last step, with a gap left or at the cap on stored points, do not tell
+	// where the training ended: a checkpoint after them would be one that is not there.
+	run.Recipe = `{"choices":{"saveInterval":500}}`
+	cut := map[string][]*dbclient.PostTrainingRunMetric{"train/loss": rows("train/loss", 0, 3, 990, 1)}
+	require.Equal(t, []checkpointMark{{Step: 500}, {Step: 991}}, buildMarkers(run, cut).Checkpoints)
+	run.MetricGap = true
+	require.Equal(t, []checkpointMark{{Step: 500}}, buildMarkers(run, cut).Checkpoints, "a gap is left")
+	run.MetricGap, run.MetricSummary = false, `{"points":500000,"capped":true}`
+	require.Equal(t, []checkpointMark{{Step: 500}}, buildMarkers(run, cut).Checkpoints, "the cap was reached")
 }
 
 // Stopping a workload records who stopped it and deletes it, and a missing one is fine.

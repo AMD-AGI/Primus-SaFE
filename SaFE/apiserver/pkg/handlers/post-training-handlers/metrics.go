@@ -359,6 +359,16 @@ func trained(run *dbclient.PostTrainingRun) bool {
 	return false
 }
 
+// seriesComplete reports whether the stored points of a run reach its last step: no gap is left in them and the
+// run did not reach its cap on stored points.
+func seriesComplete(run *dbclient.PostTrainingRun) bool {
+	var sum struct {
+		Capped bool `json:"capped"`
+	}
+	_ = json.Unmarshal([]byte(run.MetricSummary), &sum)
+	return !run.MetricGap && !sum.Capped
+}
+
 // buildMarkers derives the checkpoint, best checkpoint, resume and failure markers of a run from its recipe, stage
 // history and points.
 func buildMarkers(run *dbclient.PostTrainingRun, points map[string][]*dbclient.PostTrainingRunMetric) markers {
@@ -386,8 +396,9 @@ func buildMarkers(run *dbclient.PostTrainingRun, points map[string][]*dbclient.P
 			steps = append(steps, step)
 		}
 	}
-	// slime saves once more when training ends, whatever the interval.
-	if trained(run) && done > 0 && (len(steps) == 0 || steps[len(steps)-1] != done) {
+	// slime saves once more when training ends, whatever the interval; points that stop short of the last step do
+	// not tell where that is.
+	if trained(run) && seriesComplete(run) && done > 0 && (len(steps) == 0 || steps[len(steps)-1] != done) {
 		steps = append(steps, done)
 	}
 	for _, step := range steps {
