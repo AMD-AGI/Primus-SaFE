@@ -335,12 +335,13 @@ FAKE_LIST_FAIL=1 run_upgrade "$LIVE_EXTERNAL" ""
 expect "releases cannot be listed: refused" refused
 expect "releases cannot be listed: says so" grep -q 'cannot list the helm releases' "$OUT/log"
 # but an explicit mode needs no reading of the release's values (nor do explicit SSO settings, nor
-# an explicit external_user_dir_mounts, nor explicit console_return_prefixes)
+# an explicit external_user_dir_mounts, nor explicit console_return_prefixes or robust_management_cluster)
 FAKE_GET_FAIL=1 run_upgrade "$LIVE_EXTERNAL" "$AUTH_ENV
 oidc_login_enable=false
 sso_bridge_allowlist='[]'
 external_user_dir_mounts=true
 workload_low_utilization_enable=true
+robust_management_cluster=tw-project2
 console_return_prefixes='[]'"
 expect "release values cannot be read, .env has every key: applied" applied
 
@@ -684,7 +685,10 @@ expect "live management cluster, .env robust_management_cluster: wins" mgmt_clus
 run_upgrade "" 'robust_management_cluster="Bad Name"'
 expect "robust_management_cluster='Bad Name': refused" refused
 expect "robust_management_cluster='Bad Name': names the key" grep -q 'robust_management_cluster in .env is' "$OUT/log"
-FAKE_GET_FAIL=1 run_upgrade '{"robust":{"management_cluster":"tw-project2"}}' "external_user_dir_mounts=false
+FAKE_GET_FAIL=1 run_upgrade '{"robust":{"management_cluster":"tw-project2"}}' "$AUTH_ENV
+oidc_login_enable=false
+sso_bridge_allowlist='[]'
+external_user_dir_mounts=false
 workload_low_utilization_enable=false"
 expect "live management cluster cannot be read: refused" refused
 expect "live management cluster cannot be read: says so" grep -q 'robust.management_cluster is unknown' "$OUT/log"
