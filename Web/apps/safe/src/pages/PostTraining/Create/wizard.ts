@@ -135,7 +135,7 @@ export function createWizard(workspace: string, nodeFlavor?: string) {
       form.resources.gpusPerNode = gpus
     }
   }
-  // A copied run or a template cannot ask for more GPUs than a node has.
+  // A copied run cannot ask for more GPUs than a node has.
   watch([() => form.resources.gpusPerNode, nodeGpus], ([gpus, max]) => {
     if (max > 0 && gpus > max) form.resources.gpusPerNode = max
   })

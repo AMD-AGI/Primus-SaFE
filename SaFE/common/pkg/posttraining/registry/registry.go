@@ -75,7 +75,7 @@ type Registry struct {
 	Paused     Paused            `json:"paused,omitempty"`
 }
 
-// Paused stops new submissions, A/B experiments, re-exports and re-evaluations; running runs carry on.
+// Paused stops new submissions, re-exports and re-evaluations; running runs carry on.
 type Paused struct {
 	Enabled bool   `json:"enabled"`
 	Reason  string `json:"reason,omitempty"`

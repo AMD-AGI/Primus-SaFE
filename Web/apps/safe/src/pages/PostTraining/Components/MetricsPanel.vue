@@ -56,7 +56,7 @@ const props = withDefaults(
     rest?: MetricSeries
     /** Divides every value, such as counts into shares of the prompts of a rollout. */
     divisor?: number
-    /** Show the legend; the compare page's run tags already name its lines. */
+    /** Show the legend. */
     legend?: boolean
   }>(),
   {
