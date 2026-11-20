@@ -50,11 +50,15 @@ def size(p):
             except OSError:
                 pass
     return total
+def finite(s):
+    v = float(s)
+    return v if v == v and abs(v) != float("inf") else None
 def load(name):
     try:
         with open(os.path.join(d, name)) as f:
-            # NaN and the infinities are no JSON: printed again they would make the whole result unreadable.
-            return json.load(f, parse_constant=lambda c: None)
+            # NaN and the infinities are no JSON: printed again they would make the whole result unreadable. A
+            # number too large for a float loads as an infinity.
+            return json.load(f, parse_constant=lambda c: None, parse_float=finite)
     except (OSError, ValueError):
         return None
 disk = {k: size(os.path.join(d, n)) for k, n in (("checkpoints", "checkpoints"),
