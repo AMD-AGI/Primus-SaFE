@@ -43,25 +43,22 @@ const props = withDefaults(
     /** The smoothing weight, 0 for none. */
     smoothing?: number
     height?: number
-    /** One color per series instead of the single-run palette, for comparing runs. */
+    /** One color per series instead of the single-run palette, such as the colors of the GPU roles. */
     colors?: string[]
     /** Draw the values on a logarithmic axis. */
     logY?: boolean
     /** A light band between a low and a high series, such as the min and max of a value. */
     band?: [MetricSeries | undefined, MetricSeries | undefined]
-    /** More bands, each in its own color, such as the min-to-max range of each group of runs. */
+    /** More bands, each in its own color, such as the min-to-max utilization of each GPU role. */
     bands?: { low: MetricSeries; high: MetricSeries; color: string }[]
     /** Stack the series as areas; with rest, the part of rest they leave is stacked on top as Other. */
     stack?: boolean
     rest?: MetricSeries
     /** Divides every value, such as counts into shares of the prompts of a rollout. */
     divisor?: number
-    /** Show the legend. */
-    legend?: boolean
   }>(),
   {
     smoothing: 0.6,
-    legend: true,
     height: 220,
     markers: undefined,
     colors: undefined,
@@ -234,7 +231,7 @@ const render = () => {
       grid: { left: 48, right: 16, top: 24, bottom: 28 },
       tooltip: { trigger: 'axis' },
       legend: {
-        show: props.legend && (props.series.length > 1 || !!props.rest),
+        show: props.series.length > 1 || !!props.rest,
         top: 0,
         textStyle: { color: axisColor, fontSize: 11 },
       },
