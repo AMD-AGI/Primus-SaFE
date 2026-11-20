@@ -20,7 +20,7 @@ import (
 // scope, or a directory under one, needs nothing more, unless it reaches a volume with
 // requiresPrivilegedGrant (commonworkload.PrivilegedVolumeOverlapping). Any other entry mounts a node path nobody
 // declared for the workspace, which is as much as running privileged, so it needs the
-// workload/privileged grant in the workload's workspace (built-in: workspace-admin and
+// workload/privileged grant in the workload's workspace (built-in: default, workspace-admin and
 // system-admin). When that grant is what admits the workload, the workload is marked with
 // WorkloadHostPathAuthzAnnotation, which is how the admission webhook knows; the mark is removed
 // first, so a workload never carries it unless this check set it. Sandboxes are left to the
