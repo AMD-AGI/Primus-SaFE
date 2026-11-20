@@ -78,14 +78,27 @@ func ownedTrainingWorkload(phase v1.WorkloadPhase) *v1.Workload {
 	return w
 }
 
+// markNotified sets what job-manager writes once a stop countdown starts and the owner is told.
+func markNotified(w *v1.Workload, enforcedAt, notifiedAt string) {
+	v1.SetAnnotation(w, v1.WorkloadLowUtilDetectedAtAnnotation, "2026-01-02T11:00:00Z")
+	v1.SetAnnotation(w, v1.WorkloadLowUtilEnforcedAtAnnotation, enforcedAt)
+	v1.SetAnnotation(w, v1.WorkloadLowUtilNotifiedAtAnnotation, notifiedAt)
+}
+
 func TestOnUpdateNotifiesLowUtilizationOnce(t *testing.T) {
 	got := captureNotifications(t)
 	w := newInformer(t, notifiedOwner(), lowUtilWorkspace(false))
 
 	oldW := ownedTrainingWorkload(v1.WorkloadRunning)
-	newW := oldW.DeepCopy()
-	v1.SetAnnotation(newW, v1.WorkloadLowUtilDetectedAtAnnotation, "2026-01-02T12:00:00Z")
-	w.OnUpdate(oldW, newW)
+	// The detection mark alone, written before the Detected entries, does not notify.
+	detected := oldW.DeepCopy()
+	v1.SetAnnotation(detected, v1.WorkloadLowUtilDetectedAtAnnotation, "2026-01-02T11:00:00Z")
+	w.OnUpdate(oldW, detected)
+	assert.Empty(t, *got)
+
+	newW := detected.DeepCopy()
+	markNotified(newW, "2026-01-02T12:00:00Z", "2026-01-02T12:00:00Z")
+	w.OnUpdate(detected, newW)
 	// A later update keeping the mark does not notify again.
 	w.OnUpdate(newW, newW.DeepCopy())
 
@@ -98,6 +111,15 @@ func TestOnUpdateNotifiesLowUtilizationOnce(t *testing.T) {
 	assert.Equal(t, workloadtopic.LowUtilizationNotice{
 		Threshold: 5, Window: "1h", StopTime: "2026-01-02 12:30:00 UTC",
 	}, *notice)
+
+	// A countdown started again, for example after a dry-run policy is enforced, notifies again.
+	again := newW.DeepCopy()
+	markNotified(again, "2026-01-02T14:00:00Z", "2026-01-02T14:00:00Z")
+	w.OnUpdate(newW, again)
+	assert.Len(t, *got, 2)
+	notice, ok = (*got)[1].data["lowUtilization"].(*workloadtopic.LowUtilizationNotice)
+	assert.True(t, ok)
+	assert.Equal(t, "2026-01-02 14:30:00 UTC", notice.StopTime)
 }
 
 func rulesWorkspace() *v1.Workspace {
@@ -122,7 +144,7 @@ func notifyLowUtilization(t *testing.T, ws *v1.Workspace, conds ...metav1.Condit
 	oldW := ownedTrainingWorkload(v1.WorkloadRunning)
 	oldW.Status.Conditions = conds
 	newW := oldW.DeepCopy()
-	v1.SetAnnotation(newW, v1.WorkloadLowUtilDetectedAtAnnotation, "2026-01-02T12:00:00Z")
+	markNotified(newW, "2026-01-02T12:00:00Z", "2026-01-02T12:00:00Z")
 	w.OnUpdate(oldW, newW)
 	assert.Len(t, *got, 1)
 	notice, ok := (*got)[0].data["lowUtilization"].(*workloadtopic.LowUtilizationNotice)
@@ -146,12 +168,6 @@ func TestLowUtilizationNoticeShowsMatchedRules(t *testing.T) {
 			"low GPU utilization below 30% for 1h: mode Average, observed max 25.0%",
 		},
 	}, *notice)
-}
-
-func TestLowUtilizationNoticeRulesBeforeTheirEntries(t *testing.T) {
-	notice := notifyLowUtilization(t, rulesWorkspace())
-
-	assert.Equal(t, []string{"low GPU utilization below 11% for 30m", "low GPU utilization below 30% for 1h"}, notice.Rules)
 }
 
 func TestLowUtilizationNoticeLegacyPolicyEntry(t *testing.T) {
@@ -187,7 +203,7 @@ func TestOnUpdateSkipsLowUtilizationDryRun(t *testing.T) {
 
 	oldW := ownedTrainingWorkload(v1.WorkloadRunning)
 	newW := oldW.DeepCopy()
-	v1.SetAnnotation(newW, v1.WorkloadLowUtilDetectedAtAnnotation, "2026-01-02T12:00:00Z")
+	markNotified(newW, "2026-01-02T12:00:00Z", "2026-01-02T12:00:00Z")
 	w.OnUpdate(oldW, newW)
 
 	assert.Empty(t, *got)
