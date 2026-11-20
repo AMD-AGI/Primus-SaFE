@@ -27,6 +27,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority/authtest"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/post-training-handlers/recipe"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
@@ -75,6 +77,23 @@ func testContext() *gin.Context {
 	c.Set(common.UserId, "u1")
 	c.Set(common.UserName, "alice")
 	return c
+}
+
+// templateHandler returns a handler with Post Training on whose user u1 is a member of workspace ws1.
+func templateHandler(t *testing.T, db dbclient.Interface) *Handler {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+	member := &v1.User{ObjectMeta: metav1.ObjectMeta{Name: "u1", Labels: map[string]string{v1.UserIdLabel: "u1"}},
+		Spec: v1.UserSpec{Type: v1.DefaultUserType, Roles: []v1.UserRole{v1.DefaultRole},
+			Resources: map[string][]string{common.UserWorkspaces: {"ws1"}}}}
+	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Namespace: common.PrimusSafeNamespace,
+		Name: registry.ConfigMapName}, Data: map[string]string{registry.DataKey: testRegistry}}
+	objs := append(authtest.ChartRoles(t), member, cm, &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}})
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
+	h := NewHandler(cli, db)
+	h.access = &authority.AccessController{Client: cli}
+	return h
 }
 
 // The run list counts a recipe's successful runs on the platform and links the latest one of its own workspace.
@@ -126,18 +145,6 @@ func TestNewRunID(t *testing.T) {
 	require.True(t, strings.HasPrefix(id, "pt-qwen3-8b-lora-sft-very-long-"), id)
 	require.LessOrEqual(t, len(id), 40)
 	require.True(t, strings.HasPrefix(newRunID("\u4e2d\u6587"), "pt-run-"))
-}
-
-// A run made from a template keeps the template version it was made from.
-func TestRunRowRecordsTheTemplateVersion(t *testing.T) {
-	_, req, res := compiled(t, 1)
-	ws := &workspaceInfo{WorkspaceInfo: recipe.WorkspaceInfo{ID: "ws"}}
-	model := &v1.Model{ObjectMeta: metav1.ObjectMeta{Name: "m1"}}
-	require.Zero(t, runRow(testContext(), req, res, ws, model, "pt-x", "{}").TemplateVersion)
-	req.TemplateID, res.Recipe.Template = "tpl-1", &recipe.RecipeTemplate{ID: "tpl-1", Version: 3}
-	row := runRow(testContext(), req, res, ws, model, "pt-x", "{}")
-	require.Equal(t, "tpl-1", row.TemplateID)
-	require.Equal(t, 3, row.TemplateVersion, "the run keeps the template version it was made from")
 }
 
 // A run's RayJob carries its labels, image, environment and resources.

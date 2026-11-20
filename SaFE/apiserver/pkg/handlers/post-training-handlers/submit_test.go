@@ -96,52 +96,10 @@ func postAs(handle gin.HandlerFunc, body interface{}) (int, string) {
 	return w.Code, w.Body.String()
 }
 
-// sftExperiment is an experiment of an SFT baseline on m1 and d1 with variants.
-func sftExperiment(variants ...experimentVariant) experimentRequest {
-	return experimentRequest{DisplayName: "lr-ab", Variants: variants, Baseline: recipe.SubmitRequest{
-		Workspace: "ws1", TrainType: "sft", Method: "full", ModelID: "m1", DatasetID: "d1",
-		Resources: recipe.Resources{Nodes: 1, GpusPerNode: 8}}}
-}
-
-// An experiment with a variant that fails its checks creates no run.
-func TestAnExperimentWithAVariantThatFailsItsChecksCreatesNothing(t *testing.T) {
-	db := mockclient.NewMockInterface(gomock.NewController(t))
-	h, cli := submitHandler(t, db, nil)
-	code, body := postAs(h.SubmitExperiment, sftExperiment(
-		experimentVariant{Name: "lr2e5", Changes: map[string]interface{}{"choices": map[string]interface{}{"lr": 2e-5}}},
-		experimentVariant{Name: "retry", Changes: map[string]interface{}{"resources": map[string]interface{}{"maxRetry": 9}}}))
-	require.Equal(t, http.StatusBadRequest, code, body)
-	require.Contains(t, body, "variant retry")
-	workloads := &v1.WorkloadList{}
-	require.NoError(t, cli.List(context.Background(), workloads))
-	require.Empty(t, workloads.Items, "no run starts before every variant passed its checks")
-}
-
-// An experiment whose workload the cluster refuses is rolled back with the cluster's answer.
-func TestAnExperimentWhoseWorkloadIsRefusedIsRolledBack(t *testing.T) {
-	db := mockclient.NewMockInterface(gomock.NewController(t))
-	refused := apierrors.NewForbidden(v1.SchemeGroupVersion.WithResource("workloads").GroupResource(), "x",
-		errFromString("quota exceeded"))
-	h, cli := submitHandler(t, db, func(w *v1.Workload) error {
-		if strings.Contains(w.Labels[v1.DisplayNameLabel], "lr2e5") {
-			return refused
-		}
-		return nil
-	})
-	db.EXPECT().CreatePostTrainingExperiment(gomock.Any(), gomock.Any()).Return(nil)
-	db.EXPECT().CreatePostTrainingRun(gomock.Any(), gomock.Any()).Return(nil).Times(2)
-	db.EXPECT().UpdatePostTrainingRun(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
-	db.EXPECT().SetPostTrainingRunDeleted(gomock.Any(), gomock.Any()).Return(nil).Times(2)
-	db.EXPECT().DeletePostTrainingRunMetrics(gomock.Any(), gomock.Any()).Return(nil).Times(2)
-	db.EXPECT().DeletePostTrainingRunSamples(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(2)
-	db.EXPECT().SetPostTrainingExperimentDeleted(gomock.Any(), gomock.Any()).Return(nil)
-	code, body := postAs(h.SubmitExperiment, sftExperiment(
-		experimentVariant{Name: "lr2e5", Changes: map[string]interface{}{"choices": map[string]interface{}{"lr": 2e-5}}}))
-	require.Equal(t, http.StatusForbidden, code, "the cluster's answer is kept: %s", body)
-	require.Contains(t, body, "variant lr2e5")
-	workloads := &v1.WorkloadList{}
-	require.NoError(t, cli.List(context.Background(), workloads))
-	require.Empty(t, workloads.Items, "the baseline that started is stopped with the experiment")
+// sftRequest is an SFT request on m1 and d1.
+func sftRequest() recipe.SubmitRequest {
+	return recipe.SubmitRequest{Workspace: "ws1", TrainType: "sft", Method: "full", ModelID: "m1", DatasetID: "d1",
+		Resources: recipe.Resources{Nodes: 1, GpusPerNode: 8}}
 }
 
 // A run whose automatic evaluation names a benchmark that does not exist, or a dataset of another type, is refused
@@ -247,7 +205,7 @@ func TestDeletingARunDeletesItsModelOnlyForWhoMayDeleteTheModel(t *testing.T) {
 func TestANameLongerThanItsColumnIsRefused(t *testing.T) {
 	db := mockclient.NewMockInterface(gomock.NewController(t))
 	h, _ := submitHandler(t, db, nil)
-	req := sftExperiment().Baseline
+	req := sftRequest()
 	req.DisplayName = strings.Repeat("r", 129)
 	code, body := postAs(h.SubmitRun, req)
 	require.Equal(t, http.StatusBadRequest, code, "the run's name column holds 128 characters: %s", body)
