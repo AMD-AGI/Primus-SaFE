@@ -486,7 +486,8 @@
         Delete run <b>{{ deleteDialog.run.displayName }}</b
         >?
         <span v-if="isActive(deleteDialog.run)">It is stopped first.</span>
-        Its run directory, checkpoints and curves are removed.
+        Its record, curves and samples are removed. The run directory, with its checkpoints, stays
+        on the workspace storage.
       </div>
       <el-checkbox
         v-if="deleteDialog.run?.outputModelId"

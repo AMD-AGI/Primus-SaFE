@@ -588,7 +588,8 @@
         Delete run <b>{{ run.displayName }}</b
         >?
         <span v-if="isActive">It is stopped first.</span>
-        Its run directory, checkpoints and curves are removed.
+        Its record, curves and samples are removed. The run directory, with its checkpoints, stays
+        on the workspace storage.
       </div>
       <el-checkbox v-if="run?.outputModelId" v-model="deleteDialog.deleteModel" class="mt-3">
         Also delete the output model {{ run.outputModelId }} and its weights
