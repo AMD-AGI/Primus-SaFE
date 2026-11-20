@@ -23,7 +23,7 @@ import (
 
 // logoutThroughJar posts to the apiserver's logout from a browser cookie jar that holds the identity
 // provider's session (the cookies its login sets: path /, host-only), and returns the Token the jar
-// would send to the provider's logout that follows.
+// would send to a request that follows.
 func logoutThroughJar(t *testing.T) string {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
@@ -56,12 +56,13 @@ func logoutThroughJar(t *testing.T) string {
 	return ""
 }
 
-// In external mode the session cookie is the identity provider's, so the apiserver's logout leaves it to
-// the provider's logout, which needs it to find and revoke the session.
-func TestLogoutKeepsTheProviderSessionInExternalMode(t *testing.T) {
+// In external mode the session cookie is the identity provider's. The console ends it at the provider
+// first; the apiserver's logout still clears it, so that the browser is signed out even when the
+// provider's logout failed and the session is still valid.
+func TestLogoutClearsTheProviderSessionCookieInExternalMode(t *testing.T) {
 	t.Cleanup(func() { viper.Set("auth.mode", nil) })
 	viper.Set("auth.mode", "external")
-	assert.Equal(t, "provider-session", logoutThroughJar(t))
+	assert.Equal(t, "", logoutThroughJar(t))
 }
 
 // With local accounts the cookie is the apiserver's own, and its logout clears it.

@@ -323,20 +323,39 @@ describe('logout', () => {
     expect(revoked).toEqual(['session-1'])
   })
 
-  it('still signs out here when the provider cannot be reached', async () => {
+  it('signs this browser out at the apiserver when the provider cannot be reached', async () => {
     endProviderSession.mockRejectedValue(new Error('503'))
     const store = signedInWith({ authMode: 'external', logoutUrl: '/identity/api/v1/logout' })
     await expect(store.logout()).resolves.toBeUndefined()
+    // The session was not revoked, so only the apiserver clearing the cookie signs this browser out.
     expect(calls).toEqual(['apiserver'])
+    expect(cookie).toBe('')
     expect(store.session).toBe('anonymous')
   })
 
-  it('still signs out here when the apiserver fails', async () => {
+  it('fails, instead of reporting a sign-out, when neither the provider nor the apiserver signed out', async () => {
+    endProviderSession.mockRejectedValue(new Error('503'))
+    logout.mockRejectedValue(new Error('500'))
+    const store = signedInWith({ authMode: 'external', logoutUrl: '/identity/api/v1/logout' })
+    await expect(store.logout()).rejects.toThrow('500')
+    expect(cookie).toBe('session-1')
+  })
+
+  it('still signs out when the apiserver fails after the provider ended the session', async () => {
     logout.mockRejectedValue(new Error('500'))
     const store = signedInWith({ authMode: 'external', logoutUrl: '/identity/api/v1/logout' })
     await expect(store.logout()).resolves.toBeUndefined()
     expect(revoked).toEqual(['session-1'])
+    expect(cookie).toBe('')
     expect(store.session).toBe('anonymous')
+  })
+
+  it('fails when /envs and the apiserver both fail, so the session is never reported as ended', async () => {
+    getEnvs.mockRejectedValue(new Error('503'))
+    logout.mockRejectedValue(new Error('500'))
+    const store = signedInWith(null)
+    await expect(store.logout()).rejects.toThrow('500')
+    expect(cookie).toBe('session-1')
   })
 
   it.each([
