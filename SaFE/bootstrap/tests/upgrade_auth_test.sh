@@ -663,6 +663,32 @@ expect "workload_low_utilization_enable=yes: names the key" grep -q 'workload_lo
 FAKE_GET_FAIL=1 run_upgrade '{"workload":{"low_utilization_enable":true}}' "external_user_dir_mounts=false"
 expect "live low_utilization cannot be read: refused" refused
 
+# robust.management_cluster: .env wins, otherwise the running release keeps its value, so an upgrade
+# never silently leaves the management cluster without its Robust client on a multi-cluster install.
+mgmt_cluster() { grep -qE "^ +management_cluster: \"$1\"\$" "$OUT/rendered.yaml"; }
+no_mgmt_cluster() { ! grep -q 'management_cluster:' "$OUT/rendered.yaml"; }
+run_upgrade "" ""
+expect "management cluster, fresh install: applied" applied
+expect "management cluster, fresh install: not set" no_mgmt_cluster
+for jqmode in jq nojq; do
+  rp=""; [[ "$jqmode" == "nojq" ]] && rp="$NOJQ"
+  RUN_PATH="${rp:-}" run_upgrade '{"robust":{"management_cluster":"tw-project2"}}' ""
+  expect "$jqmode, live management cluster, no .env key: applied" applied
+  expect "$jqmode, live management cluster, no .env key: kept" mgmt_cluster tw-project2
+  RUN_PATH="${rp:-}" run_upgrade '{"workload":{"ttl_second":60}}' ""
+  expect "$jqmode, live release without the value: not set" no_mgmt_cluster
+done
+run_upgrade '{"robust":{"management_cluster":"tw-project2"}}' 'robust_management_cluster=crusoe'
+expect "live management cluster, .env robust_management_cluster: applied" applied
+expect "live management cluster, .env robust_management_cluster: wins" mgmt_cluster crusoe
+run_upgrade "" 'robust_management_cluster="Bad Name"'
+expect "robust_management_cluster='Bad Name': refused" refused
+expect "robust_management_cluster='Bad Name': names the key" grep -q 'robust_management_cluster in .env is' "$OUT/log"
+FAKE_GET_FAIL=1 run_upgrade '{"robust":{"management_cluster":"tw-project2"}}' "external_user_dir_mounts=false
+workload_low_utilization_enable=false"
+expect "live management cluster cannot be read: refused" refused
+expect "live management cluster cannot be read: says so" grep -q 'robust.management_cluster is unknown' "$OUT/log"
+
 # console.return_prefixes: .env wins (a JSON array of path prefixes); otherwise the running release keeps
 # its list, so an upgrade never silently sends an app added to it back to the console's 404 page.
 CRP='console_return_prefixes='"'"'["/dispatron","/autopilot","/binding","/blog-drafts","/claw-api"]'"'"
