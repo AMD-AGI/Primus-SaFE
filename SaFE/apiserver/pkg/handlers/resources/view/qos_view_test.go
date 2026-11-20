@@ -13,22 +13,22 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 )
 
-func TestValidateUserQosAcceptsClustersOnly(t *testing.T) {
-	cluster := map[string]v1.UserQosScope{"c1": {MaxResources: &v1.ResourceCap{GPU: "8"}}}
-	if err := ValidateUserQos(&v1.UserQos{Clusters: cluster}); err != nil {
-		t.Fatalf("per-cluster values are accepted: %v", err)
+func TestValidateUserQosAcceptsWorkspacesOnly(t *testing.T) {
+	workspaces := map[string]v1.UserQosScope{"ws1": {MaxResources: &v1.ResourceCap{GPU: "8"}}}
+	if err := ValidateUserQos(&v1.UserQos{Workspaces: workspaces}); err != nil {
+		t.Fatalf("per-workspace values are accepted: %v", err)
 	}
-	if err := ValidateUserQos(&v1.UserQos{MaxResources: &v1.ResourceCap{GPU: "8"}, Clusters: cluster}); err == nil {
+	if err := ValidateUserQos(&v1.UserQos{MaxResources: &v1.ResourceCap{GPU: "8"}, Workspaces: workspaces}); err == nil {
 		t.Fatal("top-level maxResources must be rejected")
 	}
 	if err := ValidateUserQos(&v1.UserQos{MaxRuntime: map[string]int{string(v1.TrainScope): 3600}}); err == nil {
 		t.Fatal("top-level maxRuntime must be rejected")
 	}
-	if err := ValidateUserQos(&v1.UserQos{Clusters: map[string]v1.UserQosScope{"": {}}}); err == nil {
-		t.Fatal("an empty cluster id must be rejected")
+	if err := ValidateUserQos(&v1.UserQos{Workspaces: map[string]v1.UserQosScope{"": {}}}); err == nil {
+		t.Fatal("an empty workspace id must be rejected")
 	}
-	if err := ValidateUserQos(&v1.UserQos{Clusters: map[string]v1.UserQosScope{
-		"c1": {MaxRuntime: map[string]int{"Nope": 1}},
+	if err := ValidateUserQos(&v1.UserQos{Workspaces: map[string]v1.UserQosScope{
+		"ws1": {MaxRuntime: map[string]int{"Nope": 1}},
 	}}); err == nil {
 		t.Fatal("an unknown scope must be rejected")
 	}

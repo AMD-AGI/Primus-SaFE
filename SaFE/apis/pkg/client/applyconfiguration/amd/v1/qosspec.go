@@ -9,7 +9,7 @@ package v1
 // QosSpecApplyConfiguration represents a declarative configuration of the QosSpec type for use
 // with apply.
 //
-// QosSpec is the ceiling for one cluster. The object name is the cluster id.
+// QosSpec is the ceiling for one workspace. The object name is the workspace id.
 type QosSpecApplyConfiguration struct {
 	MaxResources *ResourceCapApplyConfiguration `json:"maxResources,omitempty"`
 	// MaxRuntime is the timeout ceiling in seconds, keyed by workspace scope

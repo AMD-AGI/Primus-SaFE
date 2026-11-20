@@ -1173,7 +1173,7 @@ func (m *WorkloadMutator) mutateStickNodes(ctx context.Context, workload *v1.Wor
 	}
 }
 
-// mutateTimeout fills an empty timeout from the qos ceiling for this user, cluster and workspace scope.
+// mutateTimeout fills an empty timeout from the qos ceiling for this user, workspace and scope.
 // The workload kind is mapped to a scope first. A shorter explicit timeout is kept.
 // A longer one is left for the validator to reject.
 func (m *WorkloadMutator) mutateTimeout(ctx context.Context, workload *v1.Workload, workspace *v1.Workspace) error {
@@ -1190,11 +1190,11 @@ func (m *WorkloadMutator) mutateTimeout(ctx context.Context, workload *v1.Worklo
 // runtimeCeiling is the qos timeout, in seconds, for this workload's workspace scope.
 // Zero means no timeout.
 func runtimeCeiling(ctx context.Context, c client.Reader, workload *v1.Workload, workspace *v1.Workspace) (int, error) {
-	clusterID := v1.GetClusterId(workload)
-	if clusterID == "" && workspace != nil {
-		clusterID = workspace.Spec.Cluster
+	workspaceID := commonqos.WorkspaceID(workload)
+	if workspaceID == "" && workspace != nil {
+		workspaceID = workspace.Name
 	}
-	limits, err := commonqos.Ceiling(ctx, c, v1.GetUserId(workload), clusterID, string(commonworkload.GetScope(workload)))
+	limits, err := commonqos.Ceiling(ctx, c, v1.GetUserId(workload), workspaceID, string(commonworkload.GetScope(workload)))
 	if err != nil {
 		return 0, err
 	}
@@ -1227,19 +1227,19 @@ func (v *WorkloadValidator) validateScaleQuota(ctx context.Context, newWorkload,
 	v.scaleMu.Lock()
 	defer v.scaleMu.Unlock()
 	userID := v1.GetUserId(newWorkload)
-	clusterID := v1.GetClusterId(newWorkload)
-	limits, err := commonqos.Ceiling(ctx, v.Client, userID, clusterID, string(commonworkload.GetScope(newWorkload)))
+	workspaceID := commonqos.WorkspaceID(newWorkload)
+	limits, err := commonqos.Ceiling(ctx, v.Client, userID, workspaceID, string(commonworkload.GetScope(newWorkload)))
 	if err != nil {
 		return err
 	}
 	if limits.CPU == "" && limits.Memory == "" && limits.GPU == "" {
 		return nil
 	}
-	used, err := v.scaleUsage(ctx, userID, clusterID, newWorkload.Name, oldWorkload)
+	used, err := v.scaleUsage(ctx, userID, workspaceID, newWorkload.Name, oldWorkload)
 	if err != nil {
 		return err
 	}
-	reason, err := commonqos.Exceeded(userID, clusterID, used, newTotal, limits, cpu, memory, gpu)
+	reason, err := commonqos.Exceeded(userID, workspaceID, used, newTotal, limits, cpu, memory, gpu)
 	if err != nil {
 		return err
 	}
@@ -1264,24 +1264,24 @@ type scaleReservation struct {
 	resources []v1.WorkloadResource
 }
 
-// scaleUsage sums this user's scheduled work on the cluster, plus queued work admitted
+// scaleUsage sums this user's work in the workspace, plus queued work admitted
 // ahead of candidate. A reserved new size stands in until the cache shows it.
 // skip is compared separately. Caller holds scaleMu.
-func (v *WorkloadValidator) scaleUsage(ctx context.Context, userID, clusterID, skip string, candidate *v1.Workload) (corev1.ResourceList, error) {
+func (v *WorkloadValidator) scaleUsage(ctx context.Context, userID, workspaceID, skip string, candidate *v1.Workload) (corev1.ResourceList, error) {
 	used := corev1.ResourceList{}
-	if userID == "" || clusterID == "" {
+	if userID == "" || workspaceID == "" {
 		return used, nil
 	}
 	held := &v1.WorkloadList{}
 	if err := v.List(ctx, held, client.MatchingLabels{
-		v1.ClusterIdLabel: clusterID,
-		v1.UserIdLabel:    userID,
+		v1.WorkspaceIdLabel: workspaceID,
+		v1.UserIdLabel:      userID,
 	}); err != nil {
 		return nil, err
 	}
-	v.dropScaleReservations(userID, clusterID, held.Items)
+	v.dropScaleReservations(userID, workspaceID, held.Items)
 	covered := map[string]bool{}
-	prefix := scaleReservationPrefix(userID, clusterID)
+	prefix := scaleReservationPrefix(userID, workspaceID)
 	for key, reserved := range v.scaleReserved {
 		if !strings.HasPrefix(key, prefix) {
 			continue
@@ -1316,12 +1316,12 @@ func (v *WorkloadValidator) scaleUsage(ctx context.Context, userID, clusterID, s
 
 // dropScaleReservations removes reservations the cache already shows, and ones older than the TTL.
 // Caller holds scaleMu.
-func (v *WorkloadValidator) dropScaleReservations(userID, clusterID string, items []v1.Workload) {
+func (v *WorkloadValidator) dropScaleReservations(userID, workspaceID string, items []v1.Workload) {
 	byName := make(map[string]*v1.Workload, len(items))
 	for i := range items {
 		byName[items[i].Name] = &items[i]
 	}
-	prefix := scaleReservationPrefix(userID, clusterID)
+	prefix := scaleReservationPrefix(userID, workspaceID)
 	for key, reserved := range v.scaleReserved {
 		if !strings.HasPrefix(key, prefix) {
 			continue
@@ -1342,18 +1342,18 @@ func (v *WorkloadValidator) rememberScale(workload *v1.Workload) {
 	if v.scaleReserved == nil {
 		v.scaleReserved = map[string]scaleReservation{}
 	}
-	v.scaleReserved[scaleReservationKey(v1.GetUserId(workload), v1.GetClusterId(workload), workload.Name)] = scaleReservation{
+	v.scaleReserved[scaleReservationKey(v1.GetUserId(workload), commonqos.WorkspaceID(workload), workload.Name)] = scaleReservation{
 		at:        time.Now(),
 		resources: workload.DeepCopy().Spec.Resources,
 	}
 }
 
-func scaleReservationPrefix(userID, clusterID string) string {
-	return userID + "|" + clusterID + "|"
+func scaleReservationPrefix(userID, workspaceID string) string {
+	return userID + "|" + workspaceID + "|"
 }
 
-func scaleReservationKey(userID, clusterID, name string) string {
-	return scaleReservationPrefix(userID, clusterID) + name
+func scaleReservationKey(userID, workspaceID, name string) string {
+	return scaleReservationPrefix(userID, workspaceID) + name
 }
 
 // validateTimeout rejects a timeout above the qos ceiling for the workload's workspace scope.
@@ -1381,7 +1381,7 @@ type WorkloadValidator struct {
 	secretReader client.Reader
 	decoder      admission.Decoder
 	// scaleMu guards scaleReserved. A scale is checked and recorded together, so two
-	// updates for one user on one cluster cannot both pass on the old usage.
+	// updates for one user in one workspace cannot both pass on the old usage.
 	scaleMu       sync.Mutex
 	scaleReserved map[string]scaleReservation
 }
@@ -1452,14 +1452,14 @@ func (v *WorkloadValidator) validateCreateQuota(ctx context.Context, workload *v
 	}
 	workspace, _ := getWorkspace(ctx, v.Client, workload.Spec.Workspace)
 	userID := v1.GetUserId(workload)
-	clusterID := v1.GetClusterId(workload)
-	if clusterID == "" && workspace != nil {
-		clusterID = workspace.Spec.Cluster
+	workspaceID := commonqos.WorkspaceID(workload)
+	if workspaceID == "" && workspace != nil {
+		workspaceID = workspace.Name
 	}
-	if userID == "" || clusterID == "" {
+	if userID == "" || workspaceID == "" {
 		return nil
 	}
-	limits, err := commonqos.Ceiling(ctx, v.Client, userID, clusterID, string(commonworkload.GetScope(workload)))
+	limits, err := commonqos.Ceiling(ctx, v.Client, userID, workspaceID, string(commonworkload.GetScope(workload)))
 	if err != nil {
 		return err
 	}
@@ -1470,7 +1470,7 @@ func (v *WorkloadValidator) validateCreateQuota(ctx context.Context, workload *v
 	if err != nil {
 		return err
 	}
-	reason, err := commonqos.QuotaReason(userID, clusterID, corev1.ResourceList{}, request, limits)
+	reason, err := commonqos.QuotaReason(userID, workspaceID, corev1.ResourceList{}, request, limits)
 	if err != nil {
 		return err
 	}

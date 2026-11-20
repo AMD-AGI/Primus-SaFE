@@ -24,8 +24,8 @@ func TestResolveFallsThroughEachField(t *testing.T) {
 	user := &v1.User{Spec: v1.UserSpec{Qos: &v1.UserQos{
 		MaxResources: &v1.ResourceCap{CPU: "32"},
 		MaxRuntime:   map[string]int{string(v1.AuthoringScope): 86400},
-		Clusters: map[string]v1.UserQosScope{
-			"c1": {
+		Workspaces: map[string]v1.UserQosScope{
+			"ws1": {
 				MaxResources: &v1.ResourceCap{GPU: "2", CPU: "32"},
 				MaxRuntime:   map[string]int{string(v1.AuthoringScope): 3600},
 			},
@@ -36,15 +36,15 @@ func TestResolveFallsThroughEachField(t *testing.T) {
 		MaxRuntime:   map[string]int{string(v1.TrainScope): 7200},
 	}}
 
-	got := Resolve(user, cluster, "c1", string(v1.AuthoringScope))
+	got := Resolve(user, cluster, "ws1", string(v1.AuthoringScope))
 	if got.GPU != "2" || got.CPU != "32" || got.Memory != "128Gi" || got.RuntimeSeconds != 3600 {
-		t.Fatalf("c1 authoring: %+v", got)
+		t.Fatalf("ws1 authoring: %+v", got)
 	}
-	got = Resolve(user, cluster, "c1", string(v1.TrainScope))
+	got = Resolve(user, cluster, "ws1", string(v1.TrainScope))
 	if got.RuntimeSeconds != 7200 {
-		t.Fatalf("c1 train falls back to the cluster: %+v", got)
+		t.Fatalf("ws1 train falls back to the workspace qos: %+v", got)
 	}
-	got = Resolve(user, nil, "c2", string(v1.AuthoringScope))
+	got = Resolve(user, nil, "ws2", string(v1.AuthoringScope))
 	if got != (Limits{}) {
 		t.Fatalf("a user-wide value does not apply: %+v", got)
 	}
@@ -54,31 +54,35 @@ func TestResolveFallsThroughEachField(t *testing.T) {
 	}
 }
 
-func TestCeilingUsesOnlyTheClusterQos(t *testing.T) {
+func TestCeilingUsesOnlyTheWorkspaceQos(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := v1.AddToScheme(scheme); err != nil {
 		t.Fatal(err)
 	}
-	stale := &v1.Qos{
+	namedDefault := &v1.Qos{
 		ObjectMeta: metav1.ObjectMeta{Name: "default"},
 		Spec: v1.QosSpec{
 			MaxResources: &v1.ResourceCap{GPU: "1"},
 			MaxRuntime:   map[string]int{string(v1.TrainScope): 600},
 		},
 	}
-	cluster := &v1.Qos{
-		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+	workspace := &v1.Qos{
+		ObjectMeta: metav1.ObjectMeta{Name: "ws1"},
 		Spec:       v1.QosSpec{MaxResources: &v1.ResourceCap{GPU: "8"}},
 	}
-	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(stale, cluster).Build()
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(namedDefault, workspace).Build()
 
-	got, err := Ceiling(context.Background(), c, "", "c2", string(v1.TrainScope))
+	got, err := Ceiling(context.Background(), c, "", "ws2", string(v1.TrainScope))
 	if err != nil || got != (Limits{}) {
-		t.Fatalf("a cluster without qos has no ceiling: %+v %v", got, err)
+		t.Fatalf("a workspace without qos has no ceiling: %+v %v", got, err)
 	}
-	got, err = Ceiling(context.Background(), c, "", "c1", string(v1.TrainScope))
+	got, err = Ceiling(context.Background(), c, "", "ws1", string(v1.TrainScope))
 	if err != nil || got != (Limits{GPU: "8"}) {
-		t.Fatalf("c1 uses its own qos only: %+v %v", got, err)
+		t.Fatalf("ws1 uses its own qos only: %+v %v", got, err)
+	}
+	got, err = Ceiling(context.Background(), c, "", "default", string(v1.TrainScope))
+	if err != nil || got != (Limits{GPU: "1", RuntimeSeconds: 600}) {
+		t.Fatalf("a qos named default applies only to that workspace: %+v %v", got, err)
 	}
 }
 
@@ -134,17 +138,17 @@ func TestCeilingIgnoresAMissingUser(t *testing.T) {
 	if err := v1.AddToScheme(scheme); err != nil {
 		t.Fatal(err)
 	}
-	cluster := &v1.Qos{
-		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+	workspace := &v1.Qos{
+		ObjectMeta: metav1.ObjectMeta{Name: "ws1"},
 		Spec:       v1.QosSpec{MaxResources: &v1.ResourceCap{CPU: "4"}},
 	}
-	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cluster).Build()
-	got, err := Ceiling(context.Background(), c, "missing-user", "c1", string(v1.TrainScope))
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(workspace).Build()
+	got, err := Ceiling(context.Background(), c, "missing-user", "ws1", string(v1.TrainScope))
 	if err != nil || got.CPU != "4" {
-		t.Fatalf("a missing user leaves the cluster ceiling: %+v %v", got, err)
+		t.Fatalf("a missing user leaves the workspace ceiling: %+v %v", got, err)
 	}
 	got, err = Ceiling(context.Background(), c, "", "", string(v1.TrainScope))
 	if err != nil || got != (Limits{}) {
-		t.Fatalf("no cluster has no ceiling: %+v %v", got, err)
+		t.Fatalf("no workspace has no ceiling: %+v %v", got, err)
 	}
 }

@@ -11,9 +11,6 @@ import (
 
 const (
 	QosKind = "Qos"
-	// QosDefaultName is a reserved name. It does not apply to any cluster.
-	// A Qos object uses the cluster id as its name.
-	QosDefaultName = "default"
 )
 
 // ResourceCap is a GPU, CPU and memory ceiling. An empty field is unset.
@@ -23,7 +20,7 @@ type ResourceCap struct {
 	GPU    string `json:"gpu,omitempty"`
 }
 
-// UserQosScope is one user's ceiling on one cluster.
+// UserQosScope is one user's ceiling in one workspace.
 type UserQosScope struct {
 	MaxResources *ResourceCap `json:"maxResources,omitempty"`
 	// MaxRuntime is the timeout ceiling in seconds, keyed by workspace scope
@@ -31,17 +28,17 @@ type UserQosScope struct {
 	MaxRuntime map[string]int `json:"maxRuntime,omitempty"`
 }
 
-// UserQos is stored on the User. Clusters holds the ceilings keyed by cluster id.
+// UserQos is stored on the User. Workspaces holds the ceilings keyed by workspace id.
 // The top-level MaxResources and MaxRuntime are not used.
 type UserQos struct {
 	MaxResources *ResourceCap `json:"maxResources,omitempty"`
 	// MaxRuntime is the timeout ceiling in seconds, keyed by workspace scope
 	// (Train, Infer, Authoring, CICD, Ray, Sandbox). A missing or non-positive entry is unset.
 	MaxRuntime map[string]int          `json:"maxRuntime,omitempty"`
-	Clusters   map[string]UserQosScope `json:"clusters,omitempty"`
+	Workspaces map[string]UserQosScope `json:"workspaces,omitempty"`
 }
 
-// QosSpec is the ceiling for one cluster. The object name is the cluster id.
+// QosSpec is the ceiling for one workspace. The object name is the workspace id.
 type QosSpec struct {
 	MaxResources *ResourceCap `json:"maxResources,omitempty"`
 	// MaxRuntime is the timeout ceiling in seconds, keyed by workspace scope
@@ -57,7 +54,7 @@ type QosSpec struct {
 // +kubebuilder:resource:scope=Cluster,path=qos,singular=qos
 // +kubebuilder:rbac:groups=amd.com,resources=qos,verbs=get;list;watch;create;update;patch;delete
 
-// Qos is the ceiling for one cluster. It does not carry per-user values.
+// Qos is the ceiling for one workspace. It does not carry per-user values.
 type Qos struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -126,12 +123,12 @@ func (in *UserQos) DeepCopyInto(out *UserQos) {
 			out.MaxRuntime[k] = v
 		}
 	}
-	if in.Clusters != nil {
-		out.Clusters = make(map[string]UserQosScope, len(in.Clusters))
-		for k, v := range in.Clusters {
+	if in.Workspaces != nil {
+		out.Workspaces = make(map[string]UserQosScope, len(in.Workspaces))
+		for k, v := range in.Workspaces {
 			dst := UserQosScope{}
 			v.DeepCopyInto(&dst)
-			out.Clusters[k] = dst
+			out.Workspaces[k] = dst
 		}
 	}
 }

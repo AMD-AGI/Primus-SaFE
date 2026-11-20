@@ -67,8 +67,8 @@ func TestQosCreateUpdateAndGet(t *testing.T) {
 	rsp = qosRequest(t, h, user.Name, http.MethodPost, "c1", body)
 	assert.Equal(t, http.StatusConflict, rsp.Code, rsp.Body.String())
 
-	rsp = qosRequest(t, h, user.Name, http.MethodPost, v1.QosDefaultName, body)
-	assert.NotEqual(t, http.StatusOK, rsp.Code, rsp.Body.String())
+	rsp = qosRequest(t, h, user.Name, http.MethodPost, "default", body)
+	assert.Equal(t, http.StatusOK, rsp.Code, rsp.Body.String())
 
 	rsp = qosRequest(t, h, user.Name, http.MethodPut, "missing", body)
 	assert.NotEqual(t, http.StatusOK, rsp.Code, rsp.Body.String())
@@ -108,33 +108,38 @@ func TestQosUpdateClearsEveryTimeout(t *testing.T) {
 	assert.Equal(t, "8", updated.Spec.MaxResources.GPU)
 }
 
-func TestQosListSkipsDefaultAndDeleteRemovesOne(t *testing.T) {
+func TestQosListAndDeleteRemovesOne(t *testing.T) {
 	h, user := newAdminHandlerWithObjects(
-		&v1.Qos{ObjectMeta: metav1.ObjectMeta{Name: v1.QosDefaultName}},
-		&v1.Qos{ObjectMeta: metav1.ObjectMeta{Name: "c2"}, Spec: v1.QosSpec{MaxResources: &v1.ResourceCap{GPU: "2"}}},
-		&v1.Qos{ObjectMeta: metav1.ObjectMeta{Name: "c1"}, Spec: v1.QosSpec{MaxResources: &v1.ResourceCap{GPU: "1"}}},
+		&v1.Qos{ObjectMeta: metav1.ObjectMeta{Name: "default"}},
+		&v1.Qos{ObjectMeta: metav1.ObjectMeta{Name: "ws2"}, Spec: v1.QosSpec{MaxResources: &v1.ResourceCap{GPU: "2"}}},
+		&v1.Qos{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.QosSpec{MaxResources: &v1.ResourceCap{GPU: "1"}}},
 	)
 	rsp := qosCall(t, h, user.Name, "ignored", http.MethodGet, nil, h.ListQos)
 	assert.Equal(t, http.StatusOK, rsp.Code, rsp.Body.String())
 	var listed view.ListQosResponse
 	assert.NoError(t, json.Unmarshal(rsp.Body.Bytes(), &listed))
-	if assert.Len(t, listed.Items, 2) {
-		assert.Equal(t, "c1", listed.Items[0].Name)
-		assert.Equal(t, "c2", listed.Items[1].Name)
+	if assert.Len(t, listed.Items, 3) {
+		assert.Equal(t, "default", listed.Items[0].Name)
+		assert.Equal(t, "ws1", listed.Items[1].Name)
+		assert.Equal(t, "ws2", listed.Items[2].Name)
 	}
 
-	rsp = qosCall(t, h, user.Name, "c1", http.MethodDelete, nil, h.DeleteQos)
+	rsp = qosCall(t, h, user.Name, "ws1", http.MethodDelete, nil, h.DeleteQos)
 	assert.Equal(t, http.StatusOK, rsp.Code, rsp.Body.String())
-	assert.Error(t, h.Get(t.Context(), client.ObjectKey{Name: "c1"}, &v1.Qos{}))
+	assert.Error(t, h.Get(t.Context(), client.ObjectKey{Name: "ws1"}, &v1.Qos{}))
+
+	rsp = qosCall(t, h, user.Name, "default", http.MethodDelete, nil, h.DeleteQos)
+	assert.Equal(t, http.StatusOK, rsp.Code, rsp.Body.String())
+	assert.Error(t, h.Get(t.Context(), client.ObjectKey{Name: "default"}, &v1.Qos{}))
 
 	rsp = qosCall(t, h, user.Name, "missing", http.MethodDelete, nil, h.DeleteQos)
 	assert.NotEqual(t, http.StatusOK, rsp.Code, rsp.Body.String())
 	rsp = qosCall(t, h, "nobody", "", http.MethodGet, nil, h.ListQos)
 	assert.NotEqual(t, http.StatusOK, rsp.Code, rsp.Body.String())
-	rsp = qosCall(t, h, "nobody", "c2", http.MethodGet, nil, h.GetQos)
+	rsp = qosCall(t, h, "nobody", "ws2", http.MethodGet, nil, h.GetQos)
 	assert.NotEqual(t, http.StatusOK, rsp.Code, rsp.Body.String())
-	rsp = qosCall(t, h, user.Name, v1.QosDefaultName, http.MethodGet, nil, h.GetQos)
-	assert.NotEqual(t, http.StatusOK, rsp.Code, rsp.Body.String())
+	rsp = qosCall(t, h, user.Name, "ws2", http.MethodGet, nil, h.GetQos)
+	assert.Equal(t, http.StatusOK, rsp.Code, rsp.Body.String())
 	rsp = qosCall(t, h, user.Name, "absent", http.MethodGet, nil, h.GetQos)
 	assert.NotEqual(t, http.StatusOK, rsp.Code, rsp.Body.String())
 }
@@ -181,7 +186,7 @@ func qosCall(t *testing.T, h *Handler, user, name, method string, body any, fn f
 func TestWorkloadTimeoutAboveQosNeedsHighPriority(t *testing.T) {
 	f := newAccessFixture(t)
 	assert.NoError(t, f.cli.Create(t.Context(), &v1.Qos{
-		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+		ObjectMeta: metav1.ObjectMeta{Name: "ws1"},
 		Spec:       v1.QosSpec{MaxRuntime: map[string]int{string(v1.TrainScope): 7200}},
 	}))
 	update := func(userId string, timeout int) error {
@@ -189,7 +194,7 @@ func TestWorkloadTimeoutAboveQosNeedsHighPriority(t *testing.T) {
 		assert.NoError(t, f.cli.Get(t.Context(), client.ObjectKey{Name: userId}, requestUser))
 		workload := &v1.Workload{
 			ObjectMeta: metav1.ObjectMeta{Name: "w-" + userId, Labels: map[string]string{
-				v1.ClusterIdLabel: "c1", v1.UserIdLabel: userId,
+				v1.WorkspaceIdLabel: "ws1", v1.UserIdLabel: userId,
 			}},
 			Spec: v1.WorkloadSpec{
 				GroupVersionKind: v1.GroupVersionKind{Kind: common.PytorchJobKind},
@@ -206,12 +211,12 @@ func TestWorkloadTimeoutAboveQosNeedsHighPriority(t *testing.T) {
 	assert.Error(t, update(userDefault, 9000))
 }
 
-func TestUserQosPatchKeepsClustersOnly(t *testing.T) {
+func TestUserQosPatchKeepsWorkspacesOnly(t *testing.T) {
 	f := newAccessFixture(t)
 	target := &v1.User{}
 	assert.NoError(t, f.cli.Get(t.Context(), client.ObjectKey{Name: userDefault}, target))
-	qos := &v1.UserQos{Clusters: map[string]v1.UserQosScope{
-		"c1": {MaxResources: &v1.ResourceCap{GPU: "1"}},
+	qos := &v1.UserQos{Workspaces: map[string]v1.UserQosScope{
+		"ws1": {MaxResources: &v1.ResourceCap{GPU: "1"}},
 	}}
 	_, err := f.h.authUserUpdate(f.ctx(userDefault, userDefault, ""), target, &view.PatchUserRequest{Qos: qos})
 	assert.Error(t, err)
@@ -220,12 +225,12 @@ func TestUserQosPatchKeepsClustersOnly(t *testing.T) {
 	assert.True(t, changed)
 	applyUserPatch(target, &view.PatchUserRequest{Qos: qos})
 	if assert.NotNil(t, target.Spec.Qos) {
-		assert.Equal(t, "1", target.Spec.Qos.Clusters["c1"].MaxResources.GPU)
+		assert.Equal(t, "1", target.Spec.Qos.Workspaces["ws1"].MaxResources.GPU)
 	}
-	applyUserPatch(target, &view.PatchUserRequest{Qos: &v1.UserQos{Clusters: map[string]v1.UserQosScope{
-		"c1": {MaxResources: &v1.ResourceCap{Memory: "64", GPU: "1"}},
+	applyUserPatch(target, &view.PatchUserRequest{Qos: &v1.UserQos{Workspaces: map[string]v1.UserQosScope{
+		"ws1": {MaxResources: &v1.ResourceCap{Memory: "64", GPU: "1"}},
 	}}})
-	assert.Equal(t, "64Gi", target.Spec.Qos.Clusters["c1"].MaxResources.Memory)
+	assert.Equal(t, "64Gi", target.Spec.Qos.Workspaces["ws1"].MaxResources.Memory)
 	applyUserPatch(target, &view.PatchUserRequest{Qos: &v1.UserQos{}})
 	assert.Nil(t, target.Spec.Qos)
 	_, err = f.h.authUserUpdate(f.ctx(userAdmin, userDefault, ""), target, &view.PatchUserRequest{
