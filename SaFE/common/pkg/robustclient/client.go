@@ -215,6 +215,10 @@ func (cc *ClusterClient) CASecret() string { return cc.caSecret }
 // CAHash identifies the extra CA the client trusts, "" when none was loaded.
 func (cc *ClusterClient) CAHash() string { return cc.caHash }
 
+// Transport is the round tripper this cluster's requests use, which trusts
+// its extra CA; nil means http.DefaultTransport.
+func (cc *ClusterClient) Transport() http.RoundTripper { return cc.httpClient.Transport }
+
 // ServiceToken returns the service token this cluster's requests carry, for
 // callers that build their own requests to the same Robust API.
 func (cc *ClusterClient) ServiceToken() string {

@@ -6,6 +6,7 @@
 package lenscompat
 
 import (
+	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -197,22 +198,65 @@ func TestIsReadOnlyRoute(t *testing.T) {
 }
 
 func TestGetOrCreateProxy(t *testing.T) {
-	h := NewHandler(robustclient.NewClient(robustclient.DefaultClientConfig()))
+	rc := robustclient.NewClient(robustclient.DefaultClientConfig())
+	h := NewHandler(rc)
+	rc.RegisterCluster("c1", "http://example.com")
 
-	p1, err := h.getOrCreateProxy("http://example.com", "c1")
+	p1, err := h.getOrCreateProxy(rc.ForCluster("c1"), "c1")
 	if err != nil || p1 == nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	// Second call returns the cached instance.
-	p2, err := h.getOrCreateProxy("http://example.com", "c1")
+	p2, err := h.getOrCreateProxy(rc.ForCluster("c1"), "c1")
 	if err != nil || p2 != p1 {
 		t.Errorf("expected cached proxy instance")
 	}
 
+	// A new CA for the same URL gets a new proxy.
+	backend := httptest.NewTLSServer(http.NotFoundHandler())
+	defer backend.Close()
+	if err := rc.RegisterClusterWithCA("c1", "http://example.com", "", nil, "robust/ca", backendCA(backend)); err != nil {
+		t.Fatalf("register with CA: %v", err)
+	}
+	p3, err := h.getOrCreateProxy(rc.ForCluster("c1"), "c1")
+	if err != nil || p3 == p1 {
+		t.Errorf("expected a new proxy after the CA changed")
+	}
+
 	// Invalid URL -> parse error.
-	if _, err := h.getOrCreateProxy("http://[::1]:namedport", "c1"); err == nil {
+	rc.RegisterCluster("bad", "http://[::1]:namedport")
+	if _, err := h.getOrCreateProxy(rc.ForCluster("bad"), "bad"); err == nil {
 		t.Error("expected parse error for invalid URL")
 	}
+}
+
+// A Robust API whose certificate chains to the cluster's own CA is reached.
+func TestProxyTrustsClusterCA(t *testing.T) {
+	backend := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backend.Close()
+	rc := robustclient.NewClient(robustclient.ClientConfig{})
+	if err := rc.RegisterClusterWithCA("c1", backend.URL, "", nil, "robust/ca", backendCA(backend)); err != nil {
+		t.Fatalf("register with CA: %v", err)
+	}
+	engine := gin.New()
+	engine.Any(Prefix+"/*path", NewHandler(rc).proxy)
+	srv := httptest.NewServer(engine)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/lens/v1/nodes?cluster=c1")
+	if err != nil {
+		t.Fatalf("request error: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+}
+
+func backendCA(backend *httptest.Server) []byte {
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: backend.Certificate().Raw})
 }
 
 func TestSingleJoiningSlash(t *testing.T) {
