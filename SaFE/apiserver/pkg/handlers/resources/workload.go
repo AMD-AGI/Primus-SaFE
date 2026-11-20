@@ -616,7 +616,7 @@ func (h *Handler) authWorkloadUpdate(c *gin.Context, adminWorkload *v1.Workload,
 	if request.Timeout != nil && (adminWorkload.Spec.Timeout == nil || *request.Timeout != *adminWorkload.Spec.Timeout) {
 		scope := string(commonworkload.GetScope(adminWorkload))
 		limits, err := commonqos.Ceiling(c.Request.Context(), h.Client, v1.GetUserId(adminWorkload),
-			commonqos.WorkspaceID(adminWorkload), scope)
+			v1.GetClusterId(adminWorkload), scope)
 		if err != nil {
 			return err
 		}
