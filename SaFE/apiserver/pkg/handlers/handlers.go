@@ -172,6 +172,9 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 	// configured by mcp.base_path so AI clients can drive the apiserver.
 	routes.mcp = commonconfig.IsMCPEnable()
 
+	if routes.resources != nil && routes.llm != nil {
+		routes.resources.SetPendingReasonSummarizer(routes.llm)
+	}
 	registerRoutes(engine, routes)
 	return engine, nil
 }

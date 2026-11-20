@@ -229,6 +229,7 @@ func TestSecretFileGetters(t *testing.T) {
 	write("litellm_team_id", "team1")
 	write("shared_apim_key_hashes", " hash1, ,hash2 \n")
 	write("shared_apim_user", " svc-user\n")
+	write("summary_model", " summary-model\n")
 	write("claw_base_url", "http://claw")
 	write("claw_api_key", "clawkey")
 	write(RobustServiceTokenKey, " robust-token\n")
@@ -267,6 +268,7 @@ func TestSecretFileGetters(t *testing.T) {
 	testifyassert.Equal(t, "team1", GetLLMGatewayTeamID())
 	testifyassert.Equal(t, []string{"hash1", "hash2"}, GetLLMGatewaySharedApimKeyHashes())
 	testifyassert.Equal(t, "svc-user", GetLLMGatewaySharedApimUser())
+	testifyassert.Equal(t, "summary-model", GetLLMGatewaySummaryModel())
 	testifyassert.Equal(t, "clawkey", GetModelOptimizationClawAPIKey())
 	testifyassert.Equal(t, "robust-token", GetRobustServiceToken())
 
