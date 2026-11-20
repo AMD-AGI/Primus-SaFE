@@ -131,9 +131,10 @@ type lowUtilDecision struct {
 	observed float64
 	// The idle node in Min mode.
 	node string
-	// The rule the decision describes and its 1-based index in the policy.
-	rule  v1.LowUtilizationRule
-	index int
+	// The rule the decision describes.
+	rule v1.LowUtilizationRule
+	// Every idle rule, set on an idle workload decision.
+	idleRules []lowUtilDecision
 }
 
 func (r *LowUtilizationController) runOnce(ctx context.Context) {
@@ -288,28 +289,26 @@ func (r *LowUtilizationController) queryGPUWindows(ctx context.Context,
 }
 
 // decideLowUtilRules judges one workload against every rule of its policy: idle
-// when any rule is idle (the one with the lowest observed value, the first on a
-// tie), active when every rule is active, unknown otherwise. complete is false
-// when the window of a rule could not be queried.
+// when any rule is idle (described by the one with the lowest observed value,
+// the first on a tie), active when every rule is active, unknown otherwise.
+// complete is false when the window of a rule could not be queried.
 func decideLowUtilRules(c lowUtilCandidate,
 	results map[lowUtilQuery]map[string]*robustclient.WorkloadGPUWindow) (lowUtilDecision, bool) {
 	rules := c.policy.EffectiveRules()
-	var idle, active lowUtilDecision
-	idles, actives, complete := 0, 0, true
-	for i, rule := range rules {
+	var idle []lowUtilDecision
+	var active lowUtilDecision
+	actives, complete := 0, true
+	for _, rule := range rules {
 		byUID, ok := results[lowUtilQuery{cluster: c.cluster, window: rule.Window}]
 		if !ok {
 			complete = false
 			continue
 		}
 		d := decideLowUtil(c.policy.Mode, rule, byUID[string(c.workload.UID)])
-		d.rule, d.index = rule, i+1
+		d.rule = rule
 		switch d.state {
 		case lowUtilIdle:
-			if idles == 0 || d.observed < idle.observed {
-				idle = d
-			}
-			idles++
+			idle = append(idle, d)
 		case lowUtilActive:
 			if actives == 0 || d.observed < active.observed {
 				active = d
@@ -318,8 +317,15 @@ func decideLowUtilRules(c lowUtilCandidate,
 		}
 	}
 	switch {
-	case idles > 0:
-		return idle, complete
+	case len(idle) > 0:
+		lowest := idle[0]
+		for _, d := range idle[1:] {
+			if d.observed < lowest.observed {
+				lowest = d
+			}
+		}
+		lowest.idleRules = idle
+		return lowest, complete
 	case actives == len(rules):
 		return active, complete
 	default:
@@ -413,15 +419,29 @@ func (r *LowUtilizationController) apply(ctx context.Context,
 	// The annotation is written before the condition, so an episode marked
 	// without its Detected entry (a failed status patch) gets it on a later round.
 	episode, open := lowUtilEpisode(w)
-	if firstDetection || !open {
+	newEpisode := firstDetection || !open
+	if newEpisode {
 		episode++
-		message := description + "; dry run, the workload will not be stopped"
-		if !c.policy.DryRun {
-			message = fmt.Sprintf("%s; the workload will be stopped at %s if it stays idle",
-				description, detectedAt.Add(notifyBefore).Format(time.RFC3339))
+	}
+	outcome := "dry run, the workload will not be stopped"
+	if !c.policy.DryRun {
+		outcome = fmt.Sprintf("the workload will be stopped at %s if it stays idle",
+			detectedAt.Add(notifyBefore).Format(time.RFC3339))
+	}
+	if len(c.policy.Rules) == 0 {
+		if newEpisode {
+			if err = r.addLowUtilCondition(ctx, w, lowUtilReasonDetected, episode,
+				description+"; "+outcome); err != nil {
+				return err
+			}
 		}
-		if err = r.addLowUtilCondition(ctx, w, lowUtilReasonDetected, episode, message); err != nil {
-			return err
+	} else {
+		// Each rule gets its own entry the first time it is idle in the episode.
+		for _, idle := range d.idleRules {
+			if err = r.addCondition(ctx, w, jobutils.NewCondition(string(v1.AdminLowUtilization),
+				describeLowUtil(c.policy, idle)+"; "+outcome, lowUtilRuleReason(episode, idle.rule))); err != nil {
+				return err
+			}
 		}
 	}
 	if now.Before(detectedAt.Add(notifyBefore)) {
@@ -448,8 +468,8 @@ func describeLowUtil(policy *v1.LowUtilizationPolicy, d lowUtilDecision) string 
 	msg := fmt.Sprintf("low GPU utilization: mode %s, threshold %d%%, window %s, observed max %.1f%%",
 		policy.Mode, d.rule.Threshold, d.rule.Window, d.observed)
 	if len(policy.Rules) > 0 {
-		msg = fmt.Sprintf("low GPU utilization: mode %s, rule %d: threshold %d%%, window %s, observed max %.1f%%",
-			policy.Mode, d.index, d.rule.Threshold, d.rule.Window, d.observed)
+		msg = fmt.Sprintf("low GPU utilization below %d%% for %s: mode %s, observed max %.1f%%",
+			d.rule.Threshold, d.rule.Window, policy.Mode, d.observed)
 	}
 	if d.node != "" {
 		msg += " on node " + d.node
@@ -460,7 +480,7 @@ func describeLowUtil(policy *v1.LowUtilizationPolicy, d lowUtilDecision) string 
 // lowUtilEpisode returns the index of the last idle episode on the timeline of
 // w, 0 for none, and whether that episode has not recovered yet. The highest
 // Detected index is used rather than a count, because the condition history
-// may be trimmed.
+// may be trimmed. Both Detected_<n> and Detected_<n>_<rule> carry the index.
 func lowUtilEpisode(w *v1.Workload) (int, bool) {
 	episode := 0
 	for _, c := range w.Status.Conditions {
@@ -471,7 +491,8 @@ func lowUtilEpisode(w *v1.Workload) (int, bool) {
 		if !ok {
 			continue
 		}
-		if n, err := strconv.Atoi(suffix); err == nil && n > episode {
+		index, _, _ := strings.Cut(suffix, "_")
+		if n, err := strconv.Atoi(index); err == nil && n > episode {
 			episode = n
 		}
 	}
@@ -485,6 +506,19 @@ func lowUtilEpisode(w *v1.Workload) (int, bool) {
 
 func lowUtilReason(prefix string, episode int) string {
 	return fmt.Sprintf("%s%d", prefix, episode)
+}
+
+// lowUtilRuleReason names the Detected entry of one rule in an episode by the
+// rule's content, e.g. Detected_1_lt11_30m. Condition reasons allow only
+// letters, digits and a few separators, so anything else becomes "_".
+func lowUtilRuleReason(episode int, rule v1.LowUtilizationRule) string {
+	window := strings.Map(func(r rune) rune {
+		if r == '_' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' {
+			return r
+		}
+		return '_'
+	}, rule.Window)
+	return fmt.Sprintf("%s_lt%d_%s", lowUtilReason(lowUtilReasonDetected, episode), rule.Threshold, window)
 }
 
 func (r *LowUtilizationController) addLowUtilCondition(ctx context.Context, w *v1.Workload,

@@ -603,18 +603,28 @@ func lowUtilRulesSource(max30m float64, samples30m int, max1h float64, samples1h
 	}}
 }
 
+// lowUtilNoRuleIndex checks that no entry names a rule by its position.
+func lowUtilNoRuleIndex(t *testing.T, conds []metav1.Condition) {
+	t.Helper()
+	for _, c := range conds {
+		assert.Assert(t, !strings.Contains(c.Message, "rule "), c.Message)
+	}
+}
+
 func TestLowUtilRulesFirstRuleMatches(t *testing.T) {
 	src := lowUtilRulesSource(3, 60, 40, 60)
-	r, cl, _ := newLowUtilTestController(t, src, lowUtilTestWorkspace(lowUtilRulesPolicy()), lowUtilTestWorkload("w", "a"))
+	r, cl, rec := newLowUtilTestController(t, src, lowUtilTestWorkspace(lowUtilRulesPolicy()), lowUtilTestWorkload("w", "a"))
 
 	r.runOnce(context.Background())
 
 	assert.DeepEqual(t, lowUtilCalls(src), []string{"c1/30m", "c1/1h"})
 	timeline := lowUtilTimeline(t, cl, "w")
-	assert.DeepEqual(t, lowUtilReasons(timeline), []string{"Detected_1"})
-	assert.Assert(t, strings.HasPrefix(timeline[0].Message, fmt.Sprintf(
-		"low GPU utilization: mode %s, rule 1: threshold 11%%, window 30m, observed max 3.0%%; ", v1.LowUtilizationAverage)),
-		timeline[0].Message)
+	assert.DeepEqual(t, lowUtilReasons(timeline), []string{"Detected_1_lt11_30m"})
+	assert.Equal(t, timeline[0].Message, fmt.Sprintf(
+		"low GPU utilization below 11%% for 30m: mode %s, observed max 3.0%%; the workload will be stopped at %s if it stays idle",
+		v1.LowUtilizationAverage, lowUtilTestNow.Add(30*time.Minute).Format(time.RFC3339)))
+	event := <-rec.Events
+	assert.Assert(t, strings.Contains(event, "below 11% for 30m") && !strings.Contains(event, "rule "), event)
 }
 
 func TestLowUtilRulesSecondRuleMatches(t *testing.T) {
@@ -624,12 +634,104 @@ func TestLowUtilRulesSecondRuleMatches(t *testing.T) {
 	r.runOnce(context.Background())
 
 	timeline := lowUtilTimeline(t, cl, "w")
-	assert.DeepEqual(t, lowUtilReasons(timeline), []string{"Detected_1"})
-	assert.Assert(t, strings.Contains(timeline[0].Message, "rule 2: threshold 30%, window 1h, observed max 25.0%"), timeline[0].Message)
+	assert.DeepEqual(t, lowUtilReasons(timeline), []string{"Detected_1_lt30_1h"})
+	assert.Assert(t, strings.HasPrefix(timeline[0].Message, "low GPU utilization below 30% for 1h: mode Average, observed max 25.0%; "),
+		timeline[0].Message)
 	got, err := getLowUtilWorkload(t, cl, "w")
 	assert.NilError(t, err)
 	assert.Equal(t, v1.GetAnnotation(got, v1.WorkloadLowUtilDetectedAtAnnotation), lowUtilTestNow.Format(time.RFC3339))
 	assert.Equal(t, len(rec.Events), 1)
+}
+
+// The 30m rule goes idle first and the 1h rule rounds later: each gets one entry in the episode.
+func TestLowUtilRulesEachRuleAddsOneEntryPerEpisode(t *testing.T) {
+	src := lowUtilRulesSource(3, 60, 40, 60)
+	r, cl, _ := newLowUtilTestController(t, src, lowUtilTestWorkspace(lowUtilRulesPolicy()), lowUtilTestWorkload("w", "a"))
+
+	for i := 0; i < 3; i++ {
+		r.runOnce(context.Background())
+	}
+	assert.DeepEqual(t, lowUtilReasons(lowUtilTimeline(t, cl, "w")), []string{"Detected_1_lt11_30m"})
+	src.byWindow["1h"] = map[string]robustclient.WorkloadGPUWindow{"w-uid": gpuWindow("w-uid", 25, 60)}
+	for i := 0; i < 3; i++ {
+		r.runOnce(context.Background())
+	}
+
+	timeline := lowUtilTimeline(t, cl, "w")
+	assert.DeepEqual(t, lowUtilReasons(timeline), []string{"Detected_1_lt11_30m", "Detected_1_lt30_1h"})
+	assert.Assert(t, strings.HasPrefix(timeline[1].Message, "low GPU utilization below 30% for 1h: "), timeline[1].Message)
+	lowUtilNoRuleIndex(t, timeline)
+}
+
+func TestLowUtilRulesBothMatchInOneRound(t *testing.T) {
+	policy := lowUtilRulesPolicy()
+	policy.DryRun = true
+	src := lowUtilRulesSource(3, 60, 25, 60)
+	r, cl, _ := newLowUtilTestController(t, src, lowUtilTestWorkspace(policy), lowUtilTestWorkload("w", "a"))
+
+	r.runOnce(context.Background())
+	r.runOnce(context.Background())
+
+	timeline := lowUtilTimeline(t, cl, "w")
+	assert.DeepEqual(t, lowUtilReasons(timeline), []string{"Detected_1_lt11_30m", "Detected_1_lt30_1h"})
+	for _, c := range timeline {
+		assert.Assert(t, strings.HasSuffix(c.Message, "; dry run, the workload will not be stopped"), c.Message)
+	}
+	lowUtilNoRuleIndex(t, timeline)
+}
+
+func TestLowUtilRulesNewEpisodeAfterRecovery(t *testing.T) {
+	policy := lowUtilRulesPolicy()
+	policy.DryRun = true
+	policy.NotifyBefore = ""
+	src := lowUtilRulesSource(3, 60, 40, 60)
+	r, cl, _ := newLowUtilTestController(t, src, lowUtilTestWorkspace(policy), lowUtilTestWorkload("w", "a"))
+
+	r.runOnce(context.Background())
+	r.runOnce(context.Background())
+	src.byWindow = lowUtilRulesSource(20, 60, 40, 60).byWindow
+	r.runOnce(context.Background())
+	src.byWindow = lowUtilRulesSource(20, 60, 25, 60).byWindow
+	r.runOnce(context.Background())
+	r.runOnce(context.Background())
+
+	timeline := lowUtilTimeline(t, cl, "w")
+	assert.DeepEqual(t, lowUtilReasons(timeline), []string{
+		"Detected_1_lt11_30m", "DryRunWouldStop_1", "Recovered_1", "Detected_2_lt30_1h", "DryRunWouldStop_2"})
+	lowUtilNoRuleIndex(t, timeline)
+}
+
+func TestLowUtilEpisodeParsesLegacyAndRuleReasons(t *testing.T) {
+	cond := func(reason string) metav1.Condition {
+		c := lowUtilDetectedCondition()
+		c.Reason = reason
+		return c
+	}
+	w := lowUtilTestWorkload("w", "a")
+	w.Status.Conditions = []metav1.Condition{cond("Detected_1"), cond("Recovered_1"), cond("Detected_2_lt11_30m"),
+		cond("Detected_x_lt5_1h"), cond("Detected_9abc")}
+	episode, open := lowUtilEpisode(w)
+	assert.Equal(t, episode, 2)
+	assert.Assert(t, open)
+
+	w.Status.Conditions = append(w.Status.Conditions, cond("Recovered_2"), cond("Detected_3"))
+	episode, open = lowUtilEpisode(w)
+	assert.Equal(t, episode, 3)
+	assert.Assert(t, open)
+}
+
+func TestLowUtilRuleReason(t *testing.T) {
+	for rule, want := range map[v1.LowUtilizationRule]string{
+		{Threshold: 11, Window: "30m"}:   "Detected_1_lt11_30m",
+		{Threshold: 30, Window: "1h"}:    "Detected_1_lt30_1h",
+		{Threshold: 0, Window: "1h30m"}:  "Detected_1_lt0_1h30m",
+		{Threshold: 5, Window: "1.5h"}:   "Detected_1_lt5_1_5h",
+		{Threshold: 5, Window: "90m:x,"}: "Detected_1_lt5_90m_x_",
+	} {
+		got := lowUtilRuleReason(1, rule)
+		assert.Equal(t, got, want)
+		assert.Assert(t, conditionReasonPattern.MatchString(got), got)
+	}
 }
 
 func TestLowUtilRulesNoneMatchRecovers(t *testing.T) {
