@@ -153,6 +153,13 @@ func TestCompileRejects(t *testing.T) {
 		"feature":          {func(in *Input) { in.Request.Choices.ValSplit = 0.1 }, "validated for valLoss"},
 		"rl lora colocate": {rlLora(""), "RL with LoRA needs a separate rollout"},
 		"rl min nodes":     {rlLora(LayoutSeparate), "at least 2 nodes"},
+		"unknown benchmark": {func(in *Input) {
+			in.Request.Evaluation = EvaluationRequest{Enabled: true, Benchmarks: []string{"b1"}}
+		}, "Benchmark dataset b1 was not found"},
+		"benchmark of another type": {func(in *Input) {
+			in.Request.Evaluation = EvaluationRequest{Enabled: true, Benchmarks: []string{"b1"}}
+			in.Benchmarks = map[string]*DatasetInfo{"b1": {ID: "b1", Type: "sft"}}
+		}, "Dataset b1 is not an evaluation dataset"},
 		"missing field": {func(in *Input) {
 			in.Dataset.Fields = []string{"instruction"}
 			in.Request.Choices.FieldMap = map[string]string{"output": "answer"}

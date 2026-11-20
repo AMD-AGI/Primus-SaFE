@@ -32,6 +32,9 @@ const (
 	LevelError   = "error"
 	LevelWarning = "warning"
 
+	// BenchmarkDatasetType is the type of the datasets an evaluation runs on.
+	BenchmarkDatasetType = "evaluation"
+
 	LayoutColocate = "colocate"
 	LayoutSeparate = "separate"
 
@@ -253,6 +256,8 @@ type Input struct {
 	Workspace   WorkspaceInfo
 	// Secrets are the secrets the request names that the user can read, by id.
 	Secrets map[string]*SecretInfo
+	// Benchmarks are the datasets the automatic evaluation names that exist, by id.
+	Benchmarks map[string]*DatasetInfo
 }
 
 // SecretInfo is what the compiler knows about a secret: its type and key names, never the values.
@@ -870,6 +875,15 @@ func platformRules(ctx *Context, res *Result) {
 	}
 	if req.Evaluation.Enabled && !req.Export.HFModel() {
 		res.errorf("evaluation.enabled", "Automatic evaluation needs the exported Hugging Face model")
+	}
+	if req.Evaluation.Enabled {
+		for _, id := range req.Evaluation.Benchmarks {
+			if b := ctx.Input.Benchmarks[id]; b == nil {
+				res.errorf("evaluation.benchmarks", "Benchmark dataset %s was not found", id)
+			} else if b.Type != BenchmarkDatasetType {
+				res.errorf("evaluation.benchmarks", "Dataset %s is not an evaluation dataset", id)
+			}
+		}
 	}
 	requestLimits(req, res)
 

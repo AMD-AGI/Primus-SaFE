@@ -166,6 +166,7 @@ func TestCompileKeepsEvaluationOutOfTheHash(t *testing.T) {
 	plain := compile(t, in)
 	require.Nil(t, plain.Recipe.Evaluation)
 	in.Request.Evaluation = recipe.EvaluationRequest{Enabled: true, Benchmarks: []string{"gsm8k"}, KeepService: true}
+	in.Benchmarks = map[string]*recipe.DatasetInfo{"gsm8k": {ID: "gsm8k", Type: recipe.BenchmarkDatasetType}}
 	res := compile(t, in)
 	require.Equal(t, &recipe.EvaluationRequest{Enabled: true, Benchmarks: []string{"gsm8k"}, KeepService: true},
 		res.Recipe.Evaluation, "the controller reads the evaluation from the recipe snapshot")
