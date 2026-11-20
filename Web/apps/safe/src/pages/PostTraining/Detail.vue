@@ -78,34 +78,6 @@
               />
             </span>
           </el-tooltip>
-          <el-tooltip
-            :content="actionTip('Save as Template', isReadonly ? readOnlyTip : '')"
-            placement="top"
-          >
-            <span>
-              <el-button
-                circle
-                class="btn-primary-plain"
-                :icon="FolderAdd"
-                :disabled="isReadonly"
-                @click="saveTemplate = true"
-              />
-            </span>
-          </el-tooltip>
-          <el-tooltip
-            :content="actionTip('A/B from This Run', isReadonly ? readOnlyTip : '')"
-            placement="top"
-          >
-            <span>
-              <el-button
-                circle
-                class="btn-primary-plain"
-                :icon="Switch"
-                :disabled="isReadonly"
-                @click="abDrawer = true"
-              />
-            </span>
-          </el-tooltip>
           <el-tooltip :content="actionTip('Evaluate', evaluateTip)" placement="top">
             <span>
               <el-button
@@ -451,18 +423,6 @@
       </el-tabs>
     </template>
 
-    <VariantEditor v-if="templateRequest" v-model="abDrawer" :baseline="templateRequest" />
-
-    <SaveTemplateDialog
-      v-if="templateRequest"
-      v-model="saveTemplate"
-      :request="templateRequest"
-      :spec="run ? specOfRun(run) : undefined"
-      :model-label="run?.baseModelName || run?.baseModelId"
-      :data-label="run?.datasetName || run?.datasetId"
-      :source-run-id="run?.runId"
-    />
-
     <el-dialog v-model="evalDialog.visible" title="Evaluate a model of the run" width="520px">
       <el-form label-position="top">
         <el-form-item label="Model" required>
@@ -574,15 +534,7 @@
 import { computed, onMounted, reactive, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import {
-  ArrowLeft,
-  CloseBold,
-  CopyDocument,
-  Delete,
-  FolderAdd,
-  Odometer,
-  Switch,
-} from '@element-plus/icons-vue'
+import { ArrowLeft, CloseBold, CopyDocument, Delete, Odometer } from '@element-plus/icons-vue'
 import { useDocumentVisibility, useIntervalFn, useNow } from '@vueuse/core'
 import dayjs from 'dayjs'
 import { useUserStore } from '@/stores/user'
@@ -626,11 +578,8 @@ import AllMetricsTable from './Components/AllMetricsTable.vue'
 import EvalByCheckpoint from './Components/EvalByCheckpoint.vue'
 import GpuPanel from './Components/GpuPanel.vue'
 import RunSummary from './Components/RunSummary.vue'
-import SaveTemplateDialog from './Components/SaveTemplateDialog.vue'
-import VariantEditor from './Components/VariantEditor.vue'
 import SamplesTab from './Components/SamplesTab.vue'
 import RecipePanes from './Components/RecipePanes.vue'
-import { requestFromRun, specOfRun } from './Create/wizard'
 
 defineOptions({ name: 'PostTrainingDetailPage' })
 
@@ -657,11 +606,6 @@ const metrics = shallowRef<MetricsResp>()
 const smoothing = ref(0.6)
 
 const isActive = computed(() => run.value?.status === 'Pending' || run.value?.status === 'Running')
-
-const saveTemplate = ref(false)
-const abDrawer = ref(false)
-/** The request the run's recipe snapshot gives a template. */
-const templateRequest = computed(() => (run.value ? requestFromRun(run.value) : undefined))
 
 type Recipe = {
   choices?: { numRollout?: number; saveInterval?: number; schedule?: string }
