@@ -355,6 +355,9 @@ type cleanupBody struct {
 	Keep string `json:"keep"`
 }
 
+// maxCleanupPaths bounds the checkpoints a cleanup removes one by one, each with a job of its own.
+const maxCleanupPaths = 1000
+
 // checkpointCleanup is the cleanup_request column: the directories the controller removes, the step kept and, for
 // a cleanup that keeps one, the steps removed.
 type checkpointCleanup struct {
@@ -502,6 +505,11 @@ func (h *Handler) planCleanup(ctx context.Context, run *dbclient.PostTrainingRun
 				plan.Paths = append(plan.Paths, fmt.Sprintf("%s/checkpoints/iter_%07d", base, checkpointIteration(cp.Step)))
 				steps = append(steps, cp.Step)
 			}
+		}
+		if len(plan.Paths) > maxCleanupPaths {
+			return "", commonerrors.NewBadRequest(fmt.Sprintf("keeping the best checkpoint would remove %d "+
+				"checkpoints one by one, and a cleanup removes at most %d that way; remove them all instead",
+				len(plan.Paths), maxCleanupPaths))
 		}
 		kept := m.BestCheckpoint.Step
 		plan.KeptStep, plan.CleanedSteps = &kept, &steps

@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -70,6 +71,22 @@ func TestPlanCleanup(t *testing.T) {
 	plan, err = h.planCleanup(ctx, cleanupRun("Stopped"), "none")
 	require.NoError(t, err)
 	require.JSONEq(t, `{"keep":"none","paths":["/w/pt-1/checkpoints","/w/pt-1/critic_checkpoints"]}`, plan)
+
+	// Each checkpoint a cleanup removes one by one is a job of its own: a plan above the bound is refused.
+	many := func(saves int) *dbclient.PostTrainingRun {
+		run := cleanupRun("Succeeded")
+		run.Stage, run.Recipe = "done", `{"output":{"base":"/w/pt-1"},"choices":{"saveInterval":1}}`
+		run.ResultLine = fmt.Sprintf(`[SUCCESS] {"run":"pt-1","stage":"export","output":"/w/pt-1/f","iteration":%d}`,
+			saves-1)
+		return run
+	}
+	plan, err = h.planCleanup(ctx, many(maxCleanupPaths+1), "best")
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal([]byte(plan), &got))
+	require.Len(t, got.Paths, maxCleanupPaths, "all saves but the best one")
+	_, err = h.planCleanup(ctx, many(maxCleanupPaths+2), "best")
+	require.Equal(t, http.StatusBadRequest, statusCode(err))
+	require.ErrorContains(t, err, "remove them all")
 
 	_, err = h.planCleanup(ctx, cleanupRun("Running"), "none")
 	require.Equal(t, http.StatusConflict, statusCode(err))
