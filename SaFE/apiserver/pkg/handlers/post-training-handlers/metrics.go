@@ -359,14 +359,19 @@ func trained(run *dbclient.PostTrainingRun) bool {
 	return false
 }
 
-// seriesComplete reports whether the stored points of a run reach its last step: no gap is left in them and the
-// run did not reach its cap on stored points.
-func seriesComplete(run *dbclient.PostTrainingRun) bool {
+// pointsCapped reports whether a run reached its cap on stored points, after which its points are dropped.
+func pointsCapped(run *dbclient.PostTrainingRun) bool {
 	var sum struct {
 		Capped bool `json:"capped"`
 	}
 	_ = json.Unmarshal([]byte(run.MetricSummary), &sum)
-	return !run.MetricGap && !sum.Capped
+	return sum.Capped
+}
+
+// seriesComplete reports whether the stored points of a run reach its last step: no gap is left in them and the
+// run did not reach its cap on stored points.
+func seriesComplete(run *dbclient.PostTrainingRun) bool {
+	return !run.MetricGap && !pointsCapped(run)
 }
 
 // successMarker starts the result line of a run whose launcher finished.
@@ -459,8 +464,8 @@ func buildMarkers(run *dbclient.PostTrainingRun, points map[string][]*dbclient.P
 	}
 	if keep := rec.Checkpoint.KeepLast; keep > 0 {
 		// A last save whose step is not known is one of those the retention kept. It is not listed, unless the
-		// points end at the last step listed, which then is that save.
-		if trained(run) && last == 0 && (len(steps) == 0 || steps[len(steps)-1] != done) {
+		// points end at the last step listed, which then is that save; points cut at the cap end before it.
+		if trained(run) && last == 0 && (pointsCapped(run) || len(steps) == 0 || steps[len(steps)-1] != done) {
 			keep--
 		}
 		for i := range m.Checkpoints {

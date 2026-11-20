@@ -207,6 +207,16 @@ func TestTheLastSaveIsTheOneTheLauncherReported(t *testing.T) {
 			Recipe: fmt.Sprintf(`{"choices":{"saveInterval":500},"checkpoint":{"keepLast":%d}}`, keepLast)}
 		require.Equal(t, want, buildMarkers(run, whole).Checkpoints, "keepLast %d", keepLast)
 	}
+
+	// Points cut at the cap end before the last save, also when they end at a save of the interval; a run without
+	// points lists nothing.
+	capped := &dbclient.PostTrainingRun{TrainType: "sft", Status: "Failed", Stage: "export",
+		MetricSummary: `{"points":500000,"capped":true}`,
+		Recipe:        `{"choices":{"saveInterval":500},"checkpoint":{"keepLast":1}}`}
+	require.Equal(t, []checkpointMark{{Step: 500, Deleted: true}, {Step: 1000, Deleted: true}},
+		buildMarkers(capped, whole).Checkpoints)
+	capped.MetricSummary, capped.MetricGap = "", true
+	require.Empty(t, buildMarkers(capped, nil).Checkpoints)
 }
 
 // Stopping a workload records who stopped it and deletes it, and a missing one is fine.
