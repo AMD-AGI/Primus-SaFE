@@ -192,7 +192,7 @@ import {
 } from '@element-plus/icons-vue'
 import { WorkloadPhaseButtonType } from '@/services'
 import { RESUMABLE_PHASES } from '@/composables/useWorkloadResumePermission'
-import { copyText, formatTimeStr } from '@/utils'
+import { copyText, formatTimeStr, historyBack } from '@/utils'
 import { useDark } from '@vueuse/core'
 import { useRouter } from 'vue-router'
 import { computed } from 'vue'
@@ -259,7 +259,7 @@ const handleBack = () => {
   emit('back')
 
   if (window.history.state?.back) {
-    router.back()
+    historyBack(() => router.back())
   } else {
     // If page was accessed directly, navigate to fallback path
     // Prefer the provided fallbackPath, otherwise infer from current route

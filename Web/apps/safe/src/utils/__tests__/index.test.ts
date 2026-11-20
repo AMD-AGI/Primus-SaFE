@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import {
+  historyBack,
   fillMissingKeys,
   toSnakeCase,
   toCamelCase,
@@ -22,6 +23,31 @@ import {
   isLogDownloadEnabledForHost,
   isLogEnabledForHost,
 } from '../index'
+
+// ---------------------------------------------------------------------------
+// historyBack
+// ---------------------------------------------------------------------------
+describe('historyBack', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('uses navigation.back() so entries pushed by iframes are skipped', () => {
+    const back = vi.fn()
+    const fallback = vi.fn()
+    vi.stubGlobal('navigation', { canGoBack: true, back })
+    historyBack(fallback)
+    expect(back).toHaveBeenCalledOnce()
+    expect(fallback).not.toHaveBeenCalled()
+  })
+
+  it('falls back when the Navigation API is unavailable', () => {
+    const fallback = vi.fn()
+    vi.stubGlobal('navigation', undefined)
+    historyBack(fallback)
+    expect(fallback).toHaveBeenCalledOnce()
+  })
+})
 
 // ---------------------------------------------------------------------------
 // fillMissingKeys

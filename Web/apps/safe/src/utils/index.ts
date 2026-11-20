@@ -20,6 +20,18 @@ export function getSafeRedirect(v: unknown): string {
   return s.startsWith('/') ? s : '/'
 }
 
+type NavigationLike = { canGoBack: boolean; back: () => unknown }
+
+/**
+ * Go back to the app's previous page. history.back() first steps through entries pushed by
+ * embedded iframes (e.g. Grafana time-range changes); navigation.back() skips them.
+ */
+export function historyBack(fallback: () => void) {
+  const nav = (globalThis as { navigation?: NavigationLike }).navigation
+  if (nav?.canGoBack) nav.back()
+  else fallback()
+}
+
 /**
  * Given an object and a field template,
  * if the object is missing a field, automatically fill in the default value from the template.
