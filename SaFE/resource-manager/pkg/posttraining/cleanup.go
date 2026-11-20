@@ -140,10 +140,12 @@ func (r *RunReconciler) reconcileCleanup(ctx context.Context, run *dbclient.Post
 			running = true
 			continue
 		}
-		switch job.Status.Phase {
-		case v1.OpsJobSucceeded:
+		switch {
+		case job.Status.Phase == v1.OpsJobSucceeded:
 			jobs = append(jobs, job)
-		case v1.OpsJobFailed:
+		// A job that is unfinished after its timeout has failed: its controller keeps the timer of the timeout
+		// in memory and loses it in a restart.
+		case job.Status.Phase == v1.OpsJobFailed, job.IsTimeout():
 			if wait := cleanupRetry - time.Since(jobEnd(job)); wait > 0 {
 				return ctrlruntime.Result{RequeueAfter: wait}, nil
 			}
@@ -239,10 +241,14 @@ func (r *RunReconciler) giveUpCleanup(ctx context.Context, run *dbclient.PostTra
 	return nil
 }
 
-// jobEnd returns when an OpsJob finished, or when it was created if it has no finish time.
+// jobEnd returns when an OpsJob finished; for one with no finish time, when its timeout ran out, or when it was
+// created if it has not.
 func jobEnd(job *v1.OpsJob) time.Time {
 	if job.Status.FinishedAt != nil {
 		return job.Status.FinishedAt.Time
+	}
+	if job.IsTimeout() {
+		return job.CreationTimestamp.Add(time.Duration(job.Spec.TimeoutSecond) * time.Second)
 	}
 	return job.CreationTimestamp.Time
 }
@@ -283,7 +289,7 @@ func (r *RunReconciler) countRunDir(ctx context.Context, run *dbclient.PostTrain
 	if err != nil {
 		return "", false, err
 	}
-	if job.Status.Phase != v1.OpsJobSucceeded && job.Status.Phase != v1.OpsJobFailed {
+	if job.Status.Phase != v1.OpsJobSucceeded && job.Status.Phase != v1.OpsJobFailed && !job.IsTimeout() {
 		return "", false, nil
 	}
 	disk := ""

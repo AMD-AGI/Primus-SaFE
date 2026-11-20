@@ -183,6 +183,36 @@ func TestAFailedReclaimWaitsBeforeItRunsAgain(t *testing.T) {
 	require.Error(t, r.Get(ctx, client.ObjectKeyFromObject(job), &v1.OpsJob{}), "after the wait it is tried again")
 }
 
+// A reclaim job that is unfinished after its timeout has failed as well: it is kept for the same wait from the
+// timeout on and then removed for the next try.
+func TestAReclaimJobLeftUnfinishedPastItsTimeoutIsTriedAgain(t *testing.T) {
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1",
+		Volumes: []v1.WorkspaceVolume{{Type: v1.PFS, MountPath: "/wekafs"}}}}
+	dir := "/wekafs/custom/models/post-training-cache/slime-qwen3-8B-m-gone-540ea91"
+	name := client.ObjectKey{Name: resource.DirectoryCleanupJobName("ws1", dir)}
+	for label, c := range map[string]struct {
+		age  time.Duration
+		gone bool
+	}{
+		"within its timeout":            {time.Hour - time.Minute, false},
+		"within the wait after it":      {time.Hour + cacheReclaimRetry - time.Minute, false},
+		"past the timeout and the wait": {time.Hour + cacheReclaimRetry + time.Minute, true},
+	} {
+		job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: name.Name,
+			CreationTimestamp: metav1.NewTime(time.Now().Add(-c.age))}, Spec: v1.OpsJobSpec{TimeoutSecond: 3600}}
+		r, db, _ := newTestReconciler(t, testRunRow("Running", "train"), ws, job)
+		loadChartRegistry(t, r)
+		db.EXPECT().ListPostTrainingConvertCaches(gomock.Any(), gomock.Any()).Return(
+			[]*dbclient.PostTrainingConvertCache{{ID: 1, Workspace: "ws1", CacheKey: "slime-qwen3-8B-m-gone-540ea91",
+				ModelID: "m-gone", Path: dir, Status: dbclient.ConvertCacheInvalid}}, nil)
+		db.EXPECT().ListPostTrainingRuns(gomock.Any(), gomock.Any()).Return(nil, int64(0), nil).AnyTimes()
+		ctx := context.Background()
+		_, err := r.Reconcile(ctx, ctrlruntime.Request{NamespacedName: client.ObjectKey{Name: cacheSweepRequest}})
+		require.NoError(t, err, label)
+		require.Equal(t, c.gone, r.Get(ctx, name, &v1.OpsJob{}) != nil, label)
+	}
+}
+
 // A reclaim job that was deleted leaves its workload, of the same name, for a while: the job is not made again
 // before the workload is gone.
 func TestNoReclaimJobIsMadeWhileTheWorkloadOfADeletedOneIsLeft(t *testing.T) {

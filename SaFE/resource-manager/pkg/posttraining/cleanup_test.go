@@ -16,6 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/resource"
 )
 
@@ -160,6 +161,55 @@ func TestAStuckWorkloadDoesNotHoldACleanupJobBackForever(t *testing.T) {
 		require.Equal(t, pendingRequeue, reconcileRun(t, r).RequeueAfter, label)
 		require.Equal(t, c.made, r.Get(ctx, cleanup, &v1.OpsJob{}) == nil, label)
 	}
+}
+
+// A cleanup job that is unfinished after its timeout, as when its controller lost the timer of it in a restart, has
+// failed: it counts as an attempt once cleanupRetry has passed since the timeout. The job that counts the run
+// directory is over at its timeout, without a count.
+func TestAJobLeftUnfinishedPastItsTimeoutHasFailed(t *testing.T) {
+	ctx := context.Background()
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1",
+		Volumes: []v1.WorkspaceVolume{{Type: v1.PFS, MountPath: "/wekafs"}}}}
+	dir := testRunDir + "/checkpoints/iter_0000010"
+	cleanup := client.ObjectKey{Name: resource.DirectoryCleanupJobName("ws1", dir)}
+	aged := func(name string, timeout, age time.Duration) *v1.OpsJob {
+		return &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: name,
+			CreationTimestamp: metav1.NewTime(time.Now().Add(-age))},
+			Spec: v1.OpsJobSpec{TimeoutSecond: int(timeout / time.Second)}}
+	}
+	cleaning := func() *dbclient.PostTrainingRun {
+		run := testRunRow("Succeeded", "done")
+		run.OutputPath = testRunDir
+		run.CleanupRequest = `{"keep":"none","paths":["` + dir + `"],"attempts":1}`
+		return run
+	}
+	for label, c := range map[string]struct {
+		age     time.Duration
+		counted bool
+	}{
+		"within its timeout":            {time.Hour - time.Minute, false},
+		"within the wait after it":      {time.Hour + cleanupRetry - time.Minute, false},
+		"past the timeout and the wait": {time.Hour + cleanupRetry + time.Minute, true},
+	} {
+		r, _, updates := newTestReconciler(t, cleaning(), ws, aged(cleanup.Name, time.Hour, c.age))
+		require.Positive(t, reconcileRun(t, r).RequeueAfter, label)
+		require.Equal(t, c.counted, r.Get(ctx, cleanup, &v1.OpsJob{}) != nil, "%s: the job is deleted", label)
+		if c.counted {
+			require.Len(t, *updates, 1, label)
+			require.Contains(t, (*updates)[0]["cleanup_request"], `"attempts":2`, label)
+		} else {
+			require.Empty(t, *updates, label)
+		}
+	}
+
+	cleaned := aged(cleanup.Name, time.Hour, time.Minute)
+	cleaned.Status.Phase = v1.OpsJobSucceeded
+	disk := client.ObjectKey{Name: diskJobName(testRun)}
+	r, _, updates := newTestReconciler(t, cleaning(), ws, cleaned,
+		aged(disk.Name, verifyTimeout, verifyTimeout+time.Minute))
+	require.Zero(t, reconcileRun(t, r).RequeueAfter)
+	require.Error(t, r.Get(ctx, disk, &v1.OpsJob{}))
+	require.Equal(t, "", (*updates)[len(*updates)-1]["cleanup_request"], "the cleanup ends without a new count")
 }
 
 // A failed cleanup job counts as one failed attempt, however often the run is reconciled while the job is deleted.
