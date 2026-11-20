@@ -679,14 +679,14 @@ func (r *runtimeChange) apply(workload *v1.Workload) {
 }
 
 // authWorkloadCreateRuntime checks the workload/long-runtime grant for a new workload whose timeout
-// is above its runtime ceiling, or none, and marks it with WorkloadRuntimeExtendedByAnnotation. The
-// mark is removed first, so a workload never carries it unless this check set it. When it is set,
-// the timeline entry to record is returned. An unset timeout is filled from the ceiling by the
-// webhook and needs nothing.
+// is above its runtime ceiling, and marks it with WorkloadRuntimeExtendedByAnnotation. The mark is
+// removed first, so a workload never carries it unless this check set it. When it is set, the
+// timeline entry to record is returned. A timeout that is unset or 0 or less, as a clone or resume
+// of a workload without a timeout sends, is filled from the ceiling by the webhook and needs nothing.
 func (h *Handler) authWorkloadCreateRuntime(c *gin.Context, workload *v1.Workload,
 	requestUser *v1.User, roles []*v1.Role) (*metav1.Condition, error) {
 	v1.RemoveAnnotation(workload, v1.WorkloadRuntimeExtendedByAnnotation)
-	if workload.Spec.Timeout == nil {
+	if workload.Spec.Timeout == nil || *workload.Spec.Timeout <= 0 {
 		return nil, nil
 	}
 	ceiling, err := h.runtimeCeiling(c.Request.Context(), workload)

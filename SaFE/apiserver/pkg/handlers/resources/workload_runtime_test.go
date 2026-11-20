@@ -134,14 +134,22 @@ func TestWorkloadTimeoutCreateAboveQosLimit(t *testing.T) {
 	assert.Nil(t, cond)
 	assert.Empty(t, v1.GetAnnotation(workload, v1.WorkloadRuntimeExtendedByAnnotation))
 
-	_, _, err = create(userDefault, 0)
+	// A clone or resume of a workload stored without a timeout sends 0; the webhook fills the ceiling.
+	for _, timeout := range []int{0, -1} {
+		workload, cond, err = create(userDefault, timeout)
+		require.NoError(t, err)
+		assert.Nil(t, cond)
+		assert.Empty(t, v1.GetAnnotation(workload, v1.WorkloadRuntimeExtendedByAnnotation))
+	}
+
+	_, _, err = create(userDefault, 4*3600)
 	assert.True(t, apierrors.IsForbidden(err), "%v", err)
 	assert.ErrorContains(t, err, "above the limit of 3h")
 	assert.ErrorContains(t, err, "workload/long-runtime")
 
 	// A new workload has no cluster label yet; its workspace names the cluster.
 	requestUser, roles := f.roles(t, userDefault)
-	unlabeled := runtimeWorkload(0)
+	unlabeled := runtimeWorkload(4 * 3600)
 	v1.RemoveLabel(unlabeled, v1.ClusterIdLabel)
 	_, err = f.h.authWorkloadCreateRuntime(f.ctx(userDefault, "", ""), unlabeled, requestUser, roles)
 	assert.True(t, apierrors.IsForbidden(err), "%v", err)
@@ -153,9 +161,12 @@ func TestWorkloadTimeoutCreateAboveQosLimit(t *testing.T) {
 	assert.Regexp(t, conditionReasonPattern, cond.Reason)
 	assert.Equal(t, "runtime set to 5h by manager-user, above the qos limit 3h", cond.Message)
 
-	workload, _, err = create(userAdmin, 0)
+	workload, _, err = create(userAdmin, 6*3600)
 	require.NoError(t, err)
 	assert.Equal(t, userAdmin, v1.GetAnnotation(workload, v1.WorkloadRuntimeExtendedByAnnotation))
+	workload, _, err = create(userAdmin, 0)
+	require.NoError(t, err)
+	assert.Empty(t, v1.GetAnnotation(workload, v1.WorkloadRuntimeExtendedByAnnotation))
 }
 
 func TestAppendWorkloadConditionKeepsEveryEntry(t *testing.T) {
