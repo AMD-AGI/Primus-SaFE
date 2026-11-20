@@ -22,7 +22,9 @@ const (
 	WorkloadPrivilegedKind = "workload/privileged"
 	// A workload timeout above the runtime ceiling of its scope, or no timeout.
 	WorkloadLongRuntimeKind = "workload/long-runtime"
-	AllResource             = "*"
+	// Setting or clearing the exemption of a workload from the low utilization policy.
+	WorkloadLowUtilExemptKind = "workload/low-util-exempt"
+	AllResource               = "*"
 
 	GrantedAllUser       = "*"
 	GrantedOwner         = "owner"

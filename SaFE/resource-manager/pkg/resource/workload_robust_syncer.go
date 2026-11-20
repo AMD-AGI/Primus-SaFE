@@ -32,9 +32,8 @@ const (
 	// Set to "false" on a Cluster CR to stop syncing its workloads to Robust.
 	annotationRobustWorkloadSync = "primus-safe.amd.com/robust-workload-sync"
 
-	robustSyncBatchSize    = 200
-	robustSyncDBPageSize   = 1000
-	robustSyncNoClientWait = time.Minute
+	robustSyncBatchSize  = 200
+	robustSyncDBPageSize = 1000
 
 	robustPushMissing = "missing"
 	robustPushStale   = "stale"
@@ -148,9 +147,10 @@ func (r *WorkloadRobustSyncer) Reconcile(ctx context.Context, req ctrlruntime.Re
 	if cluster == "" {
 		return ctrlruntime.Result{}, nil
 	}
+	// Without a Robust client the periodic reconcileAll syncs the cluster once it gets one.
 	if r.robustClient.ForCluster(cluster) == nil {
-		klog.V(4).Infof("[workload-robust-syncer] cluster %s not available, retry workload %s later", cluster, wl.Name)
-		return ctrlruntime.Result{RequeueAfter: robustSyncNoClientWait}, nil
+		klog.V(4).Infof("[workload-robust-syncer] cluster %s not available, skip workload %s", cluster, wl.Name)
+		return ctrlruntime.Result{}, nil
 	}
 	if !r.syncEnabled(ctx, cluster) {
 		return ctrlruntime.Result{}, nil

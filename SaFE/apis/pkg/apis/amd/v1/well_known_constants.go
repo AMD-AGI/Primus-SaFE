@@ -281,6 +281,15 @@ const (
 	WorkloadLowUtilExemptAnnotation = "primus-safe.amd.com/low-util-exempt"
 	// RFC3339 time the workload was first found idle under the low GPU utilization policy.
 	WorkloadLowUtilDetectedAtAnnotation = "primus-safe.amd.com/low-util-detected-at"
+	// RFC3339 time the stop countdown of an idle workload started: its detection, or the switch
+	// of a dry-run policy to enforcement. Absent while the policy is a dry run.
+	WorkloadLowUtilEnforcedAtAnnotation = "primus-safe.amd.com/low-util-enforced-at"
+	// RFC3339 time the owner was last told of a low GPU utilization stop. Written after the
+	// Detected entries the notice lists, and kept when the workload recovers.
+	WorkloadLowUtilNotifiedAtAnnotation = "primus-safe.amd.com/low-util-notified-at"
+	// RFC3339 time a detected workload was first found active again. Its detection is cleared
+	// once it stays active for the policy cooldown.
+	WorkloadLowUtilActiveSinceAnnotation = "primus-safe.amd.com/low-util-active-since"
 	// QosRunningResourcesAnnotation stores the resource list still running while a
 	// larger spec waits for the dispatcher to admit it.
 	QosRunningResourcesAnnotation     = WorkloadPrefix + "qos.running.resources"

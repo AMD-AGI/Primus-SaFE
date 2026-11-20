@@ -204,6 +204,8 @@ func TestLowUtilFirstDetectionMarksAndNotifies(t *testing.T) {
 	got, err := getLowUtilWorkload(t, cl, "w")
 	assert.NilError(t, err)
 	assert.Equal(t, v1.GetAnnotation(got, v1.WorkloadLowUtilDetectedAtAnnotation), lowUtilTestNow.Format(time.RFC3339))
+	assert.Equal(t, v1.GetAnnotation(got, v1.WorkloadLowUtilEnforcedAtAnnotation), lowUtilTestNow.Format(time.RFC3339))
+	assert.Equal(t, v1.GetAnnotation(got, v1.WorkloadLowUtilNotifiedAtAnnotation), lowUtilTestNow.Format(time.RFC3339))
 	assert.Equal(t, got.Status.Phase, v1.WorkloadRunning)
 	assert.Equal(t, len(rec.Events), 1)
 	event := <-rec.Events
@@ -211,9 +213,17 @@ func TestLowUtilFirstDetectionMarksAndNotifies(t *testing.T) {
 	assert.Assert(t, strings.Contains(event, lowUtilTestNow.Add(30*time.Minute).Format(time.RFC3339)), event)
 }
 
+// lowUtilEnforced marks w as detected and its stop countdown as started ago.
+func lowUtilEnforced(w *v1.Workload, ago time.Duration) {
+	at := lowUtilTestNow.Add(-ago).Format(time.RFC3339)
+	v1.SetAnnotation(w, v1.WorkloadLowUtilDetectedAtAnnotation, at)
+	v1.SetAnnotation(w, v1.WorkloadLowUtilEnforcedAtAnnotation, at)
+	v1.SetAnnotation(w, v1.WorkloadLowUtilNotifiedAtAnnotation, at)
+}
+
 func TestLowUtilStopsAfterNotifyDelay(t *testing.T) {
 	w := lowUtilTestWorkload("w", "a")
-	v1.SetAnnotation(w, v1.WorkloadLowUtilDetectedAtAnnotation, lowUtilTestNow.Add(-31*time.Minute).Format(time.RFC3339))
+	lowUtilEnforced(w, 31*time.Minute)
 	src := &fakeGPUWindow{windows: map[string]robustclient.WorkloadGPUWindow{"w-uid": gpuWindow("w-uid", 1, 60)}}
 	r, cl, rec := newLowUtilTestController(t, src, lowUtilTestWorkspace(lowUtilPolicy(v1.LowUtilizationAverage)), w)
 
@@ -227,9 +237,9 @@ func TestLowUtilStopsAfterNotifyDelay(t *testing.T) {
 func TestLowUtilWaitsForNotifyDelay(t *testing.T) {
 	w := lowUtilTestWorkload("w", "a")
 	detectedAt := lowUtilTestNow.Add(-10 * time.Minute).Format(time.RFC3339)
-	v1.SetAnnotation(w, v1.WorkloadLowUtilDetectedAtAnnotation, detectedAt)
+	lowUtilEnforced(w, 10*time.Minute)
 	src := &fakeGPUWindow{windows: map[string]robustclient.WorkloadGPUWindow{"w-uid": gpuWindow("w-uid", 1, 60)}}
-	r, cl, _ := newLowUtilTestController(t, src, lowUtilTestWorkspace(lowUtilPolicy(v1.LowUtilizationAverage)), w)
+	r, cl, rec := newLowUtilTestController(t, src, lowUtilTestWorkspace(lowUtilPolicy(v1.LowUtilizationAverage)), w)
 
 	r.runOnce(context.Background())
 
@@ -237,6 +247,69 @@ func TestLowUtilWaitsForNotifyDelay(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Equal(t, got.Status.Phase, v1.WorkloadRunning)
 	assert.Equal(t, v1.GetAnnotation(got, v1.WorkloadLowUtilDetectedAtAnnotation), detectedAt)
+	assert.Equal(t, v1.GetAnnotation(got, v1.WorkloadLowUtilNotifiedAtAnnotation), detectedAt)
+	assert.Equal(t, len(rec.Events), 0)
+}
+
+// A workload detected under a dry-run policy gets a full countdown, and a notice, once the policy
+// is enforced, instead of being stopped at once for its old detection.
+func TestLowUtilDryRunToEnforcementStartsFreshCountdown(t *testing.T) {
+	policy := lowUtilPolicy(v1.LowUtilizationAverage)
+	policy.DryRun = true
+	w := lowUtilTestWorkload("w", "a")
+	src := &fakeGPUWindow{windows: map[string]robustclient.WorkloadGPUWindow{"w-uid": gpuWindow("w-uid", 1, 60)}}
+	r, cl, _ := newLowUtilTestController(t, src, lowUtilTestWorkspace(policy), w)
+	r.now = func() time.Time { return lowUtilTestNow.Add(-time.Hour) }
+	r.runOnce(context.Background())
+	r.now = func() time.Time { return lowUtilTestNow.Add(-20 * time.Minute) }
+	r.runOnce(context.Background())
+	got, err := getLowUtilWorkload(t, cl, "w")
+	assert.NilError(t, err)
+	assert.Equal(t, v1.GetAnnotation(got, v1.WorkloadLowUtilEnforcedAtAnnotation), "")
+	assert.Equal(t, v1.GetAnnotation(got, v1.WorkloadLowUtilNotifiedAtAnnotation), "")
+
+	ws := &v1.Workspace{}
+	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "ws"}, ws))
+	policy.DryRun = false
+	ws.Spec.LowUtilization[v1.TrainScope] = policy
+	assert.NilError(t, cl.Update(context.Background(), ws))
+	r.now = func() time.Time { return lowUtilTestNow }
+	r.runOnce(context.Background())
+
+	got, err = getLowUtilWorkload(t, cl, "w")
+	assert.NilError(t, err)
+	assert.Equal(t, got.Status.Phase, v1.WorkloadRunning)
+	now := lowUtilTestNow.Format(time.RFC3339)
+	assert.Equal(t, v1.GetAnnotation(got, v1.WorkloadLowUtilEnforcedAtAnnotation), now)
+	assert.Equal(t, v1.GetAnnotation(got, v1.WorkloadLowUtilNotifiedAtAnnotation), now)
+	timeline := lowUtilTimeline(t, cl, "w")
+	assert.DeepEqual(t, lowUtilReasons(timeline), []string{"Detected_1", "DryRunWouldStop_1", "Enforced_1"})
+	assert.Equal(t, timeline[2].Message, "the low utilization policy is enforced now; the workload will be stopped at "+
+		lowUtilTestNow.Add(30*time.Minute).Format(time.RFC3339)+" if it stays idle")
+
+	r.now = func() time.Time { return lowUtilTestNow.Add(31 * time.Minute) }
+	r.runOnce(context.Background())
+	_, err = getLowUtilWorkload(t, cl, "w")
+	assert.Assert(t, apierrors.IsNotFound(err), err)
+}
+
+// Back to dry run, the countdown is dropped, so enforcing again starts a new one.
+func TestLowUtilEnforcementToDryRunDropsCountdown(t *testing.T) {
+	policy := lowUtilPolicy(v1.LowUtilizationAverage)
+	policy.DryRun = true
+	w := lowUtilTestWorkload("w", "a")
+	lowUtilEnforced(w, 2*time.Hour)
+	src := &fakeGPUWindow{windows: map[string]robustclient.WorkloadGPUWindow{"w-uid": gpuWindow("w-uid", 1, 60)}}
+	r, cl, _ := newLowUtilTestController(t, src, lowUtilTestWorkspace(policy), w)
+
+	r.runOnce(context.Background())
+
+	got, err := getLowUtilWorkload(t, cl, "w")
+	assert.NilError(t, err)
+	assert.Equal(t, got.Status.Phase, v1.WorkloadRunning)
+	assert.Equal(t, v1.GetAnnotation(got, v1.WorkloadLowUtilEnforcedAtAnnotation), "")
+	assert.Equal(t, v1.GetAnnotation(got, v1.WorkloadLowUtilDetectedAtAnnotation),
+		lowUtilTestNow.Add(-2*time.Hour).Format(time.RFC3339))
 }
 
 func TestLowUtilStopsInTheSameRoundWithoutNotifyDelay(t *testing.T) {
@@ -254,7 +327,7 @@ func TestLowUtilStopsInTheSameRoundWithoutNotifyDelay(t *testing.T) {
 
 func TestLowUtilMinModeStopsOnIdleNode(t *testing.T) {
 	w := lowUtilTestWorkload("w", "a", "b")
-	v1.SetAnnotation(w, v1.WorkloadLowUtilDetectedAtAnnotation, lowUtilTestNow.Add(-time.Hour).Format(time.RFC3339))
+	lowUtilEnforced(w, time.Hour)
 	src := &fakeGPUWindow{windows: map[string]robustclient.WorkloadGPUWindow{
 		"w-uid": gpuWindow("w-uid", 90, 60,
 			robustclient.GPUWindowNode{Node: "a", Max: 90, Samples: 60},
@@ -287,17 +360,95 @@ func TestLowUtilDryRunKeepsWorkload(t *testing.T) {
 
 func TestLowUtilActiveResetsDetection(t *testing.T) {
 	w := lowUtilTestWorkload("w", "a")
-	v1.SetAnnotation(w, v1.WorkloadLowUtilDetectedAtAnnotation, lowUtilTestNow.Add(-time.Hour).Format(time.RFC3339))
+	lowUtilEnforced(w, time.Hour)
 	src := &fakeGPUWindow{windows: map[string]robustclient.WorkloadGPUWindow{"w-uid": gpuWindow("w-uid", 50, 60)}}
+	r, cl, _ := newLowUtilTestController(t, src, lowUtilTestWorkspace(lowUtilPolicy(v1.LowUtilizationAverage)), w)
+
+	// Active for less than the cooldown, by default the 1h window: the detection is kept.
+	r.runOnce(context.Background())
+	r.now = func() time.Time { return lowUtilTestNow.Add(59 * time.Minute) }
+	r.runOnce(context.Background())
+	got, err := getLowUtilWorkload(t, cl, "w")
+	assert.NilError(t, err)
+	assert.Equal(t, v1.GetAnnotation(got, v1.WorkloadLowUtilActiveSinceAnnotation), lowUtilTestNow.Format(time.RFC3339))
+	assert.Assert(t, v1.GetAnnotation(got, v1.WorkloadLowUtilDetectedAtAnnotation) != "")
+
+	r.now = func() time.Time { return lowUtilTestNow.Add(time.Hour) }
+	r.runOnce(context.Background())
+	got, err = getLowUtilWorkload(t, cl, "w")
+	assert.NilError(t, err)
+	for _, key := range []string{v1.WorkloadLowUtilDetectedAtAnnotation, v1.WorkloadLowUtilEnforcedAtAnnotation,
+		v1.WorkloadLowUtilActiveSinceAnnotation} {
+		_, marked := got.Annotations[key]
+		assert.Assert(t, !marked, key)
+	}
+	assert.Equal(t, v1.GetAnnotation(got, v1.WorkloadLowUtilNotifiedAtAnnotation),
+		lowUtilTestNow.Add(-time.Hour).Format(time.RFC3339))
+	assert.Equal(t, got.Status.Phase, v1.WorkloadRunning)
+}
+
+// A workload hovering around the threshold keeps one detection, one notice and one countdown.
+func TestLowUtilOscillationKeepsOneCountdown(t *testing.T) {
+	policy := lowUtilPolicy(v1.LowUtilizationAverage)
+	policy.Threshold = 10
+	src := &fakeGPUWindow{}
+	r, cl, rec := newLowUtilTestController(t, src, lowUtilTestWorkspace(policy), lowUtilTestWorkload("w", "a"))
+
+	for i, util := range []float64{8, 12, 8, 12} {
+		at := lowUtilTestNow.Add(time.Duration(i) * 10 * time.Minute)
+		r.now = func() time.Time { return at }
+		src.windows = map[string]robustclient.WorkloadGPUWindow{"w-uid": gpuWindow("w-uid", util, 60)}
+		r.runOnce(context.Background())
+	}
+	got, err := getLowUtilWorkload(t, cl, "w")
+	assert.NilError(t, err)
+	first := lowUtilTestNow.Format(time.RFC3339)
+	assert.Equal(t, v1.GetAnnotation(got, v1.WorkloadLowUtilDetectedAtAnnotation), first)
+	assert.Equal(t, v1.GetAnnotation(got, v1.WorkloadLowUtilEnforcedAtAnnotation), first)
+	assert.Equal(t, v1.GetAnnotation(got, v1.WorkloadLowUtilNotifiedAtAnnotation), first)
+	assert.DeepEqual(t, lowUtilReasons(lowUtilTimeline(t, cl, "w")), []string{"Detected_1"})
+	assert.Equal(t, len(rec.Events), 1)
+
+	r.now = func() time.Time { return lowUtilTestNow.Add(40 * time.Minute) }
+	src.windows = map[string]robustclient.WorkloadGPUWindow{"w-uid": gpuWindow("w-uid", 8, 60)}
+	r.runOnce(context.Background())
+	_, err = getLowUtilWorkload(t, cl, "w")
+	assert.Assert(t, apierrors.IsNotFound(err), err)
+}
+
+func TestLowUtilNoticeRateLimited(t *testing.T) {
+	w := lowUtilTestWorkload("w", "a")
+	notifiedAt := lowUtilTestNow.Add(-50 * time.Minute).Format(time.RFC3339)
+	v1.SetAnnotation(w, v1.WorkloadLowUtilNotifiedAtAnnotation, notifiedAt)
+	src := &fakeGPUWindow{windows: map[string]robustclient.WorkloadGPUWindow{"w-uid": gpuWindow("w-uid", 1, 60)}}
 	r, cl, _ := newLowUtilTestController(t, src, lowUtilTestWorkspace(lowUtilPolicy(v1.LowUtilizationAverage)), w)
 
 	r.runOnce(context.Background())
 
 	got, err := getLowUtilWorkload(t, cl, "w")
 	assert.NilError(t, err)
-	_, marked := got.Annotations[v1.WorkloadLowUtilDetectedAtAnnotation]
-	assert.Assert(t, !marked)
-	assert.Equal(t, got.Status.Phase, v1.WorkloadRunning)
+	assert.Equal(t, v1.GetAnnotation(got, v1.WorkloadLowUtilEnforcedAtAnnotation), lowUtilTestNow.Format(time.RFC3339))
+	assert.Equal(t, v1.GetAnnotation(got, v1.WorkloadLowUtilNotifiedAtAnnotation), notifiedAt)
+
+	// Once the cooldown has passed since the last notice, the owner is told again.
+	w2 := lowUtilTestWorkload("w2", "a")
+	v1.SetAnnotation(w2, v1.WorkloadLowUtilNotifiedAtAnnotation, lowUtilTestNow.Add(-time.Hour).Format(time.RFC3339))
+	src = &fakeGPUWindow{windows: map[string]robustclient.WorkloadGPUWindow{"w2-uid": gpuWindow("w2-uid", 1, 60)}}
+	r, cl, _ = newLowUtilTestController(t, src, lowUtilTestWorkspace(lowUtilPolicy(v1.LowUtilizationAverage)), w2)
+	r.runOnce(context.Background())
+	got, err = getLowUtilWorkload(t, cl, "w2")
+	assert.NilError(t, err)
+	assert.Equal(t, v1.GetAnnotation(got, v1.WorkloadLowUtilNotifiedAtAnnotation), lowUtilTestNow.Format(time.RFC3339))
+}
+
+func TestLowUtilCooldown(t *testing.T) {
+	assert.Equal(t, lowUtilCooldown(&v1.LowUtilizationPolicy{Threshold: 5, Window: "1h"}), time.Hour)
+	rules := lowUtilRulesPolicy()
+	assert.Equal(t, lowUtilCooldown(&rules), 30*time.Minute)
+	rules.Cooldown = "2h"
+	assert.Equal(t, lowUtilCooldown(&rules), 2*time.Hour)
+	rules.Cooldown = "0s"
+	assert.Equal(t, lowUtilCooldown(&rules), time.Duration(0))
 }
 
 func TestLowUtilUnknownKeepsState(t *testing.T) {
@@ -317,7 +468,7 @@ func TestLowUtilUnknownKeepsState(t *testing.T) {
 
 func TestLowUtilMinModeStopsSpreadNodeWithAHostMissing(t *testing.T) {
 	w := lowUtilTestWorkload("w", "vk-spur-1")
-	v1.SetAnnotation(w, v1.WorkloadLowUtilDetectedAtAnnotation, lowUtilTestNow.Add(-time.Hour).Format(time.RFC3339))
+	lowUtilEnforced(w, time.Hour)
 	src := &fakeGPUWindow{windows: map[string]robustclient.WorkloadGPUWindow{
 		"w-uid": gpuWindow("w-uid", 90, 60,
 			robustclient.GPUWindowNode{Node: "host-1", Max: 90, Samples: 60},
@@ -518,6 +669,7 @@ func TestLowUtilDryRunWouldStopAddedOncePerEpisode(t *testing.T) {
 func TestLowUtilRecoveryAddsTimelineEntry(t *testing.T) {
 	marked := lowUtilTestWorkload("marked", "a")
 	v1.SetAnnotation(marked, v1.WorkloadLowUtilDetectedAtAnnotation, lowUtilTestNow.Add(-time.Hour).Format(time.RFC3339))
+	v1.SetAnnotation(marked, v1.WorkloadLowUtilActiveSinceAnnotation, lowUtilTestNow.Add(-time.Hour).Format(time.RFC3339))
 	marked.Status.Conditions = []metav1.Condition{lowUtilDetectedCondition()}
 	unmarked := lowUtilTestWorkload("unmarked", "a")
 	unmarked.Status.Conditions = []metav1.Condition{lowUtilDetectedCondition()}
@@ -546,6 +698,7 @@ func TestLowUtilEpisodesAddNewTimelineEntries(t *testing.T) {
 	policy := lowUtilPolicy(v1.LowUtilizationAverage)
 	policy.DryRun = true
 	policy.NotifyBefore = ""
+	policy.Cooldown = "0s"
 	idle := map[string]robustclient.WorkloadGPUWindow{"w-uid": gpuWindow("w-uid", 1, 60)}
 	active := map[string]robustclient.WorkloadGPUWindow{"w-uid": gpuWindow("w-uid", 50, 60)}
 	src := &fakeGPUWindow{windows: idle}
@@ -684,6 +837,7 @@ func TestLowUtilRulesNewEpisodeAfterRecovery(t *testing.T) {
 	policy := lowUtilRulesPolicy()
 	policy.DryRun = true
 	policy.NotifyBefore = ""
+	policy.Cooldown = "0s"
 	src := lowUtilRulesSource(3, 60, 40, 60)
 	r, cl, _ := newLowUtilTestController(t, src, lowUtilTestWorkspace(policy), lowUtilTestWorkload("w", "a"))
 
@@ -737,6 +891,8 @@ func TestLowUtilRuleReason(t *testing.T) {
 func TestLowUtilRulesNoneMatchRecovers(t *testing.T) {
 	w := lowUtilTestWorkload("w", "a")
 	v1.SetAnnotation(w, v1.WorkloadLowUtilDetectedAtAnnotation, lowUtilTestNow.Add(-time.Hour).Format(time.RFC3339))
+	// Active since the shortest rule window, the default cooldown.
+	v1.SetAnnotation(w, v1.WorkloadLowUtilActiveSinceAnnotation, lowUtilTestNow.Add(-30*time.Minute).Format(time.RFC3339))
 	w.Status.Conditions = []metav1.Condition{lowUtilDetectedCondition()}
 	src := lowUtilRulesSource(20, 60, 40, 60)
 	r, cl, _ := newLowUtilTestController(t, src, lowUtilTestWorkspace(lowUtilRulesPolicy()), w)

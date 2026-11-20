@@ -111,8 +111,9 @@ func TestRobustSyncDeleteToRobust(t *testing.T) {
 	assert.NoError(t, r.syncDeleteToRobust(context.Background(), &v1.Workload{}))
 }
 
-// Without a Robust client for the cluster the workload is retried later, not failed.
-func TestRobustReconcileWithoutClientRequeues(t *testing.T) {
+// Without a Robust client for the cluster the workload is neither failed nor requeued: the
+// periodic reconcileAll syncs it once the cluster has a client.
+func TestRobustReconcileWithoutClientSkips(t *testing.T) {
 	now := metav1.Now()
 	wl := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
 		Name:              "wl1",
@@ -123,7 +124,7 @@ func TestRobustReconcileWithoutClientRequeues(t *testing.T) {
 	r := newRobustSyncer(t, wl)
 	res, err := r.Reconcile(context.Background(), ctrlruntime.Request{NamespacedName: types.NamespacedName{Name: "wl1"}})
 	assert.NoError(t, err)
-	assert.Equal(t, ctrlruntime.Result{RequeueAfter: robustSyncNoClientWait}, res)
+	assert.Equal(t, ctrlruntime.Result{}, res)
 }
 
 func TestRobustReconcileReturnsSyncErrors(t *testing.T) {

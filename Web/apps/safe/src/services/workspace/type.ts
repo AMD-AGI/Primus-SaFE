@@ -61,12 +61,19 @@ export type PvPrefill = {
 }
 
 export type LowUtilizationMode = 'Average' | 'Min'
-export interface LowUtilizationPolicy {
+export interface LowUtilizationRule {
   threshold: number
   window: string
+}
+export interface LowUtilizationPolicy {
+  // Legacy single rule, only used when rules is empty
+  threshold?: number
+  window?: string
+  rules?: LowUtilizationRule[]
   mode: LowUtilizationMode
   gracePeriod?: string
   notifyBefore?: string
+  cooldown?: string
   dryRun?: boolean
 }
 

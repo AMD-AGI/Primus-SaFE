@@ -181,6 +181,7 @@ rules:
     - workload/low-priority
     - workload/privileged
     - workload/long-runtime
+    - workload/low-util-exempt
     - addontemplate
   grantedUsers:
     - workspace-user

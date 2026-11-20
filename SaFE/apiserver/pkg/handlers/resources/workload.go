@@ -266,6 +266,15 @@ func (h *Handler) createWorkloadImplWithHook(c *gin.Context, workload *v1.Worklo
 			"timeout", workload.GetTimeout(), "user", c.GetString(common.UserName))
 		return nil, err
 	}
+	var exemptCond *metav1.Condition
+	if isLowUtilExempt(workload) {
+		if err = h.authWorkloadLowUtilExempt(c, workload, v1.CreateVerb, requestUser, roles); err != nil {
+			klog.ErrorS(err, "failed to auth workload low utilization exemption", "workload", workload.Name,
+				"user", c.GetString(common.UserName))
+			return nil, err
+		}
+		exemptCond = newLowUtilExemptCondition(true, requestUserName(c, requestUser))
+	}
 	if err = h.attachCICDEncryptedAPIKey(c, workload, requestUser); err != nil {
 		klog.ErrorS(err, "failed to attach CICD API key", "workload", workload.Name,
 			"user", c.GetString(common.UserName))
@@ -279,8 +288,19 @@ func (h *Handler) createWorkloadImplWithHook(c *gin.Context, workload *v1.Worklo
 			klog.ErrorS(err, "post-create workload cleanup failed", "workload", workload.Name)
 		}
 	}
-	if err = h.updateWorkloadPhase(c.Request.Context(), workload, v1.WorkloadPending, runtimeCond); err != nil {
+	if err = h.updateWorkloadPhase(c.Request.Context(), workload, v1.WorkloadPending, nil); err != nil {
 		return nil, err
+	}
+	// Written on its own: the Pending patch is dropped once a controller has set a phase.
+	if runtimeCond != nil {
+		if err = h.appendWorkloadCondition(c.Request.Context(), workload, runtimeCond); err != nil {
+			klog.ErrorS(err, "failed to record the runtime extension", "workload", workload.Name)
+		}
+	}
+	if exemptCond != nil {
+		if err = h.appendWorkloadCondition(c.Request.Context(), workload, exemptCond); err != nil {
+			klog.ErrorS(err, "failed to record the low utilization exemption", "workload", workload.Name)
+		}
 	}
 	klog.Infof("create workload, name: %s, user: %s/%s, priority: %d, timeout: %d, resources: %s",
 		workload.Name, c.GetString(common.UserName), c.GetString(common.UserId),
@@ -582,6 +602,13 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+	var exemptCond *metav1.Condition
+	if req.LowUtilizationExempt != nil && *req.LowUtilizationExempt != isLowUtilExempt(adminWorkload) {
+		if err = h.authWorkloadLowUtilExempt(c, adminWorkload, v1.UpdateVerb, requestUser, roles); err != nil {
+			return nil, err
+		}
+		exemptCond = newLowUtilExemptCondition(*req.LowUtilizationExempt, requestUserName(c, requestUser))
+	}
 
 	if err = backoff.ConflictRetry(func() error {
 		var innerError error
@@ -606,6 +633,11 @@ func (h *Handler) patchWorkload(c *gin.Context) (interface{}, error) {
 	if timeoutChange != nil && timeoutChange.condition != nil {
 		if err = h.appendWorkloadCondition(ctx, adminWorkload, timeoutChange.condition); err != nil {
 			klog.ErrorS(err, "failed to record the runtime extension", "name", adminWorkload.Name)
+		}
+	}
+	if exemptCond != nil {
+		if err = h.appendWorkloadCondition(ctx, adminWorkload, exemptCond); err != nil {
+			klog.ErrorS(err, "failed to record the low utilization exemption", "name", adminWorkload.Name)
 		}
 	}
 	klog.Infof("update workload, name: %s, request: %s, request.user: %s",
@@ -679,14 +711,14 @@ func (r *runtimeChange) apply(workload *v1.Workload) {
 }
 
 // authWorkloadCreateRuntime checks the workload/long-runtime grant for a new workload whose timeout
-// is above its runtime ceiling, or none, and marks it with WorkloadRuntimeExtendedByAnnotation. The
-// mark is removed first, so a workload never carries it unless this check set it. When it is set,
-// the timeline entry to record is returned. An unset timeout is filled from the ceiling by the
-// webhook and needs nothing.
+// is above its runtime ceiling, and marks it with WorkloadRuntimeExtendedByAnnotation. The mark is
+// removed first, so a workload never carries it unless this check set it. When it is set, the
+// timeline entry to record is returned. A timeout that is unset or 0 or less, as a clone or resume
+// of a workload without a timeout sends, is filled from the ceiling by the webhook and needs nothing.
 func (h *Handler) authWorkloadCreateRuntime(c *gin.Context, workload *v1.Workload,
 	requestUser *v1.User, roles []*v1.Role) (*metav1.Condition, error) {
 	v1.RemoveAnnotation(workload, v1.WorkloadRuntimeExtendedByAnnotation)
-	if workload.Spec.Timeout == nil {
+	if workload.Spec.Timeout == nil || *workload.Spec.Timeout <= 0 {
 		return nil, nil
 	}
 	ceiling, err := h.runtimeCeiling(c.Request.Context(), workload)
@@ -738,6 +770,59 @@ func (h *Handler) appendWorkloadCondition(ctx context.Context, workload *v1.Work
 		}
 		return err
 	}, defaultRetryCount, defaultRetryDelay)
+}
+
+// isLowUtilExempt reports whether the workload is kept out of the low utilization policy.
+func isLowUtilExempt(workload *v1.Workload) bool {
+	return v1.GetAnnotation(workload, v1.WorkloadLowUtilExemptAnnotation) == v1.TrueStr
+}
+
+// setLowUtilExempt sets or removes WorkloadLowUtilExemptAnnotation, which only the apiserver writes:
+// it drops every primus-safe annotation a request carries.
+func setLowUtilExempt(workload *v1.Workload, exempt bool) {
+	if exempt {
+		v1.SetAnnotation(workload, v1.WorkloadLowUtilExemptAnnotation, v1.TrueStr)
+		return
+	}
+	v1.RemoveAnnotation(workload, v1.WorkloadLowUtilExemptAnnotation)
+}
+
+func newLowUtilExemptCondition(exempt bool, user string) *metav1.Condition {
+	reason, message := "Cleared", "put back under the low utilization policy by "+user
+	if exempt {
+		reason, message = "Set", "exempted from the low utilization policy by "+user
+	}
+	return &metav1.Condition{
+		Type:               string(v1.LowUtilizationExempt),
+		Status:             metav1.ConditionTrue,
+		Reason:             reason,
+		Message:            message,
+		LastTransitionTime: metav1.NewTime(time.Now().UTC()),
+	}
+}
+
+// lowUtilExemptFromConditions tells from the last LowUtilizationExempt entry whether the workload is
+// exempt, for a workload whose object is gone.
+func lowUtilExemptFromConditions(conditions []metav1.Condition) bool {
+	for i := len(conditions) - 1; i >= 0; i-- {
+		if conditions[i].Type == string(v1.LowUtilizationExempt) {
+			return conditions[i].Reason == "Set"
+		}
+	}
+	return false
+}
+
+// authWorkloadLowUtilExempt checks the workload/low-util-exempt grant in the workload's workspace.
+// Among the built-in roles workspace-admin (in the workspaces it manages) and system-admin hold it.
+func (h *Handler) authWorkloadLowUtilExempt(c *gin.Context, workload *v1.Workload, verb v1.RoleVerb,
+	requestUser *v1.User, roles []*v1.Role) error {
+	err := h.authWorkloadAction(c, workload, verb, authority.WorkloadLowUtilExemptKind, requestUser, roles)
+	if err != nil && apierrors.IsForbidden(err) {
+		return commonerrors.NewForbidden(fmt.Sprintf("setting or clearing lowUtilizationExempt on a workload "+
+			"in workspace %s requires the %s grant in the workspace",
+			workload.Spec.Workspace, authority.WorkloadLowUtilExemptKind))
+	}
+	return err
 }
 
 // aboveRuntimeCeiling reports whether a timeout is above a set ceiling. No timeout is above it.
@@ -1145,6 +1230,9 @@ func (h *Handler) generateWorkload(ctx context.Context,
 		if !strings.HasPrefix(key, v1.PrimusSafePrefix) {
 			workload.Annotations[key] = val
 		}
+	}
+	if req.LowUtilizationExempt != nil {
+		setLowUtilExempt(workload, *req.LowUtilizationExempt)
 	}
 	if commonworkload.IsCICDScalingRunnerSet(workload) {
 		if err = h.generateCICDScaleRunnerSet(ctx, workload, requestUser, req.GitHubAuth, req.ProxyAuth); err != nil {
@@ -1610,6 +1698,9 @@ func applyWorkloadPatch(adminWorkload *v1.Workload, req *view.PatchWorkloadReque
 	if req.Timeout != nil {
 		adminWorkload.Spec.Timeout = pointer.Int(*req.Timeout)
 	}
+	if req.LowUtilizationExempt != nil {
+		setLowUtilExempt(adminWorkload, *req.LowUtilizationExempt)
+	}
 	if req.Env != nil {
 		env := maputil.Copy(*req.Env, GithubPAT, common.RunnerToken)
 		// A caller who read the workload without the right to see its env got
@@ -1765,6 +1856,12 @@ func (h *Handler) cvtDBWorkloadToGetResponse(ctx context.Context,
 	}
 	if str := dbutils.ParseNullString(dbWorkload.Conditions); str != "" {
 		json.Unmarshal([]byte(str), &result.Conditions)
+	}
+	result.LowUtilizationExempt = lowUtilExemptFromConditions(result.Conditions)
+	if !v1.IsWorkloadPhaseEnded(v1.WorkloadPhase(result.Phase)) {
+		if adminWorkload, err := h.getAdminWorkload(ctx, result.WorkloadId); err == nil {
+			result.LowUtilizationExempt = isLowUtilExempt(adminWorkload)
+		}
 	}
 	// Pods: prefer the workload_pod table (status offload), fall back to the
 	// legacy pods column so pre-offload workloads still render.

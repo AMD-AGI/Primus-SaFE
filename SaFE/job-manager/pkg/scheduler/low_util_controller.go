@@ -40,6 +40,8 @@ const (
 	lowUtilReasonDetected  = "Detected_"
 	lowUtilReasonWouldStop = "DryRunWouldStop_"
 	lowUtilReasonRecovered = "Recovered_"
+	// A dry-run policy switched to enforcement during the episode.
+	lowUtilReasonEnforced = "Enforced_"
 )
 
 var errLowUtilNoClient = errors.New("no Robust client for the cluster")
@@ -349,6 +351,21 @@ func (r *LowUtilizationController) apply(ctx context.Context,
 		return nil
 	case lowUtilActive:
 		if _, ok := w.GetAnnotations()[v1.WorkloadLowUtilDetectedAtAnnotation]; ok {
+			// The detection is kept until the workload stays active for the cooldown, so a
+			// workload hovering around a threshold keeps one episode and one countdown.
+			now := r.now().UTC()
+			since, err := time.Parse(time.RFC3339, v1.GetAnnotation(w, v1.WorkloadLowUtilActiveSinceAnnotation))
+			if err != nil {
+				since = now
+			}
+			if now.Before(since.Add(lowUtilCooldown(c.policy))) {
+				if err == nil {
+					return nil
+				}
+				orig := w.DeepCopy()
+				v1.SetAnnotation(w, v1.WorkloadLowUtilActiveSinceAnnotation, since.Format(time.RFC3339))
+				return client.IgnoreNotFound(r.Patch(ctx, w, client.MergeFrom(orig)))
+			}
 			if episode, open := lowUtilEpisode(w); open {
 				if err := r.addLowUtilCondition(ctx, w, lowUtilReasonRecovered, episode,
 					fmt.Sprintf("GPU utilization recovered: observed max %.1f%%", d.observed)); err != nil {
@@ -360,6 +377,9 @@ func (r *LowUtilizationController) apply(ctx context.Context,
 	}
 
 	now := r.now().UTC()
+	if err := r.removeLowUtilAnnotations(ctx, w, v1.WorkloadLowUtilActiveSinceAnnotation); err != nil {
+		return err
+	}
 	notifyBefore := parseLowUtilDuration(c.policy.NotifyBefore)
 	description := describeLowUtil(c.policy, d)
 	detectedAt, err := time.Parse(time.RFC3339, v1.GetAnnotation(w, v1.WorkloadLowUtilDetectedAtAnnotation))
@@ -373,12 +393,21 @@ func (r *LowUtilizationController) apply(ctx context.Context,
 		if c.policy.DryRun {
 			r.recorder.Eventf(w, corev1.EventTypeWarning, lowUtilEventReason,
 				"%s; dry run, the workload will not be stopped", description)
-		} else {
-			r.recorder.Eventf(w, corev1.EventTypeWarning, lowUtilEventReason,
-				"%s; the workload will be stopped at %s if it stays idle",
-				description, detectedAt.Add(notifyBefore).Format(time.RFC3339))
 		}
 	}
+	// The countdown of an enforced policy starts at its own mark, so a workload detected in dry
+	// run gets the full notifyBefore once the policy is enforced.
+	enforcedAt, err := time.Parse(time.RFC3339, v1.GetAnnotation(w, v1.WorkloadLowUtilEnforcedAtAnnotation))
+	startEnforcement := !c.policy.DryRun && err != nil
+	if startEnforcement {
+		enforcedAt = now
+	}
+	if c.policy.DryRun {
+		if err = r.removeLowUtilAnnotations(ctx, w, v1.WorkloadLowUtilEnforcedAtAnnotation); err != nil {
+			return err
+		}
+	}
+	stopAt := enforcedAt.Add(notifyBefore)
 	// The annotation is written before the condition, so an episode marked
 	// without its Detected entry (a failed status patch) gets it on a later round.
 	episode, open := lowUtilEpisode(w)
@@ -388,8 +417,7 @@ func (r *LowUtilizationController) apply(ctx context.Context,
 	}
 	outcome := "dry run, the workload will not be stopped"
 	if !c.policy.DryRun {
-		outcome = fmt.Sprintf("the workload will be stopped at %s if it stays idle",
-			detectedAt.Add(notifyBefore).Format(time.RFC3339))
+		outcome = fmt.Sprintf("the workload will be stopped at %s if it stays idle", stopAt.Format(time.RFC3339))
 	}
 	if len(c.policy.Rules) == 0 {
 		if newEpisode {
@@ -407,7 +435,20 @@ func (r *LowUtilizationController) apply(ctx context.Context,
 			}
 		}
 	}
-	if now.Before(detectedAt.Add(notifyBefore)) {
+	// Written after the Detected entries: the owner's notice fires on these marks and lists them.
+	if startEnforcement {
+		if !newEpisode {
+			if err = r.addLowUtilCondition(ctx, w, lowUtilReasonEnforced, episode,
+				"the low utilization policy is enforced now; "+outcome); err != nil {
+				return err
+			}
+		}
+		if err = r.setEnforced(ctx, w, enforcedAt, lowUtilCooldown(c.policy)); err != nil {
+			return err
+		}
+		r.recorder.Eventf(w, corev1.EventTypeWarning, lowUtilEventReason, "%s; %s", description, outcome)
+	}
+	if c.policy.DryRun && now.Before(detectedAt.Add(notifyBefore)) || !c.policy.DryRun && now.Before(stopAt) {
 		return nil
 	}
 	if c.policy.DryRun {
@@ -511,13 +552,51 @@ func (r *LowUtilizationController) setDetected(ctx context.Context, w *v1.Worklo
 	return r.Patch(ctx, w, client.MergeFrom(orig))
 }
 
+// setEnforced starts the stop countdown at at, and marks the owner notified unless a notice
+// went out less than cooldown before.
+func (r *LowUtilizationController) setEnforced(ctx context.Context, w *v1.Workload, at time.Time, cooldown time.Duration) error {
+	orig := w.DeepCopy()
+	v1.SetAnnotation(w, v1.WorkloadLowUtilEnforcedAtAnnotation, at.Format(time.RFC3339))
+	notifiedAt, err := time.Parse(time.RFC3339, v1.GetAnnotation(w, v1.WorkloadLowUtilNotifiedAtAnnotation))
+	if err != nil || !at.Before(notifiedAt.Add(cooldown)) {
+		v1.SetAnnotation(w, v1.WorkloadLowUtilNotifiedAtAnnotation, at.Format(time.RFC3339))
+	}
+	return r.Patch(ctx, w, client.MergeFrom(orig))
+}
+
 func (r *LowUtilizationController) clearDetected(ctx context.Context, w *v1.Workload) error {
-	if _, ok := w.GetAnnotations()[v1.WorkloadLowUtilDetectedAtAnnotation]; !ok {
+	return client.IgnoreNotFound(r.removeLowUtilAnnotations(ctx, w, v1.WorkloadLowUtilDetectedAtAnnotation,
+		v1.WorkloadLowUtilEnforcedAtAnnotation, v1.WorkloadLowUtilActiveSinceAnnotation))
+}
+
+// lowUtilCooldown returns the policy cooldown, by default the shortest rule window.
+func lowUtilCooldown(policy *v1.LowUtilizationPolicy) time.Duration {
+	if policy.Cooldown != "" {
+		return parseLowUtilDuration(policy.Cooldown)
+	}
+	var cooldown time.Duration
+	for _, rule := range policy.EffectiveRules() {
+		if window := parseLowUtilDuration(rule.Window); window > 0 && (cooldown == 0 || window < cooldown) {
+			cooldown = window
+		}
+	}
+	return cooldown
+}
+
+// removeLowUtilAnnotations removes the given annotations, patching only when one is present.
+func (r *LowUtilizationController) removeLowUtilAnnotations(ctx context.Context, w *v1.Workload, keys ...string) error {
+	orig := w.DeepCopy()
+	changed := false
+	for _, key := range keys {
+		if _, ok := w.GetAnnotations()[key]; ok {
+			delete(w.Annotations, key)
+			changed = true
+		}
+	}
+	if !changed {
 		return nil
 	}
-	orig := w.DeepCopy()
-	delete(w.Annotations, v1.WorkloadLowUtilDetectedAtAnnotation)
-	return client.IgnoreNotFound(r.Patch(ctx, w, client.MergeFrom(orig)))
+	return r.Patch(ctx, w, client.MergeFrom(orig))
 }
 
 // parseLowUtilDuration reads an optional policy duration; the webhook has

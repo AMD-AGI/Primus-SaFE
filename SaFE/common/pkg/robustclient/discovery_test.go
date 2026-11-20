@@ -109,23 +109,57 @@ func TestSyncOnceWithoutConfiguredManagementCluster(t *testing.T) {
 	require.NotNil(t, rc.ForCluster("only"))
 	assert.Equal(t, robustAPIEndpoint, rc.ForCluster("only").BaseURL())
 
-	// With several, none may use the in-cluster services.
+	// With several, the one labeled as the control plane cluster is the management cluster.
+	mgmt := readyCluster("a", nil)
+	mgmt.Labels = map[string]string{v1.ClusterControlPlaneLabel: ""}
+	d, rc = newTestDiscovery(t, "", mgmt, readyCluster("b", nil),
+		readyCluster("c", map[string]string{annotationRobustEndpoint: "http://c:8085"}))
+	d.syncOnce(context.Background())
+	require.NotNil(t, rc.ForCluster("a"))
+	assert.Equal(t, robustAPIEndpoint, rc.ForCluster("a").BaseURL())
+	assert.Nil(t, rc.ForCluster("b"))
+	assert.Equal(t, "http://c:8085", rc.ForCluster("c").BaseURL())
+	assert.False(t, d.unresolvedLogged)
+
+	// Without any signal every cluster without the annotation falls back, as before, with a warning.
 	d, rc = newTestDiscovery(t, "", readyCluster("a", nil), readyCluster("b", nil),
 		readyCluster("c", map[string]string{annotationRobustEndpoint: "http://c:8085"}))
 	d.syncOnce(context.Background())
-	assert.Nil(t, rc.ForCluster("a"))
-	assert.Nil(t, rc.ForCluster("b"))
+	require.NotNil(t, rc.ForCluster("a"))
+	assert.Equal(t, robustAPIEndpoint, rc.ForCluster("a").BaseURL())
+	require.NotNil(t, rc.ForCluster("b"))
+	assert.Equal(t, robustAPIEndpoint, rc.ForCluster("b").BaseURL())
 	assert.Equal(t, "http://c:8085", rc.ForCluster("c").BaseURL())
+	assert.True(t, d.unresolvedLogged)
 }
 
 func TestFallbackCluster(t *testing.T) {
+	labeled := func(name string) v1.Cluster {
+		c := readyCluster(name, nil)
+		c.Labels = map[string]string{v1.ClusterControlPlaneLabel: ""}
+		return *c
+	}
 	one := []v1.Cluster{*readyCluster("x", nil)}
 	two := []v1.Cluster{*readyCluster("x", nil), *readyCluster("y", nil)}
-	assert.Equal(t, "m", fallbackCluster("m", two))
-	assert.Equal(t, "m", fallbackCluster("m", one))
-	assert.Equal(t, "x", fallbackCluster("", one))
-	assert.Equal(t, "", fallbackCluster("", two))
-	assert.Equal(t, "", fallbackCluster("", nil))
+	for _, tc := range []struct {
+		name       string
+		configured string
+		clusters   []v1.Cluster
+		local      string
+		all        bool
+	}{
+		{"configured among several", "m", two, "m", false},
+		{"configured with one", "m", one, "m", false},
+		{"single cluster", "", one, "x", false},
+		{"no cluster", "", nil, "", false},
+		{"one labeled", "", []v1.Cluster{*readyCluster("x", nil), labeled("y")}, "y", false},
+		{"none labeled", "", two, "", true},
+		{"several labeled", "", []v1.Cluster{labeled("x"), labeled("y")}, "", true},
+	} {
+		local, all := fallbackCluster(tc.configured, tc.clusters)
+		assert.Equal(t, tc.local, local, tc.name)
+		assert.Equal(t, tc.all, all, tc.name)
+	}
 }
 
 func tokenEcho(t *testing.T) (*httptest.Server, *string) {

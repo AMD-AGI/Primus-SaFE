@@ -139,10 +139,11 @@ func (r *NodeRobustSyncer) Reconcile(ctx context.Context, req ctrlruntime.Reques
 		}
 	}
 
+	// Without a Robust client the periodic reconcileAll syncs the cluster once it gets one.
 	cc := r.robustClient.ForCluster(cluster)
 	if cc == nil {
-		klog.V(4).Infof("[node-robust-syncer] cluster %s not available, retry node %s later", cluster, node.Name)
-		return ctrlruntime.Result{RequeueAfter: robustSyncNoClientWait}, nil
+		klog.V(4).Infof("[node-robust-syncer] cluster %s not available, skip node %s", cluster, node.Name)
+		return ctrlruntime.Result{}, nil
 	}
 	if !r.syncEnabled(ctx, cluster) || r.hasNoNodeSync(cluster) {
 		return ctrlruntime.Result{}, nil
@@ -181,7 +182,7 @@ func (r *NodeRobustSyncer) deleteFromRobust(ctx context.Context, name, cluster s
 	}
 	cc := r.robustClient.ForCluster(cluster)
 	if cc == nil {
-		return ctrlruntime.Result{RequeueAfter: robustSyncNoClientWait}, nil
+		return ctrlruntime.Result{}, nil
 	}
 	if !r.syncEnabled(ctx, cluster) || r.hasNoNodeSync(cluster) {
 		r.synced.CompareAndDelete(name, cluster)

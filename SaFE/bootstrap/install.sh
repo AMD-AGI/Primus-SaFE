@@ -34,6 +34,12 @@ if [[ -n "$workload_low_utilization_enable" && "$workload_low_utilization_enable
   echo "Error: workload_low_utilization_enable is '$workload_low_utilization_enable'; set it to true or false" >&2
   exit 1
 fi
+# Name of the Cluster CR SaFE runs in (robust.management_cluster); empty lets SaFE work it out.
+robust_management_cluster="${robust_management_cluster:-}"
+if [[ -n "$robust_management_cluster" && ! "$robust_management_cluster" =~ ^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$ ]]; then
+  echo "Error: robust_management_cluster is '$robust_management_cluster'; set it to the name of a Cluster CR" >&2
+  exit 1
+fi
 
 # Do not modify the value of namespace
 NAMESPACE="primus-safe"
@@ -312,6 +318,7 @@ echo "✅ Sandbox Env Secret: \"$sandbox_env_secret\""
 echo "✅ Web Root Redirect: \"$web_root_redirect\""
 echo "✅ Sandbox Admission Actor: \"$sandbox_admission_actor\""
 echo "✅ Low Utilization Enable: \"${workload_low_utilization_enable:-false}\""
+echo "✅ Robust Management Cluster: \"$robust_management_cluster\""
 
 replicas=1
 cpu=2000m
@@ -465,6 +472,9 @@ fi
 if [[ -n "$workload_low_utilization_enable" ]]; then
   sed -i '/^workload:/,/^[a-z]/ s/^  low_utilization_enable: .*/  low_utilization_enable: '"$workload_low_utilization_enable"'/' "$values_yaml"
 fi
+if [[ -n "$robust_management_cluster" ]]; then
+  sed -i '/^robust:/,/^[a-z]/ s/^  management_cluster: .*/  management_cluster: "'"$robust_management_cluster"'"/' "$values_yaml"
+fi
 
 install_or_upgrade_helm_chart "primus-pgo" "$values_yaml"
 echo "⏳ Waiting for Postgres Operator pod..."
@@ -590,6 +600,7 @@ sandbox_env_secret=$sandbox_env_secret
 web_root_redirect=$web_root_redirect
 sandbox_admission_actor=$sandbox_admission_actor
 workload_low_utilization_enable=$workload_low_utilization_enable
+robust_management_cluster=$robust_management_cluster
 EOF
 if [[ -n "$auth_client_secret_installed" ]]; then
   printf 'auth_client_secret=%s\n' "$auth_client_secret_installed" >> .env

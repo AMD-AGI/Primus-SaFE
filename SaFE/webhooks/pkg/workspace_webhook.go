@@ -935,7 +935,8 @@ func validateLowUtilization(workspace *v1.Workspace) error {
 			errs = append(errs, fmt.Errorf("%s: invalid mode %q, supported: [%s, %s]",
 				prefix, policy.Mode, v1.LowUtilizationAverage, v1.LowUtilizationMin))
 		}
-		for name, value := range map[string]string{"gracePeriod": policy.GracePeriod, "notifyBefore": policy.NotifyBefore} {
+		for name, value := range map[string]string{"gracePeriod": policy.GracePeriod, "notifyBefore": policy.NotifyBefore,
+			"cooldown": policy.Cooldown} {
 			if value == "" {
 				continue
 			}

@@ -61,6 +61,9 @@ type Discovery struct {
 	// caErrLogged holds, per cluster, the CA failure last reported, so each
 	// failure is reported once.
 	caErrLogged map[string]string
+	// unresolvedLogged is set once the lack of a management cluster among
+	// several Cluster CRs has been reported.
+	unresolvedLogged bool
 }
 
 // NewDiscovery creates a discovery that syncs Cluster CRs to robust client endpoints.
@@ -110,9 +113,18 @@ func (d *Discovery) syncOnce(ctx context.Context) {
 		return
 	}
 
-	local := fallbackCluster(d.managementCluster(), clusterList.Items)
+	local, all := fallbackCluster(d.managementCluster(), clusterList.Items)
+	if all && !d.unresolvedLogged {
+		d.unresolvedLogged = true
+		klog.Warningf("[robustclient] %d Cluster CRs and none resolves as the management cluster: set "+
+			"robust.management_cluster (.env robust_management_cluster) or label exactly one Cluster %s; until then "+
+			"every cluster without the %s annotation uses the in-cluster Robust services",
+			len(clusterList.Items), v1.ClusterControlPlaneLabel, annotationRobustEndpoint)
+	} else if !all {
+		d.unresolvedLogged = false
+	}
 	defaultEndpoint := ""
-	if local != "" {
+	if local != "" || all {
 		defaultEndpoint = d.defaultEndpoint(ctx)
 	}
 	seen := make(map[string]bool, len(clusterList.Items))
@@ -126,7 +138,7 @@ func (d *Discovery) syncOnce(ctx context.Context) {
 		}
 
 		fallback := ""
-		if name == local {
+		if name == local || all {
 			fallback = defaultEndpoint
 		}
 		endpoint := resolveRobustEndpoint(cluster, fallback)
@@ -224,15 +236,29 @@ func (d *Discovery) readCA(ctx context.Context, ref string) ([]byte, error) {
 
 // fallbackCluster returns the only cluster allowed to use the in-cluster Robust
 // services: the configured management cluster or, when none is configured, the
-// single Cluster CR. With several Cluster CRs and none configured there is none.
-func fallbackCluster(configured string, clusters []v1.Cluster) string {
+// single Cluster CR, else the only one labeled as the control plane cluster.
+// all is true when several Cluster CRs leave it unknown; every cluster may then
+// fall back, as before the management cluster existed.
+func fallbackCluster(configured string, clusters []v1.Cluster) (local string, all bool) {
 	if configured != "" {
-		return configured
+		return configured, false
 	}
-	if len(clusters) == 1 {
-		return clusters[0].Name
+	switch len(clusters) {
+	case 0:
+		return "", false
+	case 1:
+		return clusters[0].Name, false
 	}
-	return ""
+	for i := range clusters {
+		if !v1.HasLabel(&clusters[i], v1.ClusterControlPlaneLabel) {
+			continue
+		}
+		if local != "" {
+			return "", true
+		}
+		local = clusters[i].Name
+	}
+	return local, local == ""
 }
 
 // secretToken returns a token source reading key service-token of the Secret

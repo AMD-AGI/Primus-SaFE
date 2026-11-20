@@ -68,8 +68,8 @@ func (w *WorkloadInformer) OnUpdate(oldObj, newObj interface{}) {
 		klog.Errorf("Failed to convert oldObj to Workload")
 		return
 	}
-	if v1.GetAnnotation(oldWorkload, v1.WorkloadLowUtilDetectedAtAnnotation) == "" &&
-		v1.GetAnnotation(workload, v1.WorkloadLowUtilDetectedAtAnnotation) != "" {
+	if notifiedAt := v1.GetAnnotation(workload, v1.WorkloadLowUtilNotifiedAtAnnotation); notifiedAt != "" &&
+		notifiedAt != v1.GetAnnotation(oldWorkload, v1.WorkloadLowUtilNotifiedAtAnnotation) {
 		w.submitLowUtilizationNotification(workload)
 	}
 	if workload.Status.Phase == "" {
@@ -101,13 +101,14 @@ func (w *WorkloadInformer) submitWorkloadNotification(workload *v1.Workload) {
 }
 
 // submitLowUtilizationNotification tells the owner when the workload will be
-// stopped for low GPU utilization, once per detection.
+// stopped for low GPU utilization, once per stop countdown job-manager marks
+// as notified. job-manager writes that mark after the Detected entries.
 func (w *WorkloadInformer) submitLowUtilizationNotification(workload *v1.Workload) {
 	ctx := context.Background()
-	detectedAt := v1.GetAnnotation(workload, v1.WorkloadLowUtilDetectedAtAnnotation)
-	detected, err := time.Parse(time.RFC3339, detectedAt)
+	enforcedAt := v1.GetAnnotation(workload, v1.WorkloadLowUtilEnforcedAtAnnotation)
+	enforced, err := time.Parse(time.RFC3339, enforcedAt)
 	if err != nil {
-		klog.Errorf("Invalid low utilization detection time %q of workload %s", detectedAt, workload.Name)
+		klog.Errorf("Invalid low utilization enforcement time %q of workload %s", enforcedAt, workload.Name)
 		return
 	}
 	workspace := &v1.Workspace{}
@@ -123,14 +124,8 @@ func (w *WorkloadInformer) submitLowUtilizationNotification(workload *v1.Workloa
 	notice := &workloadtopic.LowUtilizationNotice{
 		Threshold: policy.Threshold,
 		Window:    policy.Window,
-		StopTime:  detected.Add(notifyBefore).UTC().Format(time.DateTime) + " UTC",
+		StopTime:  enforced.Add(notifyBefore).UTC().Format(time.DateTime) + " UTC",
 		Rules:     lowUtilizationDetections(workload),
-	}
-	// job-manager writes the detected-at mark before the Detected entries, so they may not be here yet.
-	if len(notice.Rules) == 0 {
-		for _, rule := range policy.Rules {
-			notice.Rules = append(notice.Rules, fmt.Sprintf("low GPU utilization below %d%% for %s", rule.Threshold, rule.Window))
-		}
 	}
 	notifyData := map[string]interface{}{
 		"topic":          model.TopicWorkload,
@@ -138,7 +133,8 @@ func (w *WorkloadInformer) submitLowUtilizationNotification(workload *v1.Workloa
 		"workload":       workload,
 		"lowUtilization": notice,
 	}
-	uid := fmt.Sprintf("%s-%s-%s", workload.Name, workloadtopic.ConditionLowUtilization, detectedAt)
+	uid := fmt.Sprintf("%s-%s-%s", workload.Name, workloadtopic.ConditionLowUtilization,
+		v1.GetAnnotation(workload, v1.WorkloadLowUtilNotifiedAtAnnotation))
 	w.submit(ctx, workload, uid, notifyData)
 }
 
