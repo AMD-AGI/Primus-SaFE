@@ -31,8 +31,10 @@ var lowUtilTestNow = time.Date(2026, 1, 2, 12, 0, 0, 0, time.UTC)
 
 type fakeGPUWindow struct {
 	windows map[string]robustclient.WorkloadGPUWindow
-	err     error
-	calls   []lowUtilQuery
+	// Results of one window, used instead of windows when present.
+	byWindow map[string]map[string]robustclient.WorkloadGPUWindow
+	err      error
+	calls    []lowUtilQuery
 }
 
 func (f *fakeGPUWindow) GetWorkloadGPUWindow(_ context.Context, cluster string,
@@ -44,9 +46,13 @@ func (f *fakeGPUWindow) GetWorkloadGPUWindow(_ context.Context, cluster string,
 	if step != lowUtilStep {
 		return nil, fmt.Errorf("unexpected step %s", step)
 	}
+	results := f.windows
+	if byUID, ok := f.byWindow[window]; ok {
+		results = byUID
+	}
 	var out []robustclient.WorkloadGPUWindow
 	for _, uid := range uids {
-		if w, ok := f.windows[uid]; ok {
+		if w, ok := results[uid]; ok {
 			out = append(out, w)
 		}
 	}
@@ -116,6 +122,7 @@ func getLowUtilWorkload(t *testing.T, cl ctrlclient.Client, name string) (*v1.Wo
 
 func TestDecideLowUtilAverage(t *testing.T) {
 	policy := lowUtilPolicy(v1.LowUtilizationAverage)
+	mode, rule := policy.Mode, policy.EffectiveRules()[0]
 	idle := gpuWindow("u", 3, 60)
 	busy := gpuWindow("u", 40, 60)
 	sparse := gpuWindow("u", 3, 53)
@@ -123,65 +130,66 @@ func TestDecideLowUtilAverage(t *testing.T) {
 	noExpected.Overall.ExpectedSamples = 0
 	edge := gpuWindow("u", 3, 54)
 
-	d := decideLowUtil(&policy, &idle)
+	d := decideLowUtil(mode, rule, &idle)
 	assert.Equal(t, d.state, lowUtilIdle)
 	assert.Equal(t, d.observed, 3.0)
-	assert.Equal(t, decideLowUtil(&policy, &busy).state, lowUtilActive)
-	assert.Equal(t, decideLowUtil(&policy, &sparse).state, lowUtilUnknown)
-	assert.Equal(t, decideLowUtil(&policy, &noExpected).state, lowUtilUnknown)
-	assert.Equal(t, decideLowUtil(&policy, &edge).state, lowUtilIdle)
-	assert.Equal(t, decideLowUtil(&policy, nil).state, lowUtilUnknown)
+	assert.Equal(t, decideLowUtil(mode, rule, &busy).state, lowUtilActive)
+	assert.Equal(t, decideLowUtil(mode, rule, &sparse).state, lowUtilUnknown)
+	assert.Equal(t, decideLowUtil(mode, rule, &noExpected).state, lowUtilUnknown)
+	assert.Equal(t, decideLowUtil(mode, rule, &edge).state, lowUtilIdle)
+	assert.Equal(t, decideLowUtil(mode, rule, nil).state, lowUtilUnknown)
 
 	// The threshold is exclusive.
 	at := gpuWindow("u", 5, 60)
-	assert.Equal(t, decideLowUtil(&policy, &at).state, lowUtilActive)
+	assert.Equal(t, decideLowUtil(mode, rule, &at).state, lowUtilActive)
 }
 
 func TestDecideLowUtilMin(t *testing.T) {
 	policy := lowUtilPolicy(v1.LowUtilizationMin)
+	mode, rule := policy.Mode, policy.EffectiveRules()[0]
 	n := func(name string, max float64, samples int) robustclient.GPUWindowNode {
 		return robustclient.GPUWindowNode{Node: name, Max: max, Samples: samples}
 	}
 
 	oneIdle := gpuWindow("u", 80, 60, n("a", 80, 60), n("b", 2, 60))
-	d := decideLowUtil(&policy, &oneIdle)
+	d := decideLowUtil(mode, rule, &oneIdle)
 	assert.Equal(t, d.state, lowUtilIdle)
 	assert.Equal(t, d.node, "b")
 	assert.Equal(t, d.observed, 2.0)
 
 	allBusy := gpuWindow("u", 80, 60, n("a", 80, 60), n("b", 60, 60))
-	d = decideLowUtil(&policy, &allBusy)
+	d = decideLowUtil(mode, rule, &allBusy)
 	assert.Equal(t, d.state, lowUtilActive)
 	assert.Equal(t, d.observed, 60.0)
 
 	// One SaFE virtual node spread over several hosts: Robust reports each host key.
 	spread := gpuWindow("u", 80, 60, n("host-1", 80, 60), n("host-2", 70, 60), n("host-3", 1, 60))
-	d = decideLowUtil(&policy, &spread)
+	d = decideLowUtil(mode, rule, &spread)
 	assert.Equal(t, d.state, lowUtilIdle)
 	assert.Equal(t, d.node, "host-3")
 
 	// A host without an exporter is absent and cannot make the workload active.
 	missingHost := gpuWindow("u", 80, 60, n("host-2", 2, 60))
-	assert.Equal(t, decideLowUtil(&policy, &missingHost).state, lowUtilIdle)
+	assert.Equal(t, decideLowUtil(mode, rule, &missingHost).state, lowUtilIdle)
 	missingHostBusy := gpuWindow("u", 80, 60, n("host-1", 80, 60))
-	assert.Equal(t, decideLowUtil(&policy, &missingHostBusy).state, lowUtilActive)
+	assert.Equal(t, decideLowUtil(mode, rule, &missingHostBusy).state, lowUtilActive)
 
 	// Nodes below the coverage threshold are ignored, whatever their value.
 	sparseIdle := gpuWindow("u", 80, 60, n("a", 80, 60), n("b", 2, 40))
-	d = decideLowUtil(&policy, &sparseIdle)
+	d = decideLowUtil(mode, rule, &sparseIdle)
 	assert.Equal(t, d.state, lowUtilActive)
 	assert.Equal(t, d.observed, 80.0)
 	sparseBusy := gpuWindow("u", 80, 60, n("a", 80, 40), n("b", 2, 60))
-	assert.Equal(t, decideLowUtil(&policy, &sparseBusy).node, "b")
+	assert.Equal(t, decideLowUtil(mode, rule, &sparseBusy).node, "b")
 
 	// No covered node, or none reported at all.
 	noneCovered := gpuWindow("u", 80, 60, n("a", 2, 40), n("b", 2, 10))
-	assert.Equal(t, decideLowUtil(&policy, &noneCovered).state, lowUtilUnknown)
+	assert.Equal(t, decideLowUtil(mode, rule, &noneCovered).state, lowUtilUnknown)
 	noNodes := gpuWindow("u", 80, 60)
-	assert.Equal(t, decideLowUtil(&policy, &noNodes).state, lowUtilUnknown)
+	assert.Equal(t, decideLowUtil(mode, rule, &noNodes).state, lowUtilUnknown)
 
 	sparseOverall := gpuWindow("u", 80, 30, n("a", 80, 60), n("b", 2, 60))
-	assert.Equal(t, decideLowUtil(&policy, &sparseOverall).state, lowUtilUnknown)
+	assert.Equal(t, decideLowUtil(mode, rule, &sparseOverall).state, lowUtilUnknown)
 }
 
 func TestLowUtilFirstDetectionMarksAndNotifies(t *testing.T) {
@@ -569,4 +577,187 @@ func TestLowUtilEpisodeSurvivesTrimmedHistory(t *testing.T) {
 	r.runOnce(context.Background())
 
 	assert.DeepEqual(t, lowUtilReasons(lowUtilTimeline(t, cl, "w")), []string{"Detected_2", "Recovered_2", "Detected_3"})
+}
+
+// lowUtilRulesPolicy is the 11%/30m or 30%/1h policy.
+func lowUtilRulesPolicy() v1.LowUtilizationPolicy {
+	return v1.LowUtilizationPolicy{
+		Rules:        []v1.LowUtilizationRule{{Threshold: 11, Window: "30m"}, {Threshold: 30, Window: "1h"}},
+		Mode:         v1.LowUtilizationAverage,
+		NotifyBefore: "30m",
+	}
+}
+
+func lowUtilCalls(src *fakeGPUWindow) []string {
+	calls := make([]string, 0, len(src.calls))
+	for _, q := range src.calls {
+		calls = append(calls, q.cluster+"/"+q.window)
+	}
+	return calls
+}
+
+func lowUtilRulesSource(max30m float64, samples30m int, max1h float64, samples1h int) *fakeGPUWindow {
+	return &fakeGPUWindow{byWindow: map[string]map[string]robustclient.WorkloadGPUWindow{
+		"30m": {"w-uid": gpuWindow("w-uid", max30m, samples30m)},
+		"1h":  {"w-uid": gpuWindow("w-uid", max1h, samples1h)},
+	}}
+}
+
+func TestLowUtilRulesFirstRuleMatches(t *testing.T) {
+	src := lowUtilRulesSource(3, 60, 40, 60)
+	r, cl, _ := newLowUtilTestController(t, src, lowUtilTestWorkspace(lowUtilRulesPolicy()), lowUtilTestWorkload("w", "a"))
+
+	r.runOnce(context.Background())
+
+	assert.DeepEqual(t, lowUtilCalls(src), []string{"c1/30m", "c1/1h"})
+	timeline := lowUtilTimeline(t, cl, "w")
+	assert.DeepEqual(t, lowUtilReasons(timeline), []string{"Detected_1"})
+	assert.Assert(t, strings.HasPrefix(timeline[0].Message, fmt.Sprintf(
+		"low GPU utilization: mode %s, rule 1: threshold 11%%, window 30m, observed max 3.0%%; ", v1.LowUtilizationAverage)),
+		timeline[0].Message)
+}
+
+func TestLowUtilRulesSecondRuleMatches(t *testing.T) {
+	src := lowUtilRulesSource(20, 60, 25, 60)
+	r, cl, rec := newLowUtilTestController(t, src, lowUtilTestWorkspace(lowUtilRulesPolicy()), lowUtilTestWorkload("w", "a"))
+
+	r.runOnce(context.Background())
+
+	timeline := lowUtilTimeline(t, cl, "w")
+	assert.DeepEqual(t, lowUtilReasons(timeline), []string{"Detected_1"})
+	assert.Assert(t, strings.Contains(timeline[0].Message, "rule 2: threshold 30%, window 1h, observed max 25.0%"), timeline[0].Message)
+	got, err := getLowUtilWorkload(t, cl, "w")
+	assert.NilError(t, err)
+	assert.Equal(t, v1.GetAnnotation(got, v1.WorkloadLowUtilDetectedAtAnnotation), lowUtilTestNow.Format(time.RFC3339))
+	assert.Equal(t, len(rec.Events), 1)
+}
+
+func TestLowUtilRulesNoneMatchRecovers(t *testing.T) {
+	w := lowUtilTestWorkload("w", "a")
+	v1.SetAnnotation(w, v1.WorkloadLowUtilDetectedAtAnnotation, lowUtilTestNow.Add(-time.Hour).Format(time.RFC3339))
+	w.Status.Conditions = []metav1.Condition{lowUtilDetectedCondition()}
+	src := lowUtilRulesSource(20, 60, 40, 60)
+	r, cl, _ := newLowUtilTestController(t, src, lowUtilTestWorkspace(lowUtilRulesPolicy()), w)
+
+	r.runOnce(context.Background())
+
+	assert.DeepEqual(t, lowUtilReasons(lowUtilTimeline(t, cl, "w")), []string{"Detected_1", "Recovered_1"})
+	got, err := getLowUtilWorkload(t, cl, "w")
+	assert.NilError(t, err)
+	_, marked := got.Annotations[v1.WorkloadLowUtilDetectedAtAnnotation]
+	assert.Assert(t, !marked)
+	assert.Equal(t, got.Status.Phase, v1.WorkloadRunning)
+}
+
+func TestLowUtilRulesUnknownAndActiveIsUnknown(t *testing.T) {
+	w := lowUtilTestWorkload("w", "a")
+	detectedAt := lowUtilTestNow.Add(-time.Hour).Format(time.RFC3339)
+	v1.SetAnnotation(w, v1.WorkloadLowUtilDetectedAtAnnotation, detectedAt)
+	w.Status.Conditions = []metav1.Condition{lowUtilDetectedCondition()}
+	src := lowUtilRulesSource(20, 60, 1, 20)
+	r, cl, _ := newLowUtilTestController(t, src, lowUtilTestWorkspace(lowUtilRulesPolicy()), w)
+
+	r.runOnce(context.Background())
+
+	got, err := getLowUtilWorkload(t, cl, "w")
+	assert.NilError(t, err)
+	assert.Equal(t, got.Status.Phase, v1.WorkloadRunning)
+	assert.Equal(t, v1.GetAnnotation(got, v1.WorkloadLowUtilDetectedAtAnnotation), detectedAt)
+	assert.DeepEqual(t, lowUtilReasons(lowUtilTimeline(t, cl, "w")), []string{"Detected_1"})
+}
+
+func TestLowUtilLegacyPolicyDescription(t *testing.T) {
+	src := &fakeGPUWindow{windows: map[string]robustclient.WorkloadGPUWindow{"w-uid": gpuWindow("w-uid", 1, 60)}}
+	r, cl, _ := newLowUtilTestController(t, src,
+		lowUtilTestWorkspace(lowUtilPolicy(v1.LowUtilizationAverage)), lowUtilTestWorkload("w", "a"))
+
+	r.runOnce(context.Background())
+
+	assert.DeepEqual(t, lowUtilCalls(src), []string{"c1/1h"})
+	timeline := lowUtilTimeline(t, cl, "w")
+	assert.Equal(t, len(timeline), 1)
+	assert.Assert(t, strings.HasPrefix(timeline[0].Message, fmt.Sprintf(
+		"low GPU utilization: mode %s, threshold 5%%, window 1h, observed max 1.0%%; ", v1.LowUtilizationAverage)),
+		timeline[0].Message)
+}
+
+// lowUtilKeptWorkload carries a finalizer, so a deleted workload stays readable.
+func lowUtilKeptWorkload() *v1.Workload {
+	w := lowUtilTestWorkload("w", "a")
+	w.Finalizers = []string{"test/keep"}
+	return w
+}
+
+func TestLowUtilMaxRuntimeStops(t *testing.T) {
+	policy := lowUtilRulesPolicy()
+	policy.MaxRuntime = "1h"
+	src := lowUtilRulesSource(50, 60, 50, 60)
+	r, cl, _ := newLowUtilTestController(t, src, lowUtilTestWorkspace(policy), lowUtilKeptWorkload())
+
+	r.runOnce(context.Background())
+
+	assert.Equal(t, len(src.calls), 0)
+	got, err := getLowUtilWorkload(t, cl, "w")
+	assert.NilError(t, err)
+	assert.Equal(t, got.Status.Phase, v1.WorkloadStopped)
+	assert.Assert(t, !got.GetDeletionTimestamp().IsZero())
+	var stopped *metav1.Condition
+	for i := range got.Status.Conditions {
+		if got.Status.Conditions[i].Type == string(v1.AdminStopped) {
+			stopped = &got.Status.Conditions[i]
+		}
+	}
+	assert.Assert(t, stopped != nil)
+	assert.Equal(t, stopped.Message, "stopped: running longer than 1h (workspace policy)")
+}
+
+func TestLowUtilMaxRuntimeNotReached(t *testing.T) {
+	policy := v1.LowUtilizationPolicy{MaxRuntime: "3h"}
+	src := &fakeGPUWindow{}
+	r, cl, _ := newLowUtilTestController(t, src, lowUtilTestWorkspace(policy), lowUtilTestWorkload("w", "a"))
+
+	r.runOnce(context.Background())
+
+	assert.Equal(t, len(src.calls), 0)
+	got, err := getLowUtilWorkload(t, cl, "w")
+	assert.NilError(t, err)
+	assert.Equal(t, got.Status.Phase, v1.WorkloadRunning)
+	assert.Equal(t, len(lowUtilTimeline(t, cl, "w")), 0)
+}
+
+func TestLowUtilMaxRuntimeDryRunRecordsOnce(t *testing.T) {
+	policy := v1.LowUtilizationPolicy{MaxRuntime: "1h", DryRun: true}
+	src := &fakeGPUWindow{}
+	r, cl, _ := newLowUtilTestController(t, src, lowUtilTestWorkspace(policy), lowUtilTestWorkload("w", "a"))
+
+	r.runOnce(context.Background())
+	r.runOnce(context.Background())
+
+	timeline := lowUtilTimeline(t, cl, "w")
+	assert.DeepEqual(t, lowUtilReasons(timeline), []string{"DryRunMaxRuntime"})
+	assert.Equal(t, timeline[0].Message, "dry run: the workload would be stopped now for running longer than 1h")
+	got, err := getLowUtilWorkload(t, cl, "w")
+	assert.NilError(t, err)
+	assert.Equal(t, got.Status.Phase, v1.WorkloadRunning)
+	assert.Equal(t, len(src.calls), 0)
+}
+
+func TestLowUtilMaxRuntimeWithoutRobustClient(t *testing.T) {
+	policy := lowUtilPolicy(v1.LowUtilizationAverage)
+	policy.MaxRuntime = "1h"
+	young := lowUtilTestWorkload("young", "a")
+	young.Status.StartTime = &metav1.Time{Time: lowUtilTestNow.Add(-40 * time.Minute)}
+	src := &fakeGPUWindow{err: errLowUtilNoClient}
+	r, cl, _ := newLowUtilTestController(t, src, lowUtilTestWorkspace(policy), lowUtilKeptWorkload(), young)
+
+	r.runOnce(context.Background())
+
+	got, err := getLowUtilWorkload(t, cl, "w")
+	assert.NilError(t, err)
+	assert.Equal(t, got.Status.Phase, v1.WorkloadStopped)
+	assert.Assert(t, !got.GetDeletionTimestamp().IsZero())
+	assert.DeepEqual(t, lowUtilCalls(src), []string{"c1/1h"})
+	got, err = getLowUtilWorkload(t, cl, "young")
+	assert.NilError(t, err)
+	assert.Equal(t, got.Status.Phase, v1.WorkloadRunning)
 }

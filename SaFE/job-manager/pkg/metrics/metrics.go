@@ -101,6 +101,12 @@ var (
 		Help: "Total workloads stopped by a low GPU utilization policy, by cluster.",
 	}, []string{"cluster"})
 
+	// LowUtilMaxRuntimeStoppedTotal counts workloads stopped for running longer than the maxRuntime of their policy.
+	LowUtilMaxRuntimeStoppedTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "safe_low_util_max_runtime_stopped_total",
+		Help: "Total workloads stopped for running longer than the maxRuntime of their workspace policy, by cluster.",
+	}, []string{"cluster"})
+
 	// LowUtilSkippedNoDataTotal counts evaluations left undecided because Robust
 	// returned too few samples, so the workload's state was not changed.
 	LowUtilSkippedNoDataTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -139,6 +145,7 @@ func init() {
 		CICDFailureEnrichmentDuration,
 		LowUtilDetectedTotal,
 		LowUtilStoppedTotal,
+		LowUtilMaxRuntimeStoppedTotal,
 		LowUtilSkippedNoDataTotal,
 		LowUtilClusterSkippedTotal,
 	)

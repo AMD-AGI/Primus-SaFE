@@ -890,6 +890,8 @@ func (v *WorkspaceValidator) validateRequiredParams(workspace *v1.Workspace) err
 	return nil
 }
 
+const maxLowUtilizationRules = 5
+
 // validateLowUtilization checks every scope's low-utilization policy.
 func validateLowUtilization(workspace *v1.Workspace) error {
 	validScopes := sets.NewSetByKeys(string(v1.TrainScope), string(v1.InferScope), string(v1.AuthoringScope),
@@ -901,15 +903,42 @@ func validateLowUtilization(workspace *v1.Workspace) error {
 		if !validScopes.Has(string(scope)) {
 			errs = append(errs, fmt.Errorf("%s: invalid scope", prefix))
 		}
-		if policy.Threshold < 0 || policy.Threshold > 100 {
-			errs = append(errs, fmt.Errorf("%s: threshold must be between 0 and 100, got %d", prefix, policy.Threshold))
+		legacy := policy.Threshold != 0 || policy.Window != ""
+		switch {
+		case legacy && len(policy.Rules) > 0:
+			errs = append(errs, fmt.Errorf("%s: set either rules or the legacy threshold and window, not both", prefix))
+		case legacy:
+			_, ruleErrs := validateLowUtilizationRule(prefix, v1.LowUtilizationRule{Threshold: policy.Threshold, Window: policy.Window})
+			errs = append(errs, ruleErrs...)
+		case len(policy.Rules) == 0 && policy.MaxRuntime == "":
+			errs = append(errs, fmt.Errorf("%s: set at least one rule or a maxRuntime", prefix))
 		}
-		if window, err := time.ParseDuration(policy.Window); err != nil {
-			errs = append(errs, fmt.Errorf("%s: invalid window %q: %v", prefix, policy.Window, err))
-		} else if window < 5*time.Minute || window > 24*time.Hour {
-			errs = append(errs, fmt.Errorf("%s: window must be between 5m and 24h, got %s", prefix, policy.Window))
+		if len(policy.Rules) > maxLowUtilizationRules {
+			errs = append(errs, fmt.Errorf("%s: at most %d rules, got %d", prefix, maxLowUtilizationRules, len(policy.Rules)))
 		}
-		if policy.Mode != v1.LowUtilizationAverage && policy.Mode != v1.LowUtilizationMin {
+		windows := make(map[time.Duration]int, len(policy.Rules))
+		for i, rule := range policy.Rules {
+			rulePrefix := fmt.Sprintf("%s.rules[%d]", prefix, i)
+			window, ruleErrs := validateLowUtilizationRule(rulePrefix, rule)
+			errs = append(errs, ruleErrs...)
+			if window == 0 {
+				continue
+			}
+			if first, ok := windows[window]; ok {
+				errs = append(errs, fmt.Errorf("%s: window %s repeats the window of rules[%d]", rulePrefix, rule.Window, first))
+			} else {
+				windows[window] = i
+			}
+		}
+		if policy.MaxRuntime != "" {
+			if d, err := time.ParseDuration(policy.MaxRuntime); err != nil {
+				errs = append(errs, fmt.Errorf("%s: invalid maxRuntime %q: %v", prefix, policy.MaxRuntime, err))
+			} else if d < 5*time.Minute || d > 30*24*time.Hour {
+				errs = append(errs, fmt.Errorf("%s: maxRuntime must be between 5m and 720h, got %s", prefix, policy.MaxRuntime))
+			}
+		}
+		if (legacy || len(policy.Rules) > 0 || policy.Mode != "") &&
+			policy.Mode != v1.LowUtilizationAverage && policy.Mode != v1.LowUtilizationMin {
 			errs = append(errs, fmt.Errorf("%s: invalid mode %q, supported: [%s, %s]",
 				prefix, policy.Mode, v1.LowUtilizationAverage, v1.LowUtilizationMin))
 		}
@@ -925,6 +954,22 @@ func validateLowUtilization(workspace *v1.Workspace) error {
 		}
 	}
 	return utilerrors.NewAggregate(errs)
+}
+
+// validateLowUtilizationRule returns the rule's window, 0 when it is invalid, and the rule's errors.
+func validateLowUtilizationRule(prefix string, rule v1.LowUtilizationRule) (time.Duration, []error) {
+	var errs []error
+	if rule.Threshold < 0 || rule.Threshold > 100 {
+		errs = append(errs, fmt.Errorf("%s: threshold must be between 0 and 100, got %d", prefix, rule.Threshold))
+	}
+	window, err := time.ParseDuration(rule.Window)
+	if err != nil {
+		return 0, append(errs, fmt.Errorf("%s: invalid window %q: %v", prefix, rule.Window, err))
+	}
+	if window < 5*time.Minute || window > 24*time.Hour {
+		return 0, append(errs, fmt.Errorf("%s: window must be between 5m and 24h, got %s", prefix, rule.Window))
+	}
+	return window, errs
 }
 
 func sortedLowUtilizationScopes(policies map[v1.WorkspaceScope]v1.LowUtilizationPolicy) []v1.WorkspaceScope {

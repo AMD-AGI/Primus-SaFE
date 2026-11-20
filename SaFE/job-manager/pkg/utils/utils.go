@@ -136,6 +136,7 @@ const (
 	StopReasonOwnerCascade   StopReason = "owner_cascade"
 	StopReasonManual         StopReason = "manual"
 	StopReasonLowUtilization StopReason = "low_utilization"
+	StopReasonMaxRuntime     StopReason = "max_runtime"
 	StopReasonUnspecified    StopReason = "unspecified"
 )
 

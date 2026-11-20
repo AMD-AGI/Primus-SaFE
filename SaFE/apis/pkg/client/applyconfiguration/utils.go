@@ -84,6 +84,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.HybridStorageSpecApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("LowUtilizationPolicy"):
 		return &amdv1.LowUtilizationPolicyApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("LowUtilizationRule"):
+		return &amdv1.LowUtilizationRuleApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("MachineStatus"):
 		return &amdv1.MachineStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("Model"):

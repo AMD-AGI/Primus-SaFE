@@ -15,11 +15,17 @@ import (
 //
 // LowUtilizationPolicy stops workloads whose GPU utilization stays below a threshold
 type LowUtilizationPolicyApplyConfiguration struct {
-	// GPU utilization in percent (0-100) below which a workload counts as idle
+	// Legacy single rule: GPU utilization in percent (0-100) below which a workload counts as idle.
+	// Only used when rules is empty.
 	Threshold *int `json:"threshold,omitempty"`
-	// How long the utilization must stay below the threshold, e.g. 30m (5m to 24h)
+	// Legacy single rule: how long the utilization must stay below the threshold, e.g. 30m (5m to 24h).
+	// Only used when rules is empty.
 	Window *string `json:"window,omitempty"`
-	// Average compares the across-node average, Min the least busy node
+	// A workload counts as idle when any rule matches (at most 5, each with its own window)
+	Rules []LowUtilizationRuleApplyConfiguration `json:"rules,omitempty"`
+	// Stop the workload once it has run longer than this since it started, e.g. 3h (5m to 720h)
+	MaxRuntime *string `json:"maxRuntime,omitempty"`
+	// Average compares the across-node average, Min the least busy node. Required with a rule.
 	Mode *amdv1.LowUtilizationMode `json:"mode,omitempty"`
 	// Time after the workload starts before it is checked, e.g. 1h
 	GracePeriod *string `json:"gracePeriod,omitempty"`
@@ -48,6 +54,27 @@ func (b *LowUtilizationPolicyApplyConfiguration) WithThreshold(value int) *LowUt
 // If called multiple times, the Window field is set to the value of the last call.
 func (b *LowUtilizationPolicyApplyConfiguration) WithWindow(value string) *LowUtilizationPolicyApplyConfiguration {
 	b.Window = &value
+	return b
+}
+
+// WithRules adds the given value to the Rules field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Rules field.
+func (b *LowUtilizationPolicyApplyConfiguration) WithRules(values ...*LowUtilizationRuleApplyConfiguration) *LowUtilizationPolicyApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithRules")
+		}
+		b.Rules = append(b.Rules, *values[i])
+	}
+	return b
+}
+
+// WithMaxRuntime sets the MaxRuntime field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the MaxRuntime field is set to the value of the last call.
+func (b *LowUtilizationPolicyApplyConfiguration) WithMaxRuntime(value string) *LowUtilizationPolicyApplyConfiguration {
+	b.MaxRuntime = &value
 	return b
 }
 

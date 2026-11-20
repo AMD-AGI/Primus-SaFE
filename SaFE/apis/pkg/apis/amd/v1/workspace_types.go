@@ -92,18 +92,32 @@ type WorkspaceSpec struct {
 
 // LowUtilizationPolicy stops workloads whose GPU utilization stays below a threshold
 type LowUtilizationPolicy struct {
-	// GPU utilization in percent (0-100) below which a workload counts as idle
-	Threshold int `json:"threshold"`
-	// How long the utilization must stay below the threshold, e.g. 30m (5m to 24h)
-	Window string `json:"window"`
-	// Average compares the across-node average, Min the least busy node
-	Mode LowUtilizationMode `json:"mode"`
+	// Legacy single rule: GPU utilization in percent (0-100) below which a workload counts as idle.
+	// Only used when rules is empty.
+	Threshold int `json:"threshold,omitempty"`
+	// Legacy single rule: how long the utilization must stay below the threshold, e.g. 30m (5m to 24h).
+	// Only used when rules is empty.
+	Window string `json:"window,omitempty"`
+	// A workload counts as idle when any rule matches (at most 5, each with its own window)
+	Rules []LowUtilizationRule `json:"rules,omitempty"`
+	// Stop the workload once it has run longer than this since it started, e.g. 3h (5m to 720h)
+	MaxRuntime string `json:"maxRuntime,omitempty"`
+	// Average compares the across-node average, Min the least busy node. Required with a rule.
+	Mode LowUtilizationMode `json:"mode,omitempty"`
 	// Time after the workload starts before it is checked, e.g. 1h
 	GracePeriod string `json:"gracePeriod,omitempty"`
 	// Time between the low utilization notice and the stop, e.g. 30m
 	NotifyBefore string `json:"notifyBefore,omitempty"`
 	// Detect and notify only, never stop the workload
 	DryRun bool `json:"dryRun,omitempty"`
+}
+
+// LowUtilizationRule counts a workload as idle when its GPU utilization stays below the threshold for the window
+type LowUtilizationRule struct {
+	// GPU utilization in percent (0-100) below which a workload counts as idle
+	Threshold int `json:"threshold"`
+	// How long the utilization must stay below the threshold, e.g. 30m (5m to 24h)
+	Window string `json:"window"`
 }
 
 type WorkspaceVolume struct {
@@ -303,6 +317,18 @@ func (w *Workspace) GetLowUtilization(scope WorkspaceScope) *LowUtilizationPolic
 		return nil
 	}
 	return &policy
+}
+
+// EffectiveRules returns the rules of the policy, or the legacy threshold and window as the
+// only rule when there are no rules and the window is set.
+func (p *LowUtilizationPolicy) EffectiveRules() []LowUtilizationRule {
+	if len(p.Rules) > 0 {
+		return p.Rules
+	}
+	if p.Window != "" {
+		return []LowUtilizationRule{{Threshold: p.Threshold, Window: p.Window}}
+	}
+	return nil
 }
 
 // AppliesToScope reports whether the volume is mounted into workloads of the given scope.

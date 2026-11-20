@@ -40,6 +40,8 @@ const (
 	lowUtilReasonDetected  = "Detected_"
 	lowUtilReasonWouldStop = "DryRunWouldStop_"
 	lowUtilReasonRecovered = "Recovered_"
+	// AdminLowUtilization condition reason of a dry-run policy whose maxRuntime has passed.
+	lowUtilReasonMaxRuntime = "DryRunMaxRuntime"
 )
 
 var errLowUtilNoClient = errors.New("no Robust client for the cluster")
@@ -107,6 +109,7 @@ func SetupLowUtilizationController(mgr manager.Manager) error {
 type lowUtilCandidate struct {
 	workload *v1.Workload
 	policy   *v1.LowUtilizationPolicy
+	cluster  string
 }
 
 // lowUtilQuery groups the workloads that share one GPU window request.
@@ -128,22 +131,55 @@ type lowUtilDecision struct {
 	observed float64
 	// The idle node in Min mode.
 	node string
+	// The rule the decision describes and its 1-based index in the policy.
+	rule  v1.LowUtilizationRule
+	index int
 }
 
 func (r *LowUtilizationController) runOnce(ctx context.Context) {
-	queries, err := r.collectCandidates(ctx)
+	candidates, err := r.collectCandidates(ctx)
 	if err != nil {
 		klog.ErrorS(err, "[low-util] failed to collect workloads")
 		return
 	}
-	for q, candidates := range queries {
-		r.evaluate(ctx, q, candidates)
+	now := r.now()
+	checked := make([]lowUtilCandidate, 0, len(candidates))
+	for _, c := range candidates {
+		stopped, err := r.enforceMaxRuntime(ctx, c, now)
+		if err != nil {
+			klog.ErrorS(err, "[low-util] failed to enforce maxRuntime", "workload", c.workload.Name)
+			continue
+		}
+		if stopped {
+			continue
+		}
+		if len(c.policy.EffectiveRules()) == 0 {
+			if err = r.clearDetected(ctx, c.workload); err != nil {
+				klog.ErrorS(err, "[low-util] failed to clear the detected mark", "workload", c.workload.Name)
+			}
+			continue
+		}
+		if now.Before(c.workload.Status.StartTime.Add(parseLowUtilDuration(c.policy.GracePeriod))) {
+			continue
+		}
+		checked = append(checked, c)
+	}
+	results := r.queryGPUWindows(ctx, checked)
+	for _, c := range checked {
+		d, complete := decideLowUtilRules(c, results)
+		// Undecided for want of a query, not of samples: the state is kept and not counted as no data.
+		if d.state == lowUtilUnknown && !complete {
+			continue
+		}
+		if err = r.apply(ctx, c.cluster, c, d); err != nil {
+			klog.ErrorS(err, "[low-util] failed to apply the decision", "workload", c.workload.Name)
+		}
 	}
 }
 
-// collectCandidates selects the running workloads under a policy whose grace
-// period has passed. Workloads that left their policy lose the detected mark.
-func (r *LowUtilizationController) collectCandidates(ctx context.Context) (map[lowUtilQuery][]lowUtilCandidate, error) {
+// collectCandidates selects the started workloads under a policy. Workloads
+// that left their policy lose the detected mark.
+func (r *LowUtilizationController) collectCandidates(ctx context.Context) ([]lowUtilCandidate, error) {
 	workspaces := &v1.WorkspaceList{}
 	if err := r.List(ctx, workspaces); err != nil {
 		return nil, err
@@ -157,8 +193,7 @@ func (r *LowUtilizationController) collectCandidates(ctx context.Context) (map[l
 		return nil, err
 	}
 
-	now := r.now()
-	queries := make(map[lowUtilQuery][]lowUtilCandidate)
+	var candidates []lowUtilCandidate
 	for i := range workloads.Items {
 		w := &workloads.Items[i]
 		if !w.IsRunning() || !w.GetDeletionTimestamp().IsZero() {
@@ -174,60 +209,136 @@ func (r *LowUtilizationController) collectCandidates(ctx context.Context) (map[l
 			}
 			continue
 		}
-		if w.Status.StartTime == nil || now.Before(w.Status.StartTime.Add(parseLowUtilDuration(policy.GracePeriod))) {
+		if w.Status.StartTime == nil {
 			continue
 		}
 		cluster := v1.GetClusterId(w)
 		if cluster == "" {
 			continue
 		}
-		q := lowUtilQuery{cluster: cluster, window: policy.Window}
-		queries[q] = append(queries[q], lowUtilCandidate{workload: w, policy: policy})
+		candidates = append(candidates, lowUtilCandidate{workload: w, policy: policy, cluster: cluster})
 	}
-	return queries, nil
+	return candidates, nil
 }
 
-func (r *LowUtilizationController) evaluate(ctx context.Context, q lowUtilQuery, candidates []lowUtilCandidate) {
-	uids := make([]string, 0, len(candidates))
+// enforceMaxRuntime stops a workload that has run for the maxRuntime of its
+// policy, or records it once in dry run, and reports whether it was stopped.
+func (r *LowUtilizationController) enforceMaxRuntime(ctx context.Context,
+	c lowUtilCandidate, now time.Time) (bool, error) {
+	maxRuntime := parseLowUtilDuration(c.policy.MaxRuntime)
+	w := c.workload
+	if maxRuntime <= 0 || now.Sub(w.Status.StartTime.Time) < maxRuntime {
+		return false, nil
+	}
+	if c.policy.DryRun {
+		klog.Infof("[low-util] dry run, workload %s would be stopped: running longer than %s", w.Name, c.policy.MaxRuntime)
+		return false, r.addCondition(ctx, w, jobutils.NewCondition(string(v1.AdminLowUtilization),
+			fmt.Sprintf("dry run: the workload would be stopped now for running longer than %s", c.policy.MaxRuntime),
+			lowUtilReasonMaxRuntime))
+	}
+	if err := jobutils.MarkWorkloadStopped(ctx, r.Client, w, jobutils.StopReasonMaxRuntime,
+		fmt.Sprintf("stopped: running longer than %s (workspace policy)", c.policy.MaxRuntime)); err != nil {
+		return false, err
+	}
+	jmmetrics.LowUtilMaxRuntimeStoppedTotal.WithLabelValues(c.cluster).Inc()
+	if err := r.Delete(ctx, w); err != nil {
+		klog.ErrorS(err, "failed to delete workload", "workload", w.Name)
+		return true, client.IgnoreNotFound(err)
+	}
+	return true, nil
+}
+
+// queryGPUWindows asks Robust once per cluster and distinct rule window for the
+// candidates with a rule on that window. A query that failed has no entry.
+func (r *LowUtilizationController) queryGPUWindows(ctx context.Context,
+	candidates []lowUtilCandidate) map[lowUtilQuery]map[string]*robustclient.WorkloadGPUWindow {
+	var queries []lowUtilQuery
+	uids := make(map[lowUtilQuery][]string)
 	for _, c := range candidates {
-		uids = append(uids, string(c.workload.UID))
-	}
-	windows, err := r.source.GetWorkloadGPUWindow(ctx, q.cluster, uids, q.window, lowUtilStep)
-	if err != nil {
-		reason := "error"
-		switch {
-		case robustclient.IsNotSupported(err):
-			reason = "unsupported"
-		case errors.Is(err, errLowUtilNoClient):
-			reason = "no_client"
+		for _, rule := range c.policy.EffectiveRules() {
+			q := lowUtilQuery{cluster: c.cluster, window: rule.Window}
+			if _, ok := uids[q]; !ok {
+				queries = append(queries, q)
+			}
+			uids[q] = append(uids[q], string(c.workload.UID))
 		}
-		jmmetrics.LowUtilClusterSkippedTotal.WithLabelValues(q.cluster, reason).Inc()
-		klog.Warningf("[low-util] skip cluster %s (window %s, %d workloads): %v", q.cluster, q.window, len(uids), err)
-		return
 	}
-	byUID := make(map[string]*robustclient.WorkloadGPUWindow, len(windows))
-	for i := range windows {
-		byUID[windows[i].UID] = &windows[i]
-	}
-	for _, c := range candidates {
-		d := decideLowUtil(c.policy, byUID[string(c.workload.UID)])
-		if err = r.apply(ctx, q.cluster, c, d); err != nil {
-			klog.ErrorS(err, "[low-util] failed to apply the decision", "workload", c.workload.Name)
+	results := make(map[lowUtilQuery]map[string]*robustclient.WorkloadGPUWindow, len(queries))
+	for _, q := range queries {
+		windows, err := r.source.GetWorkloadGPUWindow(ctx, q.cluster, uids[q], q.window, lowUtilStep)
+		if err != nil {
+			reason := "error"
+			switch {
+			case robustclient.IsNotSupported(err):
+				reason = "unsupported"
+			case errors.Is(err, errLowUtilNoClient):
+				reason = "no_client"
+			}
+			jmmetrics.LowUtilClusterSkippedTotal.WithLabelValues(q.cluster, reason).Inc()
+			klog.Warningf("[low-util] skip cluster %s (window %s, %d workloads): %v", q.cluster, q.window, len(uids[q]), err)
+			continue
 		}
+		byUID := make(map[string]*robustclient.WorkloadGPUWindow, len(windows))
+		for i := range windows {
+			byUID[windows[i].UID] = &windows[i]
+		}
+		results[q] = byUID
+	}
+	return results
+}
+
+// decideLowUtilRules judges one workload against every rule of its policy: idle
+// when any rule is idle (the one with the lowest observed value, the first on a
+// tie), active when every rule is active, unknown otherwise. complete is false
+// when the window of a rule could not be queried.
+func decideLowUtilRules(c lowUtilCandidate,
+	results map[lowUtilQuery]map[string]*robustclient.WorkloadGPUWindow) (lowUtilDecision, bool) {
+	rules := c.policy.EffectiveRules()
+	var idle, active lowUtilDecision
+	idles, actives, complete := 0, 0, true
+	for i, rule := range rules {
+		byUID, ok := results[lowUtilQuery{cluster: c.cluster, window: rule.Window}]
+		if !ok {
+			complete = false
+			continue
+		}
+		d := decideLowUtil(c.policy.Mode, rule, byUID[string(c.workload.UID)])
+		d.rule, d.index = rule, i+1
+		switch d.state {
+		case lowUtilIdle:
+			if idles == 0 || d.observed < idle.observed {
+				idle = d
+			}
+			idles++
+		case lowUtilActive:
+			if actives == 0 || d.observed < active.observed {
+				active = d
+			}
+			actives++
+		}
+	}
+	switch {
+	case idles > 0:
+		return idle, complete
+	case actives == len(rules):
+		return active, complete
+	default:
+		return lowUtilDecision{state: lowUtilUnknown}, complete
 	}
 }
 
-// decideLowUtil judges one workload. Without enough samples, or in Min mode
-// without any covered node, the state is unknown. Robust reports Min nodes per
-// physical host and leaves out hosts without an exporter, so a missing node
-// cannot make the workload active.
-func decideLowUtil(policy *v1.LowUtilizationPolicy, w *robustclient.WorkloadGPUWindow) lowUtilDecision {
+// decideLowUtil judges one workload against one rule. Without enough samples,
+// or in Min mode without any covered node, the state is unknown. Robust reports
+// Min nodes per physical host and leaves out hosts without an exporter, so a
+// missing node cannot make the workload active.
+func decideLowUtil(mode v1.LowUtilizationMode, rule v1.LowUtilizationRule,
+	w *robustclient.WorkloadGPUWindow) lowUtilDecision {
 	unknown := lowUtilDecision{state: lowUtilUnknown}
 	if w == nil || !lowUtilCovered(w.Overall.Samples, w.Overall.ExpectedSamples) {
 		return unknown
 	}
-	threshold := float64(policy.Threshold)
-	switch policy.Mode {
+	threshold := float64(rule.Threshold)
+	switch mode {
 	case v1.LowUtilizationAverage:
 		if w.Overall.Max < threshold {
 			return lowUtilDecision{state: lowUtilIdle, observed: w.Overall.Max}
@@ -335,7 +446,11 @@ func (r *LowUtilizationController) apply(ctx context.Context,
 
 func describeLowUtil(policy *v1.LowUtilizationPolicy, d lowUtilDecision) string {
 	msg := fmt.Sprintf("low GPU utilization: mode %s, threshold %d%%, window %s, observed max %.1f%%",
-		policy.Mode, policy.Threshold, policy.Window, d.observed)
+		policy.Mode, d.rule.Threshold, d.rule.Window, d.observed)
+	if len(policy.Rules) > 0 {
+		msg = fmt.Sprintf("low GPU utilization: mode %s, rule %d: threshold %d%%, window %s, observed max %.1f%%",
+			policy.Mode, d.index, d.rule.Threshold, d.rule.Window, d.observed)
+	}
 	if d.node != "" {
 		msg += " on node " + d.node
 	}
@@ -372,11 +487,14 @@ func lowUtilReason(prefix string, episode int) string {
 	return fmt.Sprintf("%s%d", prefix, episode)
 }
 
-// addLowUtilCondition appends an AdminLowUtilization timeline entry unless one
-// with the same reason exists.
 func (r *LowUtilizationController) addLowUtilCondition(ctx context.Context, w *v1.Workload,
 	prefix string, episode int, message string) error {
-	cond := jobutils.NewCondition(string(v1.AdminLowUtilization), message, lowUtilReason(prefix, episode))
+	return r.addCondition(ctx, w,
+		jobutils.NewCondition(string(v1.AdminLowUtilization), message, lowUtilReason(prefix, episode)))
+}
+
+// addCondition appends a timeline entry unless one with the same type and reason exists.
+func (r *LowUtilizationController) addCondition(ctx context.Context, w *v1.Workload, cond *metav1.Condition) error {
 	if jobutils.FindCondition(w, cond) != nil {
 		return nil
 	}
