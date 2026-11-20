@@ -29,7 +29,8 @@ func TestCheckpointCleanup(t *testing.T) {
 		Volumes: []v1.WorkspaceVolume{{Type: v1.PFS, MountPath: "/wekafs"}}}}
 	run := testRunRow("Succeeded", "done")
 	run.OutputPath = testRunDir
-	run.CleanupRequest = `{"keep":"best","paths":["` + testRunDir + `/checkpoints/iter_0000010"],"keptStep":20}`
+	run.CleanupRequest = `{"keep":"best","paths":["` + testRunDir + `/checkpoints/iter_0000010"],"keptStep":20,` +
+		`"cleanedSteps":[10]}`
 	r, _, updates := newTestReconciler(t, run, ws)
 	ctx := context.Background()
 
@@ -55,6 +56,7 @@ func TestCheckpointCleanup(t *testing.T) {
 	require.Equal(t, `{"checkpoints":7,"total":7}`, last["disk_usage"])
 	require.Contains(t, last["stage_history"], `"event":"checkpoints-cleaned"`)
 	require.Contains(t, last["stage_history"], `"keptStep":20`)
+	require.Contains(t, last["stage_history"], `"cleanedSteps":[10]`, "the event names the checkpoints removed")
 	jobs := &v1.OpsJobList{}
 	require.NoError(t, r.List(ctx, jobs))
 	require.Empty(t, jobs.Items, "finished cleanup and count jobs are removed")
@@ -245,7 +247,8 @@ func TestAFailedCleanupJobBeingDeletedIsCountedOnce(t *testing.T) {
 	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1",
 		Volumes: []v1.WorkspaceVolume{{Type: v1.PFS, MountPath: "/wekafs"}}}}
 	run := testRunRow("Succeeded", "done")
-	run.CleanupRequest = `{"keep":"none","paths":["` + testRunDir + `/checkpoints/iter_0000010"]}`
+	run.CleanupRequest = `{"keep":"best","paths":["` + testRunDir + `/checkpoints/iter_0000010"],"keptStep":20,` +
+		`"cleanedSteps":[10]}`
 	r, _, updates := newTestReconciler(t, run, ws)
 	ctx := context.Background()
 	reconcileRun(t, r)
@@ -262,6 +265,7 @@ func TestAFailedCleanupJobBeingDeletedIsCountedOnce(t *testing.T) {
 	counted := len(*updates)
 	run.CleanupRequest = (*updates)[counted-1]["cleanup_request"].(string)
 	require.Contains(t, run.CleanupRequest, `"attempts":1`)
+	require.Contains(t, run.CleanupRequest, `"cleanedSteps":[10]`, "the retried request keeps its steps")
 	require.NoError(t, r.Get(ctx, client.ObjectKey{Name: name}, job))
 	require.False(t, job.DeletionTimestamp.IsZero(), "the failed job is being deleted")
 	for i := 0; i < cleanupAttempts; i++ {

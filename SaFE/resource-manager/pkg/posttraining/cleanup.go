@@ -51,7 +51,9 @@ type checkpointCleanup struct {
 	Keep     string   `json:"keep"`
 	Paths    []string `json:"paths"`
 	KeptStep *int     `json:"keptStep,omitempty"`
-	Attempts int      `json:"attempts,omitempty"`
+	// CleanedSteps are the steps of the checkpoints in Paths, for a cleanup that keeps one.
+	CleanedSteps []int `json:"cleanedSteps,omitempty"`
+	Attempts     int   `json:"attempts,omitempty"`
 }
 
 // runCleanupPolls queues the runs with a requested checkpoint cleanup every minute until ctx ends; the API only
@@ -171,7 +173,8 @@ func (r *RunReconciler) reconcileCleanup(ctx context.Context, run *dbclient.Post
 	}
 	u := newRunUpdate(run)
 	u.history = append(u.history, stageEntry{Stage: run.Stage, Time: u.now.Format(time.RFC3339),
-		Event: checkpointsCleanedEvent, Message: fmt.Sprintf("kept: %s", plan.Keep), KeptStep: plan.KeptStep})
+		Event: checkpointsCleanedEvent, Message: fmt.Sprintf("kept: %s", plan.Keep), KeptStep: plan.KeptStep,
+		CleanedSteps: plan.CleanedSteps})
 	u.historyChanged = true
 	u.fields["cleanup_request"] = ""
 	if disk != "" {

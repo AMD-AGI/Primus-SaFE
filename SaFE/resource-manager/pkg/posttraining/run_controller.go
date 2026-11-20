@@ -78,8 +78,9 @@ type stageEntry struct {
 	ResumeStep *int64 `json:"resumeStep,omitempty"`
 	Event      string `json:"event,omitempty"`
 	Message    string `json:"message,omitempty"`
-	// KeptStep is the checkpoint a checkpoint cleanup kept.
-	KeptStep *int `json:"keptStep,omitempty"`
+	// KeptStep is the checkpoint a checkpoint cleanup kept, CleanedSteps the ones it removed.
+	KeptStep     *int  `json:"keptStep,omitempty"`
+	CleanedSteps []int `json:"cleanedSteps,omitempty"`
 }
 
 // runRecipe is the part of the recipe snapshot the controller reads.
