@@ -13,14 +13,9 @@ Master + Worker entries, leaving the Worker container without an image.
 """
 
 import base64
-import os
-import sys
 import unittest
 
-# apikey_renew is copied next to proxy.py in the image; in the source tree it lives in ../common.
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "common"))
-
-import proxy  # noqa: E402
+import proxy
 
 
 class ConvertResourcesToArrayTest(unittest.TestCase):

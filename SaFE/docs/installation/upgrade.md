@@ -61,6 +61,8 @@ For additional upgrade-specific behavior, you may add these optional keys to `.e
 | `auth_key_actors` | JSON array of identity client ids. Sets `auth.key_actors`. |
 | `auth_api_keys_url` | In external mode, the path on the console's origin where something other than the chart routes API key creation to the identity provider, for example `/api/v1/apikeys`. Sets `auth.api_keys_url`. |
 | `auth_api_keys_upstream` | In external mode, the identity provider's service as `host[:port]` (the full in-cluster name): the console's nginx then routes `/api/v1/apikeys` to it. Sets `auth.api_keys_upstream`. |
+| `auth_accounts_url` | In external mode, the page the console's user list opens to manage accounts. Sets `auth.accounts_url`. Omitted: `/identity/#accounts`. |
+| `auth_keys_console_url` | In external mode, the page the console's API Keys entry opens. Sets `auth.keys_console_url`. Omitted: `/identity/#keys`. |
 | `auth_scim_enabled` | `true` or `false`. Sets `auth.scim.enabled`. The SCIM endpoint is served only when this is `true` and `auth.mode` is `external`. |
 | `auth_scim_identity_url` | Identity service root. Sets `auth.scim.identity_url`. Empty derives it from the introspection authenticator. |
 | `auth_scim_public_url` | Base URL the identity service calls for SCIM. Sets `auth.scim.public_url`. |

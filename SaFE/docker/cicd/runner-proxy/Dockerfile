@@ -19,7 +19,6 @@ RUN pip install --no-cache-dir -r ${APP_HOME}/requirements.txt
 
 COPY ./SaFE/docker/cicd/runner-proxy/*.sh ${APP_HOME}
 COPY ./SaFE/docker/cicd/runner-proxy/*.py ${APP_HOME}
-COPY ./SaFE/docker/cicd/common/apikey_renew.py ${APP_HOME}
 
 RUN chmod +x ${APP_HOME}/*.sh
 RUN chmod +x ${APP_HOME}/*.py

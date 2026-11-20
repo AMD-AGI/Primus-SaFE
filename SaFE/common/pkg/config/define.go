@@ -218,7 +218,6 @@ const (
 	authLoginURL        = authPrefix + "login_url"
 	authKeyActors       = authPrefix + "key_actors"
 	authAPIKeysURL      = authPrefix + "api_keys_url"
-	authAPIKeysUpstream = authPrefix + "api_keys_upstream"
 	authSCIMEnabled     = authPrefix + "scim.enabled"
 	authSCIMIdentityURL = authPrefix + "scim.identity_url"
 	authSCIMPublicURL   = authPrefix + "scim.public_url"

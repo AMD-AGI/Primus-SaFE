@@ -52,6 +52,7 @@ rules:
     - workload
     - workload/low-priority
     - workload/med-priority
+    - workload/privileged
     - user
     - secret
     - opsjob
@@ -73,6 +74,7 @@ rules:
     - workload
     - workload/low-priority
     - workload/med-priority
+    - workload/privileged
   grantedUsers:
     - workspace-user
   verbs:
@@ -149,8 +151,8 @@ rules:
     - create
     - list
     - delete
-# A preflight job runs privileged on its nodes, so creating one also takes workload/privileged in
-# the workspace (workspace-admin), which this role does not grant.
+# A preflight job runs privileged on its nodes, so creating one takes workload/privileged.
+# Workspace members hold create on that grant; the owner holds update on it as well.
 - resources:
     - secret
     - opsjob/preflight

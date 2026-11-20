@@ -261,8 +261,8 @@ data:
       allow_oidc_only: {{ default false .Values.auth.allow_oidc_only }}
       provider_client: {{ default false .Values.auth.provider_client }}
       connection: {{ default "" .Values.auth.connection | quote }}
-      accounts_url: {{ default "" .Values.auth.accounts_url | quote }}
-      keys_console_url: {{ default "" .Values.auth.keys_console_url | quote }}
+      accounts_url: {{ default "/identity/#accounts" .Values.auth.accounts_url | quote }}
+      keys_console_url: {{ default "/identity/#keys" .Values.auth.keys_console_url | quote }}
       key_actors: {{ toJson (default (list) .Values.auth.key_actors) }}
       # The path where the deployment routes API key creation, listing and revocation to the identity provider.
       api_keys_url: {{ $apiKeysURL | quote }}

@@ -350,9 +350,9 @@ auth:
   provider_client: false
   # Value of the connection parameter on the authorize request. Empty omits the parameter.
   connection: ""
-  # Page the console opens for accounts when mode is external. Empty leaves the user list in place.
+  # Page the console opens for accounts when mode is external. Empty: /identity/#accounts.
   accounts_url: ""
-  # Page the console opens for API keys when mode is external. Empty leaves the key page in place.
+  # Page the console opens for API keys when mode is external. Empty: /identity/#keys.
   keys_console_url: ""
   # Client ids of the parties that may call POST /auth/verify with a delegated token (RFC 8693: an `act`
   # claim naming the client) and receive the keys of the user the token acts for, and of that user only.

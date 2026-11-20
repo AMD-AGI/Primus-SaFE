@@ -149,13 +149,15 @@ auth_group_mappings='[{\"group\":\"admins\",\"roles\":[\"system-admin\"]}]'
 auth_key_actors='[\"client-a\"]'
 auth_api_keys_url=/api/v1/apikeys
 auth_api_keys_upstream=identity.idns.svc.cluster.local:8080
+auth_accounts_url=/identity/#accounts
+auth_keys_console_url=/identity/#keys
 auth_scim_enabled=false
 auth_scim_identity_url=
 auth_scim_public_url=
 auth_scim_token_secret=primus-safe-scim-token"
 
 # What helm get values says for a release that is running with that auth setting.
-LIVE_EXTERNAL='{"global":{"sub_domain":"test"},"auth":{"mode":"external","login_url":"https://idp.example.com/sign-in/start","client_secret":"safe-introspection","authenticators":[{"type":"oidc","issuer":"https://idp.example.com","audience":"primus-safe"},{"type":"builtin"}],"group_mappings":[{"group":"admins","roles":["system-admin"]}],"key_actors":["client-a"],"api_keys_upstream":"identity.idns.svc.cluster.local:8080"}}'
+LIVE_EXTERNAL='{"global":{"sub_domain":"test"},"auth":{"mode":"external","login_url":"https://idp.example.com/sign-in/start","client_secret":"safe-introspection","authenticators":[{"type":"oidc","issuer":"https://idp.example.com","audience":"primus-safe"},{"type":"builtin"}],"group_mappings":[{"group":"admins","roles":["system-admin"]}],"key_actors":["client-a"],"api_keys_upstream":"identity.idns.svc.cluster.local:8080","accounts_url":"/identity/#accounts","keys_console_url":"/identity/#keys"}}'
 LIVE_BUILTIN='{"global":{"sub_domain":"test"},"auth":{"mode":"builtin","authenticators":[],"group_mappings":[],"login_url":""}}'
 
 FAILS=0
@@ -201,6 +203,8 @@ expect "no auth keys, fresh install: builtin" rendered 'mode: "builtin"'
 expect "no auth keys, fresh install: only the one values file" grep -qx 1 "$OUT/value-files"
 expect "no auth keys, fresh install: login url" rendered 'login_url: "https://test.primus-safe.amd.com/login/password"'
 expect "no auth keys, fresh install: scim public url" rendered '  public_url: "https://test.primus-safe.amd.com/scim/v2"'
+expect "no auth keys, fresh install: default accounts page" rendered 'accounts_url: "/identity/#accounts"'
+expect "no auth keys, fresh install: default API keys page" rendered 'keys_console_url: "/identity/#keys"'
 
 # 2. The auth_* keys reach the rendered chart, on a release that is not external yet.
 run_upgrade "$LIVE_BUILTIN" "$AUTH_ENV"
@@ -213,6 +217,8 @@ expect "all auth keys: client secret mounted into the apiserver" grep -qxF '    
 expect "all auth keys: key_actors reach the values" grep -qx 2 "$OUT/value-files"
 expect "all auth keys: key_actors" rendered 'key_actors: ["client-a"]'
 expect "all auth keys: the path of the provider's key route is reported" rendered 'api_keys_url: "/api/v1/apikeys"'
+expect "all auth keys: the accounts page" rendered 'accounts_url: "/identity/#accounts"'
+expect "all auth keys: the API keys page" rendered 'keys_console_url: "/identity/#keys"'
 expect "all auth keys: the console's nginx gets the provider's service" grep -qxF '              value: "identity.idns.svc.cluster.local:8080"' "$OUT/rendered.yaml"
 expect "all auth keys: the script prints no auth value" bash -c '! grep -q "idp.example.com" "$1"' _ "$OUT/log"
 expect "all auth keys: the identity service account may write the client secret" grep -qxF '    name: "primus-identity"' "$OUT/rendered.yaml"
@@ -220,7 +226,7 @@ expect "all auth keys: the identity service account may write the client secret"
 no_rbac() { awk '/^---$/{sep = $0; next} /^# Source: /{rbac = ($0 ~ /identity-client-rbac.yaml$/)} !rbac {if (sep != "") print sep; print} {sep = ""}' "$1"; }
 no_rbac "$OUT/rendered.yaml" > "$W/with-auth.yaml"
 run_upgrade "" ""
-diff_lines="$(diff <(no_rbac "$OUT/rendered.yaml") "$W/with-auth.yaml" | grep -E '^[<>]' | grep -vE 'mode:|authenticators:|group_mappings:|login_url:|key_actors:|api_keys_url:|api_keys_upstream:|enabled:|API_KEYS_UPSTREAM|IDENTITY_URL|nginx proxies /api/v1/apikeys|value: "identity.idns.svc.cluster.local:8080"|env:$|auth-client-secret|mountPath: /etc/secrets/auth|readOnly: true|secretName: safe-introspection|"safe-introspection"|secret:$|optional: true|checksum/config:' || true)"
+diff_lines="$(diff <(no_rbac "$OUT/rendered.yaml") "$W/with-auth.yaml" | grep -E '^[<>]' | grep -vE 'mode:|authenticators:|group_mappings:|login_url:|key_actors:|api_keys_url:|api_keys_upstream:|accounts_url:|keys_console_url:|enabled:|API_KEYS_UPSTREAM|IDENTITY_URL|nginx proxies /api/v1/apikeys|value: "identity.idns.svc.cluster.local:8080"|env:$|auth-client-secret|mountPath: /etc/secrets/auth|readOnly: true|secretName: safe-introspection|"safe-introspection"|secret:$|optional: true|checksum/config:' || true)"
 expect "rendering with and without the keys differs only in the auth segment" test -z "$diff_lines"
 [[ -z "$diff_lines" ]] || echo "$diff_lines"
 
@@ -239,6 +245,11 @@ expect "live external, group_mappings missing: names it" grep -q 'does not set: 
 run_upgrade "$LIVE_EXTERNAL" "$(grep -v '^auth_api_keys_upstream' <<<"$AUTH_ENV")"
 expect "live external, api_keys_upstream missing: refused" refused
 expect "live external, api_keys_upstream missing: names it" grep -q 'does not set: auth_api_keys_upstream$' "$OUT/log"
+
+# 4c. So are the pages the console opens for accounts and API keys.
+run_upgrade "$LIVE_EXTERNAL" "$(grep -v '^auth_accounts_url' <<<"$AUTH_ENV")"
+expect "live external, accounts_url missing: refused" refused
+expect "live external, accounts_url missing: names it" grep -q 'does not set: auth_accounts_url$' "$OUT/log"
 
 # 5. Every key present: the upgrade goes through and renders what the release runs.
 run_upgrade "$LIVE_EXTERNAL" "$AUTH_ENV"
@@ -270,6 +281,11 @@ expect "live custom scim token secret, key omitted: chart default" rendered '  t
 run_upgrade '{"auth":{"scim":{"token_secret":"custom-scim-token"}}}' 'auth_scim_token_secret=custom-scim-token'
 expect "live custom scim token secret, key set: applied" applied
 expect "live custom scim token secret, key set: kept" rendered '  token_secret: "custom-scim-token"'
+
+# 5d. The identity service account has a chart default and needs no .env key, even when the release stores it.
+run_upgrade "$(jq -c '.auth.identity_service_account = "primus-identity/primus-identity"' <<<"$LIVE_EXTERNAL")" "$(grep -v '^auth_identity_service_account' <<<"$AUTH_ENV")"
+expect "live external, identity service account omitted: applied" applied
+expect "live external, identity service account omitted: chart default" grep -qxF '    name: "primus-identity"' "$OUT/rendered.yaml"
 
 # 6. A key the release does not have is not demanded.
 run_upgrade '{"auth":{"mode":"external","login_url":"https://idp.example.com/sign-in/start","authenticators":[{"type":"builtin"}],"group_mappings":[{"group":"admins","roles":["system-admin"]}],"scim":{"enabled":false}}}' 'auth_mode=external

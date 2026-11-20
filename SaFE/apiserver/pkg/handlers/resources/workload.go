@@ -799,8 +799,8 @@ func (h *Handler) runtimeCeiling(ctx context.Context, workload *v1.Workload) (in
 // authWorkloadPrivileged checks the workload/privileged grant in the workload's workspace for a
 // workload that runs a privileged container (commonworkload.RunsPrivileged). A kind whose stock
 // template runs a privileged container takes the grant even when the workload does not ask for
-// privileged mode. Among the built-in roles workspace-admin (in the workspaces it manages) and
-// system-admin hold it.
+// privileged mode. Among the built-in roles the default role (workspace members, and the owner
+// for update), workspace-admin (in the workspaces it manages) and system-admin hold it.
 func (h *Handler) authWorkloadPrivileged(c *gin.Context, workload *v1.Workload, verb v1.RoleVerb,
 	requestUser *v1.User, roles []*v1.Role) error {
 	err := h.authWorkloadAction(c, workload, verb, authority.WorkloadPrivilegedKind, requestUser, roles)

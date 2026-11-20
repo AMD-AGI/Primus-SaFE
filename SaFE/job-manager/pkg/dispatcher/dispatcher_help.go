@@ -19,12 +19,14 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -406,12 +408,12 @@ func cicdAPIKey(workload *v1.Workload) (string, error) {
 	return plain, nil
 }
 
-// cicdWorkloadWithParentAPIKey returns a copy of an EphemeralRunner workload carrying the encrypted
-// API key annotation of its owning scale set (source), so its runner pod gets the same USER_APIKEY.
-// The key is copied only when both workloads have the same user id. Other workloads, a runner of
+// cicdWorkloadWithParentAPIKey returns a copy of an EphemeralRunner or UnifiedJob workload carrying the
+// encrypted API key annotation of its scale set (source), so its pod gets the same USER_APIKEY.
+// The key is copied only when both workloads have the same user id. Other workloads, a workload of
 // another user, or a scale set without the annotation are returned unchanged.
 func cicdWorkloadWithParentAPIKey(workload, source *v1.Workload) *v1.Workload {
-	if source == nil || !commonworkload.IsCICDEphemeralRunner(workload) {
+	if source == nil || (!commonworkload.IsCICDEphemeralRunner(workload) && workload.SpecKind() != common.UnifiedJobKind) {
 		return workload
 	}
 	if userId := v1.GetUserId(workload); userId == "" || userId != v1.GetUserId(source) {
@@ -426,14 +428,28 @@ func cicdWorkloadWithParentAPIKey(workload, source *v1.Workload) *v1.Workload {
 	return derived
 }
 
-// cicdIdentityURL returns the identity API base for CICD pods: the public control-plane origin,
-// whose console routes /api/v1/apikeys to identity. Empty unless auth.mode is external and
-// auth.api_keys_upstream is set.
-func cicdIdentityURL() string {
-	if commonconfig.GetAuthMode() != commonconfig.AuthModeExternal || commonconfig.GetAuthAPIKeysUpstream() == "" {
-		return ""
+// unifiedJobScaleSet returns the scale set named in a UnifiedJob's SCALE_RUNNER_SET_ID when it is a
+// scale set of the same workspace and cluster, else nil. Read errors other than NotFound are returned.
+func unifiedJobScaleSet(ctx context.Context, reader client.Reader, workload *v1.Workload) (*v1.Workload, error) {
+	if workload.SpecKind() != common.UnifiedJobKind {
+		return nil, nil
 	}
-	return externalControlPlaneBaseURL()
+	name := workload.GetEnv(common.ScaleRunnerSetID)
+	if name == "" {
+		return nil, nil
+	}
+	parent := &v1.Workload{}
+	if err := reader.Get(ctx, client.ObjectKey{Name: name}, parent); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if !commonworkload.IsCICDScalingRunnerSet(parent) || parent.Spec.Workspace != workload.Spec.Workspace ||
+		v1.GetClusterId(parent) != v1.GetClusterId(workload) {
+		return nil, nil
+	}
+	return parent, nil
 }
 
 // dispatchNodesAt returns the admin nodes assigned at the given dispatch index,
@@ -1440,7 +1456,8 @@ func buildEnvironment(workload *v1.Workload, workspace *v1.Workspace, resourceId
 	result = addEnvVar(result, workload, "DISPLAY_NAME", v1.GetDisplayName(workload))
 	result = addEnvVar(result, workload, "DISPATCH_COUNT", strconv.Itoa(v1.GetWorkloadDispatchCnt(workload)+1))
 	// USER_ID is skipped if already set via Spec.Env. CICD scale sets, github runners and
-	// ephemeral runners require the encrypted API key annotation; UnifiedJob uses the DB lookup.
+	// ephemeral runners require the encrypted API key annotation; a UnifiedJob takes its scale set's
+	// annotation and falls back to the DB lookup without one.
 	result = addEnvVar(result, workload, jobutils.UserIdEnv, v1.GetUserId(workload))
 	if commonworkload.IsCICDProxyRoot(workload) || commonworkload.IsCICDEphemeralRunner(workload) {
 		apiKey, err := cicdAPIKey(workload)
@@ -1448,11 +1465,14 @@ func buildEnvironment(workload *v1.Workload, workspace *v1.Workspace, resourceId
 			return nil, err
 		}
 		result = addEnvVar(result, workload, jobutils.UserApiKeyEnv, apiKey)
-		if identityURL := cicdIdentityURL(); identityURL != "" {
-			result = addEnvVar(result, workload, jobutils.IdentityURLEnv, identityURL)
-		}
 	} else if workload.SpecKind() == common.UnifiedJobKind {
-		if platformKey := platformKeyForUserFn(workload); platformKey != "" {
+		if v1.GetAnnotation(workload, v1.UserEncryptedAPIKeyAnnotation) != "" {
+			apiKey, err := cicdAPIKey(workload)
+			if err != nil {
+				return nil, err
+			}
+			result = addEnvVar(result, workload, jobutils.UserApiKeyEnv, apiKey)
+		} else if platformKey := platformKeyForUserFn(workload); platformKey != "" {
 			result = addEnvVar(result, workload, jobutils.UserApiKeyEnv, platformKey)
 		}
 	}
@@ -2406,9 +2426,6 @@ func updateCICDScaleSetEnvs(obj *unstructured.Unstructured,
 		return err
 	}
 	envs[jobutils.UserApiKeyEnv] = apiKey
-	if identityURL := cicdIdentityURL(); identityURL != "" {
-		envs[jobutils.IdentityURLEnv] = identityURL
-	}
 	envs[jobutils.PriorityEnv] = strconv.Itoa(adminWorkload.Spec.Priority)
 	envs[jobutils.WorkspaceIdEnv] = adminWorkload.Spec.Workspace
 	envs[jobutils.AdminControlPlaneEnv] = v1.GetAdminControlPlane(adminWorkload)

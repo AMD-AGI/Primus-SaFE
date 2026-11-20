@@ -35,10 +35,7 @@ func TestChartRendersExternalUserDirMounts(t *testing.T) {
 func TestChartRendersJobManagerAuthMode(t *testing.T) {
 	loadRendered(t, renderConfigMapData(t, "job-manager", "config.yaml"))
 	testifyassert.Equal(t, AuthModeBuiltin, GetAuthMode())
-	testifyassert.Empty(t, GetAuthAPIKeysUpstream())
 
-	loadRendered(t, renderConfigMapData(t, "job-manager", "config.yaml",
-		append(externalAuthArgs(), "--set", "auth.api_keys_upstream=identity.ns.svc.cluster.local:8080")...))
+	loadRendered(t, renderConfigMapData(t, "job-manager", "config.yaml", externalAuthArgs()...))
 	testifyassert.Equal(t, AuthModeExternal, GetAuthMode())
-	testifyassert.Equal(t, "identity.ns.svc.cluster.local:8080", GetAuthAPIKeysUpstream())
 }

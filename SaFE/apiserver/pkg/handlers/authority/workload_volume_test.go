@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -81,11 +80,11 @@ func TestAuthorizeWorkloadPrivilegedVolumes(t *testing.T) {
 		name, requester, owner, kind string
 		requires, want               bool
 	}{
-		{"member", "pv-member", "", common.PytorchJobKind, true, false},
+		{"member", "pv-member", "", common.PytorchJobKind, true, true},
 		{"manager", "pv-manager", "", common.PytorchJobKind, true, true},
 		{"admin", "pv-admin", "", common.PytorchJobKind, true, true},
 		{"admin for itself as owner", "pv-admin", "pv-admin", common.PytorchJobKind, true, true},
-		{"admin for a member", "pv-admin", "pv-member", common.PytorchJobKind, true, false},
+		{"admin for a member", "pv-admin", "pv-member", common.PytorchJobKind, true, true},
 		{"admin for the manager", "pv-admin", "pv-manager", common.PytorchJobKind, true, true},
 		{"admin for an unknown user", "pv-admin", "nobody", common.PytorchJobKind, true, false},
 		{"manager, no such volume", "pv-manager", "", common.PytorchJobKind, false, false},
@@ -106,19 +105,15 @@ func TestAuthorizeWorkloadPrivilegedVolumes(t *testing.T) {
 	require.False(t, v1.HasAnnotation(w, v1.WorkloadPrivilegedVolumesAuthzAnnotation))
 }
 
-// A member who names a path reaching a volume that requires the grant is refused with the reason,
-// although /shared declares it; the manager is admitted and marked for the hostpath.
-func TestAuthorizeWorkloadHostPathRefusesPrivilegedVolume(t *testing.T) {
+// A member holds workload/privileged through the default role, so naming a path that reaches a
+// volume requiring the grant is admitted and marked, as it is for the manager.
+func TestAuthorizeWorkloadHostPathAdmitsPrivilegedVolume(t *testing.T) {
 	a := newPrivilegedVolumeController(t)
-	w := pvWorkload(common.PytorchJobKind, "")
-	w.Spec.Hostpath = []string{"/shared/team", "/shared/admin/keys"}
-	err := a.AuthorizeWorkloadHostPath(AccessInput{Context: context.Background(), UserId: "pv-member"},
-		w, privilegedVolumeWorkspace(true))
-	require.True(t, apierrors.IsForbidden(err), "want 403, got %v", err)
-	require.Contains(t, err.Error(), `the hostpath "/shared/admin/keys" reaches volume 3`)
-	require.Contains(t, err.Error(), "requiresPrivilegedGrant")
-
-	require.NoError(t, a.AuthorizeWorkloadHostPath(AccessInput{Context: context.Background(), UserId: "pv-manager"},
-		w, privilegedVolumeWorkspace(true)))
-	require.Equal(t, v1.TrueStr, v1.GetAnnotation(w, v1.WorkloadHostPathAuthzAnnotation))
+	for _, who := range []string{"pv-member", "pv-manager"} {
+		w := pvWorkload(common.PytorchJobKind, "")
+		w.Spec.Hostpath = []string{"/shared/team", "/shared/admin/keys"}
+		require.NoError(t, a.AuthorizeWorkloadHostPath(AccessInput{Context: context.Background(), UserId: who},
+			w, privilegedVolumeWorkspace(true)))
+		require.Equal(t, v1.TrueStr, v1.GetAnnotation(w, v1.WorkloadHostPathAuthzAnnotation), who)
+	}
 }

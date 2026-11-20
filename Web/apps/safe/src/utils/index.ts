@@ -20,6 +20,18 @@ export function getSafeRedirect(v: unknown): string {
   return s.startsWith('/') ? s : '/'
 }
 
+type NavigationLike = { canGoBack: boolean; back: () => unknown }
+
+/**
+ * Go back to the app's previous page. history.back() first steps through entries pushed by
+ * embedded iframes (e.g. Grafana time-range changes); navigation.back() skips them.
+ */
+export function historyBack(fallback: () => void) {
+  const nav = (globalThis as { navigation?: NavigationLike }).navigation
+  if (nav?.canGoBack) nav.back()
+  else fallback()
+}
+
 /**
  * Given an object and a field template,
  * if the object is missing a field, automatically fill in the default value from the template.
@@ -529,6 +541,12 @@ const LOG_DOWNLOAD_DISABLED_HOSTS = new Set(['core42.primus-safe.amd.com'])
 export function isLogDownloadEnabledForHost(enabled: boolean | undefined, hostname: string) {
   if (!enabled) return false
   return !LOG_DOWNLOAD_DISABLED_HOSTS.has(hostname.toLowerCase())
+}
+
+const LOG_DISABLED_HOSTS = new Set(['global.primus-safe.amd.com'])
+
+export function isLogEnabledForHost(hostname = globalThis.location?.hostname ?? '') {
+  return !LOG_DISABLED_HOSTS.has(hostname.toLowerCase())
 }
 
 /** Convert a Kubernetes quantity to a Gi number string. Plain numbers stay as Gi. */

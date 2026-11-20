@@ -44,7 +44,7 @@ type CreateWorkloadRequest struct {
 	Annotations map[string]string `json:"annotations,omitempty"`
 	// Preheat indicates whether to preheat the workload to prepare image in advance
 	Preheat bool `json:"preheat,omitempty"`
-	// Whether to run the workload in privileged mode, only accessible to administrators
+	// Whether to run the workload in privileged mode. Creating one requires the workload/privileged grant.
 	Privileged bool `json:"privileged,omitempty"`
 	// The workload will be created using that specific user ID and name. This field is only accessible to administrators.
 	UserEntity *UserEntity `json:"userEntity,omitempty"`
@@ -291,7 +291,7 @@ type GetWorkloadResponse struct {
 	CronJobs []v1.CronJob `json:"cronJobs,omitempty"`
 	// The secrets used by the workload. Only the user themselves or an administrator can get this info.
 	Secrets []v1.SecretEntity `json:"secrets,omitempty"`
-	// Whether to run the workload in privileged mode, only accessible to administrators
+	// Whether to run the workload in privileged mode. Creating one requires the workload/privileged grant.
 	Privileged bool `json:"privileged"`
 	// Whether to use the workspace storage
 	UseWorkspaceStorage bool `json:"useWorkspaceStorage"`

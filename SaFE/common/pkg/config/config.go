@@ -1208,12 +1208,6 @@ func GetAuthAPIKeysURL() string {
 	return strings.TrimRight(url, "/")
 }
 
-// GetAuthAPIKeysUpstream returns auth.api_keys_upstream: the identity service host[:port] that serves
-// /api/v1/apikeys. Empty when unset. Used to build IDENTITY_URL for CICD pods in external mode.
-func GetAuthAPIKeysUpstream() string {
-	return strings.TrimSpace(getString(authAPIKeysUpstream, ""))
-}
-
 // GetAuthLoginURL returns auth.login_url, where the console sends users to sign in when
 // authentication is external. External mode requires it.
 func GetAuthLoginURL() string { return getString(authLoginURL, "") }
@@ -1229,11 +1223,28 @@ func ProviderClientEnabled() bool { return getBool(authProviderClient, false) }
 // GetAuthConnection returns auth.connection. Empty omits the connection parameter.
 func GetAuthConnection() string { return strings.TrimSpace(getString(authConnection, "")) }
 
-// GetAuthAccountsURL returns auth.accounts_url when it is a path or an http(s) URL.
-func GetAuthAccountsURL() string { return consoleURL(getString(authAccountsURL, "")) }
+// DefaultAccountsURL and DefaultKeysConsoleURL are the identity console's pages for accounts and
+// API keys, used when auth.accounts_url or auth.keys_console_url is unset or blank.
+const (
+	DefaultAccountsURL    = "/identity/#accounts"
+	DefaultKeysConsoleURL = "/identity/#keys"
+)
 
-// GetAuthKeysConsoleURL returns auth.keys_console_url when it is a path or an http(s) URL.
-func GetAuthKeysConsoleURL() string { return consoleURL(getString(authKeysConsoleURL, "")) }
+// GetAuthAccountsURL returns auth.accounts_url, or DefaultAccountsURL when blank, when it is a path or an http(s) URL.
+func GetAuthAccountsURL() string { return consoleURL(stringOr(authAccountsURL, DefaultAccountsURL)) }
+
+// GetAuthKeysConsoleURL returns auth.keys_console_url, or DefaultKeysConsoleURL when blank, when it is a path or an http(s) URL.
+func GetAuthKeysConsoleURL() string {
+	return consoleURL(stringOr(authKeysConsoleURL, DefaultKeysConsoleURL))
+}
+
+// stringOr returns the trimmed value of key, or def when it is unset or blank.
+func stringOr(key, def string) string {
+	if v := strings.TrimSpace(getString(key, "")); v != "" {
+		return v
+	}
+	return def
+}
 
 // consoleURL keeps a path or an absolute http(s) URL and drops anything else.
 func consoleURL(raw string) string {

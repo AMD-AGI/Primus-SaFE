@@ -62,7 +62,7 @@ func TestAuthorizeWorkloadCreate(t *testing.T) {
 		{"member", common.LowPriorityInt, false, ""},
 		{"member", common.MedPriorityInt, false, ""},
 		{"member", common.HighPriorityInt, false, "workload/high-priority"},
-		{"member", common.MedPriorityInt, true, WorkloadPrivilegedKind},
+		{"member", common.MedPriorityInt, true, ""},
 		{"outsider", common.LowPriorityInt, false, "create workload,"},
 		{"manager", common.HighPriorityInt, true, ""},
 		{"admin", common.HighPriorityInt, true, ""},

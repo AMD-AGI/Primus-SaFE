@@ -426,7 +426,7 @@
         </el-card>
       </el-tab-pane>
 
-      <el-tab-pane label="Logs" name="logs" lazy>
+      <el-tab-pane v-if="logEnabled" label="Logs" name="logs" lazy>
         <!-- v-if="detail?.opsJobId && userStore.envs?.enableLog" -->
         <LogTerminal
           v-if="workloadDetail && detail?.opsJobId"
@@ -461,12 +461,14 @@ import {
 import { getWorkloadDetail } from '@/services/workload'
 import type { EvaluationTaskDetail } from '@/services/evaluations/type'
 import { useUserStore } from '@/stores/user'
+import { isLogEnabledForHost } from '@/utils'
 import LogTerminal from '@/components/Workload/LogTerminal.vue'
 
 const router = useRouter()
 const route = useRoute()
 const isDark = useDark()
 const userStore = useUserStore()
+const logEnabled = isLogEnabledForHost()
 
 interface WorkloadDetail {
   dispatchCount?: number
