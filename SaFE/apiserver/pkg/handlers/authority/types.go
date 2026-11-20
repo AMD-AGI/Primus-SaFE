@@ -20,7 +20,9 @@ const (
 	ImageRegisterKind      = "ImageRegister"
 	ApiKeysKind            = "apikeys"
 	WorkloadPrivilegedKind = "workload/privileged"
-	AllResource            = "*"
+	// A workload timeout above the runtime ceiling of its scope, or no timeout.
+	WorkloadLongRuntimeKind = "workload/long-runtime"
+	AllResource             = "*"
 
 	GrantedAllUser       = "*"
 	GrantedOwner         = "owner"

@@ -14,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -176,9 +177,9 @@ func qosCall(t *testing.T, h *Handler, user, name, method string, body any, fn f
 	return rsp
 }
 
-// TestWorkloadTimeoutAboveQosNeedsHighPriority verifies that an update to a timeout above the
-// qos limit, or to no timeout, is allowed with the high-priority grant and denied without it.
-func TestWorkloadTimeoutAboveQosNeedsHighPriority(t *testing.T) {
+// TestWorkloadTimeoutAboveQosNeedsLongRuntime verifies that an update to a timeout above the
+// qos limit, or to no timeout, is allowed with the long-runtime grant and denied without it.
+func TestWorkloadTimeoutAboveQosNeedsLongRuntime(t *testing.T) {
 	f := newAccessFixture(t)
 	assert.NoError(t, f.cli.Create(t.Context(), &v1.Qos{
 		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
@@ -203,7 +204,10 @@ func TestWorkloadTimeoutAboveQosNeedsHighPriority(t *testing.T) {
 	assert.NoError(t, update(userAdmin, 0))
 	assert.NoError(t, update(userAdmin, 9000))
 	assert.NoError(t, update(userDefault, 1800))
-	assert.Error(t, update(userDefault, 9000))
+	err := update(userDefault, 9000)
+	assert.True(t, apierrors.IsForbidden(err), "%v", err)
+	assert.ErrorContains(t, err, "above the limit of 2h for Train workloads")
+	assert.ErrorContains(t, err, "workload/long-runtime")
 }
 
 func TestUserQosPatchKeepsClustersOnly(t *testing.T) {

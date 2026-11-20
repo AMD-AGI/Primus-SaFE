@@ -618,10 +618,9 @@ func (h *Handler) authWorkloadUpdate(c *gin.Context, adminWorkload *v1.Workload,
 		if err != nil {
 			return err
 		}
-		// A timeout above the qos limit for the scope, or no timeout, requires the highest-priority permission.
-		if ceiling > 0 && (*request.Timeout > ceiling || *request.Timeout <= 0) {
-			priorityKind := generatePriority(common.HighPriorityInt)
-			if err = h.authWorkloadAction(c, adminWorkload, v1.UpdateVerb, priorityKind, requestUser, roles); err != nil {
+		if aboveRuntimeCeiling(*request.Timeout, ceiling) {
+			if err = h.authWorkloadLongRuntime(c, adminWorkload, v1.UpdateVerb, *request.Timeout, ceiling,
+				requestUser, roles); err != nil {
 				return err
 			}
 		}
@@ -634,6 +633,41 @@ func (h *Handler) authWorkloadUpdate(c *gin.Context, adminWorkload *v1.Workload,
 		}
 	}
 	return nil
+}
+
+// aboveRuntimeCeiling reports whether a timeout is above a set ceiling. No timeout is above it.
+func aboveRuntimeCeiling(timeout, ceiling int) bool {
+	return ceiling > 0 && (timeout > ceiling || timeout <= 0)
+}
+
+// authWorkloadLongRuntime checks the workload/long-runtime grant in the workload's workspace for a
+// timeout above the runtime ceiling. Among the built-in roles workspace-admin (in the workspaces it
+// manages) and system-admin hold it.
+func (h *Handler) authWorkloadLongRuntime(c *gin.Context, workload *v1.Workload, verb v1.RoleVerb,
+	timeout, ceiling int, requestUser *v1.User, roles []*v1.Role) error {
+	err := h.authWorkloadAction(c, workload, verb, authority.WorkloadLongRuntimeKind, requestUser, roles)
+	if err != nil && apierrors.IsForbidden(err) {
+		return commonerrors.NewForbidden(fmt.Sprintf("timeout %s is above the limit of %s for %s workloads "+
+			"in workspace %s; a longer or unlimited timeout requires the %s grant in the workspace",
+			formatRuntime(timeout), formatRuntime(ceiling), commonworkload.GetScope(workload),
+			workload.Spec.Workspace, authority.WorkloadLongRuntimeKind))
+	}
+	return err
+}
+
+// formatRuntime renders a timeout in seconds such as 3h or 1h30m, and 0 or less as unlimited.
+func formatRuntime(seconds int) string {
+	if seconds <= 0 {
+		return "unlimited"
+	}
+	text := (time.Duration(seconds) * time.Second).String()
+	if strings.HasSuffix(text, "m0s") {
+		text = strings.TrimSuffix(text, "0s")
+	}
+	if strings.HasSuffix(text, "h0m") {
+		text = strings.TrimSuffix(text, "0m")
+	}
+	return text
 }
 
 // runtimeCeiling is the qos timeout, in seconds, for the workload's workspace scope, including
