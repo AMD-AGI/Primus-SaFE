@@ -308,8 +308,11 @@ func (h *Handler) getDataset(ctx context.Context, id, workspace string) (*recipe
 		return nil, nil
 	}
 	ds, err := h.db.GetDataset(ctx, id)
-	if err != nil {
+	if datasetMissing(err) {
 		return nil, commonerrors.NewNotFoundWithMessage(fmt.Sprintf("dataset %s not found", id))
+	}
+	if err != nil {
+		return nil, commonerrors.NewInternalError(fmt.Sprintf("failed to read dataset %s: %v", id, err))
 	}
 	info := &recipe.DatasetInfo{ID: ds.DatasetId, Name: ds.DisplayName, Type: ds.DatasetType}
 	var paths []dbclient.DatasetLocalPathDB

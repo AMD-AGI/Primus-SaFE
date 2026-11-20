@@ -202,6 +202,15 @@ func TestAFailedBenchmarkLookupIsNotAMissingBenchmark(t *testing.T) {
 	db.EXPECT().ListPostTrainingRecipeRecords(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	code, body := postAs(h.PreviewRecipe, req)
 	require.Equal(t, http.StatusOK, code, "the benchmarks of an evaluation that is off are not looked up: %s", body)
+
+	// The dataset to train on is looked up the same way.
+	db.EXPECT().GetDataset(gomock.Any(), "gone").
+		Return(nil, commonerrors.NewNotFoundWithMessage("dataset gone not found")).AnyTimes()
+	for id, want := range map[string]int{"flaky": http.StatusInternalServerError, "gone": http.StatusNotFound} {
+		req.DatasetID = id
+		code, body = postAs(h.PreviewRecipe, req)
+		require.Equal(t, want, code, "%s: %s", id, body)
+	}
 }
 
 // A run's model is deleted with the run only for a user who may delete the model.
