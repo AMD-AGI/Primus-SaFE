@@ -268,26 +268,32 @@ describe('ensureSessionOnce with a saved userId in external mode', () => {
 })
 
 describe('logout', () => {
-  // A model of the deployment, not a blind success: the apiserver authenticates its /logout with the identity
-  // provider's session cookie, which the provider's logout clears. Once it is gone the apiserver answers 401,
-  // and the global error handler, unless the call is quiet, sends the browser to the sign-in page.
+  // A model of the deployment, not a blind success. The browser holds one session cookie, the identity
+  // provider's (Token, path /, host-only). The provider's logout revokes the session it is sent and clears the
+  // cookie; sent none, it has nothing to end. The apiserver authenticates its /logout with that cookie (401
+  // without it, and then the global error handler sends the browser to the sign-in page unless the call is
+  // quiet), and an apiserver that clears its own cookies on logout overwrites this one, which is the same cookie.
   const calls: string[] = []
-  let providerSession = true
+  const revoked: string[] = []
+  let cookie = ''
   beforeEach(() => {
     setActivePinia(createPinia())
     calls.length = 0
-    providerSession = true
+    revoked.length = 0
+    cookie = 'session-1'
     getEnvs.mockReset()
     logout.mockReset().mockImplementation(async (quiet?: boolean) => {
-      if (!providerSession) {
+      if (!cookie) {
         calls.push(quiet ? 'apiserver 401' : 'apiserver 401, redirect to /login')
         throw Object.assign(new Error('401'), { response: { status: 401 } })
       }
+      cookie = ''
       calls.push('apiserver')
     })
     endProviderSession.mockReset().mockImplementation(async (url: string) => {
-      providerSession = false
-      calls.push('provider ' + url)
+      calls.push(`provider ${url} with ${cookie ? 'Token=' + cookie : 'no Token'}`)
+      if (cookie) revoked.push(cookie)
+      cookie = ''
     })
   })
 
@@ -300,10 +306,11 @@ describe('logout', () => {
     return store
   }
 
-  it('signs out at the apiserver while the session still works, then ends it at the provider', async () => {
+  it('ends the session at the provider with the session cookie, then quietly at the apiserver', async () => {
     const store = signedInWith({ authMode: 'external', logoutUrl: '/identity/api/v1/logout' })
     await expect(store.logout()).resolves.toBeUndefined()
-    expect(calls).toEqual(['apiserver', 'provider /identity/api/v1/logout'])
+    expect(calls).toEqual(['provider /identity/api/v1/logout with Token=session-1', 'apiserver 401'])
+    expect(revoked).toEqual(['session-1'])
     expect(store.session).toBe('anonymous')
     expect(store.userId).toBe('')
   })
@@ -312,15 +319,8 @@ describe('logout', () => {
     getEnvs.mockResolvedValue({ authMode: 'external', logoutUrl: '/identity/api/v1/logout' })
     const store = signedInWith(null)
     await expect(store.logout()).resolves.toBeUndefined()
-    expect(calls).toEqual(['apiserver', 'provider /identity/api/v1/logout'])
-  })
-
-  it('still ends the provider session, with no redirect, when the apiserver refuses', async () => {
-    providerSession = false
-    const store = signedInWith({ authMode: 'external', logoutUrl: '/identity/api/v1/logout' })
-    await expect(store.logout()).resolves.toBeUndefined()
-    expect(calls).toEqual(['apiserver 401', 'provider /identity/api/v1/logout'])
-    expect(store.session).toBe('anonymous')
+    expect(calls).toEqual(['provider /identity/api/v1/logout with Token=session-1', 'apiserver 401'])
+    expect(revoked).toEqual(['session-1'])
   })
 
   it('still signs out here when the provider cannot be reached', async () => {
@@ -328,6 +328,14 @@ describe('logout', () => {
     const store = signedInWith({ authMode: 'external', logoutUrl: '/identity/api/v1/logout' })
     await expect(store.logout()).resolves.toBeUndefined()
     expect(calls).toEqual(['apiserver'])
+    expect(store.session).toBe('anonymous')
+  })
+
+  it('still signs out here when the apiserver fails', async () => {
+    logout.mockRejectedValue(new Error('500'))
+    const store = signedInWith({ authMode: 'external', logoutUrl: '/identity/api/v1/logout' })
+    await expect(store.logout()).resolves.toBeUndefined()
+    expect(revoked).toEqual(['session-1'])
     expect(store.session).toBe('anonymous')
   })
 
