@@ -167,6 +167,22 @@ func TestARunWithABenchmarkThatDoesNotExistIsRefused(t *testing.T) {
 	require.Empty(t, workloads.Items)
 }
 
+// A benchmark that is an evaluation dataset passes the preview with the type the lookup read.
+func TestARunWithAnEvaluationBenchmarkPassesThePreview(t *testing.T) {
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	h, _ := submitHandler(t, db, nil)
+	db.EXPECT().GetDataset(gomock.Any(), "gsm8k").Return(&dbclient.Dataset{DatasetId: "gsm8k",
+		DatasetType: recipe.BenchmarkDatasetType}, nil).AnyTimes()
+	db.EXPECT().ListPostTrainingRecipeRecords(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	code, body := postAs(h.PreviewRecipe, recipe.SubmitRequest{Workspace: "ws1", DisplayName: "sft-eval",
+		TrainType: "sft", Method: "full", ModelID: "m1", DatasetID: "d1",
+		Resources:  recipe.Resources{Nodes: 1, GpusPerNode: 8},
+		Evaluation: recipe.EvaluationRequest{Enabled: true, Benchmarks: []string{"gsm8k"}}})
+	require.Equal(t, http.StatusOK, code, body)
+	require.NotContains(t, body, "evaluation.benchmarks")
+	require.Contains(t, body, `"benchmarks":["gsm8k"]`)
+}
+
 // A benchmark lookup that failed is not a benchmark that is missing: the request fails as an error of the server
 // and says nothing against the benchmarks chosen.
 func TestAFailedBenchmarkLookupIsNotAMissingBenchmark(t *testing.T) {
@@ -182,6 +198,10 @@ func TestAFailedBenchmarkLookupIsNotAMissingBenchmark(t *testing.T) {
 		require.Contains(t, body, "failed to read dataset flaky", name)
 		require.NotContains(t, body, "was not found", name)
 	}
+	req.Evaluation.Enabled = false
+	db.EXPECT().ListPostTrainingRecipeRecords(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	code, body := postAs(h.PreviewRecipe, req)
+	require.Equal(t, http.StatusOK, code, "the benchmarks of an evaluation that is off are not looked up: %s", body)
 }
 
 // A run's model is deleted with the run only for a user who may delete the model.

@@ -177,6 +177,15 @@ func TestCompileRejects(t *testing.T) {
 	}
 }
 
+// The benchmarks of an automatic evaluation that is off are not checked.
+func TestTheBenchmarksOfAnEvaluationThatIsOffAreNotChecked(t *testing.T) {
+	in := input(t)
+	in.Request.Evaluation = EvaluationRequest{Benchmarks: []string{"b1"}}
+	res := Compile(in)
+	require.Empty(t, errorsOf(res))
+	require.NotNil(t, res.Recipe)
+}
+
 // rlLora turns the input into an RL LoRA request with the given layout.
 func rlLora(layout string) func(*Input) {
 	return func(in *Input) {

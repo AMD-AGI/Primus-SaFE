@@ -147,6 +147,8 @@ func TestBuildMarkers(t *testing.T) {
 	require.Equal(t, []checkpointMark{{Step: 6}, {Step: 12}}, buildMarkers(run, long).Checkpoints,
 		"a last step on the interval is one checkpoint")
 
+	require.Empty(t, buildMarkers(run, nil).Checkpoints, "a run without points has no step to list a last save at")
+
 	// Stored points that stop short of the last step, with a gap left or at the cap on stored points, do not tell
 	// where the training ended: a checkpoint after them would be one that is not there.
 	run.Recipe = `{"choices":{"saveInterval":500}}`
