@@ -112,6 +112,11 @@ spec:
                   description: LowUtilizationPolicy stops workloads whose GPU utilization
                     stays below a threshold
                   properties:
+                    cooldown:
+                      description: |-
+                        Time a detected workload must stay active before its detection is cleared, and the least
+                        time between two notices to its owner, e.g. 30m. Default the shortest rule window.
+                      type: string
                     dryRun:
                       description: Detect and notify only, never stop the workload
                       type: boolean

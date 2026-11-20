@@ -63,6 +63,9 @@ func TestValidateLowUtilization(t *testing.T) {
 		{"unparsable grace period", v1.TrainScope, with(func(p *v1.LowUtilizationPolicy) { p.GracePeriod = "1d" }), "invalid gracePeriod"},
 		{"negative grace period", v1.TrainScope, with(func(p *v1.LowUtilizationPolicy) { p.GracePeriod = "-1m" }), "gracePeriod must not be negative"},
 		{"negative notify before", v1.TrainScope, with(func(p *v1.LowUtilizationPolicy) { p.NotifyBefore = "-1m" }), "notifyBefore must not be negative"},
+		{"cooldown", v1.TrainScope, with(func(p *v1.LowUtilizationPolicy) { p.Cooldown = "45m" }), ""},
+		{"unparsable cooldown", v1.TrainScope, with(func(p *v1.LowUtilizationPolicy) { p.Cooldown = "1d" }), "invalid cooldown"},
+		{"negative cooldown", v1.TrainScope, with(func(p *v1.LowUtilizationPolicy) { p.Cooldown = "-1m" }), "cooldown must not be negative"},
 
 		{"rules", v1.TrainScope, rules, ""},
 		{"empty policy", v1.TrainScope, v1.LowUtilizationPolicy{Mode: v1.LowUtilizationAverage},

@@ -351,6 +351,21 @@ func (r *LowUtilizationController) apply(ctx context.Context,
 		return nil
 	case lowUtilActive:
 		if _, ok := w.GetAnnotations()[v1.WorkloadLowUtilDetectedAtAnnotation]; ok {
+			// The detection is kept until the workload stays active for the cooldown, so a
+			// workload hovering around a threshold keeps one episode and one countdown.
+			now := r.now().UTC()
+			since, err := time.Parse(time.RFC3339, v1.GetAnnotation(w, v1.WorkloadLowUtilActiveSinceAnnotation))
+			if err != nil {
+				since = now
+			}
+			if now.Before(since.Add(lowUtilCooldown(c.policy))) {
+				if err == nil {
+					return nil
+				}
+				orig := w.DeepCopy()
+				v1.SetAnnotation(w, v1.WorkloadLowUtilActiveSinceAnnotation, since.Format(time.RFC3339))
+				return client.IgnoreNotFound(r.Patch(ctx, w, client.MergeFrom(orig)))
+			}
 			if episode, open := lowUtilEpisode(w); open {
 				if err := r.addLowUtilCondition(ctx, w, lowUtilReasonRecovered, episode,
 					fmt.Sprintf("GPU utilization recovered: observed max %.1f%%", d.observed)); err != nil {
@@ -362,6 +377,9 @@ func (r *LowUtilizationController) apply(ctx context.Context,
 	}
 
 	now := r.now().UTC()
+	if err := r.removeLowUtilAnnotations(ctx, w, v1.WorkloadLowUtilActiveSinceAnnotation); err != nil {
+		return err
+	}
 	notifyBefore := parseLowUtilDuration(c.policy.NotifyBefore)
 	description := describeLowUtil(c.policy, d)
 	detectedAt, err := time.Parse(time.RFC3339, v1.GetAnnotation(w, v1.WorkloadLowUtilDetectedAtAnnotation))
@@ -425,7 +443,7 @@ func (r *LowUtilizationController) apply(ctx context.Context,
 				return err
 			}
 		}
-		if err = r.setEnforced(ctx, w, enforcedAt); err != nil {
+		if err = r.setEnforced(ctx, w, enforcedAt, lowUtilCooldown(c.policy)); err != nil {
 			return err
 		}
 		r.recorder.Eventf(w, corev1.EventTypeWarning, lowUtilEventReason, "%s; %s", description, outcome)
@@ -534,17 +552,35 @@ func (r *LowUtilizationController) setDetected(ctx context.Context, w *v1.Worklo
 	return r.Patch(ctx, w, client.MergeFrom(orig))
 }
 
-// setEnforced starts the stop countdown and marks the owner as told of it.
-func (r *LowUtilizationController) setEnforced(ctx context.Context, w *v1.Workload, at time.Time) error {
+// setEnforced starts the stop countdown at at, and marks the owner notified unless a notice
+// went out less than cooldown before.
+func (r *LowUtilizationController) setEnforced(ctx context.Context, w *v1.Workload, at time.Time, cooldown time.Duration) error {
 	orig := w.DeepCopy()
 	v1.SetAnnotation(w, v1.WorkloadLowUtilEnforcedAtAnnotation, at.Format(time.RFC3339))
-	v1.SetAnnotation(w, v1.WorkloadLowUtilNotifiedAtAnnotation, at.Format(time.RFC3339))
+	notifiedAt, err := time.Parse(time.RFC3339, v1.GetAnnotation(w, v1.WorkloadLowUtilNotifiedAtAnnotation))
+	if err != nil || !at.Before(notifiedAt.Add(cooldown)) {
+		v1.SetAnnotation(w, v1.WorkloadLowUtilNotifiedAtAnnotation, at.Format(time.RFC3339))
+	}
 	return r.Patch(ctx, w, client.MergeFrom(orig))
 }
 
 func (r *LowUtilizationController) clearDetected(ctx context.Context, w *v1.Workload) error {
-	return client.IgnoreNotFound(r.removeLowUtilAnnotations(ctx, w,
-		v1.WorkloadLowUtilDetectedAtAnnotation, v1.WorkloadLowUtilEnforcedAtAnnotation))
+	return client.IgnoreNotFound(r.removeLowUtilAnnotations(ctx, w, v1.WorkloadLowUtilDetectedAtAnnotation,
+		v1.WorkloadLowUtilEnforcedAtAnnotation, v1.WorkloadLowUtilActiveSinceAnnotation))
+}
+
+// lowUtilCooldown returns the policy cooldown, by default the shortest rule window.
+func lowUtilCooldown(policy *v1.LowUtilizationPolicy) time.Duration {
+	if policy.Cooldown != "" {
+		return parseLowUtilDuration(policy.Cooldown)
+	}
+	var cooldown time.Duration
+	for _, rule := range policy.EffectiveRules() {
+		if window := parseLowUtilDuration(rule.Window); window > 0 && (cooldown == 0 || window < cooldown) {
+			cooldown = window
+		}
+	}
+	return cooldown
 }
 
 // removeLowUtilAnnotations removes the given annotations, patching only when one is present.

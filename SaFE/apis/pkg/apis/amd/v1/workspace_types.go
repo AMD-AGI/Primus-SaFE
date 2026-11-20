@@ -106,6 +106,9 @@ type LowUtilizationPolicy struct {
 	GracePeriod string `json:"gracePeriod,omitempty"`
 	// Time between the low utilization notice and the stop, e.g. 30m
 	NotifyBefore string `json:"notifyBefore,omitempty"`
+	// Time a detected workload must stay active before its detection is cleared, and the least
+	// time between two notices to its owner, e.g. 30m. Default the shortest rule window.
+	Cooldown string `json:"cooldown,omitempty"`
 	// Detect and notify only, never stop the workload
 	DryRun bool `json:"dryRun,omitempty"`
 }

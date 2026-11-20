@@ -29,6 +29,9 @@ type LowUtilizationPolicyApplyConfiguration struct {
 	GracePeriod *string `json:"gracePeriod,omitempty"`
 	// Time between the low utilization notice and the stop, e.g. 30m
 	NotifyBefore *string `json:"notifyBefore,omitempty"`
+	// Time a detected workload must stay active before its detection is cleared, and the least
+	// time between two notices to its owner, e.g. 30m. Default the shortest rule window.
+	Cooldown *string `json:"cooldown,omitempty"`
 	// Detect and notify only, never stop the workload
 	DryRun *bool `json:"dryRun,omitempty"`
 }
@@ -89,6 +92,14 @@ func (b *LowUtilizationPolicyApplyConfiguration) WithGracePeriod(value string) *
 // If called multiple times, the NotifyBefore field is set to the value of the last call.
 func (b *LowUtilizationPolicyApplyConfiguration) WithNotifyBefore(value string) *LowUtilizationPolicyApplyConfiguration {
 	b.NotifyBefore = &value
+	return b
+}
+
+// WithCooldown sets the Cooldown field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Cooldown field is set to the value of the last call.
+func (b *LowUtilizationPolicyApplyConfiguration) WithCooldown(value string) *LowUtilizationPolicyApplyConfiguration {
+	b.Cooldown = &value
 	return b
 }
 
