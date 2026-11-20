@@ -1009,10 +1009,6 @@ data:
         disk_usage TEXT,
         cleanup_request TEXT,
         convert_workload_id VARCHAR(64),
-        template_id VARCHAR(64),
-        template_version INTEGER,
-        experiment_id VARCHAR(64),
-        variant_name VARCHAR(64),
         ext TEXT,
         start_time TIMESTAMPTZ,
         end_time TIMESTAMPTZ,
@@ -1033,8 +1029,6 @@ data:
     create index if not exists T_POST_TRAINING_RUN_BASE_MODEL_INDEX on post_training_run (base_model_id);
     create index if not exists T_POST_TRAINING_RUN_OUTPUT_MODEL_INDEX on post_training_run (output_model_id);
     create index if not exists T_POST_TRAINING_RUN_RECIPE_HASH_INDEX on post_training_run (recipe_hash, status);
-    create index if not exists T_POST_TRAINING_RUN_TEMPLATE_INDEX on post_training_run (template_id, status);
-    create index if not exists T_POST_TRAINING_RUN_EXPERIMENT_INDEX on post_training_run (experiment_id);
     alter table post_training_run owner to "primus-safe";
 
     create table if not exists post_training_run_metric
@@ -1088,43 +1082,3 @@ data:
     create unique index if not exists T_POST_TRAINING_CONVERT_CACHE_KEY_INDEX on post_training_convert_cache (workspace, cache_key);
     create index if not exists T_POST_TRAINING_CONVERT_CACHE_MODEL_INDEX on post_training_convert_cache (model_id);
     alter table post_training_convert_cache owner to "primus-safe";
-    create table if not exists post_training_template
-    (
-        id SERIAL PRIMARY KEY,
-        template_id VARCHAR(64) NOT NULL UNIQUE,
-        workspace VARCHAR(64) NOT NULL,
-        name VARCHAR(128) NOT NULL,
-        description TEXT,
-        train_type VARCHAR(16) NOT NULL,
-        method VARCHAR(16) NOT NULL,
-        framework VARCHAR(32) NOT NULL DEFAULT 'slime',
-        spec VARCHAR(64),
-        version INTEGER NOT NULL DEFAULT 1,
-        content TEXT NOT NULL,
-        source_run_id VARCHAR(64),
-        user_id VARCHAR(64),
-        user_name VARCHAR(128),
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        updated_at TIMESTAMPTZ,
-        is_deleted BOOLEAN DEFAULT FALSE
-    );
-    create index if not exists T_POST_TRAINING_TEMPLATE_WORKSPACE_INDEX on post_training_template (workspace, train_type, is_deleted);
-    alter table post_training_template owner to "primus-safe";
-    create table if not exists post_training_experiment
-    (
-        id SERIAL PRIMARY KEY,
-        experiment_id VARCHAR(64) NOT NULL UNIQUE,
-        workspace VARCHAR(64) NOT NULL,
-        display_name VARCHAR(128) NOT NULL,
-        train_type VARCHAR(16) NOT NULL,
-        baseline_variant VARCHAR(64) NOT NULL,
-        variants TEXT NOT NULL,
-        seed INTEGER NOT NULL,
-        user_id VARCHAR(64),
-        user_name VARCHAR(128),
-        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        updated_at TIMESTAMPTZ,
-        is_deleted BOOLEAN DEFAULT FALSE
-    );
-    create index if not exists T_POST_TRAINING_EXPERIMENT_WORKSPACE_INDEX on post_training_experiment (workspace, is_deleted, created_at DESC);
-    alter table post_training_experiment owner to "primus-safe";
