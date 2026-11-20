@@ -286,10 +286,10 @@ func TestNodeRobustReconcilePushesAndDeletes(t *testing.T) {
 	node := syncManagedNode("n1", "")
 	r := newNodeRobustSyncer(t, node, syncTestFlavor())
 
-	// No Robust client for the cluster yet: retry later.
+	// No Robust client for the cluster yet: left to the periodic reconcile, no requeue.
 	res, err := reconcileNode(t, r, "n1")
 	require.NoError(t, err)
-	assert.Equal(t, ctrlruntime.Result{RequeueAfter: robustSyncNoClientWait}, res)
+	assert.Equal(t, ctrlruntime.Result{}, res)
 
 	fr := &fakeNodeRobust{}
 	r.robustClient.RegisterCluster("c1", fr.serve(t).URL)
