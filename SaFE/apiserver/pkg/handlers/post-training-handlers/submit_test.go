@@ -33,6 +33,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	mockclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/posttraining/registry"
 )
 
@@ -148,7 +149,8 @@ func TestAnExperimentWhoseWorkloadIsRefusedIsRolledBack(t *testing.T) {
 func TestARunWithABenchmarkThatDoesNotExistIsRefused(t *testing.T) {
 	db := mockclient.NewMockInterface(gomock.NewController(t))
 	h, cli := submitHandler(t, db, nil)
-	db.EXPECT().GetDataset(gomock.Any(), "gone").Return(nil, gorm.ErrRecordNotFound).AnyTimes()
+	db.EXPECT().GetDataset(gomock.Any(), "gone").
+		Return(nil, commonerrors.NewNotFoundWithMessage("dataset gone not found")).AnyTimes()
 	req := recipe.SubmitRequest{Workspace: "ws1", DisplayName: "sft-eval", TrainType: "sft", Method: "full",
 		ModelID: "m1", DatasetID: "d1", Resources: recipe.Resources{Nodes: 1, GpusPerNode: 8},
 		Evaluation: recipe.EvaluationRequest{Enabled: true, Benchmarks: []string{"gone", "d1"}}}
@@ -163,6 +165,23 @@ func TestARunWithABenchmarkThatDoesNotExistIsRefused(t *testing.T) {
 	workloads := &v1.WorkloadList{}
 	require.NoError(t, cli.List(context.Background(), workloads))
 	require.Empty(t, workloads.Items)
+}
+
+// A benchmark lookup that failed is not a benchmark that is missing: the request fails as an error of the server
+// and says nothing against the benchmarks chosen.
+func TestAFailedBenchmarkLookupIsNotAMissingBenchmark(t *testing.T) {
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	h, _ := submitHandler(t, db, nil)
+	db.EXPECT().GetDataset(gomock.Any(), "flaky").Return(nil, errFromString("connection reset")).AnyTimes()
+	req := recipe.SubmitRequest{Workspace: "ws1", DisplayName: "sft-eval", TrainType: "sft", Method: "full",
+		ModelID: "m1", DatasetID: "d1", Resources: recipe.Resources{Nodes: 1, GpusPerNode: 8},
+		Evaluation: recipe.EvaluationRequest{Enabled: true, Benchmarks: []string{"flaky"}}}
+	for name, handle := range map[string]gin.HandlerFunc{"submit": h.SubmitRun, "preview": h.PreviewRecipe} {
+		code, body := postAs(handle, req)
+		require.Equal(t, http.StatusInternalServerError, code, name)
+		require.Contains(t, body, "failed to read dataset flaky", name)
+		require.NotContains(t, body, "was not found", name)
+	}
 }
 
 // A run's model is deleted with the run only for a user who may delete the model.

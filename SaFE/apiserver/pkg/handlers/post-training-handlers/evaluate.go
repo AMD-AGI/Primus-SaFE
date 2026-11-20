@@ -98,6 +98,9 @@ func (h *Handler) requestEvaluation(ctx context.Context, run *dbclient.PostTrain
 	}
 	for _, id := range req.Benchmarks {
 		dataset, err := h.db.GetDataset(ctx, id)
+		if err != nil && !datasetMissing(err) {
+			return "", commonerrors.NewInternalError(fmt.Sprintf("failed to read dataset %s: %v", id, err))
+		}
 		if err != nil || dataset == nil {
 			return "", commonerrors.NewBadRequest(fmt.Sprintf("dataset %s not found", id))
 		}

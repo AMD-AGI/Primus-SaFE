@@ -21,6 +21,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	mockclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 )
 
 // evalHandler returns a handler over a fake API server holding objs and a database with one evaluation dataset.
@@ -30,6 +31,10 @@ func evalHandler(t *testing.T, objs ...ctrlclient.Object) *Handler {
 	db := mockclient.NewMockInterface(gomock.NewController(t))
 	db.EXPECT().GetDataset(gomock.Any(), "gsm8k").Return(&dbclient.Dataset{DatasetType: "evaluation"}, nil).AnyTimes()
 	db.EXPECT().GetDataset(gomock.Any(), "alpaca").Return(&dbclient.Dataset{DatasetType: "sft"}, nil).AnyTimes()
+	db.EXPECT().GetDataset(gomock.Any(), "gone").
+		Return(nil, commonerrors.NewNotFoundWithMessage("dataset gone not found")).AnyTimes()
+	db.EXPECT().GetDataset(gomock.Any(), "").Return(nil, commonerrors.NewBadRequest("datasetId is empty")).AnyTimes()
+	db.EXPECT().GetDataset(gomock.Any(), "flaky").Return(nil, errFromString("connection reset")).AnyTimes()
 	return NewHandler(fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build(), db)
 }
 
@@ -55,11 +60,15 @@ func TestRequestEvaluation(t *testing.T) {
 		"no benchmarks":       {},
 		"foreign model":       {ModelID: "m-other", Benchmarks: []string{"gsm8k"}},
 		"not an eval dataset": {Benchmarks: []string{"alpaca"}},
+		"missing dataset":     {Benchmarks: []string{"gone"}},
+		"empty dataset id":    {Benchmarks: []string{""}},
 		"missing model":       {ModelID: "m-gone", Benchmarks: []string{"gsm8k"}},
 	} {
 		_, err := h.requestEvaluation(ctx, run, &req)
 		require.Equal(t, http.StatusBadRequest, statusCode(err), name)
 	}
+	_, err := h.requestEvaluation(ctx, run, &evaluateRequest{Benchmarks: []string{"flaky"}})
+	require.Equal(t, http.StatusInternalServerError, statusCode(err), "a lookup that failed is not a missing dataset")
 
 	modelID, err := h.requestEvaluation(ctx, run, &evaluateRequest{Benchmarks: []string{"gsm8k"}, KeepService: true})
 	require.NoError(t, err)

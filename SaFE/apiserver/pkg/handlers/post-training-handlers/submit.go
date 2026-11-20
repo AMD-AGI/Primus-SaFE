@@ -262,23 +262,40 @@ func (h *Handler) buildInput(c *gin.Context, reg *registry.Registry, req *recipe
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	benchmarks, err := h.benchmarks(ctx, req)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	return &recipe.Input{Registry: reg, Request: req, RunID: runID, RunDir: ws.runDir(runID), Model: mi,
 		Dataset: dataset, EvalDataset: evalDataset, Workspace: ws.WorkspaceInfo, Secrets: secrets,
-		Benchmarks: h.benchmarks(ctx, req)}, ws, model, nil
+		Benchmarks: benchmarks}, ws, model, nil
 }
 
-// benchmarks returns the datasets the automatic evaluation of a request names that exist, by id.
-func (h *Handler) benchmarks(ctx context.Context, req *recipe.SubmitRequest) map[string]*recipe.DatasetInfo {
+// benchmarks returns the datasets the automatic evaluation of a request names that exist, by id. A lookup that
+// failed is an error: the compiler would report its dataset as one that does not exist.
+func (h *Handler) benchmarks(ctx context.Context, req *recipe.SubmitRequest) (map[string]*recipe.DatasetInfo, error) {
 	out := map[string]*recipe.DatasetInfo{}
 	if !req.Evaluation.Enabled {
-		return out
+		return out, nil
 	}
 	for _, id := range req.Evaluation.Benchmarks {
-		if ds, err := h.db.GetDataset(ctx, id); err == nil && ds != nil {
+		ds, err := h.db.GetDataset(ctx, id)
+		switch {
+		case datasetMissing(err):
+			// The compiler reports a benchmark that is not among the ones returned.
+		case err != nil:
+			return nil, commonerrors.NewInternalError(fmt.Sprintf("failed to read dataset %s: %v", id, err))
+		case ds != nil:
 			out[id] = &recipe.DatasetInfo{ID: ds.DatasetId, Name: ds.DisplayName, Type: ds.DatasetType}
 		}
 	}
-	return out
+	return out, nil
+}
+
+// datasetMissing reports whether the error of a dataset lookup says that the dataset does not exist, which an
+// empty id does too.
+func datasetMissing(err error) bool {
+	return commonerrors.IsNotFound(err) || commonerrors.IsBadRequest(err)
 }
 
 // readSecrets returns the type and key names of the secrets a request names that the requesting user can read.
