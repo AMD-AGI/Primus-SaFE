@@ -136,9 +136,7 @@
 
         <el-table-column label="Run Name / ID" min-width="270" fixed="left">
           <template #default="{ row }">
-            <div
-              class="inline-flex flex-col items-start align-middle min-w-0 max-w-[calc(100%_-_40px)]"
-            >
+            <div class="flex flex-col items-start min-w-0">
               <div class="flex items-center gap-1 max-w-full">
                 <el-link
                   v-if="canOpenDetail"
@@ -558,7 +556,7 @@ const refreshAgo = computed(
   () => `${Math.max(0, Math.round((now.value.getTime() - lastRefresh.value) / 1000))}s ago`,
 )
 
-/** Loads one page of runs; a quiet refresh keeps the current rows and selection when it fails. */
+/** Loads one page of runs; a quiet refresh keeps the current rows when it fails. */
 const fetchData = async (quiet = false) => {
   const workspace = wsStore.currentWorkspaceId
   if (!workspace) return
