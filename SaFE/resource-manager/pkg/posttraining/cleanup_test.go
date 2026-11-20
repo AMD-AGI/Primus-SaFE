@@ -62,6 +62,27 @@ func TestCheckpointCleanup(t *testing.T) {
 	require.Empty(t, jobs.Items, "finished cleanup and count jobs are removed")
 }
 
+// A cleanup that keeps the best checkpoint and finds none to remove still records its list of steps, empty: the
+// list tells its event from one recorded before events had it.
+func TestACleanupWithNothingToRemoveRecordsAnEmptyList(t *testing.T) {
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1",
+		Volumes: []v1.WorkspaceVolume{{Type: v1.PFS, MountPath: "/wekafs"}}}}
+	run := testRunRow("Succeeded", "done")
+	run.OutputPath = testRunDir
+	run.CleanupRequest = `{"keep":"best","paths":null,"keptStep":7,"cleanedSteps":[]}`
+	r, _, updates := newTestReconciler(t, run, ws)
+	ctx := context.Background()
+	reconcileRun(t, r)
+	disk := &v1.OpsJob{}
+	require.NoError(t, r.Get(ctx, client.ObjectKey{Name: diskJobName(testRun)}, disk))
+	disk.Status.Phase = v1.OpsJobSucceeded
+	require.NoError(t, r.Update(ctx, disk))
+	reconcileRun(t, r)
+	last := (*updates)[len(*updates)-1]
+	require.Equal(t, "", last["cleanup_request"])
+	require.Contains(t, last["stage_history"], `"keptStep":7,"cleanedSteps":[]`)
+}
+
 // A cleanup removes nothing outside the run's checkpoints and waits for exports reading them.
 func TestACleanupStaysInTheRunDirectoryAndWaitsForExports(t *testing.T) {
 	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1",
@@ -240,6 +261,8 @@ func TestAJobLeftUnfinishedPastItsTimeoutHasFailed(t *testing.T) {
 	require.Zero(t, reconcileRun(t, r).RequeueAfter)
 	require.Error(t, r.Get(ctx, disk, &v1.OpsJob{}))
 	require.Equal(t, "", (*updates)[len(*updates)-1]["cleanup_request"], "the cleanup ends without a new count")
+	require.NotContains(t, (*updates)[len(*updates)-1]["stage_history"], "cleanedSteps",
+		"a cleanup that keeps none has no list of steps")
 
 	// A cleanup given up on such a job says that the job ran out of time, which a job that failed did not.
 	for phase, reason := range map[v1.OpsJobPhase]string{

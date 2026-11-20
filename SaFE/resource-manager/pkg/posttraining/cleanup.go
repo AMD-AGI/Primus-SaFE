@@ -51,9 +51,10 @@ type checkpointCleanup struct {
 	Keep     string   `json:"keep"`
 	Paths    []string `json:"paths"`
 	KeptStep *int     `json:"keptStep,omitempty"`
-	// CleanedSteps are the steps of the checkpoints in Paths, for a cleanup that keeps one.
-	CleanedSteps []int `json:"cleanedSteps,omitempty"`
-	Attempts     int   `json:"attempts,omitempty"`
+	// CleanedSteps are the steps of the checkpoints in Paths, for a cleanup that keeps one; its list is there, and
+	// empty, when it found none to remove.
+	CleanedSteps *[]int `json:"cleanedSteps,omitempty"`
+	Attempts     int    `json:"attempts,omitempty"`
 }
 
 // runCleanupPolls queues the runs with a requested checkpoint cleanup every minute until ctx ends; the API only
@@ -285,7 +286,7 @@ func (r *RunReconciler) jobWorkloadLeft(ctx context.Context, name string) (bool,
 }
 
 // countRunDir counts a run directory with a model-inspect job and returns the usage JSON once the job is done. A
-// job that failed, or is unfinished past its timeout, is done without a usage.
+// job that failed, or is unfinished past its timeout, is done too, with the usage it reported, if any.
 func (r *RunReconciler) countRunDir(ctx context.Context, run *dbclient.PostTrainingRun) (string, bool, error) {
 	job := &v1.OpsJob{}
 	err := r.Get(ctx, client.ObjectKey{Name: diskJobName(run.RunID)}, job)
