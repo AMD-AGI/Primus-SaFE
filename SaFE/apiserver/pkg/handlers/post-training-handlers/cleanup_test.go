@@ -147,6 +147,28 @@ func TestMarkersShowCleanedCheckpoints(t *testing.T) {
 		"a cleanup that kept none removed the directory")
 }
 
+// An event without the steps leaves only a last save that the interval does not list: one on the interval was
+// listed, and removed, before.
+func TestAnEventWithoutStepsMarksALastSaveOnTheInterval(t *testing.T) {
+	h := cleanupHandler(t)
+	run := cleanupRun("Succeeded")
+	run.Stage, run.ResultLine = "done", `[SUCCESS] {"run":"pt-1","stage":"export","output":"/w/pt-1/f","iteration":29}`
+	run.StageHistory = `[{"stage":"done","event":"checkpoints-cleaned","keptStep":20}]`
+	m, err := h.checkpointMarkers(context.Background(), run)
+	require.NoError(t, err)
+	require.Equal(t, []checkpointMark{{Step: 10, Deleted: true}, {Step: 20}, {Step: 30, Deleted: true}},
+		stepsOnly(m.Checkpoints))
+}
+
+// stepsOnly returns the checkpoints without their validation losses.
+func stepsOnly(cps []checkpointMark) []checkpointMark {
+	out := make([]checkpointMark, 0, len(cps))
+	for _, cp := range cps {
+		out = append(out, checkpointMark{Step: cp.Step, Deleted: cp.Deleted})
+	}
+	return out
+}
+
 // A cleanup that an export got ahead of, between its plan and its request, is taken back.
 func TestACleanupGivesWayToAnExportThatStartedMeanwhile(t *testing.T) {
 	h := exportHandler(t)

@@ -369,6 +369,25 @@ func seriesComplete(run *dbclient.PostTrainingRun) bool {
 	return !run.MetricGap && !sum.Capped
 }
 
+// successMarker starts the result line of a run whose launcher finished.
+const successMarker = "[SUCCESS]"
+
+// savedIteration returns the iteration of the last checkpoint a run saved, which its launcher reports with the
+// result of a run that succeeded.
+func savedIteration(run *dbclient.PostTrainingRun) (int, bool) {
+	body, found := strings.CutPrefix(run.ResultLine, successMarker)
+	if !found {
+		return 0, false
+	}
+	var result struct {
+		Iteration *int `json:"iteration"`
+	}
+	if err := json.Unmarshal([]byte(body), &result); err != nil || result.Iteration == nil {
+		return 0, false
+	}
+	return *result.Iteration, true
+}
+
 // cleanedSteps returns the steps a checkpoints-cleaned event names as removed.
 func cleanedSteps(event map[string]interface{}) map[int]bool {
 	list, _ := event["cleanedSteps"].([]interface{})
@@ -391,7 +410,7 @@ func buildMarkers(run *dbclient.PostTrainingRun, points map[string][]*dbclient.P
 	if run.TrainType == registry.TrainTypeRL {
 		main = "rollout/raw_reward"
 	}
-	lastStep, done, lastSave := 0, 0, 0
+	lastStep, done := 0, 0
 	if rows := points[main]; len(rows) > 0 {
 		lastStep = rows[len(rows)-1].Step
 		done = lastStep + 1
@@ -402,17 +421,27 @@ func buildMarkers(run *dbclient.PostTrainingRun, points map[string][]*dbclient.P
 			valLoss[r.Step] = r.Value
 		}
 	}
+	// slime saves once more when training ends, whatever the interval. The launcher reports that save with its
+	// result; without the report the points tell where training ended, unless they stop short of it.
+	end, last := done, 0
+	if trained(run) {
+		if iteration, ok := savedIteration(run); ok {
+			end, last = iteration+1, iteration+1
+		} else if seriesComplete(run) {
+			last = done
+		}
+	}
 	steps := []int{}
 	if interval := rec.Choices.SaveInterval; interval > 0 {
-		for step := interval; step <= done; step += interval {
+		for step := interval; step <= end; step += interval {
 			steps = append(steps, step)
 		}
 	}
-	// slime saves once more when training ends, whatever the interval; points that stop short of the last step do
-	// not tell where that is.
-	if trained(run) && seriesComplete(run) && done > 0 && (len(steps) == 0 || steps[len(steps)-1] != done) {
-		steps = append(steps, done)
-		lastSave = done
+	// appended is the last save when the interval does not list it.
+	appended := 0
+	if last > 0 && (len(steps) == 0 || steps[len(steps)-1] != last) {
+		steps = append(steps, last)
+		appended = last
 	}
 	for _, step := range steps {
 		cp := checkpointMark{Step: step}
@@ -428,6 +457,10 @@ func buildMarkers(run *dbclient.PostTrainingRun, points map[string][]*dbclient.P
 		}
 	}
 	if keep := rec.Checkpoint.KeepLast; keep > 0 {
+		// A last save that is not listed, as its step is not known, is one of those the retention kept.
+		if trained(run) && last == 0 {
+			keep--
+		}
 		for i := range m.Checkpoints {
 			recent := i >= len(m.Checkpoints)-keep
 			best := rec.Checkpoint.KeepBest && m.BestCheckpoint != nil && m.Checkpoints[i].Step == m.BestCheckpoint.Step
@@ -448,7 +481,7 @@ func buildMarkers(run *dbclient.PostTrainingRun, points map[string][]*dbclient.P
 				case len(cleaned) > 0:
 					cp.Deleted = cp.Deleted || cleaned[cp.Step]
 				// An event without the steps is of a cleanup made before the last save was listed, which it left.
-				case cp.Step != int(kept) && cp.Step != lastSave:
+				case cp.Step != int(kept) && cp.Step != appended:
 					cp.Deleted = true
 				}
 			}

@@ -7,6 +7,7 @@ package posttraininghandlers
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -158,6 +159,44 @@ func TestBuildMarkers(t *testing.T) {
 	require.Equal(t, []checkpointMark{{Step: 500}}, buildMarkers(run, cut).Checkpoints, "a gap is left")
 	run.MetricGap, run.MetricSummary = false, `{"points":500000,"capped":true}`
 	require.Equal(t, []checkpointMark{{Step: 500}}, buildMarkers(run, cut).Checkpoints, "the cap was reached")
+}
+
+// The save made when training ends is listed where the launcher reported it with its result, whatever the stored
+// points say. Without that report a run past training whose points stop short lists no such save, and still counts
+// it among the ones its retention kept.
+func TestTheLastSaveIsTheOneTheLauncherReported(t *testing.T) {
+	cut := map[string][]*dbclient.PostTrainingRunMetric{"train/loss": rows("train/loss", 0, 3, 990, 1)}
+	result := func(kind, iteration string) string {
+		return kind + ` {"run":"pt-1","attempt":"a1","pv":1,"stage":"export","output":"/w/pt-1/final_model",` +
+			`"iteration":` + iteration + `}`
+	}
+	listed := func(keepLast int, line string, change func(*dbclient.PostTrainingRun)) []checkpointMark {
+		run := &dbclient.PostTrainingRun{TrainType: "sft", Status: "Succeeded", Stage: "done", ResultLine: line,
+			Recipe: fmt.Sprintf(`{"choices":{"saveInterval":500},"checkpoint":{"keepLast":%d}}`, keepLast)}
+		change(run)
+		return buildMarkers(run, cut).Checkpoints
+	}
+	states := map[string]func(*dbclient.PostTrainingRun){
+		"complete": func(*dbclient.PostTrainingRun) {},
+		"a gap":    func(run *dbclient.PostTrainingRun) { run.MetricGap = true },
+		"the cap":  func(run *dbclient.PostTrainingRun) { run.MetricSummary = `{"points":500000,"capped":true}` },
+	}
+	for name, state := range states {
+		require.Equal(t, []checkpointMark{{Step: 500, Deleted: true}, {Step: 1000, Deleted: true},
+			{Step: 1500, Deleted: true}, {Step: 2000}}, listed(1, result("[SUCCESS]", "1999"), state),
+			"%s: the saves of the interval are listed up to the reported one", name)
+		require.Equal(t, []checkpointMark{{Step: 500, Deleted: true}, {Step: 990}},
+			listed(1, result("[SUCCESS]", "989"), state), "%s: a reported save off the interval", name)
+	}
+	gap := states["a gap"]
+	for name, line := range map[string]string{"no result": "", "a failure": result("[ERROR]", "1999"),
+		"no checkpoint reported": result("[SUCCESS]", "null")} {
+		require.Equal(t, []checkpointMark{{Step: 500, Deleted: true}}, listed(1, line, gap),
+			"%s: the save at the end, whose step is not known, is the one the retention kept", name)
+		require.Equal(t, []checkpointMark{{Step: 500}}, listed(2, line, gap), name)
+		require.Equal(t, []checkpointMark{{Step: 500, Deleted: true}, {Step: 991}}, listed(1, line, states["complete"]),
+			"%s: complete points tell where the training ended", name)
+	}
 }
 
 // Stopping a workload records who stopped it and deletes it, and a missing one is fine.
