@@ -37,6 +37,9 @@ const (
 	// checkpointsCleanupFailedEvent the one of a cleanup given up, with the reason.
 	checkpointsCleanedEvent       = "checkpoints-cleaned"
 	checkpointsCleanupFailedEvent = "checkpoints-cleanup-failed"
+	// leftoverWait is how long the workload of a deleted job may take to go before a job of its name is made
+	// all the same.
+	leftoverWait = 10 * time.Minute
 )
 
 // iterDirPattern is the name of one saved iteration in a checkpoint directory.
@@ -254,15 +257,17 @@ func jobFailure(job *v1.OpsJob) string {
 	return "the cleanup job failed"
 }
 
-// jobWorkloadLeft reports whether a workload of an OpsJob's name is still there. A job that was deleted leaves its
-// workload, of the same name, until that is torn down, and a job of the name made meanwhile would take that
-// workload for its own and never get one: it is made once the workload is gone.
+// jobWorkloadLeft reports whether a workload of an OpsJob's name still holds a job of that name back. A job that
+// was deleted leaves its workload, of the same name, until that is torn down, and a job of the name made meanwhile
+// would take that workload for its own and never get one: it is made once the workload is gone. A workload that
+// has been deleted for longer than leftoverWait is stuck and holds nothing back: the job is made and ends on its
+// timeout.
 func (r *RunReconciler) jobWorkloadLeft(ctx context.Context, name string) (bool, error) {
-	err := r.Get(ctx, client.ObjectKey{Name: name}, &v1.Workload{})
-	if apierrors.IsNotFound(err) {
-		return false, nil
+	w := &v1.Workload{}
+	if err := r.Get(ctx, client.ObjectKey{Name: name}, w); err != nil {
+		return false, client.IgnoreNotFound(err)
 	}
-	return err == nil, err
+	return w.GetDeletionTimestamp().IsZero() || time.Since(w.GetDeletionTimestamp().Time) < leftoverWait, nil
 }
 
 // countRunDir counts a run directory with a model-inspect job and returns the usage JSON once the job is done.

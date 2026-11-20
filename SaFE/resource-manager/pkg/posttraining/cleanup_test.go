@@ -132,6 +132,36 @@ func TestNoCleanupJobIsMadeWhileTheWorkloadOfADeletedOneIsLeft(t *testing.T) {
 	require.NoError(t, r.Get(ctx, disk, &v1.OpsJob{}))
 }
 
+// A workload that has been deleted for longer than leftoverWait is stuck and no longer holds a job of its name
+// back: the job is made, and its timeout and the attempts end the cleanup. One that is not deleted yet is waited
+// for: it goes with the job that owns it.
+func TestAStuckWorkloadDoesNotHoldACleanupJobBackForever(t *testing.T) {
+	ctx := context.Background()
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1",
+		Volumes: []v1.WorkspaceVolume{{Type: v1.PFS, MountPath: "/wekafs"}}}}
+	dir := testRunDir + "/checkpoints/iter_0000010"
+	cleanup := client.ObjectKey{Name: resource.DirectoryCleanupJobName("ws1", dir)}
+	deleted := func(ago time.Duration) *v1.Workload {
+		return &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: cleanup.Name, Finalizers: []string{v1.WorkloadFinalizer},
+			DeletionTimestamp: &metav1.Time{Time: time.Now().Add(-ago)}}}
+	}
+	for label, c := range map[string]struct {
+		left *v1.Workload
+		made bool
+	}{
+		"deleted within the wait": {deleted(leftoverWait - time.Minute), false},
+		"deleted before the wait": {deleted(leftoverWait + time.Minute), true},
+		"not deleted":             {&v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: cleanup.Name}}, false},
+	} {
+		run := testRunRow("Succeeded", "done")
+		run.OutputPath = testRunDir
+		run.CleanupRequest = `{"keep":"none","paths":["` + dir + `"],"attempts":1}`
+		r, _, _ := newTestReconciler(t, run, ws, c.left)
+		require.Equal(t, pendingRequeue, reconcileRun(t, r).RequeueAfter, label)
+		require.Equal(t, c.made, r.Get(ctx, cleanup, &v1.OpsJob{}) == nil, label)
+	}
+}
+
 // A failed cleanup job counts as one failed attempt, however often the run is reconciled while the job is deleted.
 func TestAFailedCleanupJobBeingDeletedIsCountedOnce(t *testing.T) {
 	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1",
