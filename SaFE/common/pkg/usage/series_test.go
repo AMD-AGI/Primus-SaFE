@@ -117,9 +117,81 @@ func TestPointRatios(t *testing.T) {
 	assert.Nil(t, unknown.EffectiveUtilization, "unknown busy is not 0%")
 	assert.NotNil(t, unknown.Occupancy)
 
-	hourly := NewPoint(FromHourly(&model.WorkspaceUsageHourly{Hour: t0, QuotaAvg: 8, AllocatedAvg: 4, QueuedAvg: 2}))
-	assert.Nil(t, hourly.QueuedQuota, "hourly rows keep no split")
+	hourly := NewPoint(FromHourly(&model.WorkspaceUsageHourly{Hour: t0, QuotaAvg: 8, AllocatedAvg: 4, QueuedAvg: 2,
+		QueuedQuotaAvg: 1.5, QueuedOtherAvg: 0.5}))
 	assert.Equal(t, 2.0, hourly.Queued)
+	require.NotNil(t, hourly.QueuedQuota, "hourly rows keep the split")
+	assert.Equal(t, 1.5, *hourly.QueuedQuota)
+	assert.Equal(t, 0.5, *hourly.QueuedOther)
+	assert.Zero(t, *hourly.QueuedUserQos)
+}
+
+// splitSample is a sample queuing quota, user QoS, external and other in that order.
+func splitSample(at time.Time, workspace string, split [4]float64) *model.WorkspaceUsageSample {
+	s := sample(at, workspace, 32, 8, f(4), f(1), split[0])
+	s.QueuedUserQos, s.QueuedExternal, s.QueuedOther = split[1], split[2], split[3]
+	return s
+}
+
+func TestRollupKeepsQueuedSplit(t *testing.T) {
+	samples := []*model.WorkspaceUsageSample{
+		splitSample(t0, "ws", [4]float64{8, 0, 4, 0}),
+		splitSample(t0.Add(5*time.Minute), "ws", [4]float64{0, 8, 4, 2}),
+		splitSample(t0.Add(10*time.Minute), "ws", [4]float64{4, 4, 16, 1}),
+	}
+	h := Rollup(t0, samples, interval)
+	assert.InDelta(t, 4, h.QueuedQuotaAvg, 1e-9)
+	assert.InDelta(t, 4, h.QueuedUserQosAvg, 1e-9)
+	assert.InDelta(t, 8, h.QueuedExternalAvg, 1e-9)
+	assert.InDelta(t, 1, h.QueuedOtherAvg, 1e-9)
+	assert.Equal(t, 8.0, h.QueuedQuotaMax)
+	assert.Equal(t, 8.0, h.QueuedUserQosMax)
+	assert.Equal(t, 16.0, h.QueuedExternalMax)
+	assert.Equal(t, 2.0, h.QueuedOtherMax)
+	assert.InDelta(t, 17, h.QueuedAvg, 1e-9)
+	assert.Equal(t, 25.0, h.QueuedMax, "the total max is that of the totals, not the sum of the maxima")
+}
+
+func TestLongRangePointsCarryTheSplitLikeShortRangePoints(t *testing.T) {
+	var samples []*model.WorkspaceUsageSample
+	for i := 0; i < 24; i++ {
+		at := t0.Add(time.Duration(i) * interval)
+		samples = append(samples, splitSample(at, "a", [4]float64{float64(i), 1, float64(i % 3), 0}))
+		samples = append(samples, splitSample(at, "b", [4]float64{2, float64(i % 5), 0, 3}))
+	}
+	var short []Record
+	for _, s := range samples {
+		short = append(short, FromSample(s, interval))
+	}
+	var long []Record
+	for _, hour := range []time.Time{t0, t0.Add(time.Hour)} {
+		var inHour []*model.WorkspaceUsageSample
+		for _, s := range samples {
+			if s.SampleTime.Truncate(time.Hour).Equal(hour) {
+				inHour = append(inHour, s)
+			}
+		}
+		for _, h := range RollupHour(hour, inHour, interval) {
+			long = append(long, FromHourly(h))
+		}
+	}
+	want := Bucket(SumByTime(short), t0, 2*time.Hour)
+	got := Bucket(SumByTime(long), t0, 2*time.Hour)
+	require.Len(t, want, 1)
+	require.Len(t, got, 1)
+	for name, pair := range map[string][2]*float64{
+		"quota":    {want[0].QueuedQuota, got[0].QueuedQuota},
+		"user qos": {want[0].QueuedUserQos, got[0].QueuedUserQos},
+		"external": {want[0].QueuedExternal, got[0].QueuedExternal},
+		"other":    {want[0].QueuedOther, got[0].QueuedOther},
+	} {
+		require.NotNil(t, pair[1], name)
+		assert.InDelta(t, *pair[0], *pair[1], 1e-9, name)
+	}
+	assert.InDelta(t, want[0].Queued, got[0].Queued, 1e-9)
+
+	sums := SumByTime(long)
+	assert.Equal(t, [4]float64{11 + 2, 1 + 4, 2, 3}, sums[0].QueuedSplitMax, "the maxima of a sum add up")
 }
 
 func TestSumByTime(t *testing.T) {

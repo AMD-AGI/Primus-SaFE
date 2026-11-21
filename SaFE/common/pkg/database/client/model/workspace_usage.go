@@ -41,21 +41,29 @@ func (*WorkspaceUsageSample) TableName() string {
 
 // WorkspaceUsageHourly mapped from table <workspace_usage_hourly>.
 type WorkspaceUsageHourly struct {
-	ID              int64     `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
-	Hour            time.Time `gorm:"column:hour;not null" json:"hour"`
-	Cluster         string    `gorm:"column:cluster;not null" json:"cluster"`
-	Workspace       string    `gorm:"column:workspace;not null" json:"workspace"`
-	Resource        string    `gorm:"column:resource;not null" json:"resource"`
-	QuotaAvg        float64   `gorm:"column:quota_avg;not null" json:"quota_avg"`
-	AllocatedAvg    float64   `gorm:"column:allocated_avg;not null" json:"allocated_avg"`
-	AllocatedMax    float64   `gorm:"column:allocated_max;not null" json:"allocated_max"`
-	BusyAvg         *float64  `gorm:"column:busy_avg" json:"busy_avg"`
-	UtilCoverageAvg *float64  `gorm:"column:util_coverage_avg" json:"util_coverage_avg"`
-	QueuedAvg       float64   `gorm:"column:queued_avg;not null" json:"queued_avg"`
-	QueuedMax       float64   `gorm:"column:queued_max;not null" json:"queued_max"`
-	AllocatedHours  float64   `gorm:"column:allocated_hours;not null" json:"allocated_hours"`
-	BusyHours       *float64  `gorm:"column:busy_hours" json:"busy_hours"`
-	Samples         int32     `gorm:"column:samples;not null" json:"samples"`
+	ID                int64     `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
+	Hour              time.Time `gorm:"column:hour;not null" json:"hour"`
+	Cluster           string    `gorm:"column:cluster;not null" json:"cluster"`
+	Workspace         string    `gorm:"column:workspace;not null" json:"workspace"`
+	Resource          string    `gorm:"column:resource;not null" json:"resource"`
+	QuotaAvg          float64   `gorm:"column:quota_avg;not null" json:"quota_avg"`
+	AllocatedAvg      float64   `gorm:"column:allocated_avg;not null" json:"allocated_avg"`
+	AllocatedMax      float64   `gorm:"column:allocated_max;not null" json:"allocated_max"`
+	BusyAvg           *float64  `gorm:"column:busy_avg" json:"busy_avg"`
+	UtilCoverageAvg   *float64  `gorm:"column:util_coverage_avg" json:"util_coverage_avg"`
+	QueuedAvg         float64   `gorm:"column:queued_avg;not null" json:"queued_avg"`
+	QueuedMax         float64   `gorm:"column:queued_max;not null" json:"queued_max"`
+	QueuedQuotaAvg    float64   `gorm:"column:queued_quota_avg;not null" json:"queued_quota_avg"`
+	QueuedUserQosAvg  float64   `gorm:"column:queued_user_qos_avg;not null" json:"queued_user_qos_avg"`
+	QueuedExternalAvg float64   `gorm:"column:queued_external_avg;not null" json:"queued_external_avg"`
+	QueuedOtherAvg    float64   `gorm:"column:queued_other_avg;not null" json:"queued_other_avg"`
+	QueuedQuotaMax    float64   `gorm:"column:queued_quota_max;not null" json:"queued_quota_max"`
+	QueuedUserQosMax  float64   `gorm:"column:queued_user_qos_max;not null" json:"queued_user_qos_max"`
+	QueuedExternalMax float64   `gorm:"column:queued_external_max;not null" json:"queued_external_max"`
+	QueuedOtherMax    float64   `gorm:"column:queued_other_max;not null" json:"queued_other_max"`
+	AllocatedHours    float64   `gorm:"column:allocated_hours;not null" json:"allocated_hours"`
+	BusyHours         *float64  `gorm:"column:busy_hours" json:"busy_hours"`
+	Samples           int32     `gorm:"column:samples;not null" json:"samples"`
 }
 
 // TableName WorkspaceUsageHourly's table name

@@ -29,7 +29,8 @@ func TestUpsertWorkspaceUsageSamplesConflictKey(t *testing.T) {
 
 func TestUpsertWorkspaceUsageHourlyConflictKey(t *testing.T) {
 	c, mock := newMockClient(t)
-	mock.ExpectQuery(`INSERT INTO "workspace_usage_hourly" .* ON CONFLICT \("cluster","workspace","resource","hour"\) DO UPDATE SET "quota_avg"="excluded"."quota_avg"`).
+	mock.ExpectQuery(`INSERT INTO "workspace_usage_hourly" .* ON CONFLICT \("cluster","workspace","resource","hour"\) DO UPDATE SET "quota_avg"="excluded"."quota_avg".*` +
+		`"queued_quota_avg"="excluded"."queued_quota_avg".*"queued_other_max"="excluded"."queued_other_max"`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(1)))
 	err := c.UpsertWorkspaceUsageHourly(context.Background(), []*model.WorkspaceUsageHourly{{
 		Hour: time.Unix(0, 0), Cluster: "c1", Workspace: "ws", Resource: "amd.com/gpu",
