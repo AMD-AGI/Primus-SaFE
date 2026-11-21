@@ -8,6 +8,7 @@ package resources
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -30,6 +31,7 @@ import (
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	mock_client "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/robustclient"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/usage"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
 )
@@ -118,11 +120,12 @@ func usageSummary(occupancy, utilization *float64, allocatedHours float64) usage
 }
 
 func TestRankUsageWorkloads(t *testing.T) {
+	f := func(v float64) *float64 { return &v }
 	items := []view.UsageWorkloadItem{
-		{WorkloadId: "a", Allocated: 8, AvgGpuUsage: 50},
-		{WorkloadId: "b", Allocated: 32, AvgGpuUsage: -1},
-		{WorkloadId: "c", Allocated: 16, AvgGpuUsage: 5},
-		{WorkloadId: "d", Allocated: 16, AvgGpuUsage: 0},
+		{WorkloadId: "a", Allocated: 8, GpuUtilization: f(50)},
+		{WorkloadId: "b", Allocated: 32},
+		{WorkloadId: "c", Allocated: 16, GpuUtilization: f(5)},
+		{WorkloadId: "d", Allocated: 16, GpuUtilization: f(0)},
 	}
 	top, lowest := rankUsageWorkloads(items, 3, true)
 	assert.Equal(t, []string{"b", "c", "d"}, workloadIds(top))
@@ -166,7 +169,27 @@ func usageAccessFixture(t *testing.T) (*Handler, *mock_client.MockInterface) {
 		Client:           fakeClient,
 		dbClient:         mockDB,
 		accessController: &authority.AccessController{Client: fakeClient},
+		gpuWindows:       &fakeGPUWindows{},
 	}, mockDB
+}
+
+type fakeGPUWindows struct {
+	windows []robustclient.WorkloadGPUWindow
+	err     error
+	calls   []gpuWindowCall
+}
+
+type gpuWindowCall struct {
+	cluster, window, step string
+	uids                  []string
+	hasDeadline           bool
+}
+
+func (f *fakeGPUWindows) GetWorkloadGPUWindow(ctx context.Context, cluster string,
+	uids []string, window, step string) ([]robustclient.WorkloadGPUWindow, error) {
+	_, hasDeadline := ctx.Deadline()
+	f.calls = append(f.calls, gpuWindowCall{cluster: cluster, window: window, step: step, uids: uids, hasDeadline: hasDeadline})
+	return f.windows, f.err
 }
 
 func usageUser(name string, role v1.UserRole) *v1.User {
@@ -317,11 +340,13 @@ func TestGetUsageWorkspaceAccess(t *testing.T) {
 	} {
 		t.Run(tc.user, func(t *testing.T) {
 			h, mockDB := usageAccessFixture(t)
+			h.gpuWindows = &fakeGPUWindows{windows: []robustclient.WorkloadGPUWindow{
+				{UID: "w-alice-uid", Overall: robustclient.GPUWindowOverall{Max: 30, Avg: 12, Samples: 5, ExpectedSamples: 5}},
+				{UID: "w-carol-uid", Overall: robustclient.GPUWindowOverall{Max: 30, Avg: 1, Samples: 4, ExpectedSamples: 5}},
+			}}
 			if tc.wantCode == http.StatusOK {
 				mockDB.EXPECT().ListWorkspaceUsageSamples(gomock.Any(), gomock.Any()).Return(nil, nil)
 				mockDB.EXPECT().ListLatestWorkspaceUsageSamples(gomock.Any(), gomock.Any()).Return(nil, nil)
-				mockDB.EXPECT().GetWorkloadStatisticsByWorkloadIDs(gomock.Any(), gomock.Any()).Return(
-					map[string]*model.WorkloadStatistic{"w-alice": {WorkloadID: "w-alice", AvgGpuUsage3H: 12}}, nil)
 			}
 			c, rsp := usageRequest(tc.user, "ws-a", "")
 			h.GetUsageWorkspace(c)
@@ -333,10 +358,92 @@ func TestGetUsageWorkspaceAccess(t *testing.T) {
 			require.NoError(t, json.Unmarshal(rsp.Body.Bytes(), &result))
 			assert.Equal(t, "c1", result.Cluster)
 			assert.Equal(t, tc.wantListed, workloadIds(result.TopAllocated))
-			require.Len(t, result.LowestUtilization, 1)
+			require.Len(t, result.LowestUtilization, 1, "the uncovered window of w-carol is not ranked")
 			assert.Equal(t, "w-alice", result.LowestUtilization[0].WorkloadId)
-			assert.Equal(t, 12.0, result.LowestUtilization[0].AvgGpuUsage)
+			require.NotNil(t, result.LowestUtilization[0].GpuUtilization)
+			assert.Equal(t, 12.0, *result.LowestUtilization[0].GpuUtilization)
+			for _, item := range result.TopAllocated {
+				if item.WorkloadId == "w-carol" {
+					assert.Nil(t, item.GpuUtilization)
+				}
+			}
 		})
+	}
+}
+
+func TestGetUsageWorkspaceAsksRobustLive(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h, mockDB := usageAccessFixture(t)
+	windows := &fakeGPUWindows{}
+	h.gpuWindows = windows
+	mockDB.EXPECT().ListWorkspaceUsageSamples(gomock.Any(), gomock.Any()).Return(nil, nil)
+	mockDB.EXPECT().ListLatestWorkspaceUsageSamples(gomock.Any(), gomock.Any()).Return(nil, nil)
+
+	c, rsp := usageRequest("admin", "ws-a", "")
+	h.GetUsageWorkspace(c)
+	require.Equal(t, http.StatusOK, rsp.Code, rsp.Body.String())
+	require.Len(t, windows.calls, 1, "one batched request for the listed workloads")
+	call := windows.calls[0]
+	assert.Equal(t, "c1", call.cluster)
+	assert.Equal(t, robustclient.GPUWindowStep, call.step)
+	assert.Equal(t, "5m", call.window, "the window is the sample interval")
+	assert.ElementsMatch(t, []string{"w-alice-uid", "w-carol-uid"}, call.uids)
+	assert.True(t, call.hasDeadline)
+}
+
+func TestGetUsageWorkspaceWithoutRobust(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h, mockDB := usageAccessFixture(t)
+	h.gpuWindows = &fakeGPUWindows{err: errors.New("robust down")}
+	mockDB.EXPECT().ListWorkspaceUsageSamples(gomock.Any(), gomock.Any()).Return(nil, nil)
+	mockDB.EXPECT().ListLatestWorkspaceUsageSamples(gomock.Any(), gomock.Any()).Return(nil, nil)
+
+	c, rsp := usageRequest("admin", "ws-a", "")
+	h.GetUsageWorkspace(c)
+	require.Equal(t, http.StatusOK, rsp.Code, rsp.Body.String())
+	var result view.GetUsageWorkspaceResponse
+	require.NoError(t, json.Unmarshal(rsp.Body.Bytes(), &result))
+	require.Len(t, result.TopAllocated, 2)
+	for _, item := range result.TopAllocated {
+		assert.Nil(t, item.GpuUtilization, item.WorkloadId)
+	}
+	assert.Empty(t, result.LowestUtilization)
+	assert.Contains(t, rsp.Body.String(), `"gpuUtilization":null`)
+}
+
+func TestGetUsageWorkspaceLongRangeKeepsQueuedSplit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h, mockDB := usageAccessFixture(t)
+	hour := time.Date(2026, 11, 10, 10, 0, 0, 0, time.UTC)
+	mockDB.EXPECT().ListWorkspaceUsageHourly(gomock.Any(), gomock.Any()).Return([]*model.WorkspaceUsageHourly{
+		{Hour: hour, Cluster: "c1", Workspace: "ws-a", Resource: common.AmdGpu, QuotaAvg: 16, AllocatedAvg: 8,
+			QueuedAvg: 6, QueuedMax: 10, QueuedQuotaAvg: 3, QueuedUserQosAvg: 2, QueuedExternalAvg: 1,
+			QueuedQuotaMax: 6, QueuedUserQosMax: 4, QueuedExternalMax: 2, AllocatedHours: 8, Samples: 12},
+		{Hour: hour.Add(time.Hour), Cluster: "c1", Workspace: "ws-a", Resource: common.AmdGpu, QuotaAvg: 16,
+			AllocatedAvg: 8, QueuedAvg: 2, QueuedMax: 2, QueuedOtherAvg: 2, QueuedOtherMax: 2, AllocatedHours: 8, Samples: 12},
+	}, nil)
+	mockDB.EXPECT().ListLatestWorkspaceUsageSamples(gomock.Any(), gomock.Any()).Return(nil, nil)
+
+	c, rsp := usageRequest("admin", "ws-a", "start=2026-11-10T10:00:00Z&end=2026-11-13T10:00:00Z&step=2h")
+	h.GetUsageWorkspace(c)
+	require.Equal(t, http.StatusOK, rsp.Code, rsp.Body.String())
+	var result view.GetUsageWorkspaceResponse
+	require.NoError(t, json.Unmarshal(rsp.Body.Bytes(), &result))
+	assert.Equal(t, view.UsageSourceHourly, result.Source)
+	require.Len(t, result.Series, 1)
+	point := result.Series[0]
+	assert.Equal(t, 4.0, point.Queued)
+	for name, pair := range map[string]struct {
+		got  *float64
+		want float64
+	}{
+		"quota":    {point.QueuedQuota, 1.5},
+		"user qos": {point.QueuedUserQos, 1},
+		"external": {point.QueuedExternal, 0.5},
+		"other":    {point.QueuedOther, 1},
+	} {
+		require.NotNil(t, pair.got, name)
+		assert.InDelta(t, pair.want, *pair.got, 1e-9, name)
 	}
 }
 

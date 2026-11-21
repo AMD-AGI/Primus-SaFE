@@ -91,8 +91,9 @@ type UsageWorkloadItem struct {
 	Phase       string `json:"phase"`
 	// Allocated is the amount of the resource on nodes.
 	Allocated float64 `json:"allocated"`
-	// AvgGpuUsage is the average GPU utilization in percent over the last 3 hours, -1 without data.
-	AvgGpuUsage float64 `json:"avgGpuUsage"`
+	// GpuUtilization is the average GPU utilization in percent over the last sample interval,
+	// null when its window is not covered or Robust cannot be asked.
+	GpuUtilization *float64 `json:"gpuUtilization"`
 }
 
 // GetUsageWorkspaceResponse is the usage of one workspace.
