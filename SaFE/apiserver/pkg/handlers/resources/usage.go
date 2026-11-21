@@ -7,6 +7,7 @@ package resources
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -23,6 +24,7 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/robustclient"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/usage"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 )
@@ -35,7 +37,33 @@ const (
 	usageCurrentIntervals = 3
 	defaultUsageLimit     = 10
 	maxUsageLimit         = 100
+	// How long the workload list waits for Robust before it is returned without utilization.
+	usageRobustTimeout = 10 * time.Second
 )
+
+var errUsageNoRobustClient = errors.New("no Robust client for the cluster")
+
+// gpuWindowSource returns the GPU utilization windows of workloads in one cluster.
+type gpuWindowSource interface {
+	GetWorkloadGPUWindow(ctx context.Context, cluster string,
+		uids []string, window, step string) ([]robustclient.WorkloadGPUWindow, error)
+}
+
+type robustGPUWindowSource struct {
+	rc *robustclient.Client
+}
+
+func (s robustGPUWindowSource) GetWorkloadGPUWindow(ctx context.Context, cluster string,
+	uids []string, window, step string) ([]robustclient.WorkloadGPUWindow, error) {
+	if s.rc == nil {
+		return nil, errUsageNoRobustClient
+	}
+	cc := s.rc.ForCluster(cluster)
+	if cc == nil {
+		return nil, errUsageNoRobustClient
+	}
+	return cc.GetWorkloadGPUWindow(ctx, uids, window, step)
+}
 
 // ListUsageClusters returns the usage of every cluster over a time range, summed over the
 // workspaces the caller may see.
@@ -474,7 +502,7 @@ func (h *Handler) getUsageWorkspace(c *gin.Context) (interface{}, error) {
 	} else if len(records) > 0 {
 		result.Cluster = records[len(records)-1].Cluster
 	}
-	workloads, err := h.runningUsageWorkloads(ctx, viewer, name, r.resource)
+	workloads, err := h.runningUsageWorkloads(ctx, viewer, result.Cluster, name, r)
 	if err != nil {
 		return nil, err
 	}
@@ -482,15 +510,17 @@ func (h *Handler) getUsageWorkspace(c *gin.Context) (interface{}, error) {
 	return result, nil
 }
 
-// runningUsageWorkloads returns the workloads of workspace holding the resource on nodes that the
-// viewer may see, with their GPU utilization when the resource is a GPU.
+// runningUsageWorkloads returns the workloads of workspace holding the resource of r on nodes that
+// the viewer may see, with their GPU utilization when the resource is a GPU.
 func (h *Handler) runningUsageWorkloads(ctx context.Context,
-	viewer *usageViewer, workspace, resource string) ([]view.UsageWorkloadItem, error) {
+	viewer *usageViewer, cluster, workspace string, r *usageRange) ([]view.UsageWorkloadItem, error) {
+	resource := r.resource
 	workloads, err := commonworkload.GetWorkloadsOfWorkspace(ctx, h.Client, "", []string{workspace}, nil)
 	if err != nil {
 		return nil, err
 	}
 	var result []view.UsageWorkloadItem
+	var uids []string
 	for _, w := range workloads {
 		u, err := usage.ComputeWorkload(w)
 		if err != nil {
@@ -506,31 +536,48 @@ func (h *Handler) runningUsageWorkloads(ctx context.Context,
 			UserName:    v1.GetUserName(w),
 			Phase:       string(w.Status.Phase),
 			Allocated:   u.Bound[resource],
-			AvgGpuUsage: -1,
 		})
+		uids = append(uids, string(w.UID))
 	}
-	if len(result) == 0 || !usage.IsGPUResource(resource) {
+	if len(result) == 0 || !usage.IsGPUResource(resource) || cluster == "" {
 		return result, nil
 	}
-	ids := make([]string, 0, len(result))
-	for _, item := range result {
-		ids = append(ids, item.WorkloadId)
-	}
-	stats, err := h.dbClient.GetWorkloadStatisticsByWorkloadIDs(ctx, ids)
-	if err != nil {
-		klog.ErrorS(err, "failed to get workload statistics", "workspace", workspace)
-		return result, nil
-	}
+	utilization := h.gpuUtilization(ctx, cluster, uids, r.sampleInterval)
 	for i := range result {
-		if stat := stats[result[i].WorkloadId]; stat != nil {
-			result[i].AvgGpuUsage = stat.AvgGpuUsage3H
+		if value, ok := utilization[uids[i]]; ok {
+			result[i].GpuUtilization = &value
 		}
 	}
 	return result, nil
 }
 
+// gpuUtilization asks Robust for the average GPU utilization over the last interval of each
+// workload uid whose window is covered, by the rule the statistics are sampled with. It returns
+// nothing when Robust cannot be asked in time.
+func (h *Handler) gpuUtilization(ctx context.Context,
+	cluster string, uids []string, interval time.Duration) map[string]float64 {
+	result := map[string]float64{}
+	if h.gpuWindows == nil {
+		return result
+	}
+	ctx, cancel := context.WithTimeout(ctx, usageRobustTimeout)
+	defer cancel()
+	windows, err := h.gpuWindows.GetWorkloadGPUWindow(ctx, cluster, uids,
+		robustclient.WindowFor(interval), robustclient.GPUWindowStep)
+	if err != nil {
+		klog.ErrorS(err, "failed to get the GPU utilization of workloads", "cluster", cluster)
+		return result
+	}
+	for i := range windows {
+		if avg, ok := windows[i].Average(); ok {
+			result[windows[i].UID] = avg
+		}
+	}
+	return result
+}
+
 // rankUsageWorkloads returns the limit workloads holding the most of the resource and, for a GPU,
-// the limit workloads with the lowest utilization among those that have data.
+// the limit workloads with the lowest utilization among those that have one.
 func rankUsageWorkloads(items []view.UsageWorkloadItem, limit int, gpu bool) ([]view.UsageWorkloadItem, []view.UsageWorkloadItem) {
 	top := append([]view.UsageWorkloadItem{}, items...)
 	sort.SliceStable(top, func(i, j int) bool {
@@ -542,13 +589,13 @@ func rankUsageWorkloads(items []view.UsageWorkloadItem, limit int, gpu bool) ([]
 	lowest := []view.UsageWorkloadItem{}
 	if gpu {
 		for _, item := range items {
-			if item.AvgGpuUsage >= 0 {
+			if item.GpuUtilization != nil {
 				lowest = append(lowest, item)
 			}
 		}
 		sort.SliceStable(lowest, func(i, j int) bool {
-			if lowest[i].AvgGpuUsage != lowest[j].AvgGpuUsage {
-				return lowest[i].AvgGpuUsage < lowest[j].AvgGpuUsage
+			if *lowest[i].GpuUtilization != *lowest[j].GpuUtilization {
+				return *lowest[i].GpuUtilization < *lowest[j].GpuUtilization
 			}
 			return lowest[i].WorkloadId < lowest[j].WorkloadId
 		})
