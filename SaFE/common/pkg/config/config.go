@@ -862,6 +862,12 @@ func GetLLMGatewaySharedApimUser() string {
 	return strings.TrimSpace(getFromFile(llmGatewaySecretPath, "shared_apim_user"))
 }
 
+// GetLLMGatewaySummaryModel returns the LiteLLM model used to summarize a pending workload.
+// An empty value disables the summary and leaves the raw evidence.
+func GetLLMGatewaySummaryModel() string {
+	return strings.TrimSpace(getFromFile(llmGatewaySecretPath, "summary_model"))
+}
+
 func IsMonarchEnable() bool {
 	return getBool(monarchEnable, false)
 }

@@ -335,47 +335,7 @@ export interface RootCauseAnalysisResult {
   }
 }
 
-// Pending Cause Analysis
-export interface PendingCauseStep {
-  step_name: string
-  status: 'pending' | 'running' | 'completed' | 'failed'
-  started_at?: string
-  completed_at?: string
-  duration?: number
-  progress: number
-}
-
-export interface PendingCauseAnalysisResult {
-  job_id: string
-  workload_id: string
-  problem_description: string
-  status: 'pending' | 'running' | 'completed' | 'failed'
-  progress: number
-  current_step: string
-  created_at?: string
-  started_at?: string
-  completed_at?: string
-  steps: PendingCauseStep[]
-  result?: {
-    success: boolean
-    workload_id: string
-    problem_description: string
-    report: string
-    total_analysis_time: number
-    task_times: Record<string, any>
-    task_outputs?: {
-      event_collection?: string
-      workload_collection?: string
-      [key: string]: any
-    }
-    early_exit?: string
-  }
-}
-
-export interface CreatePendingCauseJobRequest {
-  workload_id: string
-}
-
-export interface CreatePendingCauseJobResponse {
-  job_id: string
+// One-sentence explanation returned by GET /workloads/:id/pending-reason.
+export interface WorkloadPendingReason {
+  reason: string
 }
