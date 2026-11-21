@@ -260,6 +260,22 @@ func IsWorkloadLowUtilizationEnable() bool {
 	return getBool(workloadLowUtilEnable, false)
 }
 
+// GetWorkloadUsageSampleIntervalSecond returns how often, in seconds,
+// resource-manager samples each workspace's resource usage.
+func GetWorkloadUsageSampleIntervalSecond() int {
+	return getInt(workloadUsageSampleInterval, 300)
+}
+
+// GetWorkloadUsageSampleRetentionDay returns for how many days the workspace usage samples are kept.
+func GetWorkloadUsageSampleRetentionDay() int {
+	return getInt(workloadUsageSampleRetention, 14)
+}
+
+// GetWorkloadUsageHourlyRetentionDay returns for how many days the hourly workspace usage rollups are kept.
+func GetWorkloadUsageHourlyRetentionDay() int {
+	return getInt(workloadUsageHourlyRetention, 400)
+}
+
 // IsOpenSearchEnable returns whether OpenSearch is enabled.
 func IsOpenSearchEnable() bool {
 	return getBool(openSearchEnable, false)

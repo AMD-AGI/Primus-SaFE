@@ -589,6 +589,12 @@ workload:
   robust_node_sync_enable: true
   # Whether job-manager stops running workloads under their workspace's low GPU utilization policy.
   low_utilization_enable: false
+  # Seconds between samples of each workspace's resource usage.
+  usage_sample_interval_second: 300
+  # Days the workspace usage samples are kept.
+  usage_sample_retention_day: 14
+  # Days the hourly workspace usage rollups are kept.
+  usage_hourly_retention_day: 400
 sandbox:
   enable: true
   namespace: "agent-sandbox-system"
