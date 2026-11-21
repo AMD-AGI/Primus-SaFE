@@ -174,11 +174,6 @@ const router = createRouter({
           component: () => import('../pages/Training/TrainingRootCauseDetail.vue'),
         },
         {
-          path: '/workload/pending-cause',
-          name: 'WorkloadPendingCause',
-          component: () => import('../pages/Workload/PendingCauseDetail.vue'),
-        },
-        {
           path: '/authoring/detail',
           name: 'AuthoringDetail',
           component: () => import('../pages/Authoring/AuthoringDetail.vue'),

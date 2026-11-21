@@ -29,15 +29,10 @@
                 {{ detailData.phase }}
               </el-tag>
             </el-tooltip>
-            <el-tooltip content="Pending Cause Analysis" placement="top">
-              <el-icon
-                class="pending-cause-icon pulse-scale"
-                :size="18"
-                @click.stop="navigateToPendingCause"
-              >
-                <InfoFilled />
-              </el-icon>
-            </el-tooltip>
+            <PendingCauseIcon
+              pulse
+              :workload-id="detailData.workloadId || detailData.jobId"
+            />
           </div>
           <div class="text-sm m-l-2 text-gray-400" v-if="detailData.queuePosition">
             position in queue:{{ detailData.queuePosition }}
@@ -182,7 +177,6 @@
 <script setup lang="ts">
 import {
   CopyDocument,
-  InfoFilled,
   CloseBold,
   Delete,
   ArrowLeft,
@@ -190,6 +184,7 @@ import {
   VideoPlay,
   Edit,
 } from '@element-plus/icons-vue'
+import PendingCauseIcon from '@/components/Workload/PendingCauseIcon.vue'
 import { WorkloadPhaseButtonType } from '@/services'
 import { RESUMABLE_PHASES } from '@/composables/useWorkloadResumePermission'
 import { copyText, formatTimeStr, historyBack } from '@/utils'
@@ -268,13 +263,6 @@ const handleBack = () => {
   }
 }
 
-const navigateToPendingCause = () => {
-  router.push({
-    path: '/workload/pending-cause',
-    query: { id: props.detailData.workloadId || props.detailData.jobId },
-  })
-}
-
 // Infer list page path from current route
 // e.g.: /training/detail -> /training
 const inferFallbackPath = () => {
@@ -292,19 +280,6 @@ const inferFallbackPath = () => {
 </script>
 
 <style scoped>
-.pulse-scale {
-  animation: pulse-scale 1.4s ease-in-out infinite;
-}
-@keyframes pulse-scale {
-  0%,
-  100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.2);
-  }
-}
-
 .glass-btn {
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
@@ -358,15 +333,4 @@ const inferFallbackPath = () => {
   transform: scale(1.2);
 }
 
-/* Pending Cause Analysis Icon */
-.pending-cause-icon {
-  cursor: pointer;
-  color: var(--el-color-warning);
-  transition: all 0.2s ease;
-}
-
-.pending-cause-icon:hover {
-  color: var(--el-color-primary);
-  transform: scale(1.2);
-}
 </style>

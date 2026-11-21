@@ -10,9 +10,7 @@ import type {
   DownloadParams,
   EditWorkloadRequest,
   RootCauseAnalysisResult,
-  PendingCauseAnalysisResult,
-  CreatePendingCauseJobRequest,
-  CreatePendingCauseJobResponse,
+  WorkloadPendingReason,
 } from './type'
 
 const LONG_TIMEOUT = 30_000
@@ -172,10 +170,6 @@ export const getGPUAggregation = (p: {
 export const getRootCauseAnalysis = (workloadId: string): Promise<RootCauseAnalysisResult> =>
   rootCauseRequest.get(`/api/workloads/${workloadId}`)
 
-// Pending Cause Analysis
-export const createPendingCauseJob = (
-  data: CreatePendingCauseJobRequest,
-): Promise<CreatePendingCauseJobResponse> => request.post('/agent/pending-cause/api/jobs', data)
-
-export const getPendingCauseJob = (jobId: string): Promise<PendingCauseAnalysisResult> =>
-  request.get(`/agent/pending-cause/api/jobs/${jobId}`)
+// One-sentence pending reason. The call may wait on pod events and a model summary.
+export const getWorkloadPendingReason = (id: string): Promise<WorkloadPendingReason> =>
+  request.get(`/workloads/${id}/pending-reason`, { timeout: 60_000, skipErrorHandler: true })
