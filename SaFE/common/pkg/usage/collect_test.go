@@ -19,7 +19,6 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/qos"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/robustclient"
 )
 
 // gpuWorkload is a workload of replica pods with 8 GPUs, 16 cores and 64Gi each, of which bound
@@ -250,16 +249,4 @@ func TestApplyGPUUtilization(t *testing.T) {
 		assert.Nil(t, s.Rows[key].Busy)
 		assert.Nil(t, s.Rows[key].UtilCoverage)
 	})
-}
-
-func TestWindowAverage(t *testing.T) {
-	_, ok := WindowAverage(nil)
-	assert.False(t, ok)
-	_, ok = WindowAverage(&robustclient.WorkloadGPUWindow{Overall: robustclient.GPUWindowOverall{Avg: 40, Samples: 1, ExpectedSamples: 5}})
-	assert.False(t, ok, "too few samples")
-	_, ok = WindowAverage(&robustclient.WorkloadGPUWindow{Overall: robustclient.GPUWindowOverall{Avg: 40}})
-	assert.False(t, ok, "no expected samples")
-	avg, ok := WindowAverage(&robustclient.WorkloadGPUWindow{Overall: robustclient.GPUWindowOverall{Avg: 40, Samples: 3, ExpectedSamples: 5}})
-	assert.True(t, ok)
-	assert.Equal(t, 40.0, avg)
 }

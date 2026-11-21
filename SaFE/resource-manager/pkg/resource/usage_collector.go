@@ -26,7 +26,6 @@ import (
 )
 
 const (
-	usageGPUStep = "1m"
 	// How far back the hourly rollup is completed when the collector starts.
 	usageBackfillWindow = 24 * time.Hour
 
@@ -197,30 +196,25 @@ func (c *WorkspaceUsageCollector) sample(ctx context.Context, sampleTime time.Ti
 }
 
 // gpuUtilization returns the average GPU utilization over the last interval of each workload
-// that has enough data, or nil when Robust cannot be asked about the cluster.
+// whose window is covered, or nil when Robust cannot be asked about the cluster.
 func (c *WorkspaceUsageCollector) gpuUtilization(ctx context.Context, cluster string, uids []string) map[string]float64 {
 	result := map[string]float64{}
 	if len(uids) == 0 {
 		return result
 	}
-	windows, err := c.source.GetWorkloadGPUWindow(ctx, cluster, uids, usageWindow(c.interval), usageGPUStep)
+	windows, err := c.source.GetWorkloadGPUWindow(ctx, cluster, uids,
+		robustclient.WindowFor(c.interval), robustclient.GPUWindowStep)
 	if err != nil {
 		usageCollectorErrors.WithLabelValues(usageStageRobust).Inc()
 		klog.Warningf("[workspace-usage-collector] failed to get the GPU utilization of cluster %s: %v", cluster, err)
 		return nil
 	}
 	for i := range windows {
-		if avg, ok := usage.WindowAverage(&windows[i]); ok {
+		if avg, ok := windows[i].Average(); ok {
 			result[windows[i].UID] = avg
 		}
 	}
 	return result
-}
-
-// usageWindow is the Robust window covering one interval, in whole minutes since the step is a minute.
-func usageWindow(interval time.Duration) string {
-	minutes := int((interval + time.Minute - 1) / time.Minute)
-	return fmt.Sprintf("%dm", max(1, minutes))
 }
 
 // rollup writes the hourly rows of hour from its samples.

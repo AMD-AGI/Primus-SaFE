@@ -29,10 +29,8 @@ import (
 )
 
 const (
-	lowUtilInterval = time.Minute
-	lowUtilStep     = "1m"
-	// Share of the expected samples Robust must return before utilization is judged.
-	lowUtilMinCoverage = 0.9
+	lowUtilInterval    = time.Minute
+	lowUtilStep        = robustclient.GPUWindowStep
 	lowUtilEventReason = "LowGPUUtilization"
 
 	// AdminLowUtilization condition reasons, suffixed with the 1-based idle
@@ -305,7 +303,7 @@ func decideLowUtilRules(c lowUtilCandidate,
 func decideLowUtil(mode v1.LowUtilizationMode, rule v1.LowUtilizationRule,
 	w *robustclient.WorkloadGPUWindow) lowUtilDecision {
 	unknown := lowUtilDecision{state: lowUtilUnknown}
-	if w == nil || !lowUtilCovered(w.Overall.Samples, w.Overall.ExpectedSamples) {
+	if !w.Covered() {
 		return unknown
 	}
 	threshold := float64(rule.Threshold)
@@ -318,7 +316,7 @@ func decideLowUtil(mode v1.LowUtilizationMode, rule v1.LowUtilizationRule,
 	case v1.LowUtilizationMin:
 		lowest := -1
 		for i := range w.Nodes {
-			if !lowUtilCovered(w.Nodes[i].Samples, w.Overall.ExpectedSamples) {
+			if !robustclient.WindowCovered(w.Nodes[i].Samples, w.Overall.ExpectedSamples) {
 				continue
 			}
 			if lowest < 0 || w.Nodes[i].Max < w.Nodes[lowest].Max {
@@ -336,10 +334,6 @@ func decideLowUtil(mode v1.LowUtilizationMode, rule v1.LowUtilizationRule,
 	default:
 		return unknown
 	}
-}
-
-func lowUtilCovered(samples, expected int) bool {
-	return expected > 0 && float64(samples) >= lowUtilMinCoverage*float64(expected)
 }
 
 func (r *LowUtilizationController) apply(ctx context.Context,

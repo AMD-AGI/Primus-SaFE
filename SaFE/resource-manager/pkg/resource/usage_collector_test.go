@@ -80,11 +80,13 @@ type fakeUsageWindows struct {
 	byCluster map[string][]robustclient.WorkloadGPUWindow
 	failing   map[string]bool
 	windows   []string
+	steps     []string
 }
 
 func (f *fakeUsageWindows) GetWorkloadGPUWindow(_ context.Context, cluster string,
-	_ []string, window, _ string) ([]robustclient.WorkloadGPUWindow, error) {
+	_ []string, window, step string) ([]robustclient.WorkloadGPUWindow, error) {
 	f.windows = append(f.windows, window)
+	f.steps = append(f.steps, step)
 	if f.failing[cluster] {
 		return nil, errors.New("robust down")
 	}
@@ -240,10 +242,22 @@ func TestUsageRetentionCutoffs(t *testing.T) {
 	assert.True(t, hourly.IsZero())
 }
 
-func TestUsageWindow(t *testing.T) {
-	assert.Equal(t, "5m", usageWindow(5*time.Minute))
-	assert.Equal(t, "2m", usageWindow(90*time.Second))
-	assert.Equal(t, "1m", usageWindow(10*time.Second))
+func TestUsageCollectorUsesTheSharedWindowRule(t *testing.T) {
+	now := time.Date(2026, 11, 20, 10, 7, 30, 0, time.UTC)
+	c, store, windows := newTestUsageCollector(t, now,
+		usageTestWorkspace("ws1", "c1"), usageTestWorkload("a", "ws1"))
+	windows.byCluster["c1"] = []robustclient.WorkloadGPUWindow{
+		{UID: "a-uid", Overall: robustclient.GPUWindowOverall{Max: 90, Avg: 25, Samples: 4, ExpectedSamples: 5}},
+	}
+
+	require.NoError(t, c.sample(context.Background(), now.Truncate(c.interval)))
+
+	gpu := usageRowOf(store.samples, "ws1", common.AmdGpu)
+	require.NotNil(t, gpu)
+	assert.Nil(t, gpu.Busy, "80% of the expected samples is not covered")
+	require.NotNil(t, gpu.UtilCoverage)
+	assert.Zero(t, *gpu.UtilCoverage)
+	assert.Equal(t, []string{robustclient.GPUWindowStep}, windows.steps)
 }
 
 func TestUsageCollectorRunsOnLeaderOnly(t *testing.T) {
