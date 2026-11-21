@@ -25,12 +25,14 @@ type Record struct {
 	// Covered is the allocation that had utilization data: allocated x coverage.
 	Covered float64
 	Queued  float64
-	// The queued split, nil for hourly rows, which keep only the total.
+	// The queued split, nil when unknown.
 	QueuedQuota    *float64
 	QueuedUserQos  *float64
 	QueuedExternal *float64
 	QueuedOther    *float64
 	QueuedMax      float64
+	// QueuedSplitMax are the maxima of the split: quota, user QoS, external and other.
+	QueuedSplitMax [4]float64
 	// The allocation and busy integrated over the time the record stands for.
 	AllocatedHours float64
 	BusyHours      *float64
@@ -52,6 +54,7 @@ func FromSample(s *model.WorkspaceUsageSample, interval time.Duration) Record {
 		QueuedExternal: float64Ptr(s.QueuedExternal),
 		QueuedOther:    float64Ptr(s.QueuedOther),
 		QueuedMax:      queued,
+		QueuedSplitMax: [4]float64{s.QueuedQuota, s.QueuedUserQos, s.QueuedExternal, s.QueuedOther},
 		AllocatedHours: s.Allocated * interval.Hours(),
 	}
 	if s.UtilCoverage != nil {
@@ -73,7 +76,12 @@ func FromHourly(h *model.WorkspaceUsageHourly) Record {
 		Allocated:      h.AllocatedAvg,
 		Busy:           h.BusyAvg,
 		Queued:         h.QueuedAvg,
+		QueuedQuota:    float64Ptr(h.QueuedQuotaAvg),
+		QueuedUserQos:  float64Ptr(h.QueuedUserQosAvg),
+		QueuedExternal: float64Ptr(h.QueuedExternalAvg),
+		QueuedOther:    float64Ptr(h.QueuedOtherAvg),
 		QueuedMax:      h.QueuedMax,
+		QueuedSplitMax: [4]float64{h.QueuedQuotaMax, h.QueuedUserQosMax, h.QueuedExternalMax, h.QueuedOtherMax},
 		AllocatedHours: h.AllocatedHours,
 		BusyHours:      h.BusyHours,
 	}
@@ -109,6 +117,9 @@ func SumByTime(records []Record) []Record {
 		sum.Covered += r.Covered
 		sum.Queued += r.Queued
 		sum.QueuedMax += r.QueuedMax
+		for i := range sum.QueuedSplitMax {
+			sum.QueuedSplitMax[i] += r.QueuedSplitMax[i]
+		}
 		sum.AllocatedHours += r.AllocatedHours
 		sum.Busy = addKnown(sum.Busy, r.Busy)
 		sum.BusyHours = addKnown(sum.BusyHours, r.BusyHours)
@@ -192,6 +203,7 @@ type accumulator struct {
 	queued         float64
 	queuedMax      float64
 	split          [4]float64
+	splitMax       [4]float64
 	splitN         int
 	busy           float64
 	busyN          int
@@ -208,6 +220,9 @@ func (a *accumulator) add(r Record) {
 	a.covered += r.Covered
 	a.queued += r.Queued
 	a.queuedMax = max(a.queuedMax, r.QueuedMax)
+	for i := range a.splitMax {
+		a.splitMax[i] = max(a.splitMax[i], r.QueuedSplitMax[i])
+	}
 	if r.QueuedQuota != nil && r.QueuedUserQos != nil && r.QueuedExternal != nil && r.QueuedOther != nil {
 		a.split[0] += *r.QueuedQuota
 		a.split[1] += *r.QueuedUserQos
@@ -348,19 +363,29 @@ func Rollup(hour time.Time, samples []*model.WorkspaceUsageSample, interval time
 	p := a.point(hour)
 	first := samples[0]
 	h := &model.WorkspaceUsageHourly{
-		Hour:            hour,
-		Cluster:         first.Cluster,
-		Workspace:       first.Workspace,
-		Resource:        first.Resource,
-		QuotaAvg:        p.Quota,
-		AllocatedAvg:    p.Allocated,
-		AllocatedMax:    a.allocatedMax,
-		BusyAvg:         p.Busy,
-		UtilCoverageAvg: p.Coverage,
-		QueuedAvg:       p.Queued,
-		QueuedMax:       a.queuedMax,
-		AllocatedHours:  a.allocatedHours,
-		Samples:         int32(a.n),
+		Hour:              hour,
+		Cluster:           first.Cluster,
+		Workspace:         first.Workspace,
+		Resource:          first.Resource,
+		QuotaAvg:          p.Quota,
+		AllocatedAvg:      p.Allocated,
+		AllocatedMax:      a.allocatedMax,
+		BusyAvg:           p.Busy,
+		UtilCoverageAvg:   p.Coverage,
+		QueuedAvg:         p.Queued,
+		QueuedMax:         a.queuedMax,
+		QueuedQuotaMax:    a.splitMax[0],
+		QueuedUserQosMax:  a.splitMax[1],
+		QueuedExternalMax: a.splitMax[2],
+		QueuedOtherMax:    a.splitMax[3],
+		AllocatedHours:    a.allocatedHours,
+		Samples:           int32(a.n),
+	}
+	if p.QueuedQuota != nil {
+		h.QueuedQuotaAvg = *p.QueuedQuota
+		h.QueuedUserQosAvg = *p.QueuedUserQos
+		h.QueuedExternalAvg = *p.QueuedExternal
+		h.QueuedOtherAvg = *p.QueuedOther
 	}
 	if p.Busy != nil {
 		h.BusyHours = float64Ptr(a.busyHours)
