@@ -202,6 +202,14 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 		// ==================== Audit Logs (read-only) ====================
 		authGroup.GET("/auditlogs", h.ListAuditLog)
 
+		// ==================== Resource Usage (read-only) ====================
+		usageGroup := authGroup.Group("/usage")
+		{
+			usageGroup.GET("/clusters", h.ListUsageClusters)
+			usageGroup.GET(fmt.Sprintf("/clusters/:%s/workspaces", common.Name), h.ListUsageWorkspaces)
+			usageGroup.GET(fmt.Sprintf("/workspaces/:%s", common.Name), h.GetUsageWorkspace)
+		}
+
 		// ==================== Logout ====================
 		authGroup.POST("/logout", middleware.Audit("auth", "logout"), h.Logout)
 	}
