@@ -951,3 +951,67 @@ data:
     end $$;
     drop index if exists idx_workload_dispatch_node_run;
     alter table workload_dispatch_node owner to "primus-safe";
+
+    -- Per-workspace resource usage, one row per (cluster, workspace, resource) and
+    -- collector tick. Written by resource-manager, read by the apiserver usage APIs.
+    create table if not exists workspace_usage_sample
+    (
+        id                 bigserial primary key,
+        sample_time        timestamptz      not null,
+        cluster            varchar(64)      not null,
+        workspace          varchar(128)     not null,
+        resource           varchar(64)      not null,
+        quota              double precision not null,
+        allocated          double precision not null,
+        busy               double precision,
+        util_coverage      double precision,
+        queued_quota       double precision not null default 0,
+        queued_user_qos    double precision not null default 0,
+        queued_external    double precision not null default 0,
+        queued_other       double precision not null default 0,
+        running_workloads  int              not null default 0,
+        queued_workloads   int              not null default 0
+    );
+    create unique index if not exists uk_workspace_usage_sample_key on workspace_usage_sample (cluster, workspace, resource, sample_time);
+    create index if not exists idx_workspace_usage_sample_time on workspace_usage_sample (sample_time);
+    alter table workspace_usage_sample owner to "primus-safe";
+
+    -- Hourly rollup of workspace_usage_sample, kept longer than the samples.
+    create table if not exists workspace_usage_hourly
+    (
+        id                 bigserial primary key,
+        hour               timestamptz      not null,
+        cluster            varchar(64)      not null,
+        workspace          varchar(128)     not null,
+        resource           varchar(64)      not null,
+        quota_avg          double precision not null,
+        allocated_avg      double precision not null,
+        allocated_max      double precision not null,
+        busy_avg           double precision,
+        util_coverage_avg  double precision,
+        queued_avg         double precision not null,
+        queued_max         double precision not null,
+        queued_quota_avg      double precision not null default 0,
+        queued_user_qos_avg   double precision not null default 0,
+        queued_external_avg   double precision not null default 0,
+        queued_other_avg      double precision not null default 0,
+        queued_quota_max      double precision not null default 0,
+        queued_user_qos_max   double precision not null default 0,
+        queued_external_max   double precision not null default 0,
+        queued_other_max      double precision not null default 0,
+        allocated_hours    double precision not null,
+        busy_hours         double precision,
+        samples            int              not null
+    );
+    create unique index if not exists uk_workspace_usage_hourly_key on workspace_usage_hourly (cluster, workspace, resource, hour);
+    create index if not exists idx_workspace_usage_hourly_hour on workspace_usage_hourly (hour);
+
+    alter table workspace_usage_hourly add column if not exists queued_quota_avg double precision not null default 0;
+    alter table workspace_usage_hourly add column if not exists queued_user_qos_avg double precision not null default 0;
+    alter table workspace_usage_hourly add column if not exists queued_external_avg double precision not null default 0;
+    alter table workspace_usage_hourly add column if not exists queued_other_avg double precision not null default 0;
+    alter table workspace_usage_hourly add column if not exists queued_quota_max double precision not null default 0;
+    alter table workspace_usage_hourly add column if not exists queued_user_qos_max double precision not null default 0;
+    alter table workspace_usage_hourly add column if not exists queued_external_max double precision not null default 0;
+    alter table workspace_usage_hourly add column if not exists queued_other_max double precision not null default 0;
+    alter table workspace_usage_hourly owner to "primus-safe";
