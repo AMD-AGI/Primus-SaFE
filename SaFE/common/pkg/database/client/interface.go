@@ -7,6 +7,7 @@ package client
 
 import (
 	"context"
+	"time"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
 
@@ -38,6 +39,7 @@ type Interface interface {
 	OptimizationTaskInterface
 	WorkloadPodInterface
 	WorkloadDispatchNodeInterface
+	WorkspaceUsageInterface
 }
 
 type WorkloadInterface interface {
@@ -177,6 +179,19 @@ type NodeStatisticInterface interface {
 	DeleteNodeStatistic(ctx context.Context, id int32) error
 	DeleteNodeStatisticByClusterAndNode(ctx context.Context, cluster, nodeName string) error
 	DeleteNodeStatisticsByCluster(ctx context.Context, cluster string) error
+}
+
+// WorkspaceUsageInterface defines DB operations for the workspace usage samples and their
+// hourly rollup.
+type WorkspaceUsageInterface interface {
+	UpsertWorkspaceUsageSamples(ctx context.Context, rows []*model.WorkspaceUsageSample) error
+	ListWorkspaceUsageSamples(ctx context.Context, filter WorkspaceUsageFilter) ([]*model.WorkspaceUsageSample, error)
+	ListLatestWorkspaceUsageSamples(ctx context.Context, filter WorkspaceUsageFilter) ([]*model.WorkspaceUsageSample, error)
+	DeleteWorkspaceUsageSamplesBefore(ctx context.Context, before time.Time) (int64, error)
+	UpsertWorkspaceUsageHourly(ctx context.Context, rows []*model.WorkspaceUsageHourly) error
+	ListWorkspaceUsageHourly(ctx context.Context, filter WorkspaceUsageFilter) ([]*model.WorkspaceUsageHourly, error)
+	ListWorkspaceUsageHours(ctx context.Context, start, end time.Time) ([]time.Time, error)
+	DeleteWorkspaceUsageHourlyBefore(ctx context.Context, before time.Time) (int64, error)
 }
 
 type UserTokenInterface interface {
