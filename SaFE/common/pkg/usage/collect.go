@@ -17,7 +17,6 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/qos"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/robustclient"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 )
 
@@ -39,9 +38,6 @@ const (
 	earlierWorkloadsPrefix   = "In queue - waiting for earlier or higher priority workloads"
 	externalScaleUpPrefix    = "In queue - waiting for scale-up"
 )
-
-// Share of the expected samples a GPU window needs before its average is used.
-const minWindowCoverage = 0.5
 
 // gpuResources are the GPU resource names a workspace quota and a workload request can hold.
 var gpuResources = []string{common.AmdGpu, common.NvidiaGpu}
@@ -279,16 +275,6 @@ func (s *Snapshot) GPUWorkloadUIDs(cluster string) []string {
 		}
 	}
 	return result
-}
-
-// WindowAverage returns the average GPU utilization (percent) of a window, and false when the
-// window is absent or has too few samples to be used.
-func WindowAverage(w *robustclient.WorkloadGPUWindow) (float64, bool) {
-	if w == nil || w.Overall.ExpectedSamples <= 0 ||
-		float64(w.Overall.Samples) < minWindowCoverage*float64(w.Overall.ExpectedSamples) {
-		return 0, false
-	}
-	return w.Overall.Avg, true
 }
 
 // ApplyGPUUtilization sets busy and coverage on the GPU rows of cluster. utilization holds the
