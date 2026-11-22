@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
@@ -30,6 +31,9 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	mockdb "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
@@ -380,6 +384,36 @@ func TestGetWorkloadPendingReasonHandler(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestGetWorkloadPendingReasonAfterObjectDeleted covers a workload whose Kubernetes object is
+// gone (for example removed by its TTL) while the database still holds the record.
+func TestGetWorkloadPendingReasonAfterObjectDeleted(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	commonconfig.SetValue("db.enable", "true")
+	t.Cleanup(func() { commonconfig.SetValue("db.enable", "") })
+
+	h, user := newAdminHandlerWithObjects()
+	ctrl := gomock.NewController(t)
+	mockDB := mockdb.NewMockInterface(ctrl)
+	mockDB.EXPECT().GetWorkload(gomock.Any(), "wl-ttl").Return(&dbclient.Workload{
+		WorkloadId: "wl-ttl",
+		Workspace:  "ws",
+		Cluster:    "c1",
+		GVK:        `{"group":"amd.com","version":"v1","kind":"Workload"}`,
+	}, nil)
+	h.dbClient = mockDB
+	h.SetPendingReasonSummarizer(&fakePendingSummarizer{})
+
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	c.Set(common.UserId, user.Name)
+	c.Set(common.Name, "wl-ttl")
+	h.GetWorkloadPendingReason(c)
+
+	assert.Equal(t, http.StatusOK, rsp.Code)
+	assert.JSONEq(t, `{"reason":""}`, rsp.Body.String())
 }
 
 func TestSetPendingReasonSummarizerNilHandler(t *testing.T) {

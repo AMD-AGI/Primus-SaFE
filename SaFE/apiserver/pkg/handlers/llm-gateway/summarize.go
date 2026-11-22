@@ -48,7 +48,8 @@ type pendingSummaryResponse struct {
 }
 
 // SummarizePendingReason asks LiteLLM for one sentence, billed to the caller's virtual key.
-// email selects the binding. ntid is sent upstream when the binding has an APIM key.
+// email selects the binding. When the binding has an APIM key, the upstream user is chosen
+// as on the proxy path: the shared account for a shared key, otherwise ntid.
 func (h *Handler) SummarizePendingReason(ctx context.Context, email, ntid, evidence string) (string, error) {
 	if h == nil || h.litellmClient == nil || h.crypto == nil {
 		return "", fmt.Errorf("litellm client is not configured")
@@ -87,7 +88,7 @@ func (h *Handler) SummarizePendingReason(ctx context.Context, email, ntid, evide
 		MaxTokens:   120,
 		Temperature: 0,
 	}
-	if err = h.applyPendingSummaryHeaders(&reqBody, binding.ApimKey, ntid); err != nil {
+	if err = h.applyPendingSummaryHeaders(&reqBody, binding.ApimKey, upstreamUser(binding.ApimKeyHash, ntid)); err != nil {
 		return "", err
 	}
 	body, err := json.Marshal(reqBody)

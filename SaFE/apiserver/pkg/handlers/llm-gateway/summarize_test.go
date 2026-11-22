@@ -12,9 +12,12 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/golang/mock/gomock"
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -187,4 +190,47 @@ func TestClipRunes(t *testing.T) {
 	assert.Equal(t, "abc", clipRunes("abc", 5))
 	assert.Equal(t, "ab", clipRunes("abc", 2))
 	assert.Equal(t, "\u4e2d\u6587", clipRunes("\u4e2d\u6587\u5b57", 2))
+}
+
+func TestSummarizePendingReasonSharedApimUser(t *testing.T) {
+	orig := pendingSummaryModel
+	pendingSummaryModel = func() string { return "summary-model" }
+	t.Cleanup(func() { pendingSummaryModel = orig })
+	dir := t.TempDir()
+	viper.Set("llm_gateway.secret_path", dir)
+	t.Cleanup(func() { viper.Set("llm_gateway.secret_path", "") })
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "shared_apim_key_hashes"), []byte(dbclient.ComputeApimKeyHash("shared-key")), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "shared_apim_user"), []byte("shared-account"), 0o600))
+
+	tests := []struct {
+		name     string
+		apimKey  string
+		wantUser string
+	}{
+		{name: "shared key is attributed to the shared account", apimKey: "shared-key", wantUser: "shared-account"},
+		{name: "own key is attributed to the caller", apimKey: "own-key", wantUser: "ntid1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotBody pendingSummaryRequest
+			backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				raw, _ := io.ReadAll(r.Body)
+				_ = json.Unmarshal(raw, &gotBody)
+				_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"ok"}}]}`))
+			}))
+			t.Cleanup(backend.Close)
+			ctrl := gomock.NewController(t)
+			mockDB := mock_client.NewMockInterface(ctrl)
+			mockDB.EXPECT().GetLLMBindingByEmail(gomock.Any(), "user@amd.com").Return(&dbclient.LLMGatewayUserBinding{
+				UserEmail:         "user@amd.com",
+				LiteLLMVirtualKey: "virtual-key",
+				ApimKey:           tt.apimKey,
+				ApimKeyHash:       dbclient.ComputeApimKeyHash(tt.apimKey),
+			}, nil)
+			handler := newTestHandler(t, mockDB, backend)
+			_, err := handler.SummarizePendingReason(context.Background(), "user@amd.com", "ntid1", "evidence")
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantUser, gotBody.ExtraHeaders[upstreamUserHeader])
+		})
+	}
 }

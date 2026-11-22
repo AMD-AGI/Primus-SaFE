@@ -15,6 +15,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
@@ -88,6 +89,10 @@ func (h *Handler) getWorkloadPendingReason(c *gin.Context) (interface{}, error) 
 	// Queue position and message are written on the control-plane object.
 	// The auth lookup may be a database projection without that status.
 	live, err := h.getAdminWorkload(c.Request.Context(), workload.Name)
+	if apierrors.IsNotFound(err) {
+		// The object is gone (for example removed by its TTL), so it is no longer Pending.
+		return &view.WorkloadPendingReasonResponse{}, nil
+	}
 	if err != nil {
 		return nil, err
 	}
