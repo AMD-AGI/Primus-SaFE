@@ -224,7 +224,6 @@ const router = createRouter({
           path: '/usermanage',
           name: 'UserManage',
           component: () => import('../pages/UserManage/index.vue'),
-          meta: { requiresWorkspaceAdmin: true },
         },
         {
           path: '/qos',
