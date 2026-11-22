@@ -153,21 +153,7 @@
                   :effect="isDark ? 'plain' : 'light'"
                   >{{ row.phase }}</el-tag
                 >
-                <el-tooltip
-                  v-if="row.phase === 'Pending'"
-                  :content="row.message ? `${row.message} - Click for Pending Cause Analysis` : 'Pending Cause Analysis'"
-                  placement="top"
-                >
-                  <el-icon
-                    class="pending-cause-icon"
-                    :size="18"
-                    @click.stop="
-                      router.push({ path: '/workload/pending-cause', query: { id: row.workloadId } })
-                    "
-                  >
-                    <InfoFilled />
-                  </el-icon>
-                </el-tooltip>
+                <PendingCauseIcon v-if="row.phase === 'Pending'" :workload-id="row.workloadId" />
               </div>
               <div
                 class="text-sm"
@@ -340,6 +326,7 @@
   />
 </template>
 <script lang="ts" setup>
+import PendingCauseIcon from '@/components/Workload/PendingCauseIcon.vue'
 import { ref, reactive, watch, nextTick, onMounted, onBeforeUnmount, h, computed } from 'vue'
 import { useWorkloadWriteGuard } from '@/composables/useWorkloadWriteGuard'
 import {
@@ -351,12 +338,11 @@ import {
 } from '@/services'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { WorkloadPhase, phaseFilters, WorkloadPhaseButtonType } from '@/services/workload/type'
-import { Search, Refresh, CopyDocument, Plus, Timer, InfoFilled } from '@element-plus/icons-vue'
+import { Search, Refresh, CopyDocument, Plus, Timer } from '@element-plus/icons-vue'
 import ResetIcon from '@/components/icons/ResetIcon.vue'
 import { copyText, formatTimeStr } from '@/utils/index'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
-import { useRouter } from 'vue-router'
 import { useRouteAction, ROUTE_ACTIONS } from '@/composables/useRouteAction'
 import { useWorkloadListQuery } from '@/composables/useWorkloadListQuery'
 import AddDialog from './Components/AddDialog.vue'
@@ -371,7 +357,6 @@ dayjs.extend(utc)
 
 const tableRef = ref()
 const isDark = useDark()
-const router = useRouter()
 const store = useWorkspaceStore()
 const userStore = useUserStore()
 
@@ -803,15 +788,4 @@ watch(
   opacity: 0;
 }
 
-/* Pending Cause Analysis Icon */
-.pending-cause-icon {
-  cursor: pointer;
-  color: var(--el-color-warning);
-  transition: all 0.2s ease;
-}
-
-.pending-cause-icon:hover {
-  color: var(--el-color-primary);
-  transform: scale(1.2);
-}
 </style>

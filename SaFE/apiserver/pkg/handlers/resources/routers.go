@@ -34,6 +34,7 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 			workloads.PATCH(fmt.Sprintf("/:%s", common.Name), middleware.Audit("workload"), h.PatchWorkload)
 			workloads.GET("", h.ListWorkload)
 			workloads.GET(fmt.Sprintf("/:%s", common.Name), h.GetWorkload)
+			workloads.GET(fmt.Sprintf("/:%s/pending-reason", common.Name), h.GetWorkloadPendingReason)
 			workloads.GET(fmt.Sprintf("/:%s/service", common.Name), h.GetWorkloadService)
 			workloads.GET(fmt.Sprintf("/:%s/pods/:%s/logs", common.Name, common.PodId), h.GetWorkloadPodLog)
 			workloads.GET(fmt.Sprintf("/:%s/pods/:%s/containers", common.Name, common.PodId), h.GetWorkloadPodContainers)

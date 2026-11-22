@@ -133,21 +133,7 @@
                   :type="WorkloadPhaseButtonType[row.phase]?.type || 'info'"
                   :effect="isDark ? 'plain' : 'light'"
                 >{{ row.phase }}</el-tag>
-                <el-tooltip
-                  v-if="row.phase === 'Pending'"
-                  :content="row.message ? `${row.message} - Click for Pending Cause Analysis` : 'Pending Cause Analysis'"
-                  placement="top"
-                >
-                  <el-icon
-                    class="pending-cause-icon"
-                    :size="18"
-                    @click.stop="
-                      router.push({ path: '/workload/pending-cause', query: { id: row.workloadId } })
-                    "
-                  >
-                    <InfoFilled />
-                  </el-icon>
-                </el-tooltip>
+                <PendingCauseIcon v-if="row.phase === 'Pending'" :workload-id="row.workloadId" />
               </div>
               <div
                 class="text-sm"
@@ -291,6 +277,7 @@
 </template>
 
 <script lang="ts" setup>
+import PendingCauseIcon from '@/components/Workload/PendingCauseIcon.vue'
 import { ref, reactive, watch, computed, nextTick, onMounted, onBeforeUnmount, h } from 'vue'
 import { useWorkloadWriteGuard } from '@/composables/useWorkloadWriteGuard'
 import {
@@ -307,12 +294,11 @@ import {
   phaseFilters,
   WorkloadPhaseButtonType,
 } from '@/services/workload/type'
-import { Search, Refresh, CopyDocument, Timer, Edit, Delete, Close, MoreFilled, InfoFilled } from '@element-plus/icons-vue'
+import { Search, Refresh, CopyDocument, Timer, Edit, Delete, Close, MoreFilled } from '@element-plus/icons-vue'
 import ResetIcon from '@/components/icons/ResetIcon.vue'
 import { copyText, formatTimeStr } from '@/utils/index'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
-import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { type WorkloadParams, type PriorityValue, PRIORITY_LABEL_MAP } from '@/services'
 import { useUserStore } from '@/stores/user'
@@ -324,7 +310,6 @@ dayjs.extend(utc)
 
 const tableRef = ref()
 const isDark = useDark()
-const router = useRouter()
 const store = useWorkspaceStore()
 const userStore = useUserStore()
 const { canWrite } = useWorkloadWriteGuard()
@@ -664,13 +649,4 @@ watch(
 }
 </style>
 <style>
-.pending-cause-icon {
-  cursor: pointer;
-  color: var(--el-color-warning);
-  transition: all 0.2s ease;
-}
-.pending-cause-icon:hover {
-  color: var(--el-color-primary);
-  transform: scale(1.2);
-}
 </style>

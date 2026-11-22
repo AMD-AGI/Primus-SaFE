@@ -429,3 +429,9 @@ type GetWorkloadPodContainersResponse struct {
 type GetWorkloadPodContainersItem struct {
 	Name string `json:"name"` // Name of the container.
 }
+
+// WorkloadPendingReasonResponse is the one-sentence explanation of a Pending workload.
+// Reason is empty when the workload is not Pending.
+type WorkloadPendingReasonResponse struct {
+	Reason string `json:"reason"`
+}

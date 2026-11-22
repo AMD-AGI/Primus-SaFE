@@ -29,11 +29,12 @@ import (
 
 type Handler struct {
 	client.Client
-	clientSet        kubernetes.Interface
-	dbClient         dbclient.Interface
-	httpClient       httpclient.Interface
-	clientManager    *commonutils.ObjectManager
-	accessController *authority.AccessController
+	clientSet         kubernetes.Interface
+	dbClient          dbclient.Interface
+	httpClient        httpclient.Interface
+	clientManager     *commonutils.ObjectManager
+	accessController  *authority.AccessController
+	pendingSummarizer pendingReasonSummarizer
 }
 
 // NewHandler creates a new Handler instance with the provided controller manager.
