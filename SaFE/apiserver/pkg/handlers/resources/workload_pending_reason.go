@@ -31,7 +31,6 @@ const (
 	pendingEvidencePodLimit     = 5
 	pendingEvidencePodListLimit = 50
 	pendingEvidenceEventLimit   = 5
-	pendingEvidenceEventList    = 30
 	pendingEvidenceLogPods      = 3
 	pendingEvidenceLogTail      = 400
 	pendingEvidenceLogLines     = 30
@@ -175,9 +174,6 @@ func applyPendingReason(action pendingReasonAction, message string, collect func
 		if strings.TrimSpace(evidence) == "" {
 			return ""
 		}
-		if strings.TrimSpace(fallback) == "" {
-			fallback = firstLine(evidence)
-		}
 		return summaryOr(evidence, fallback, summarize)
 	default:
 		return ""
@@ -217,9 +213,6 @@ func (h *Handler) collectPendingEvidence(ctx context.Context, w *v1.Workload) (s
 	for _, line := range logLines {
 		lines = append(lines, "job-manager "+line)
 	}
-	if fallback == "" && len(logLines) > 0 {
-		fallback = logLines[0]
-	}
 	if len(lines) == 0 {
 		return "", ""
 	}
@@ -247,7 +240,7 @@ func provisioningLine(w *v1.Workload) string {
 // pendingPodEvidence reads Pending pods and their scheduling events from the data-plane cluster.
 func (h *Handler) pendingPodEvidence(ctx context.Context, w *v1.Workload) ([]string, string) {
 	clusterID := v1.GetClusterId(w)
-	if h.clientManager == nil || clusterID == "" || w.Spec.Workspace == "" || w.Name == "" {
+	if h.clientManager == nil || clusterID == "" || w.Name == "" {
 		return nil, ""
 	}
 	factory, err := commonutils.GetK8sClientFactory(h.clientManager, clusterID)
@@ -259,8 +252,9 @@ func (h *Handler) pendingPodEvidence(ctx context.Context, w *v1.Workload) ([]str
 	if clientSet == nil {
 		return nil, ""
 	}
-	list, err := clientSet.CoreV1().Pods(w.Spec.Workspace).List(ctx, metav1.ListOptions{
+	list, err := clientSet.CoreV1().Pods(metav1.NamespaceAll).List(ctx, metav1.ListOptions{
 		LabelSelector: labels.Set{v1.WorkloadIdLabel: w.Name}.String(),
+		FieldSelector: fields.OneTermEqualSelector("status.phase", string(corev1.PodPending)).String(),
 		Limit:         pendingEvidencePodListLimit,
 	})
 	if err != nil {
@@ -339,7 +333,6 @@ func podSchedulingEvents(ctx context.Context, clientSet kubernetes.Interface, po
 	).String()
 	list, err := clientSet.CoreV1().Events(pod.Namespace).List(ctx, metav1.ListOptions{
 		FieldSelector: selector,
-		Limit:         pendingEvidenceEventList,
 	})
 	if err != nil || list == nil {
 		if err != nil {
@@ -532,17 +525,6 @@ func firstSentence(s string) string {
 	s = strings.ReplaceAll(s, "\n", " ")
 	s = strings.Join(strings.Fields(s), " ")
 	return clipText(s, pendingReasonSentenceLimit)
-}
-
-// firstLine returns the first non-empty line.
-func firstLine(s string) string {
-	for _, line := range strings.Split(s, "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			return line
-		}
-	}
-	return ""
 }
 
 // clipText shortens s to at most n runes.

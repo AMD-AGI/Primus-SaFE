@@ -299,7 +299,6 @@ import ResetIcon from '@/components/icons/ResetIcon.vue'
 import { copyText, formatTimeStr } from '@/utils/index'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
-import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { type WorkloadParams, type PriorityValue, PRIORITY_LABEL_MAP } from '@/services'
 import { useUserStore } from '@/stores/user'
@@ -311,7 +310,6 @@ dayjs.extend(utc)
 
 const tableRef = ref()
 const isDark = useDark()
-const router = useRouter()
 const store = useWorkspaceStore()
 const userStore = useUserStore()
 const { canWrite } = useWorkloadWriteGuard()

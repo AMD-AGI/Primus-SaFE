@@ -8,6 +8,7 @@ package resources
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,9 +17,11 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -204,6 +207,92 @@ func TestCollectPendingEvidence(t *testing.T) {
 	assert.NotContains(t, evidence, "stale event")
 	assert.NotContains(t, evidence, "noise about something else")
 	assert.Contains(t, fallback, "ImagePullBackOff")
+}
+
+// A job-manager log line alone is evidence for the summary, never the user-visible reason.
+func TestPendingReasonWithoutFactsIsEmpty(t *testing.T) {
+	const workloadID = "wl-quiet"
+	deploy := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "primus-safe-job-manager",
+			Namespace: common.PrimusSafeNamespace,
+			Labels:    map[string]string{jobManagerAppLabelKey: jobManagerAppLabelValue},
+		},
+		Spec: appsv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"app": "primus-safe-job-manager"}},
+		},
+	}
+	jmPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "job-manager-0",
+			Namespace: common.PrimusSafeNamespace,
+			Labels:    map[string]string{"app": "primus-safe-job-manager"},
+		},
+	}
+	orig := fetchPodLogs
+	fetchPodLogs = func(context.Context, kubernetes.Interface, string, string, int64) ([]byte, error) {
+		return []byte("failed to dispatch " + workloadID + ": quota exceeded\n"), nil
+	}
+	t.Cleanup(func() { fetchPodLogs = orig })
+
+	h := &Handler{clientSet: k8sfake.NewSimpleClientset(deploy, jmPod)}
+	workload := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: workloadID},
+		Spec:       v1.WorkloadSpec{Workspace: "ws-a"},
+		Status:     v1.WorkloadStatus{Phase: v1.WorkloadPending},
+	}
+
+	evidence, fallback := h.collectPendingEvidence(context.Background(), workload)
+	assert.Contains(t, evidence, "quota exceeded")
+	assert.Empty(t, fallback)
+	assert.Empty(t, h.resolvePendingReason(context.Background(), workload, "", ""))
+}
+
+// Pending pods are selected by the server across every namespace, since the ARC listener pod
+// runs in the controller's namespace and not in the workspace.
+func TestPendingPodEvidenceListsAllNamespaces(t *testing.T) {
+	const (
+		workloadID = "wl-arc"
+		clusterID  = "cluster-a"
+	)
+	listener := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      workloadID + "-listener",
+			Namespace: "arc-systems",
+			Labels:    map[string]string{v1.WorkloadIdLabel: workloadID},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodPending,
+			ContainerStatuses: []corev1.ContainerStatus{{
+				Name:  "listener",
+				State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "ImagePullBackOff"}},
+			}},
+		},
+	}
+	data := k8sfake.NewSimpleClientset(listener)
+	var listNamespace, listFields string
+	data.PrependReactor("list", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		listAction := action.(k8stesting.ListAction)
+		listNamespace = listAction.GetNamespace()
+		listFields = listAction.GetListRestrictions().Fields.String()
+		return false, nil, nil
+	})
+	manager := commonutils.NewObjectManager()
+	require.NoError(t, manager.Add(clusterID, k8sclient.NewClientFactoryWithOnlyClient(context.Background(), clusterID, data)))
+
+	h := &Handler{clientManager: manager}
+	workload := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   workloadID,
+			Labels: map[string]string{v1.ClusterIdLabel: clusterID},
+		},
+		Spec: v1.WorkloadSpec{Workspace: "ws-a"},
+	}
+
+	lines, _ := h.pendingPodEvidence(context.Background(), workload)
+	assert.Equal(t, metav1.NamespaceAll, listNamespace)
+	assert.Equal(t, "status.phase=Pending", listFields)
+	assert.Contains(t, strings.Join(lines, "\n"), "ImagePullBackOff")
 }
 
 func TestFilterWorkloadLogLines(t *testing.T) {
