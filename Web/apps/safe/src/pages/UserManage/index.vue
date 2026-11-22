@@ -105,9 +105,9 @@
               />
             </el-tooltip>
           </template>
-          <template v-else-if="wsStore.isCurrentWorkspaceAdmin()">
+          <template v-else>
             <el-tooltip
-              v-if="isInCurrentWorkspace(row)"
+              v-if="removeWsOptionsOf(row).some((ws) => !ws.disabled)"
               content="Remove from workspace"
               placement="top"
             >
@@ -119,7 +119,7 @@
                 @click="onRemoveFromWorkspace(row)"
               />
             </el-tooltip>
-            <el-tooltip v-else content="Add to workspace" placement="top">
+            <el-tooltip v-if="addableWorkspaces(row).length" content="Add to workspace" placement="top">
               <el-button
                 circle
                 size="default"
@@ -141,6 +141,54 @@
     @success="getUserList()"
   />
   <QosDialog v-model:visible="qosVisible" :user="qosUser" @success="getUserList()" />
+  <el-dialog v-model="addWs.visible" title="Add to workspace" width="420px" destroy-on-close>
+    <el-form label-position="top" @submit.prevent>
+      <el-form-item label="Workspace">
+        <el-select v-model="addWs.workspaceId" placeholder="Select a workspace you manage" class="w-full">
+          <el-option v-for="ws in addWsOptions" :key="ws.id" :label="ws.name" :value="ws.id" />
+        </el-select>
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="addWs.visible = false">Cancel</el-button>
+      <el-button type="primary" :disabled="!addWs.workspaceId" @click="confirmAddToWorkspace">
+        Add
+      </el-button>
+    </template>
+  </el-dialog>
+  <el-dialog v-model="removeWs.visible" title="Remove from workspace" width="420px" destroy-on-close>
+    <el-form label-position="top" @submit.prevent>
+      <el-form-item label="Workspaces">
+        <el-select
+          v-model="removeWs.workspaceIds"
+          multiple
+          placeholder="Select workspaces you manage"
+          class="w-full"
+        >
+          <el-option
+            v-for="ws in removeWsOptions"
+            :key="ws.id"
+            :label="ws.name"
+            :value="ws.id"
+            :disabled="ws.disabled"
+          />
+        </el-select>
+      </el-form-item>
+      <el-text v-if="removeWsOptions.some((ws) => ws.disabled)" type="info" size="small">
+        Workspaces the user manages are disabled. Remove the user's management of them first.
+      </el-text>
+    </el-form>
+    <template #footer>
+      <el-button @click="removeWs.visible = false">Cancel</el-button>
+      <el-button
+        type="primary"
+        :disabled="removeWs.workspaceIds.length === 0"
+        @click="confirmRemoveFromWorkspace"
+      >
+        Remove
+      </el-button>
+    </template>
+  </el-dialog>
 </template>
 <script lang="ts" setup>
 import { ref, onMounted, reactive, h, computed } from 'vue'
@@ -187,9 +235,6 @@ const wsStore = useWorkspaceStore()
 const showRoleAndWorkspaceColumns = computed(
   () => userStore.hasManagerAccess || wsStore.isCurrentWorkspaceAdmin(),
 )
-const isInCurrentWorkspace = (row: UserSelfData) => {
-  return row.workspaces?.some((ws: Workspace) => ws.id === wsStore.currentWorkspaceId)
-}
 const loading = ref(false)
 
 type Ws = { id: string; name: string }
@@ -262,65 +307,82 @@ const onDelete = (id: string) => {
   })
 }
 
-const handleUpdateWorkspace = async (row: UserSelfData, action: 'add' | 'remove') => {
-  const currentWorkspaceId = wsStore.currentWorkspaceId
-  if (!currentWorkspaceId) {
+// Applies an incremental workspace change to the user and reloads the list.
+const patchUserWorkspaces = async (row: UserSelfData, change: EditUserResp, doneMessage: string) => {
+  await editUser(row.id, change)
+  ElMessage.success(doneMessage)
+  await getUserList()
+}
+
+// The workspaces the caller manages and the user is not in yet.
+const addableWorkspaces = (row: UserSelfData | null): Workspace[] => {
+  const joined = new Set(row?.workspaces?.map((ws) => ws.id) ?? [])
+  return (userStore.profile?.managedWorkspaces ?? []).filter((ws) => !joined.has(ws.id))
+}
+const addWs = reactive({ visible: false, row: null as UserSelfData | null, workspaceId: '' })
+const addWsOptions = computed<Workspace[]>(() => addableWorkspaces(addWs.row))
+
+// The workspaces the caller manages that the user is in. Those the user also manages are disabled.
+interface RemoveWsOption {
+  id: string
+  name: string
+  disabled: boolean
+}
+const removeWsOptionsOf = (row: UserSelfData | null): RemoveWsOption[] => {
+  const joined = new Set(row?.workspaces?.map((ws) => ws.id) ?? [])
+  const managedByUser = new Set(row?.managedWorkspaces?.map((ws) => ws.id) ?? [])
+  return (userStore.profile?.managedWorkspaces ?? [])
+    .filter((ws) => joined.has(ws.id))
+    .map((ws) => ({ id: ws.id, name: ws.name, disabled: managedByUser.has(ws.id) }))
+}
+const removeWs = reactive({ visible: false, row: null as UserSelfData | null, workspaceIds: [] as string[] })
+const removeWsOptions = computed<RemoveWsOption[]>(() => removeWsOptionsOf(removeWs.row))
+const onRemoveFromWorkspace = (row: UserSelfData) => {
+  removeWs.row = row
+  const current = wsStore.currentWorkspaceId ?? ''
+  const preselect = removeWsOptionsOf(row).some((ws) => ws.id === current && !ws.disabled)
+  removeWs.workspaceIds = preselect ? [current] : []
+  removeWs.visible = true
+}
+const confirmRemoveFromWorkspace = async () => {
+  const row = removeWs.row
+  if (!row || removeWs.workspaceIds.length === 0) {
     return
   }
-
-  const currentIds = row.workspaces?.map((ws) => ws.id) ?? []
-
-  let nextIds: string[] = []
-
-  if (action === 'add') {
-    nextIds = [...currentIds, currentWorkspaceId]
-  } else {
-    if (row.managedWorkspaces?.some((ws) => ws.id === currentWorkspaceId)) {
-      ElMessage.warning(`Please remove the user's workspace management first.`)
-      return
-    }
-
-    nextIds = currentIds.filter((id) => id !== currentWorkspaceId)
-  }
-
-  const content =
-    action === 'add'
-      ? 'Add this user to the current workspace?'
-      : 'Remove this user from the current workspace?'
-
   try {
-    await ElMessageBox.confirm(content, `${action === 'add' ? 'Add' : 'Remove'} to workspace`, {
-      type: 'warning',
-      confirmButtonText: action === 'add' ? 'Add' : 'Remove',
-      cancelButtonText: 'Cancel',
-    })
-
-    const payload: EditUserResp = {
-      workspaces: nextIds,
-    }
-
-    await editUser(row.id, payload)
-
-    ElMessage.success(
-      action === 'add'
-        ? 'Added to workspace successfully.'
-        : 'Removed from workspace successfully.',
+    await patchUserWorkspaces(
+      row,
+      { removeWorkspaces: [...removeWs.workspaceIds] },
+      'Removed from workspace successfully.',
     )
-
-    await getUserList()
+    removeWs.visible = false
   } catch (err) {
     console.error(err)
-    if (err !== 'cancel') {
-      ElMessage.error('Operation failed.')
-    }
+    ElMessage.error('Operation failed.')
   }
 }
-
-const onRemoveFromWorkspace = (row: UserSelfData) => {
-  handleUpdateWorkspace(row, 'remove')
-}
 const onAddToWorkspace = (row: UserSelfData) => {
-  handleUpdateWorkspace(row, 'add')
+  addWs.row = row
+  const current = wsStore.currentWorkspaceId ?? ''
+  addWs.workspaceId = addWsOptions.value.some((ws) => ws.id === current) ? current : ''
+  addWs.visible = true
+}
+const confirmAddToWorkspace = async () => {
+  const row = addWs.row
+  if (!row || !addWs.workspaceId) {
+    return
+  }
+  try {
+    await patchUserWorkspaces(
+      row,
+      { addWorkspaces: [addWs.workspaceId] },
+      'Added to workspace successfully.',
+    )
+    addWs.visible = false
+  } catch (err) {
+    console.error(err)
+    ElMessage.error('Operation failed.')
+  }
 }
 
 onMounted(() => {

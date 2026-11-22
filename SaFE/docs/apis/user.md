@@ -268,7 +268,9 @@ Update user information or permissions.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | roles | []string | No | User roles list |
-| workspaces | []string | No | List of accessible workspace IDs |
+| workspaces | []string | No | List of accessible workspace IDs, replaces the whole list |
+| addWorkspaces | []string | No | Workspace IDs to add to the accessible workspaces; exclusive with `workspaces` |
+| removeWorkspaces | []string | No | Workspace IDs to remove from the accessible workspaces; exclusive with `workspaces` |
 | avatarUrl | string | No | Avatar URL |
 | password | string | No | New password |
 | restrictedType | int | No | Restriction type: 0 (normal)/1 (frozen) |
@@ -278,6 +280,7 @@ When `auth.mode` is `external`, a change of `restrictedType` between normal (`0`
 
 **Permission Requirements**:
 - Updating roles and workspaces requires system admin permission
+- `addWorkspaces` and `removeWorkspaces` are checked against the named workspaces only: the caller must be a system admin or manage every workspace named in the request. The two lists must not share an ID, and an empty ID or a request that also carries `workspaces` is rejected with 400
 - Users can update their own password, email and avatar
 
 **Response**: 200 OK with no response body
