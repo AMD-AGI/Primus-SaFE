@@ -35,6 +35,8 @@ type fakeUsageStore struct {
 	sampleCutoffs []time.Time
 	hourlyCutoffs []time.Time
 	upsertErr     error
+	// failRollups is how many more times listing the samples of an hour fails.
+	failRollups map[time.Time]int
 }
 
 func (s *fakeUsageStore) UpsertWorkspaceUsageSamples(_ context.Context, rows []*model.WorkspaceUsageSample) error {
@@ -48,6 +50,10 @@ func (s *fakeUsageStore) UpsertWorkspaceUsageSamples(_ context.Context, rows []*
 func (s *fakeUsageStore) ListWorkspaceUsageSamples(_ context.Context,
 	filter dbclient.WorkspaceUsageFilter) ([]*model.WorkspaceUsageSample, error) {
 	s.rolledUp = append(s.rolledUp, filter.Start)
+	if s.failRollups[filter.Start] > 0 {
+		s.failRollups[filter.Start]--
+		return nil, errors.New("db down")
+	}
 	var result []*model.WorkspaceUsageSample
 	for _, row := range s.samples {
 		if !row.SampleTime.Before(filter.Start) && !row.SampleTime.After(filter.End) {
@@ -205,6 +211,21 @@ func TestUsageCollectorTickRollsUpAndPrunesOncePerHour(t *testing.T) {
 	assert.Equal(t, []time.Time{previous, previous.Add(time.Hour)}, store.rolledUp)
 	assert.Len(t, store.sampleCutoffs, 2)
 	assert.Len(t, store.hourlyCutoffs, 2)
+}
+
+func TestUsageCollectorRetriesAFailedRollupAfterTheHourChanges(t *testing.T) {
+	now := time.Date(2026, 11, 20, 11, 0, 10, 0, time.UTC)
+	c, store, _ := newTestUsageCollector(t, now, usageTestWorkspace("ws1", "c1"))
+	ten := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
+	store.failRollups = map[time.Time]int{ten: 1}
+
+	c.tick(context.Background())
+	assert.Equal(t, ten, c.rolledUpTo, "the failed hour stays pending")
+
+	c.now = func() time.Time { return now.Add(time.Hour) }
+	c.tick(context.Background())
+	assert.Equal(t, []time.Time{ten, ten, ten.Add(time.Hour)}, store.rolledUp, "the failed hour first, then the next")
+	assert.Equal(t, ten.Add(2*time.Hour), c.rolledUpTo)
 }
 
 func TestUsageCollectorTickKeepsRollingUpAfterSampleFailure(t *testing.T) {

@@ -93,7 +93,7 @@ type WorkspaceUsageCollector struct {
 	hourlyRetention time.Duration
 	now             func() time.Time
 
-	// The hour whose previous hour has been rolled up, and the last time retention ran.
+	// The first hour that is not rolled up yet, and the last time retention ran.
 	rolledUpTo   time.Time
 	lastPrunedAt time.Time
 }
@@ -147,7 +147,7 @@ func (c *WorkspaceUsageCollector) Start(ctx context.Context) error {
 	}
 }
 
-// tick writes one sample, rolls up the previous hour once a new hour has begun and applies the
+// tick writes one sample, rolls up the hours that ended since the last rollup and applies the
 // retention at most once an hour.
 func (c *WorkspaceUsageCollector) tick(ctx context.Context) {
 	now := c.now().UTC()
@@ -156,13 +156,7 @@ func (c *WorkspaceUsageCollector) tick(ctx context.Context) {
 	} else {
 		usageCollectorLastSuccess.Set(float64(now.Unix()))
 	}
-	if hour := now.Truncate(time.Hour); hour.After(c.rolledUpTo) {
-		if err := c.rollup(ctx, hour.Add(-time.Hour)); err != nil {
-			klog.ErrorS(err, "[workspace-usage-collector] failed to roll up", "hour", hour.Add(-time.Hour))
-		} else {
-			c.rolledUpTo = hour
-		}
-	}
+	c.rollupPending(ctx, now.Truncate(time.Hour))
 	if now.Sub(c.lastPrunedAt) >= time.Hour {
 		c.prune(ctx, now)
 		c.lastPrunedAt = now
@@ -231,6 +225,21 @@ func (c *WorkspaceUsageCollector) rollup(ctx context.Context, hour time.Time) er
 		return err
 	}
 	return nil
+}
+
+// rollupPending rolls up every hour from the first one not rolled up to the one before current,
+// in order. It stops at the first failure, which is tried again on the next tick.
+func (c *WorkspaceUsageCollector) rollupPending(ctx context.Context, current time.Time) {
+	if c.rolledUpTo.IsZero() {
+		c.rolledUpTo = current.Add(-time.Hour)
+	}
+	for _, hour := range usage.MissingHours(c.rolledUpTo, current, nil) {
+		if err := c.rollup(ctx, hour); err != nil {
+			klog.ErrorS(err, "[workspace-usage-collector] failed to roll up", "hour", hour)
+			return
+		}
+		c.rolledUpTo = hour.Add(time.Hour)
+	}
 }
 
 // backfill rolls up the hours of the last day that have no hourly rows, for example because the
