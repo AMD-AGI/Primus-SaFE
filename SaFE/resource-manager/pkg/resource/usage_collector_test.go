@@ -264,19 +264,62 @@ func TestUsageCollectorTickRollsUpAndPrunesOncePerHour(t *testing.T) {
 	assert.Len(t, store.hourlyCutoffs, 2)
 }
 
-func TestUsageCollectorRetriesAFailedRollupAfterTheHourChanges(t *testing.T) {
+func TestUsageCollectorRetriesAFailedRollupOnTheNextTick(t *testing.T) {
 	now := time.Date(2026, 11, 20, 11, 0, 10, 0, time.UTC)
 	c, store, _ := newTestUsageCollector(t, now, usageTestWorkspace("ws1", "c1"))
 	ten := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
 	store.failRollups = map[time.Time]int{ten: 1}
 
 	c.tick(context.Background())
-	assert.Equal(t, ten, c.rolledUpTo, "the failed hour stays pending")
+	assert.Equal(t, ten.Add(time.Hour), c.rolledUpTo, "the watermark moves past the failed hour")
+	assert.Equal(t, map[time.Time]int{ten: 1}, c.failedHours)
+
+	c.now = func() time.Time { return now.Add(5 * time.Minute) }
+	c.tick(context.Background())
+	assert.Equal(t, []time.Time{ten, ten}, store.rolledUp)
+	assert.Empty(t, c.failedHours)
 
 	c.now = func() time.Time { return now.Add(time.Hour) }
 	c.tick(context.Background())
-	assert.Equal(t, []time.Time{ten, ten, ten.Add(time.Hour)}, store.rolledUp, "the failed hour first, then the next")
+	assert.Equal(t, []time.Time{ten, ten, ten.Add(time.Hour)}, store.rolledUp)
+}
+
+func TestUsageCollectorGivesUpAnHourThatKeepsFailing(t *testing.T) {
+	now := time.Date(2026, 11, 20, 11, 0, 10, 0, time.UTC)
+	c, store, _ := newTestUsageCollector(t, now, usageTestWorkspace("ws1", "c1"))
+	ten := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
+	store.failRollups = map[time.Time]int{ten: 100}
+
+	for i := 0; i <= 12; i++ {
+		c.now = func() time.Time { return now.Add(time.Duration(i) * 5 * time.Minute) }
+		c.tick(context.Background())
+	}
+	attempts := 0
+	for _, hour := range store.rolledUp {
+		if hour.Equal(ten) {
+			attempts++
+		}
+	}
+	assert.Equal(t, usageRollupAttempts, attempts)
+	assert.Empty(t, c.failedHours)
+	assert.Contains(t, store.rolledUp, ten.Add(time.Hour), "the failing hour does not block the next one")
 	assert.Equal(t, ten.Add(2*time.Hour), c.rolledUpTo)
+}
+
+func TestUsageCollectorGivesUpAFailedHourPastTheSampleRetention(t *testing.T) {
+	now := time.Date(2026, 11, 20, 11, 0, 10, 0, time.UTC)
+	c, store, _ := newTestUsageCollector(t, now, usageTestWorkspace("ws1", "c1"))
+	c.sampleRetention = 2 * time.Hour
+	ten := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
+	store.failRollups = map[time.Time]int{ten: 1}
+
+	c.tick(context.Background())
+	require.Equal(t, map[time.Time]int{ten: 1}, c.failedHours)
+
+	c.now = func() time.Time { return now.Add(time.Hour + 30*time.Minute) }
+	c.tick(context.Background())
+	assert.Equal(t, []time.Time{ten, ten.Add(time.Hour)}, store.rolledUp, "the hour is not tried once its samples are pruned")
+	assert.Empty(t, c.failedHours)
 }
 
 func TestUsageCollectorTickKeepsRollingUpAfterSampleFailure(t *testing.T) {
@@ -314,11 +357,12 @@ func TestUsageCollectorBackfillContinuesPastAFailedHour(t *testing.T) {
 	c.backfill(context.Background())
 	assert.Equal(t, []time.Time{current.Add(-3 * time.Hour), current.Add(-2 * time.Hour), current.Add(-time.Hour)},
 		store.rolledUp, "the partly pruned oldest hour is left out and the failure does not stop the rest")
-	assert.Equal(t, current.Add(-2*time.Hour), c.rolledUpTo)
+	assert.Equal(t, current, c.rolledUpTo)
+	assert.Equal(t, map[time.Time]int{current.Add(-2 * time.Hour): 1}, c.failedHours)
 
 	c.tick(context.Background())
-	assert.Equal(t, []time.Time{current.Add(-2 * time.Hour), current.Add(-time.Hour)}, store.rolledUp[3:],
-		"the next tick picks the failed hour up")
+	assert.Equal(t, []time.Time{current.Add(-2 * time.Hour)}, store.rolledUp[3:], "the next tick retries only the failed hour")
+	assert.Empty(t, c.failedHours)
 	assert.Equal(t, current, c.rolledUpTo)
 }
 

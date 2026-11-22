@@ -9,6 +9,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -31,6 +33,8 @@ const (
 	usageBackfillWindow = 24 * time.Hour
 	// The longest a sample waits for Robust, across all clusters; at most half the interval.
 	usageRobustTimeout = 30 * time.Second
+	// How many times in all the rollup of an hour is tried before the hour is given up.
+	usageRollupAttempts = 5
 
 	usageStageList      = "list"
 	usageStageRobust    = "robust"
@@ -101,8 +105,10 @@ type WorkspaceUsageCollector struct {
 	hourlyRetention time.Duration
 	now             func() time.Time
 
-	// The first hour that is not rolled up yet, and the last time retention ran.
+	// The first hour that is not rolled up yet, the hours whose rollup failed with the attempts
+	// made so far, and the last time retention ran.
 	rolledUpTo   time.Time
+	failedHours  map[time.Time]int
 	lastPrunedAt time.Time
 	// The sample time of the last sample written; a tick never writes the same one twice.
 	lastSampleTime time.Time
@@ -303,25 +309,59 @@ func (c *WorkspaceUsageCollector) rollup(ctx context.Context, hour time.Time) er
 	return nil
 }
 
-// rollupPending rolls up every hour from the first one not rolled up to the one before current,
-// in order. It stops at the first failure, which is tried again on the next tick.
+// rollupPending tries the failed hours again, then rolls up every hour from the first one not
+// rolled up to the one before current. A failed hour does not hold the later ones back.
 func (c *WorkspaceUsageCollector) rollupPending(ctx context.Context, current time.Time) {
+	c.retryFailedRollups(ctx)
 	if c.rolledUpTo.IsZero() {
 		c.rolledUpTo = current.Add(-time.Hour)
 	}
 	for _, hour := range usage.MissingHours(c.rolledUpTo, current, nil) {
-		if err := c.rollup(ctx, hour); err != nil {
-			klog.ErrorS(err, "[workspace-usage-collector] failed to roll up", "hour", hour)
-			return
-		}
+		c.tryRollup(ctx, hour)
 		c.rolledUpTo = hour.Add(time.Hour)
+	}
+}
+
+// tryRollup rolls up hour. A failed hour is tried again on later ticks, usageRollupAttempts times
+// in all, and then given up.
+func (c *WorkspaceUsageCollector) tryRollup(ctx context.Context, hour time.Time) {
+	err := c.rollup(ctx, hour)
+	if err == nil {
+		delete(c.failedHours, hour)
+		return
+	}
+	attempts := c.failedHours[hour] + 1
+	if attempts >= usageRollupAttempts {
+		delete(c.failedHours, hour)
+		klog.ErrorS(err, "[workspace-usage-collector] failed to roll up, giving up", "hour", hour, "attempts", attempts)
+		return
+	}
+	if c.failedHours == nil {
+		c.failedHours = map[time.Time]int{}
+	}
+	c.failedHours[hour] = attempts
+	klog.ErrorS(err, "[workspace-usage-collector] failed to roll up, retrying on the next tick", "hour", hour, "attempts", attempts)
+}
+
+// retryFailedRollups tries the failed hours again, oldest first. An hour whose first samples are
+// past the sample retention is given up, as its rollup would miss them.
+func (c *WorkspaceUsageCollector) retryFailedRollups(ctx context.Context) {
+	sampleCutoff, _ := usageRetentionCutoffs(c.now().UTC(), c.sampleRetention, c.hourlyRetention)
+	for _, hour := range slices.SortedFunc(maps.Keys(c.failedHours), time.Time.Compare) {
+		if hour.Before(sampleCutoff) {
+			delete(c.failedHours, hour)
+			klog.Errorf("[workspace-usage-collector] giving up the rollup of %s, its samples are past the retention",
+				hour.Format(time.RFC3339))
+			continue
+		}
+		c.tryRollup(ctx, hour)
 	}
 }
 
 // backfill rolls up the hours within the sample retention that have no hourly rows, for example
 // because the collector was not running when they ended. The oldest hour, whose first samples
-// may be pruned already, is left out. A failed hour does not stop the others; it stays pending
-// for the next tick.
+// may be pruned already, is left out. A failed hour does not stop the others; it is tried again
+// on the next ticks.
 func (c *WorkspaceUsageCollector) backfill(ctx context.Context) {
 	current := c.now().UTC().Truncate(time.Hour)
 	window := c.sampleRetention
@@ -337,12 +377,7 @@ func (c *WorkspaceUsageCollector) backfill(ctx context.Context) {
 	}
 	c.rolledUpTo = current
 	for _, hour := range usage.MissingHours(from, current, present) {
-		if err = c.rollup(ctx, hour); err != nil {
-			klog.ErrorS(err, "[workspace-usage-collector] failed to roll up", "hour", hour)
-			if hour.Before(c.rolledUpTo) {
-				c.rolledUpTo = hour
-			}
-		}
+		c.tryRollup(ctx, hour)
 	}
 }
 
