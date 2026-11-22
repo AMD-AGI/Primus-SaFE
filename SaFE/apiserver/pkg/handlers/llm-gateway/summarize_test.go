@@ -8,6 +8,7 @@ package llmgateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -69,4 +70,121 @@ func TestSummarizePendingReasonRequiresModel(t *testing.T) {
 	handler := newTestHandler(t, nil, backend)
 	_, err := handler.SummarizePendingReason(context.Background(), "user@amd.com", "", "evidence")
 	assert.ErrorContains(t, err, "summary model is not configured")
+}
+
+func TestSummarizePendingReasonPreflightErrors(t *testing.T) {
+	orig := pendingSummaryModel
+	pendingSummaryModel = func() string { return "summary-model" }
+	t.Cleanup(func() { pendingSummaryModel = orig })
+
+	var nilHandler *Handler
+	_, err := nilHandler.SummarizePendingReason(context.Background(), "user@amd.com", "", "evidence")
+	assert.ErrorContains(t, err, "litellm client is not configured")
+
+	backend := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(backend.Close)
+	handler := newTestHandler(t, nil, backend)
+	_, err = handler.SummarizePendingReason(context.Background(), "  ", "", "evidence")
+	assert.ErrorContains(t, err, "caller email is empty")
+	_, err = handler.SummarizePendingReason(context.Background(), "user@amd.com", "", "   ")
+	assert.ErrorContains(t, err, "pending evidence is empty")
+}
+
+func TestSummarizePendingReasonBindingErrors(t *testing.T) {
+	orig := pendingSummaryModel
+	pendingSummaryModel = func() string { return "summary-model" }
+	t.Cleanup(func() { pendingSummaryModel = orig })
+
+	backend := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(backend.Close)
+
+	tests := []struct {
+		name    string
+		binding *dbclient.LLMGatewayUserBinding
+		dbErr   error
+		wantErr string
+	}{
+		{name: "binding lookup fails", dbErr: errors.New("db down"), wantErr: "db down"},
+		{name: "binding without virtual key", binding: &dbclient.LLMGatewayUserBinding{UserEmail: "user@amd.com"}, wantErr: "virtual key is missing"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockDB := mock_client.NewMockInterface(ctrl)
+			mockDB.EXPECT().GetLLMBindingByEmail(gomock.Any(), "user@amd.com").Return(tt.binding, tt.dbErr)
+			handler := newTestHandler(t, mockDB, backend)
+			_, err := handler.SummarizePendingReason(context.Background(), "user@amd.com", "", "evidence")
+			assert.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
+func TestSummarizePendingReasonResponses(t *testing.T) {
+	orig := pendingSummaryModel
+	pendingSummaryModel = func() string { return "summary-model" }
+	t.Cleanup(func() { pendingSummaryModel = orig })
+
+	tests := []struct {
+		name    string
+		status  int
+		body    string
+		want    string
+		wantErr string
+	}{
+		{name: "text field is used when content is empty", status: http.StatusOK, body: `{"choices":[{"message":{"content":""},"text":" Waiting for GPUs. "}]}`, want: "Waiting for GPUs."},
+		{name: "non 200 status", status: http.StatusBadGateway, body: `{}`, wantErr: "HTTP 502"},
+		{name: "invalid json", status: http.StatusOK, body: `not json`, wantErr: "failed to decode"},
+		{name: "no choices", status: http.StatusOK, body: `{"choices":[]}`, wantErr: "no choices"},
+		{name: "empty summary", status: http.StatusOK, body: `{"choices":[{"message":{"content":"  "}}]}`, wantErr: "empty summary"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tt.status)
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			t.Cleanup(backend.Close)
+			ctrl := gomock.NewController(t)
+			mockDB := mock_client.NewMockInterface(ctrl)
+			mockDB.EXPECT().GetLLMBindingByEmail(gomock.Any(), "user@amd.com").Return(&dbclient.LLMGatewayUserBinding{
+				UserEmail:         "user@amd.com",
+				LiteLLMVirtualKey: "virtual-key",
+			}, nil)
+			handler := newTestHandler(t, mockDB, backend)
+			got, err := handler.SummarizePendingReason(context.Background(), "user@amd.com", "", "evidence")
+			if tt.wantErr != "" {
+				assert.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestApplyPendingSummaryHeaders(t *testing.T) {
+	backend := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(backend.Close)
+	handler := newTestHandler(t, nil, backend)
+
+	// nil request and missing key leave the request alone
+	require.NoError(t, handler.applyPendingSummaryHeaders(nil, "apim", "ntid"))
+	req := &pendingSummaryRequest{}
+	require.NoError(t, handler.applyPendingSummaryHeaders(req, "", "ntid"))
+	assert.Nil(t, req.ExtraHeaders)
+
+	// blank key and blank ntid add nothing
+	require.NoError(t, handler.applyPendingSummaryHeaders(req, "  ", " "))
+	assert.Nil(t, req.ExtraHeaders)
+
+	// the key alone is stamped without an upstream user
+	require.NoError(t, handler.applyPendingSummaryHeaders(req, "apim", " "))
+	assert.Equal(t, map[string]string{apimKeyHeader: "apim"}, req.ExtraHeaders)
+}
+
+func TestClipRunes(t *testing.T) {
+	assert.Equal(t, "", clipRunes("abc", 0))
+	assert.Equal(t, "abc", clipRunes("abc", 5))
+	assert.Equal(t, "ab", clipRunes("abc", 2))
+	assert.Equal(t, "\u4e2d\u6587", clipRunes("\u4e2d\u6587\u5b57", 2))
 }
