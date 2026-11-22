@@ -71,6 +71,7 @@ func TestComputeWorkloadBoundAndQueued(t *testing.T) {
 		{"gang partly bound", gpuWorkload("g", "ws", v1.WorkloadNotReady, 4, 1), 8, 24},
 		{"not ready, all bound", gpuWorkload("n", "ws", v1.WorkloadNotReady, 2, 2), 16, 0},
 		{"running with an unbound pod queues nothing", gpuWorkload("u", "ws", v1.WorkloadRunning, 2, 1), 8, 0},
+		{"running while a pod waits for scale-up", scaleUpWorkload(), 8, 8},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			u, err := ComputeWorkload(&tc.workload)
@@ -82,14 +83,28 @@ func TestComputeWorkloadBoundAndQueued(t *testing.T) {
 	}
 }
 
+// scaleUpWorkload runs one of its two pods while the other waits for external capacity.
+func scaleUpWorkload() v1.Workload {
+	w := gpuWorkload("s", "ws", v1.WorkloadRunning, 2, 1)
+	w.Status.Message = commonworkload.ExternalWaitingScaleUpReason + " - 0/2 nodes are available"
+	return w
+}
+
+func TestComputeWorkloadRunningScaleUpIsExternal(t *testing.T) {
+	w := scaleUpWorkload()
+	u, err := ComputeWorkload(&w)
+	require.NoError(t, err)
+	assert.Equal(t, ReasonExternal, u.Reason)
+}
+
 func TestComputeWorkloadFinished(t *testing.T) {
 	for _, phase := range []v1.WorkloadPhase{v1.WorkloadSucceeded, v1.WorkloadFailed, v1.WorkloadStopped} {
-		w := gpuWorkload("f", "ws", phase, 2, 2)
+		w := gpuWorkload("f", "ws", phase, 2, 0)
 		u, err := ComputeWorkload(&w)
 		require.NoError(t, err)
 		assert.Nil(t, u, phase)
 	}
-	deleting := gpuWorkload("d", "ws", v1.WorkloadRunning, 1, 1)
+	deleting := gpuWorkload("d", "ws", v1.WorkloadRunning, 1, 0)
 	now := metav1.Now()
 	deleting.DeletionTimestamp = &now
 	u, err := ComputeWorkload(&deleting)

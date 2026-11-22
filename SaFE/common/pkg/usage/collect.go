@@ -84,9 +84,14 @@ func pendingReason(w *v1.Workload) string {
 	return ""
 }
 
-// waitsForNodes reports whether the unbound part of a workload counts as queued.
+// waitsForNodes reports whether the unbound part of a workload counts as queued: it is pending or
+// not ready, or it runs while some of its pods still wait for external capacity.
 func waitsForNodes(w *v1.Workload) bool {
-	return w.IsPending() || w.Status.Phase == v1.WorkloadNotReady
+	if w.IsEnd() {
+		return false
+	}
+	return w.IsPending() || w.Status.Phase == v1.WorkloadNotReady ||
+		(w.Status.Phase == v1.WorkloadRunning && commonworkload.IsExternalWaitReason(w.Status.Message))
 }
 
 // WorkloadUsage is what one unfinished workload holds on nodes and what it still waits for,
