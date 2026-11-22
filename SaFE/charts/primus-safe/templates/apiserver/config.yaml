@@ -45,6 +45,8 @@ data:
       max_ephemeral_store_percent: {{ default 0.6 (default .Values.workload).max_ephemeral_store_percent }}
       # Seconds between samples of each workspace's resource usage, as resource-manager takes them.
       usage_sample_interval_second: {{ default 300 (default .Values.workload).usage_sample_interval_second }}
+      # Days resource-manager keeps the workspace usage samples, 0 forever; older ranges are read from the hourly rollup.
+      usage_sample_retention_day: {{ if hasKey (default dict .Values.workload) "usage_sample_retention_day" }}{{ .Values.workload.usage_sample_retention_day }}{{ else }}14{{ end }}
     db:
       # Whether to enable database, The database will store some historical data regarding workloads, faults, and ops jobs.
       enable: {{ .Values.db.enable }}
