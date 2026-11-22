@@ -54,6 +54,9 @@ func TestWorkspaceUsageEmptyInputsSkipTheDatabase(t *testing.T) {
 	hourly, err := c.AggregateWorkspaceUsageHourly(ctx, none, time.Unix(0, 0), time.Hour)
 	require.NoError(t, err)
 	require.Empty(t, hourly)
+	aggregated, err := c.AggregateWorkspaceUsageSamples(ctx, none, time.Unix(0, 0), time.Hour, 5*time.Minute)
+	require.NoError(t, err)
+	require.Empty(t, aggregated)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -79,6 +82,30 @@ func TestAggregateWorkspaceUsageHourlyBucketsAndClipsInTheDatabase(t *testing.T)
 
 	_, err = c.AggregateWorkspaceUsageHourly(context.Background(), WorkspaceUsageFilter{End: end}, origin, time.Hour)
 	require.Error(t, err, "an open range is refused")
+}
+
+func TestAggregateWorkspaceUsageSamplesBucketsInTheDatabase(t *testing.T) {
+	c, mock := newMockClient(t)
+	origin := time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC)
+	start, end := origin.Add(2*time.Hour), origin.Add(72*time.Hour)
+	mock.ExpectQuery(`SELECT cluster, workspace, resource, bucket AS hour, ` +
+		`coalesce\(sum\(w \* quota\) / nullif\(sum\(w\), 0\), 0\) AS quota_avg, .*` +
+		`max\(cluster_queued\) AS cluster_queued_max, .*sum\(w \* allocated\) / 3600 AS allocated_hours, .*` +
+		`FROM \(SELECT \*, sum\(queued\) OVER \(PARTITION BY cluster, resource, sample_time\) AS cluster_queued ` +
+		`FROM \(SELECT \*, .* AS queued, .* AS bucket, .* AS w FROM "workspace_usage_sample" ` +
+		`WHERE resource = .* AND workspace IN \(.*\) AND sample_time >= .* AND sample_time < .*\) AS clipped\) AS weighted ` +
+		`GROUP BY cluster, workspace, resource, bucket ORDER BY bucket`).
+		WillReturnRows(sqlmock.NewRows([]string{"hour", "workspace", "observed_seconds", "samples"}).AddRow(origin, "a", 3600.0, 12))
+	rows, err := c.AggregateWorkspaceUsageSamples(context.Background(), WorkspaceUsageFilter{
+		Resource: "amd.com/gpu", Workspaces: []string{"a"}, Start: start, End: end,
+	}, origin, 3*time.Hour, 5*time.Minute)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.Equal(t, int32(12), rows[0].Samples)
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	_, err = c.AggregateWorkspaceUsageSamples(context.Background(), WorkspaceUsageFilter{Start: start, End: end}, origin, time.Hour, 0)
+	require.Error(t, err, "an interval is needed")
 }
 
 func TestListWorkspaceUsageSamplesFilter(t *testing.T) {

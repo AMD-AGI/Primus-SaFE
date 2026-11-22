@@ -67,6 +67,21 @@ func (mr *MockInterfaceMockRecorder) AggregateWorkspaceUsageHourly(ctx, filter, 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AggregateWorkspaceUsageHourly", reflect.TypeOf((*MockInterface)(nil).AggregateWorkspaceUsageHourly), ctx, filter, origin, step)
 }
 
+// AggregateWorkspaceUsageSamples mocks base method.
+func (m *MockInterface) AggregateWorkspaceUsageSamples(ctx context.Context, filter client.WorkspaceUsageFilter, origin time.Time, step, interval time.Duration) ([]*model.WorkspaceUsageHourly, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AggregateWorkspaceUsageSamples", ctx, filter, origin, step, interval)
+	ret0, _ := ret[0].([]*model.WorkspaceUsageHourly)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AggregateWorkspaceUsageSamples indicates an expected call of AggregateWorkspaceUsageSamples.
+func (mr *MockInterfaceMockRecorder) AggregateWorkspaceUsageSamples(ctx, filter, origin, step, interval interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AggregateWorkspaceUsageSamples", reflect.TypeOf((*MockInterface)(nil).AggregateWorkspaceUsageSamples), ctx, filter, origin, step, interval)
+}
+
 // AppendOptimizationEvent mocks base method.
 func (m *MockInterface) AppendOptimizationEvent(ctx context.Context, event *client.OptimizationEvent) error {
 	m.ctrl.T.Helper()
@@ -4026,6 +4041,21 @@ func (m *MockWorkspaceUsageInterface) AggregateWorkspaceUsageHourly(ctx context.
 func (mr *MockWorkspaceUsageInterfaceMockRecorder) AggregateWorkspaceUsageHourly(ctx, filter, origin, step interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AggregateWorkspaceUsageHourly", reflect.TypeOf((*MockWorkspaceUsageInterface)(nil).AggregateWorkspaceUsageHourly), ctx, filter, origin, step)
+}
+
+// AggregateWorkspaceUsageSamples mocks base method.
+func (m *MockWorkspaceUsageInterface) AggregateWorkspaceUsageSamples(ctx context.Context, filter client.WorkspaceUsageFilter, origin time.Time, step, interval time.Duration) ([]*model.WorkspaceUsageHourly, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AggregateWorkspaceUsageSamples", ctx, filter, origin, step, interval)
+	ret0, _ := ret[0].([]*model.WorkspaceUsageHourly)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AggregateWorkspaceUsageSamples indicates an expected call of AggregateWorkspaceUsageSamples.
+func (mr *MockWorkspaceUsageInterfaceMockRecorder) AggregateWorkspaceUsageSamples(ctx, filter, origin, step, interval interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AggregateWorkspaceUsageSamples", reflect.TypeOf((*MockWorkspaceUsageInterface)(nil).AggregateWorkspaceUsageSamples), ctx, filter, origin, step, interval)
 }
 
 // DeleteWorkspaceUsageHourlyBefore mocks base method.

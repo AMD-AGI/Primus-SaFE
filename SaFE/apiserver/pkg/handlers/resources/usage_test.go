@@ -434,8 +434,7 @@ func TestGetUsageWorkspaceWithoutRobust(t *testing.T) {
 func TestGetUsageWorkspaceLongRangeKeepsQueuedSplit(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h, mockDB := usageAccessFixture(t)
-	hour := time.Date(2026, 11, 10, 10, 0, 0, 0, time.UTC)
-	expectRolledUpUntil(mockDB, time.Date(2026, 11, 13, 10, 0, 0, 0, time.UTC))
+	hour := usageOldDay().Add(10 * time.Hour)
 	mockDB.EXPECT().AggregateWorkspaceUsageHourly(gomock.Any(), gomock.Any(), hour, 2*time.Hour).Return([]*model.WorkspaceUsageHourly{
 		{Hour: hour, Cluster: "c1", Workspace: "ws-a", Resource: common.AmdGpu, QuotaAvg: 16, AllocatedAvg: 8,
 			QueuedAvg: 6, QueuedMax: 10, QueuedQuotaAvg: 3, QueuedUserQosAvg: 2, QueuedExternalAvg: 1,
@@ -445,7 +444,7 @@ func TestGetUsageWorkspaceLongRangeKeepsQueuedSplit(t *testing.T) {
 	}, nil)
 	mockDB.EXPECT().ListLatestWorkspaceUsageSamples(gomock.Any(), gomock.Any()).Return(nil, nil)
 
-	c, rsp := usageRequest("admin", "ws-a", "start=2026-11-10T10:00:00Z&end=2026-11-13T10:00:00Z&step=2h")
+	c, rsp := usageRequest("admin", "ws-a", usageRangeQuery(hour, hour.Add(72*time.Hour))+"&step=2h")
 	h.GetUsageWorkspace(c)
 	require.Equal(t, http.StatusOK, rsp.Code, rsp.Body.String())
 	var result view.GetUsageWorkspaceResponse
@@ -471,9 +470,8 @@ func TestGetUsageWorkspaceLongRangeKeepsQueuedSplit(t *testing.T) {
 func TestGetUsageWorkspaceAggregatesHourlyRowsInTheDatabase(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h, mockDB := usageAccessFixture(t)
-	hour := time.Date(2026, 11, 10, 10, 0, 0, 0, time.UTC)
-	end := time.Date(2026, 11, 13, 10, 0, 0, 0, time.UTC)
-	expectRolledUpUntil(mockDB, end)
+	hour := usageOldDay().Add(10 * time.Hour)
+	end := hour.Add(72 * time.Hour)
 	mockDB.EXPECT().AggregateWorkspaceUsageHourly(gomock.Any(), gomock.Any(), hour, time.Hour).DoAndReturn(
 		func(_ context.Context, filter dbclient.WorkspaceUsageFilter, _ time.Time, _ time.Duration) ([]*model.WorkspaceUsageHourly, error) {
 			assert.Equal(t, hour.Add(30*time.Minute), filter.Start, "the database clips the first hour")
@@ -487,7 +485,7 @@ func TestGetUsageWorkspaceAggregatesHourlyRowsInTheDatabase(t *testing.T) {
 		})
 	mockDB.EXPECT().ListLatestWorkspaceUsageSamples(gomock.Any(), gomock.Any()).Return(nil, nil)
 
-	c, rsp := usageRequest("admin", "ws-a", "start=2026-11-10T10:30:00Z&end=2026-11-13T10:00:00Z")
+	c, rsp := usageRequest("admin", "ws-a", usageRangeQuery(hour.Add(30*time.Minute), end))
 	h.GetUsageWorkspace(c)
 	require.Equal(t, http.StatusOK, rsp.Code, rsp.Body.String())
 	var result view.GetUsageWorkspaceResponse
@@ -502,31 +500,22 @@ func usageRangeQuery(start, end time.Time) string {
 	return "start=" + start.Format(time.RFC3339) + "&end=" + end.Format(time.RFC3339)
 }
 
-// expectRolledUpUntil has the database report every hour before until rolled up.
-func expectRolledUpUntil(mockDB *mock_client.MockInterface, until time.Time) {
-	mockDB.EXPECT().ListWorkspaceUsageHours(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return([]time.Time{until.Add(-time.Hour)}, nil)
+// usageOldDay is the start of a day older than the default 14 day sample retention.
+func usageOldDay() time.Time {
+	return time.Now().UTC().Add(-30 * 24 * time.Hour).Truncate(24 * time.Hour)
 }
 
-func TestGetUsageWorkspaceFillsTheHoursNotRolledUpFromSamples(t *testing.T) {
+func TestGetUsageWorkspaceReadsALongRangeWithinTheRetentionFromSamples(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h, mockDB := usageAccessFixture(t)
 	end := time.Now().UTC().Truncate(time.Hour)
 	start := end.Add(-72 * time.Hour)
-	rolledUp := end.Add(-2 * time.Hour)
-	mockDB.EXPECT().ListWorkspaceUsageHours(gomock.Any(), start, end).Return([]time.Time{start, rolledUp.Add(-time.Hour)}, nil)
-	mockDB.EXPECT().AggregateWorkspaceUsageHourly(gomock.Any(), gomock.Any(), start, time.Hour).DoAndReturn(
-		func(_ context.Context, filter dbclient.WorkspaceUsageFilter, _ time.Time, _ time.Duration) ([]*model.WorkspaceUsageHourly, error) {
-			assert.Equal(t, rolledUp, filter.End, "the hourly rows up to the last hour rolled up")
+	mockDB.EXPECT().AggregateWorkspaceUsageSamples(gomock.Any(), gomock.Any(), start, time.Hour, 5*time.Minute).DoAndReturn(
+		func(_ context.Context, filter dbclient.WorkspaceUsageFilter, _ time.Time, _, _ time.Duration) ([]*model.WorkspaceUsageHourly, error) {
+			assert.Equal(t, start, filter.Start, "every hour the samples cover, rolled up or not")
+			assert.Equal(t, end, filter.End)
 			return []*model.WorkspaceUsageHourly{{Hour: start, Cluster: "c1", Workspace: "ws-a", Resource: common.AmdGpu,
 				QuotaAvg: 16, AllocatedAvg: 8, AllocatedHours: 8, Samples: 12, ObservedSeconds: 3600}}, nil
-		})
-	mockDB.EXPECT().ListWorkspaceUsageSamples(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, filter dbclient.WorkspaceUsageFilter) ([]*model.WorkspaceUsageSample, error) {
-			assert.Equal(t, rolledUp, filter.Start, "the samples from there on")
-			assert.Equal(t, end, filter.End)
-			return []*model.WorkspaceUsageSample{{SampleTime: rolledUp, Cluster: "c1", Workspace: "ws-a",
-				Resource: common.AmdGpu, Quota: 16, Allocated: 8}}, nil
 		})
 	mockDB.EXPECT().ListLatestWorkspaceUsageSamples(gomock.Any(), gomock.Any()).Return(nil, nil)
 
@@ -535,10 +524,79 @@ func TestGetUsageWorkspaceFillsTheHoursNotRolledUpFromSamples(t *testing.T) {
 	require.Equal(t, http.StatusOK, rsp.Code, rsp.Body.String())
 	var result view.GetUsageWorkspaceResponse
 	require.NoError(t, json.Unmarshal(rsp.Body.Bytes(), &result))
+	assert.Equal(t, view.UsageSourceSample, result.Source)
+	assert.InDelta(t, 8, result.Summary.AllocatedHours, 1e-9)
+	require.Len(t, result.Series, 1)
+	assert.Equal(t, start, result.Series[0].Time)
+}
+
+func TestGetUsageWorkspaceSplitsALongRangeAtTheSampleRetention(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h, mockDB := usageAccessFixture(t)
+	now := time.Now().UTC()
+	end := now.Truncate(time.Hour)
+	start := end.Add(-400 * 24 * time.Hour)
+	// 400 days in at most 1000 points, in whole hours.
+	step := 10 * time.Hour
+	origin := start.Truncate(step)
+	var hourlyEnd, samplesStart, samplesBucket time.Time
+	mockDB.EXPECT().AggregateWorkspaceUsageHourly(gomock.Any(), gomock.Any(), origin, step).DoAndReturn(
+		func(_ context.Context, filter dbclient.WorkspaceUsageFilter, _ time.Time, _ time.Duration) ([]*model.WorkspaceUsageHourly, error) {
+			hourlyEnd = filter.End
+			return []*model.WorkspaceUsageHourly{{Hour: origin, Cluster: "c1", Workspace: "ws-a", Resource: common.AmdGpu,
+				QuotaAvg: 16, AllocatedAvg: 8, AllocatedHours: 8, Samples: 12, ObservedSeconds: 3600}}, nil
+		})
+	mockDB.EXPECT().AggregateWorkspaceUsageSamples(gomock.Any(), gomock.Any(), origin, step, 5*time.Minute).DoAndReturn(
+		func(_ context.Context, filter dbclient.WorkspaceUsageFilter, _ time.Time, _, _ time.Duration) ([]*model.WorkspaceUsageHourly, error) {
+			samplesStart = filter.Start
+			assert.Equal(t, end, filter.End)
+			samplesBucket = origin.Add(samplesStart.Sub(origin) / step * step)
+			return []*model.WorkspaceUsageHourly{{Hour: samplesBucket, Cluster: "c1", Workspace: "ws-a", Resource: common.AmdGpu,
+				QuotaAvg: 16, AllocatedAvg: 8, AllocatedHours: 8, Samples: 12, ObservedSeconds: 3600}}, nil
+		})
+	mockDB.EXPECT().ListLatestWorkspaceUsageSamples(gomock.Any(), gomock.Any()).Return(nil, nil)
+
+	c, rsp := usageRequest("admin", "ws-a", usageRangeQuery(start, end))
+	h.GetUsageWorkspace(c)
+	require.Equal(t, http.StatusOK, rsp.Code, rsp.Body.String())
+	assert.Equal(t, hourlyEnd, samplesStart, "no gap and no overlap between the two sources")
+	assert.Equal(t, samplesStart, samplesStart.Truncate(time.Hour))
+	cutoff := now.Add(-14 * 24 * time.Hour)
+	assert.False(t, samplesStart.Before(cutoff), "the samples start within their retention")
+	assert.True(t, samplesStart.Before(cutoff.Add(time.Hour+time.Minute)), "at its oldest whole hour")
+	var result view.GetUsageWorkspaceResponse
+	require.NoError(t, json.Unmarshal(rsp.Body.Bytes(), &result))
 	assert.Equal(t, view.UsageSourceMixed, result.Source)
-	assert.InDelta(t, 8+8*5.0/60, result.Summary.AllocatedHours, 1e-9)
+	assert.Equal(t, step.String(), result.Step)
+	assert.InDelta(t, 16, result.Summary.AllocatedHours, 1e-9)
 	require.Len(t, result.Series, 2)
-	assert.Equal(t, rolledUp, result.Series[1].Time)
+	assert.Equal(t, origin, result.Series[0].Time)
+	assert.Equal(t, samplesBucket, result.Series[1].Time)
+}
+
+func TestReadRolledUpHoursWithSamplesKeptForever(t *testing.T) {
+	h, mockDB := usageAccessFixture(t)
+	start := usageOldDay().Add(30 * time.Minute)
+	from := start.Truncate(time.Hour)
+	end := from.Add(72 * time.Hour)
+	longRange := func() *usageRange {
+		return &usageRange{start: start, end: end, hourly: true, sampleStart: start}
+	}
+
+	r := longRange()
+	require.NoError(t, h.readRolledUpHours(context.Background(), r, 14*24*time.Hour))
+	assert.Equal(t, start, r.sampleStart, "with a retention the database is not asked")
+
+	mockDB.EXPECT().ListWorkspaceUsageHours(gomock.Any(), from, end).
+		Return([]time.Time{from, from.Add(time.Hour), from.Add(3 * time.Hour)}, nil)
+	r = longRange()
+	require.NoError(t, h.readRolledUpHours(context.Background(), r, 0))
+	assert.Equal(t, from.Add(2*time.Hour), r.sampleStart, "the samples from the first hour not rolled up")
+
+	mockDB.EXPECT().ListWorkspaceUsageHours(gomock.Any(), from, end).Return(nil, nil)
+	r = longRange()
+	require.NoError(t, h.readRolledUpHours(context.Background(), r, 0))
+	assert.Equal(t, start, r.sampleStart, "nothing rolled up is read from the samples")
 }
 
 func TestGetUsageWorkspaceReadsAShortRangeOlderThanTheSamplesFromTheRollup(t *testing.T) {

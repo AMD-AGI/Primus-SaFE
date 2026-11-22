@@ -234,6 +234,64 @@ func (c *Client) AggregateWorkspaceUsageHourly(ctx context.Context, filter Works
 	return rows, nil
 }
 
+// AggregateWorkspaceUsageSamples aggregates the samples the filter selects, each standing for
+// interval and clipped to filter.End, into one hourly row per cluster, workspace, resource and
+// bucket of step from origin, oldest first, the way the rollup aggregates an hour. The hour of a
+// result is the start of its bucket, and its cluster queued max is the highest queued total of
+// the selected workspaces of its cluster at one sample time. Start and End must be set, and
+// origin must not be after Start.
+func (c *Client) AggregateWorkspaceUsageSamples(ctx context.Context, filter WorkspaceUsageFilter,
+	origin time.Time, step, interval time.Duration) ([]*model.WorkspaceUsageHourly, error) {
+	if filter.isEmpty() {
+		return nil, nil
+	}
+	if filter.Start.IsZero() || filter.End.IsZero() || step <= 0 || interval <= 0 {
+		return nil, fmt.Errorf("aggregating workspace usage samples needs a range, a step and an interval")
+	}
+	db, err := c.GetGormDB()
+	if err != nil {
+		return nil, err
+	}
+	db = db.WithContext(ctx)
+	clipped := filter.apply(db.Model(&model.WorkspaceUsageSample{}), "sample_time").Select("*, "+
+		"queued_quota + queued_user_qos + queued_external + queued_other AS queued, "+
+		"CAST(? AS timestamptz) + floor(extract(epoch from sample_time - CAST(? AS timestamptz)) / ?) * ? * interval '1 second' AS bucket, "+
+		"least(extract(epoch from CAST(? AS timestamptz) - sample_time), CAST(? AS double precision)) AS w",
+		origin, origin, step.Seconds(), step.Seconds(), filter.End, interval.Seconds())
+	weighted := db.Table("(?) AS clipped", clipped).
+		Select("*, sum(queued) OVER (PARTITION BY cluster, resource, sample_time) AS cluster_queued")
+	columns := []string{"cluster", "workspace", "resource", "bucket AS hour"}
+	for _, pair := range [][2]string{
+		{"quota", "quota_avg"}, {"allocated", "allocated_avg"}, {"queued", "queued_avg"},
+		{"queued_quota", "queued_quota_avg"}, {"queued_user_qos", "queued_user_qos_avg"},
+		{"queued_external", "queued_external_avg"}, {"queued_other", "queued_other_avg"},
+	} {
+		columns = append(columns, fmt.Sprintf("coalesce(sum(w * %s) / nullif(sum(w), 0), 0) AS %s", pair[0], pair[1]))
+	}
+	for _, pair := range [][2]string{
+		{"allocated", "allocated_max"}, {"queued", "queued_max"}, {"queued_quota", "queued_quota_max"},
+		{"queued_user_qos", "queued_user_qos_max"}, {"queued_external", "queued_external_max"},
+		{"queued_other", "queued_other_max"}, {"cluster_queued", "cluster_queued_max"},
+	} {
+		columns = append(columns, fmt.Sprintf("max(%s) AS %s", pair[0], pair[1]))
+	}
+	columns = append(columns,
+		"CASE WHEN count(busy) > 0 THEN sum(w * busy) / nullif(sum(w), 0) END AS busy_avg",
+		"sum(w * allocated * coalesce(util_coverage, 0)) / nullif(sum(w * allocated), 0) AS util_coverage_avg",
+		"sum(w * allocated) / 3600 AS allocated_hours",
+		"CASE WHEN count(busy) > 0 THEN sum(w * busy) / 3600 END AS busy_hours",
+		"count(*) AS samples",
+		"sum(w) AS observed_seconds",
+	)
+	var rows []*model.WorkspaceUsageHourly
+	err = db.Table("(?) AS weighted", weighted).Select(strings.Join(columns, ", ")).
+		Group("cluster, workspace, resource, bucket").Order("bucket").Find(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to aggregate workspace usage samples: %w", err)
+	}
+	return rows, nil
+}
+
 // ListWorkspaceUsageHours returns the distinct hours in [start, end) that have hourly rows.
 func (c *Client) ListWorkspaceUsageHours(ctx context.Context, start, end time.Time) ([]time.Time, error) {
 	db, err := c.GetGormDB()
