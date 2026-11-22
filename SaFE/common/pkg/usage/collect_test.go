@@ -112,6 +112,25 @@ func TestComputeWorkloadFinished(t *testing.T) {
 	assert.Nil(t, u)
 }
 
+func TestComputeWorkloadEndedKeepsBoundPods(t *testing.T) {
+	stopping := gpuWorkload("st", "ws", v1.WorkloadStopped, 3, 2)
+	stopping.Status.Message = commonworkload.ExternalWaitingScaleUpReason
+	u, err := ComputeWorkload(&stopping)
+	require.NoError(t, err)
+	require.NotNil(t, u, "pods still on nodes hold their GPUs")
+	assert.Equal(t, 16.0, u.Bound[common.AmdGpu])
+	assert.Empty(t, u.Queued, "an ended workload queues nothing")
+
+	deleting := gpuWorkload("d", "ws", v1.WorkloadPending, 2, 1)
+	now := metav1.Now()
+	deleting.DeletionTimestamp = &now
+	u, err = ComputeWorkload(&deleting)
+	require.NoError(t, err)
+	require.NotNil(t, u)
+	assert.Equal(t, 8.0, u.Bound[common.AmdGpu])
+	assert.Empty(t, u.Queued)
+}
+
 func TestComputeWorkloadCPUOnly(t *testing.T) {
 	w := v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{Name: "cpu"},
@@ -206,7 +225,7 @@ func TestNewSnapshot(t *testing.T) {
 		gpuWorkload("r", "ws1", v1.WorkloadRunning, 2, 2),
 		queued,
 		gang,
-		gpuWorkload("done", "ws1", v1.WorkloadSucceeded, 1, 1),
+		gpuWorkload("done", "ws1", v1.WorkloadSucceeded, 1, 0),
 		gpuWorkload("orphan", "gone", v1.WorkloadRunning, 1, 1),
 	}
 	s := NewSnapshot(now, workspaces, workloads)

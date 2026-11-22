@@ -103,11 +103,12 @@ type WorkloadUsage struct {
 	Reason string
 }
 
-// ComputeWorkload returns the usage of a workload, or nil when it has finished. Bound counts the
-// requests of the pods on a node that have not terminated. Queued is the rest of the request of a
-// workload that is pending or not ready; a running workload queues nothing.
+// ComputeWorkload returns the usage of a workload, or nil when it has ended and holds nothing.
+// Bound counts the requests of the pods on a node that have not terminated, also while an ended
+// workload's pods are still going away. Queued is the rest of the request of a workload that
+// waits for nodes; an ended workload queues nothing.
 func ComputeWorkload(w *v1.Workload) (*WorkloadUsage, error) {
-	if w == nil || w.IsEnd() {
+	if w == nil {
 		return nil, nil
 	}
 	perNode, err := commonworkload.GetResourcesPerNode(w, "")
@@ -119,6 +120,9 @@ func ComputeWorkload(w *v1.Workload) (*WorkloadUsage, error) {
 		bound = quantity.AddResource(bound, list)
 	}
 	result := &WorkloadUsage{Bound: toFloats(bound), Queued: map[string]float64{}}
+	if w.IsEnd() && !holdsAny(result.Bound) {
+		return nil, nil
+	}
 	if !waitsForNodes(w) {
 		return result, nil
 	}
@@ -135,6 +139,15 @@ func ComputeWorkload(w *v1.Workload) (*WorkloadUsage, error) {
 		result.Reason = ClassifyQueueReason(pendingReason(w))
 	}
 	return result, nil
+}
+
+func holdsAny(values map[string]float64) bool {
+	for _, value := range values {
+		if value > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // toFloats keeps the tracked resources of a list as numbers: cores, bytes and cards.
