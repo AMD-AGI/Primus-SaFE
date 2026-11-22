@@ -51,6 +51,10 @@ var (
 	})
 
 	errUsageNoRobustClient = errors.New("no Robust client for the cluster")
+
+	// How long the collector waits before it tries the database again, doubling up to the max.
+	usageStoreRetryMin = 10 * time.Second
+	usageStoreRetryMax = 5 * time.Minute
 )
 
 // workspaceUsageStore is the part of the database the usage collector writes.
@@ -91,6 +95,7 @@ type WorkspaceUsageCollector struct {
 	client.Client
 	source          usageGPUWindowSource
 	store           workspaceUsageStore
+	connect         func() workspaceUsageStore
 	interval        time.Duration
 	sampleRetention time.Duration
 	hourlyRetention time.Duration
@@ -103,9 +108,11 @@ type WorkspaceUsageCollector struct {
 	lastSampleTime time.Time
 }
 
-// SetupWorkspaceUsageCollector registers the collector. It is skipped without a database.
-func SetupWorkspaceUsageCollector(mgr manager.Manager, rc *robustclient.Client, store workspaceUsageStore) error {
-	if store == nil {
+// SetupWorkspaceUsageCollector registers the collector. It is skipped when the database is not
+// enabled, that is when connect is nil. connect returns the store, or nil while the database
+// cannot be reached.
+func SetupWorkspaceUsageCollector(mgr manager.Manager, rc *robustclient.Client, connect func() workspaceUsageStore) error {
+	if connect == nil {
 		klog.Info("[workspace-usage-collector] database not enabled, skipping")
 		return nil
 	}
@@ -116,7 +123,7 @@ func SetupWorkspaceUsageCollector(mgr manager.Manager, rc *robustclient.Client, 
 	c := &WorkspaceUsageCollector{
 		Client:          mgr.GetClient(),
 		source:          robustUsageWindowSource{rc: rc},
-		store:           store,
+		connect:         connect,
 		interval:        interval,
 		sampleRetention: days(commonconfig.GetWorkloadUsageSampleRetentionDay()),
 		hourlyRetention: days(commonconfig.GetWorkloadUsageHourlyRetentionDay()),
@@ -136,8 +143,12 @@ func days(n int) time.Duration {
 // NeedLeaderElection makes the collector run only on the elected leader.
 func (c *WorkspaceUsageCollector) NeedLeaderElection() bool { return true }
 
-// Start completes the hourly rollup of the last day, then samples every interval.
+// Start waits for the database, completes the hourly rollup within the sample retention, then
+// samples every interval.
 func (c *WorkspaceUsageCollector) Start(ctx context.Context) error {
+	if !c.waitForStore(ctx) {
+		return nil
+	}
 	c.backfill(ctx)
 	c.tick(ctx)
 	ticker := time.NewTicker(c.interval)
@@ -150,6 +161,25 @@ func (c *WorkspaceUsageCollector) Start(ctx context.Context) error {
 			c.tick(ctx)
 		}
 	}
+}
+
+// waitForStore connects to the database, trying again with backoff until it succeeds. It returns
+// false when ctx ends first.
+func (c *WorkspaceUsageCollector) waitForStore(ctx context.Context) bool {
+	delay := usageStoreRetryMin
+	for c.store == nil {
+		if c.store = c.connect(); c.store != nil {
+			break
+		}
+		klog.Warningf("[workspace-usage-collector] database not reachable, retrying in %s", delay)
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(delay):
+		}
+		delay = min(2*delay, usageStoreRetryMax)
+	}
+	return true
 }
 
 // tick writes one sample, rolls up the hours that ended since the last rollup and applies the

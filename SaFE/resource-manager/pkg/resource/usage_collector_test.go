@@ -351,6 +351,29 @@ func TestUsageCollectorUsesTheSharedWindowRule(t *testing.T) {
 	assert.Equal(t, []string{robustclient.GPUWindowStep}, windows.steps)
 }
 
+func TestUsageCollectorWaitsForTheDatabase(t *testing.T) {
+	minDelay, maxDelay := usageStoreRetryMin, usageStoreRetryMax
+	usageStoreRetryMin, usageStoreRetryMax = time.Millisecond, 2*time.Millisecond
+	defer func() { usageStoreRetryMin, usageStoreRetryMax = minDelay, maxDelay }()
+
+	store := &fakeUsageStore{}
+	attempts := 0
+	c := &WorkspaceUsageCollector{connect: func() workspaceUsageStore {
+		if attempts++; attempts < 3 {
+			return nil
+		}
+		return store
+	}}
+	require.True(t, c.waitForStore(context.Background()))
+	assert.Equal(t, 3, attempts, "a failed connection at startup is tried again")
+	assert.Same(t, store, c.store)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	never := &WorkspaceUsageCollector{connect: func() workspaceUsageStore { return nil }}
+	assert.False(t, never.waitForStore(ctx))
+}
+
 func TestUsageCollectorRunsOnLeaderOnly(t *testing.T) {
 	assert.True(t, (&WorkspaceUsageCollector{}).NeedLeaderElection())
 }

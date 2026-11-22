@@ -83,13 +83,16 @@ func SetupControllers(ctx context.Context, mgr manager.Manager) error {
 	if err := SetupNodeRobustSyncer(mgr, rc); err != nil {
 		return fmt.Errorf("failed to set up node robust syncer: %v", err)
 	}
-	var usageStore workspaceUsageStore
+	var connectUsageStore func() workspaceUsageStore
 	if commonconfig.IsDBEnable() {
-		if db := dbclient.NewClient(); db != nil {
-			usageStore = db
+		connectUsageStore = func() workspaceUsageStore {
+			if db := dbclient.NewClient(); db != nil {
+				return db
+			}
+			return nil
 		}
 	}
-	if err := SetupWorkspaceUsageCollector(mgr, rc, usageStore); err != nil {
+	if err := SetupWorkspaceUsageCollector(mgr, rc, connectUsageStore); err != nil {
 		return fmt.Errorf("failed to set up workspace usage collector: %v", err)
 	}
 
