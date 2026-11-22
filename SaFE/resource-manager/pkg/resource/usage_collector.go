@@ -150,23 +150,36 @@ func days(n int) time.Duration {
 func (c *WorkspaceUsageCollector) NeedLeaderElection() bool { return true }
 
 // Start waits for the database, completes the hourly rollup within the sample retention, then
-// samples every interval.
+// samples at every interval boundary, each sample labeled with the boundary it was due at.
 func (c *WorkspaceUsageCollector) Start(ctx context.Context) error {
 	if !c.waitForStore(ctx) {
 		return nil
 	}
 	c.backfill(ctx)
-	c.tick(ctx)
-	ticker := time.NewTicker(c.interval)
-	defer ticker.Stop()
+	slot := c.now().UTC().Truncate(c.interval).Add(c.interval)
 	for {
+		timer := time.NewTimer(slot.Sub(c.now()))
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return nil
-		case <-ticker.C:
-			c.tick(ctx)
+		case <-timer.C:
 		}
+		c.tick(ctx, slot)
+		slot = c.nextSlot(slot)
 	}
+}
+
+// nextSlot returns the boundary to sample at after slot: the next one, or the latest one that has
+// passed when the tick of slot ran past the next one, so a slot is written at most once.
+func (c *WorkspaceUsageCollector) nextSlot(slot time.Time) time.Time {
+	next := slot.Add(c.interval)
+	if latest := c.now().UTC().Truncate(c.interval); latest.After(next) {
+		klog.Warningf("[workspace-usage-collector] skipping the samples from %s to before %s, the last tick took too long",
+			next.Format(time.RFC3339), latest.Format(time.RFC3339))
+		next = latest
+	}
+	return next
 }
 
 // waitForStore connects to the database, trying again with backoff until it succeeds. It returns
@@ -188,11 +201,11 @@ func (c *WorkspaceUsageCollector) waitForStore(ctx context.Context) bool {
 	return true
 }
 
-// tick writes one sample, rolls up the hours that ended since the last rollup and applies the
-// retention at most once an hour.
-func (c *WorkspaceUsageCollector) tick(ctx context.Context) {
+// tick writes the sample of slot, rolls up the hours that ended since the last rollup and applies
+// the retention at most once an hour.
+func (c *WorkspaceUsageCollector) tick(ctx context.Context, slot time.Time) {
 	now := c.now().UTC()
-	if sampleTime := now.Truncate(c.interval); !sampleTime.After(c.lastSampleTime) {
+	if sampleTime := slot.UTC(); !sampleTime.After(c.lastSampleTime) {
 		klog.Infof("[workspace-usage-collector] sample at %s already written", sampleTime.Format(time.RFC3339))
 	} else if err := c.sample(ctx, sampleTime); err != nil {
 		klog.ErrorS(err, "[workspace-usage-collector] failed to sample")
@@ -200,7 +213,7 @@ func (c *WorkspaceUsageCollector) tick(ctx context.Context) {
 		c.lastSampleTime = sampleTime
 		usageCollectorLastSuccess.Set(float64(now.Unix()))
 	}
-	c.rollupPending(ctx, now.Truncate(time.Hour))
+	c.rollupPending(ctx, slot.UTC().Truncate(time.Hour))
 	if now.Sub(c.lastPrunedAt) >= time.Hour {
 		c.prune(ctx, now)
 		c.lastPrunedAt = now

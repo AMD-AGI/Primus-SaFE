@@ -153,6 +153,11 @@ func newTestUsageCollector(t *testing.T, now time.Time, objs ...client.Object) (
 	return c, store, windows
 }
 
+// tickNow runs the tick of the slot that now is in.
+func tickNow(c *WorkspaceUsageCollector) {
+	c.tick(context.Background(), c.now().UTC().Truncate(c.interval))
+}
+
 func usageRowOf(rows []*model.WorkspaceUsageSample, workspace, resource string) *model.WorkspaceUsageSample {
 	for _, row := range rows {
 		if row.Workspace == workspace && row.Resource == resource {
@@ -218,21 +223,58 @@ func TestUsageCollectorSampleBoundsRobust(t *testing.T) {
 	assert.Nil(t, gpu2.UtilCoverage)
 }
 
-func TestUsageCollectorTickNeverWritesASampleTimeTwice(t *testing.T) {
-	now := time.Date(2026, 11, 20, 10, 9, 59, 0, time.UTC)
-	c, store, _ := newTestUsageCollector(t, now, usageTestWorkspace("ws1", "c1"))
-	c.tick(context.Background())
+func TestUsageCollectorTickLabelsTheSampleWithItsSlot(t *testing.T) {
+	ten := time.Date(2026, 11, 20, 10, 10, 0, 0, time.UTC)
+	c, store, _ := newTestUsageCollector(t, ten.Add(-time.Millisecond), usageTestWorkspace("ws1", "c1"))
+	c.tick(context.Background(), ten)
 	written := len(store.samples)
 	require.NotZero(t, written)
+	assert.Equal(t, ten, store.samples[0].SampleTime, "a tick a little early is still its own slot")
 
-	// A late tick lands in the same interval.
-	c.now = func() time.Time { return now.Add(time.Second / 2) }
-	c.tick(context.Background())
-	assert.Len(t, store.samples, written)
+	c.now = func() time.Time { return ten.Add(c.interval + 4*time.Minute) }
+	c.tick(context.Background(), ten.Add(c.interval))
+	require.Len(t, store.samples, 2*written)
+	assert.Equal(t, ten.Add(c.interval), store.samples[written].SampleTime, "a late tick is not labeled with the next slot")
 
-	c.now = func() time.Time { return now.Add(time.Second) }
-	c.tick(context.Background())
-	assert.Len(t, store.samples, 2*written)
+	c.tick(context.Background(), ten.Add(c.interval))
+	assert.Len(t, store.samples, 2*written, "a slot is written once")
+}
+
+func TestUsageCollectorNextSlot(t *testing.T) {
+	ten := time.Date(2026, 11, 20, 10, 10, 0, 0, time.UTC)
+	c, _, _ := newTestUsageCollector(t, ten.Add(time.Second))
+	assert.Equal(t, ten.Add(5*time.Minute), c.nextSlot(ten))
+
+	c.now = func() time.Time { return ten.Add(5*time.Minute + time.Second) }
+	assert.Equal(t, ten.Add(5*time.Minute), c.nextSlot(ten), "a tick that ran into the next slot still writes it")
+
+	c.now = func() time.Time { return ten.Add(17 * time.Minute) }
+	assert.Equal(t, ten.Add(15*time.Minute), c.nextSlot(ten), "the slots a long tick ran past are skipped")
+}
+
+func TestUsageCollectorStartSamplesAtTheBoundaries(t *testing.T) {
+	c, store, _ := newTestUsageCollector(t, time.Time{}, usageTestWorkspace("ws1", "c1"))
+	c.interval = 100 * time.Millisecond
+	c.now = time.Now
+	started := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), 450*time.Millisecond)
+	defer cancel()
+	require.NoError(t, c.Start(ctx))
+
+	var times []time.Time
+	for _, row := range store.samples {
+		if len(times) == 0 || !row.SampleTime.Equal(times[len(times)-1]) {
+			times = append(times, row.SampleTime)
+		}
+	}
+	require.NotEmpty(t, times)
+	assert.True(t, times[0].After(started), "the first sample waits for the next boundary")
+	for i, at := range times {
+		assert.Equal(t, at.Truncate(c.interval), at, "a sample is labeled with its boundary")
+		if i > 0 {
+			assert.Equal(t, times[i-1].Add(c.interval), at, "every slot is written once")
+		}
+	}
 }
 
 func TestUsageCollectorTickRollsUpAndPrunesOncePerHour(t *testing.T) {
@@ -244,7 +286,7 @@ func TestUsageCollectorTickRollsUpAndPrunesOncePerHour(t *testing.T) {
 		{SampleTime: previous.Add(55 * time.Minute), Cluster: "c1", Workspace: "ws1", Resource: common.AmdGpu, Quota: 16, Allocated: 16},
 	}
 
-	c.tick(context.Background())
+	tickNow(c)
 	require.Equal(t, []time.Time{previous}, store.rolledUp)
 	require.Len(t, store.hourly, 1)
 	assert.Equal(t, previous, store.hourly[0].Hour)
@@ -253,12 +295,12 @@ func TestUsageCollectorTickRollsUpAndPrunesOncePerHour(t *testing.T) {
 	assert.Len(t, store.sampleCutoffs, 1)
 
 	c.now = func() time.Time { return now.Add(5 * time.Minute) }
-	c.tick(context.Background())
+	tickNow(c)
 	assert.Len(t, store.rolledUp, 1, "the previous hour is rolled up once")
 	assert.Len(t, store.sampleCutoffs, 1, "retention runs at most once an hour")
 
 	c.now = func() time.Time { return now.Add(time.Hour) }
-	c.tick(context.Background())
+	tickNow(c)
 	assert.Equal(t, []time.Time{previous, previous.Add(time.Hour)}, store.rolledUp)
 	assert.Len(t, store.sampleCutoffs, 2)
 	assert.Len(t, store.hourlyCutoffs, 2)
@@ -270,17 +312,17 @@ func TestUsageCollectorRetriesAFailedRollupOnTheNextTick(t *testing.T) {
 	ten := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
 	store.failRollups = map[time.Time]int{ten: 1}
 
-	c.tick(context.Background())
+	tickNow(c)
 	assert.Equal(t, ten.Add(time.Hour), c.rolledUpTo, "the watermark moves past the failed hour")
 	assert.Equal(t, map[time.Time]int{ten: 1}, c.failedHours)
 
 	c.now = func() time.Time { return now.Add(5 * time.Minute) }
-	c.tick(context.Background())
+	tickNow(c)
 	assert.Equal(t, []time.Time{ten, ten}, store.rolledUp)
 	assert.Empty(t, c.failedHours)
 
 	c.now = func() time.Time { return now.Add(time.Hour) }
-	c.tick(context.Background())
+	tickNow(c)
 	assert.Equal(t, []time.Time{ten, ten, ten.Add(time.Hour)}, store.rolledUp)
 }
 
@@ -292,7 +334,7 @@ func TestUsageCollectorGivesUpAnHourThatKeepsFailing(t *testing.T) {
 
 	for i := 0; i <= 12; i++ {
 		c.now = func() time.Time { return now.Add(time.Duration(i) * 5 * time.Minute) }
-		c.tick(context.Background())
+		tickNow(c)
 	}
 	attempts := 0
 	for _, hour := range store.rolledUp {
@@ -313,11 +355,11 @@ func TestUsageCollectorGivesUpAFailedHourPastTheSampleRetention(t *testing.T) {
 	ten := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
 	store.failRollups = map[time.Time]int{ten: 1}
 
-	c.tick(context.Background())
+	tickNow(c)
 	require.Equal(t, map[time.Time]int{ten: 1}, c.failedHours)
 
 	c.now = func() time.Time { return now.Add(time.Hour + 30*time.Minute) }
-	c.tick(context.Background())
+	tickNow(c)
 	assert.Equal(t, []time.Time{ten, ten.Add(time.Hour)}, store.rolledUp, "the hour is not tried once its samples are pruned")
 	assert.Empty(t, c.failedHours)
 }
@@ -326,7 +368,7 @@ func TestUsageCollectorTickKeepsRollingUpAfterSampleFailure(t *testing.T) {
 	now := time.Date(2026, 11, 20, 11, 0, 10, 0, time.UTC)
 	c, store, _ := newTestUsageCollector(t, now, usageTestWorkspace("ws1", "c1"))
 	store.upsertErr = errors.New("db down")
-	c.tick(context.Background())
+	tickNow(c)
 	assert.Len(t, store.rolledUp, 1)
 }
 
@@ -343,7 +385,7 @@ func TestUsageCollectorBackfill(t *testing.T) {
 	assert.Equal(t, current, c.rolledUpTo)
 
 	// The first tick in the same hour does not roll up the previous hour again.
-	c.tick(context.Background())
+	tickNow(c)
 	assert.Len(t, store.rolledUp, 1)
 }
 
@@ -360,7 +402,7 @@ func TestUsageCollectorBackfillContinuesPastAFailedHour(t *testing.T) {
 	assert.Equal(t, current, c.rolledUpTo)
 	assert.Equal(t, map[time.Time]int{current.Add(-2 * time.Hour): 1}, c.failedHours)
 
-	c.tick(context.Background())
+	tickNow(c)
 	assert.Equal(t, []time.Time{current.Add(-2 * time.Hour)}, store.rolledUp[3:], "the next tick retries only the failed hour")
 	assert.Empty(t, c.failedHours)
 	assert.Equal(t, current, c.rolledUpTo)
