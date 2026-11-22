@@ -1001,7 +1001,8 @@ data:
         queued_other_max      double precision not null default 0,
         allocated_hours    double precision not null,
         busy_hours         double precision,
-        samples            int              not null
+        samples            int              not null,
+        observed_seconds   double precision not null default 0
     );
     create unique index if not exists uk_workspace_usage_hourly_key on workspace_usage_hourly (cluster, workspace, resource, hour);
     create index if not exists idx_workspace_usage_hourly_hour on workspace_usage_hourly (hour);
@@ -1014,4 +1015,5 @@ data:
     alter table workspace_usage_hourly add column if not exists queued_user_qos_max double precision not null default 0;
     alter table workspace_usage_hourly add column if not exists queued_external_max double precision not null default 0;
     alter table workspace_usage_hourly add column if not exists queued_other_max double precision not null default 0;
+    alter table workspace_usage_hourly add column if not exists observed_seconds double precision not null default 0;
     alter table workspace_usage_hourly owner to "primus-safe";

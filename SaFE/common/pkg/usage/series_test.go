@@ -41,6 +41,7 @@ func TestRollup(t *testing.T) {
 	require.NotNil(t, h)
 	assert.Equal(t, t0, h.Hour)
 	assert.Equal(t, int32(3), h.Samples)
+	assert.InDelta(t, 900, h.ObservedSeconds, 1e-9)
 	assert.InDelta(t, 32, h.QuotaAvg, 1e-9)
 	assert.InDelta(t, 16, h.AllocatedAvg, 1e-9)
 	assert.InDelta(t, 24, h.AllocatedMax, 1e-9)
@@ -223,6 +224,31 @@ func TestSumByTime(t *testing.T) {
 		FromSample(sample(t0, "c", 16, 0, f(0), nil, 0), interval),
 	})
 	assert.Nil(t, noData[0].Busy, "an idle workspace's zero does not make the cluster idle")
+}
+
+func TestHourlyAveragesAreWeightedByObservedTime(t *testing.T) {
+	hourly := func(hour time.Time, workspace string, allocated, observed float64) Record {
+		return FromHourly(&model.WorkspaceUsageHourly{
+			Hour: hour, Cluster: "c1", Workspace: workspace, QuotaAvg: 8, AllocatedAvg: allocated,
+			BusyAvg: f(allocated / 2), UtilCoverageAvg: f(1), QueuedAvg: allocated, ObservedSeconds: observed,
+		})
+	}
+	// b has data for a quarter of the hour only.
+	sums := SumByTime([]Record{hourly(t0, "a", 8, 3600), hourly(t0, "b", 8, 900)})
+	require.Len(t, sums, 1)
+	assert.InDelta(t, 10, sums[0].Quota, 1e-9)
+	assert.InDelta(t, 10, sums[0].Allocated, 1e-9)
+	assert.InDelta(t, 10, sums[0].Covered, 1e-9)
+	assert.InDelta(t, 10, sums[0].Queued, 1e-9)
+	assert.InDelta(t, 5, *sums[0].Busy, 1e-9)
+	assert.InDelta(t, 3600, sums[0].Weight, 1e-9)
+
+	s := Summarize([]Record{hourly(t0, "a", 4, 3600), hourly(t0.Add(time.Hour), "a", 8, 1200)})
+	assert.InDelta(t, 5.0/8.0, *s.Occupancy, 1e-9)
+	assert.InDelta(t, 5, s.QueuedAvg, 1e-9)
+
+	assert.InDelta(t, 3600, FromHourly(&model.WorkspaceUsageHourly{Hour: t0}).Weight, 1e-9,
+		"a row without observed seconds weighs a whole hour")
 }
 
 func TestBucket(t *testing.T) {

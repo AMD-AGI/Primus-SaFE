@@ -36,6 +36,31 @@ type Record struct {
 	// The allocation and busy integrated over the time the record stands for.
 	AllocatedHours float64
 	BusyHours      *float64
+	// Weight is the time in seconds the record has data for. The averages of several records
+	// are weighted by it.
+	Weight float64
+}
+
+// weight returns the weight of r; a record without one weighs as much as any other.
+func (r Record) weight() float64 {
+	if r.Weight > 0 {
+		return r.Weight
+	}
+	return 1
+}
+
+// scaled returns r with its averaged values multiplied by k.
+func (r Record) scaled(k float64) Record {
+	r.Quota *= k
+	r.Allocated *= k
+	r.Covered *= k
+	r.Queued *= k
+	r.Busy = scale(r.Busy, k)
+	r.QueuedQuota = scale(r.QueuedQuota, k)
+	r.QueuedUserQos = scale(r.QueuedUserQos, k)
+	r.QueuedExternal = scale(r.QueuedExternal, k)
+	r.QueuedOther = scale(r.QueuedOther, k)
+	return r
 }
 
 // FromSample reads a sample that stands for interval.
@@ -56,6 +81,7 @@ func FromSample(s *model.WorkspaceUsageSample, interval time.Duration) Record {
 		QueuedMax:      queued,
 		QueuedSplitMax: [4]float64{s.QueuedQuota, s.QueuedUserQos, s.QueuedExternal, s.QueuedOther},
 		AllocatedHours: s.Allocated * interval.Hours(),
+		Weight:         interval.Seconds(),
 	}
 	if s.UtilCoverage != nil {
 		r.Covered = s.Allocated * *s.UtilCoverage
@@ -66,7 +92,7 @@ func FromSample(s *model.WorkspaceUsageSample, interval time.Duration) Record {
 	return r
 }
 
-// FromHourly reads an hourly row.
+// FromHourly reads an hourly row. A row without observed seconds weighs a whole hour.
 func FromHourly(h *model.WorkspaceUsageHourly) Record {
 	r := Record{
 		Time:           h.Hour,
@@ -84,6 +110,10 @@ func FromHourly(h *model.WorkspaceUsageHourly) Record {
 		QueuedSplitMax: [4]float64{h.QueuedQuotaMax, h.QueuedUserQosMax, h.QueuedExternalMax, h.QueuedOtherMax},
 		AllocatedHours: h.AllocatedHours,
 		BusyHours:      h.BusyHours,
+		Weight:         h.ObservedSeconds,
+	}
+	if r.Weight <= 0 {
+		r.Weight = time.Hour.Seconds()
 	}
 	if h.UtilCoverageAvg != nil {
 		r.Covered = h.AllocatedAvg * *h.UtilCoverageAvg
@@ -93,45 +123,46 @@ func FromHourly(h *model.WorkspaceUsageHourly) Record {
 
 // SumByTime adds the records of the same time, so the figure of a cluster is the sum of its
 // workspaces. The result is ordered by time and keeps the cluster of the first record of each
-// time. QueuedMax of a sum is the sum of the maxima.
+// time. The averages of a sum are over the longest weight among its records, so a workspace with
+// data for part of the time counts for that part only. QueuedMax of a sum is the sum of the
+// maxima.
 func SumByTime(records []Record) []Record {
 	byTime := map[time.Time]*Record{}
 	var times []time.Time
 	for _, r := range records {
+		w := r.weight()
+		weighted := r.scaled(w)
 		sum, ok := byTime[r.Time]
 		if !ok {
-			copied := r
-			copied.Workspace = ""
-			copied.Busy = copyPtr(r.Busy)
-			copied.BusyHours = copyPtr(r.BusyHours)
-			copied.QueuedQuota = copyPtr(r.QueuedQuota)
-			copied.QueuedUserQos = copyPtr(r.QueuedUserQos)
-			copied.QueuedExternal = copyPtr(r.QueuedExternal)
-			copied.QueuedOther = copyPtr(r.QueuedOther)
-			byTime[r.Time] = &copied
+			weighted.Workspace = ""
+			weighted.Weight = w
+			weighted.BusyHours = copyPtr(r.BusyHours)
+			byTime[r.Time] = &weighted
 			times = append(times, r.Time)
 			continue
 		}
-		sum.Quota += r.Quota
-		sum.Allocated += r.Allocated
-		sum.Covered += r.Covered
-		sum.Queued += r.Queued
+		sum.Weight = max(sum.Weight, w)
+		sum.Quota += weighted.Quota
+		sum.Allocated += weighted.Allocated
+		sum.Covered += weighted.Covered
+		sum.Queued += weighted.Queued
 		sum.QueuedMax += r.QueuedMax
 		for i := range sum.QueuedSplitMax {
 			sum.QueuedSplitMax[i] += r.QueuedSplitMax[i]
 		}
 		sum.AllocatedHours += r.AllocatedHours
-		sum.Busy = addKnown(sum.Busy, r.Busy)
+		sum.Busy = addKnown(sum.Busy, weighted.Busy)
 		sum.BusyHours = addKnown(sum.BusyHours, r.BusyHours)
-		sum.QueuedQuota = addBoth(sum.QueuedQuota, r.QueuedQuota)
-		sum.QueuedUserQos = addBoth(sum.QueuedUserQos, r.QueuedUserQos)
-		sum.QueuedExternal = addBoth(sum.QueuedExternal, r.QueuedExternal)
-		sum.QueuedOther = addBoth(sum.QueuedOther, r.QueuedOther)
+		sum.QueuedQuota = addBoth(sum.QueuedQuota, weighted.QueuedQuota)
+		sum.QueuedUserQos = addBoth(sum.QueuedUserQos, weighted.QueuedUserQos)
+		sum.QueuedExternal = addBoth(sum.QueuedExternal, weighted.QueuedExternal)
+		sum.QueuedOther = addBoth(sum.QueuedOther, weighted.QueuedOther)
 	}
 	sort.Slice(times, func(i, j int) bool { return times[i].Before(times[j]) })
 	result := make([]Record, 0, len(times))
 	for _, t := range times {
 		sum := byTime[t]
+		*sum = sum.scaled(1 / sum.Weight)
 		if busyUnknown(sum.Allocated, sum.Covered) {
 			sum.Busy, sum.BusyHours = nil, nil
 		}
@@ -167,10 +198,14 @@ func addBoth(a, b *float64) *float64 {
 }
 
 func copyPtr(v *float64) *float64 {
+	return scale(v, 1)
+}
+
+func scale(v *float64, k float64) *float64 {
 	if v == nil {
 		return nil
 	}
-	return float64Ptr(*v)
+	return float64Ptr(*v * k)
 }
 
 // Point is the usage at one time, or the average over one bucket, with the derived ratios.
@@ -191,11 +226,12 @@ type Point struct {
 	EffectiveUtilization *float64  `json:"effectiveUtilization"`
 }
 
-// accumulator averages records. Busy is averaged over every record, the unknown ones adding
-// nothing, and the utilization divides it by the allocation that had data, so a record without
-// data lowers the coverage, not the utilization.
+// accumulator averages records, weighted by their weights. Busy is averaged over every record,
+// the unknown ones adding nothing, and the utilization divides it by the allocation that had
+// data, so a record without data lowers the coverage, not the utilization.
 type accumulator struct {
 	n              int
+	w              float64
 	quota          float64
 	allocated      float64
 	allocatedMax   float64
@@ -213,25 +249,27 @@ type accumulator struct {
 }
 
 func (a *accumulator) add(r Record) {
+	w := r.weight()
 	a.n++
-	a.quota += r.Quota
-	a.allocated += r.Allocated
+	a.w += w
+	a.quota += r.Quota * w
+	a.allocated += r.Allocated * w
 	a.allocatedMax = max(a.allocatedMax, r.Allocated)
-	a.covered += r.Covered
-	a.queued += r.Queued
+	a.covered += r.Covered * w
+	a.queued += r.Queued * w
 	a.queuedMax = max(a.queuedMax, r.QueuedMax)
 	for i := range a.splitMax {
 		a.splitMax[i] = max(a.splitMax[i], r.QueuedSplitMax[i])
 	}
 	if r.QueuedQuota != nil && r.QueuedUserQos != nil && r.QueuedExternal != nil && r.QueuedOther != nil {
-		a.split[0] += *r.QueuedQuota
-		a.split[1] += *r.QueuedUserQos
-		a.split[2] += *r.QueuedExternal
-		a.split[3] += *r.QueuedOther
+		a.split[0] += *r.QueuedQuota * w
+		a.split[1] += *r.QueuedUserQos * w
+		a.split[2] += *r.QueuedExternal * w
+		a.split[3] += *r.QueuedOther * w
 		a.splitN++
 	}
 	if r.Busy != nil {
-		a.busy += *r.Busy
+		a.busy += *r.Busy * w
 		a.busyN++
 	}
 	a.allocatedHours += r.AllocatedHours
@@ -247,7 +285,7 @@ func (a *accumulator) busyKnown() bool {
 }
 
 func (a *accumulator) point(t time.Time) Point {
-	n := float64(a.n)
+	n := a.w
 	p := Point{
 		Time:      t,
 		Quota:     a.quota / n,
@@ -380,6 +418,7 @@ func Rollup(hour time.Time, samples []*model.WorkspaceUsageSample, interval time
 		QueuedOtherMax:    a.splitMax[3],
 		AllocatedHours:    a.allocatedHours,
 		Samples:           int32(a.n),
+		ObservedSeconds:   a.w,
 	}
 	if p.QueuedQuota != nil {
 		h.QueuedQuotaAvg = *p.QueuedQuota

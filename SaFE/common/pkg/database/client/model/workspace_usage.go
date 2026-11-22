@@ -64,6 +64,7 @@ type WorkspaceUsageHourly struct {
 	AllocatedHours    float64   `gorm:"column:allocated_hours;not null" json:"allocated_hours"`
 	BusyHours         *float64  `gorm:"column:busy_hours" json:"busy_hours"`
 	Samples           int32     `gorm:"column:samples;not null" json:"samples"`
+	ObservedSeconds   float64   `gorm:"column:observed_seconds;not null" json:"observed_seconds"`
 }
 
 // TableName WorkspaceUsageHourly's table name
