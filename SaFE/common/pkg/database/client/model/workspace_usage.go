@@ -65,6 +65,9 @@ type WorkspaceUsageHourly struct {
 	BusyHours         *float64  `gorm:"column:busy_hours" json:"busy_hours"`
 	Samples           int32     `gorm:"column:samples;not null" json:"samples"`
 	ObservedSeconds   float64   `gorm:"column:observed_seconds;not null" json:"observed_seconds"`
+	// ClusterQueuedMax is the highest queued total of the whole cluster at one time in the hour,
+	// the same on every row of a cluster, resource and hour; nil when unknown.
+	ClusterQueuedMax *float64 `gorm:"column:cluster_queued_max" json:"cluster_queued_max"`
 }
 
 // TableName WorkspaceUsageHourly's table name

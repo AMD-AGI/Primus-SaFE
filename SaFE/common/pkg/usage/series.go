@@ -31,6 +31,9 @@ type Record struct {
 	QueuedExternal *float64
 	QueuedOther    *float64
 	QueuedMax      float64
+	// ClusterQueuedMax is the highest queued total of the whole cluster at one time within the
+	// record, nil when unknown.
+	ClusterQueuedMax *float64
 	// QueuedSplitMax are the maxima of the split: quota, user QoS, external and other.
 	QueuedSplitMax [4]float64
 	// The allocation and busy integrated over the time the record stands for.
@@ -95,22 +98,23 @@ func FromSample(s *model.WorkspaceUsageSample, interval time.Duration) Record {
 // FromHourly reads an hourly row. A row without observed seconds weighs a whole hour.
 func FromHourly(h *model.WorkspaceUsageHourly) Record {
 	r := Record{
-		Time:           h.Hour,
-		Cluster:        h.Cluster,
-		Workspace:      h.Workspace,
-		Quota:          h.QuotaAvg,
-		Allocated:      h.AllocatedAvg,
-		Busy:           h.BusyAvg,
-		Queued:         h.QueuedAvg,
-		QueuedQuota:    float64Ptr(h.QueuedQuotaAvg),
-		QueuedUserQos:  float64Ptr(h.QueuedUserQosAvg),
-		QueuedExternal: float64Ptr(h.QueuedExternalAvg),
-		QueuedOther:    float64Ptr(h.QueuedOtherAvg),
-		QueuedMax:      h.QueuedMax,
-		QueuedSplitMax: [4]float64{h.QueuedQuotaMax, h.QueuedUserQosMax, h.QueuedExternalMax, h.QueuedOtherMax},
-		AllocatedHours: h.AllocatedHours,
-		BusyHours:      h.BusyHours,
-		Weight:         h.ObservedSeconds,
+		Time:             h.Hour,
+		Cluster:          h.Cluster,
+		Workspace:        h.Workspace,
+		Quota:            h.QuotaAvg,
+		Allocated:        h.AllocatedAvg,
+		Busy:             h.BusyAvg,
+		Queued:           h.QueuedAvg,
+		QueuedQuota:      float64Ptr(h.QueuedQuotaAvg),
+		QueuedUserQos:    float64Ptr(h.QueuedUserQosAvg),
+		QueuedExternal:   float64Ptr(h.QueuedExternalAvg),
+		QueuedOther:      float64Ptr(h.QueuedOtherAvg),
+		QueuedMax:        h.QueuedMax,
+		QueuedSplitMax:   [4]float64{h.QueuedQuotaMax, h.QueuedUserQosMax, h.QueuedExternalMax, h.QueuedOtherMax},
+		AllocatedHours:   h.AllocatedHours,
+		BusyHours:        h.BusyHours,
+		Weight:           h.ObservedSeconds,
+		ClusterQueuedMax: h.ClusterQueuedMax,
 	}
 	if r.Weight <= 0 {
 		r.Weight = time.Hour.Seconds()
@@ -125,11 +129,22 @@ func FromHourly(h *model.WorkspaceUsageHourly) Record {
 // workspaces. The result is ordered by time and keeps the cluster of the first record of each
 // time. The averages of a sum are over the longest weight among its records, so a workspace with
 // data for part of the time counts for that part only. QueuedMax of a sum is the sum of the
-// maxima.
+// maxima, capped by the queued maxima of the clusters when every record has one: exact for the
+// whole of a cluster, an upper bound for a part of it.
 func SumByTime(records []Record) []Record {
 	byTime := map[time.Time]*Record{}
 	var times []time.Time
+	clusterMax := map[time.Time]map[string]float64{}
+	clusterMaxUnknown := map[time.Time]bool{}
 	for _, r := range records {
+		if r.ClusterQueuedMax == nil {
+			clusterMaxUnknown[r.Time] = true
+		} else {
+			if clusterMax[r.Time] == nil {
+				clusterMax[r.Time] = map[string]float64{}
+			}
+			clusterMax[r.Time][r.Cluster] = max(clusterMax[r.Time][r.Cluster], *r.ClusterQueuedMax)
+		}
 		w := r.weight()
 		weighted := r.scaled(w)
 		sum, ok := byTime[r.Time]
@@ -163,6 +178,15 @@ func SumByTime(records []Record) []Record {
 	for _, t := range times {
 		sum := byTime[t]
 		*sum = sum.scaled(1 / sum.Weight)
+		sum.ClusterQueuedMax = nil
+		if !clusterMaxUnknown[t] {
+			bound := 0.0
+			for _, m := range clusterMax[t] {
+				bound += m
+			}
+			sum.ClusterQueuedMax = float64Ptr(bound)
+			sum.QueuedMax = min(sum.QueuedMax, bound)
+		}
 		if busyUnknown(sum.Allocated, sum.Covered) {
 			sum.Busy, sum.BusyHours = nil, nil
 		}
@@ -432,8 +456,22 @@ func Rollup(hour time.Time, samples []*model.WorkspaceUsageSample, interval time
 	return h
 }
 
-// RollupHour groups the samples of one hour by key and rolls each group up, ordered by key.
+// RollupHour groups the samples of one hour by key and rolls each group up, ordered by key. Each
+// row also gets the highest queued total of its cluster and resource at one sample time.
 func RollupHour(hour time.Time, samples []*model.WorkspaceUsageSample, interval time.Duration) []*model.WorkspaceUsageHourly {
+	type clusterTime struct {
+		cluster, resource string
+		at                time.Time
+	}
+	type clusterResource struct{ cluster, resource string }
+	queuedAt := map[clusterTime]float64{}
+	clusterMax := map[clusterResource]float64{}
+	for _, s := range samples {
+		at := clusterTime{s.Cluster, s.Resource, s.SampleTime}
+		queuedAt[at] += s.QueuedQuota + s.QueuedUserQos + s.QueuedExternal + s.QueuedOther
+		key := clusterResource{s.Cluster, s.Resource}
+		clusterMax[key] = max(clusterMax[key], queuedAt[at])
+	}
 	groups := map[Key][]*model.WorkspaceUsageSample{}
 	var keys []Key
 	for _, s := range samples {
@@ -454,7 +492,9 @@ func RollupHour(hour time.Time, samples []*model.WorkspaceUsageSample, interval 
 	})
 	result := make([]*model.WorkspaceUsageHourly, 0, len(keys))
 	for _, key := range keys {
-		result = append(result, Rollup(hour, groups[key], interval))
+		h := Rollup(hour, groups[key], interval)
+		h.ClusterQueuedMax = float64Ptr(clusterMax[clusterResource{key.Cluster, key.Resource}])
+		result = append(result, h)
 	}
 	return result
 }

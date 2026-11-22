@@ -226,6 +226,37 @@ func TestSumByTime(t *testing.T) {
 	assert.Nil(t, noData[0].Busy, "an idle workspace's zero does not make the cluster idle")
 }
 
+func TestClusterQueuedMaxIsTheSimultaneousMax(t *testing.T) {
+	// a and b queue 10 each, never at the same time.
+	samples := []*model.WorkspaceUsageSample{
+		sample(t0, "a", 8, 0, nil, nil, 10),
+		sample(t0, "b", 8, 0, nil, nil, 0),
+		sample(t0.Add(interval), "a", 8, 0, nil, nil, 0),
+		sample(t0.Add(interval), "b", 8, 0, nil, nil, 10),
+	}
+	rows := RollupHour(t0, samples, interval)
+	require.Len(t, rows, 2)
+	var records []Record
+	for _, h := range rows {
+		require.NotNil(t, h.ClusterQueuedMax)
+		assert.Equal(t, 10.0, *h.ClusterQueuedMax)
+		assert.Equal(t, 10.0, h.QueuedMax)
+		records = append(records, FromHourly(h))
+	}
+	sums := SumByTime(records)
+	assert.Equal(t, 10.0, sums[0].QueuedMax, "not the sum of the workspace maxima")
+	assert.Equal(t, 10.0, Summarize(sums).QueuedMax)
+
+	legacy := FromHourly(&model.WorkspaceUsageHourly{Hour: t0, Cluster: "c1", Workspace: "c", QueuedMax: 4})
+	assert.Equal(t, 24.0, SumByTime(append(records, legacy))[0].QueuedMax,
+		"a row without the cluster max leaves the sum of the maxima")
+
+	other := rows[0]
+	other.Cluster = "c2"
+	assert.Equal(t, 20.0, SumByTime(append(records, FromHourly(other)))[0].QueuedMax,
+		"the maxima of several clusters add up")
+}
+
 func TestHourlyAveragesAreWeightedByObservedTime(t *testing.T) {
 	hourly := func(hour time.Time, workspace string, allocated, observed float64) Record {
 		return FromHourly(&model.WorkspaceUsageHourly{

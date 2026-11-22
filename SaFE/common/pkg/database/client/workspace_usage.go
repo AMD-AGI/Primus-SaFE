@@ -34,6 +34,7 @@ var (
 		"queued_avg", "queued_max", "queued_quota_avg", "queued_user_qos_avg", "queued_external_avg",
 		"queued_other_avg", "queued_quota_max", "queued_user_qos_max", "queued_external_max",
 		"queued_other_max", "allocated_hours", "busy_hours", "samples", "observed_seconds",
+		"cluster_queued_max",
 	}
 )
 
