@@ -60,8 +60,13 @@
           {{ formatTimeStr(row.creationTime) }}
         </template>
       </el-table-column>
-      <el-table-column prop="workspaces" label="Workspaces" :formatter="wsFormatter" />
-      <el-table-column prop="roles" label="Roles" min-width="100">
+      <el-table-column
+        v-if="showRoleAndWorkspaceColumns"
+        prop="workspaces"
+        label="Workspaces"
+        :formatter="wsFormatter"
+      />
+      <el-table-column v-if="showRoleAndWorkspaceColumns" prop="roles" label="Roles" min-width="100">
         <template #default="{ row }">
           {{
             (Array.isArray(row.roles) ? row.roles : [row.roles]).filter(Boolean).join(', ') || '-'
@@ -100,7 +105,7 @@
               />
             </el-tooltip>
           </template>
-          <template v-else>
+          <template v-else-if="wsStore.isCurrentWorkspaceAdmin()">
             <el-tooltip
               v-if="isInCurrentWorkspace(row)"
               content="Remove from workspace"
@@ -178,6 +183,10 @@ const openIdentityAccounts = () => {
 // The server refuses registration and deletion when an external identity provider owns accounts.
 const creatable = computed(() => !userStore.isExternalAuth)
 const wsStore = useWorkspaceStore()
+// Roles and workspaces of other users are shown to administrators only (platform or of the current workspace).
+const showRoleAndWorkspaceColumns = computed(
+  () => userStore.hasManagerAccess || wsStore.isCurrentWorkspaceAdmin(),
+)
 const isInCurrentWorkspace = (row: UserSelfData) => {
   return row.workspaces?.some((ws: Workspace) => ws.id === wsStore.currentWorkspaceId)
 }
