@@ -570,11 +570,12 @@ func (h *Handler) authUserUpdate(c *gin.Context, targetUser *v1.User, req *view.
 	}
 
 	if req.AddWorkspaces != nil || req.RemoveWorkspaces != nil {
-		changed, authErr := h.authWorkspaceDelta(c, requestUser, targetUser, req, roles)
-		if authErr != nil {
-			return false, authErr
+		if err = h.authWorkspaceDelta(c, requestUser, targetUser, req, roles); err != nil {
+			return false, err
 		}
-		isChanged = isChanged || changed
+		// Authorized on every named workspace; a granted-only addition is not stored.
+		dropGrantedAdditions(c.Request.Context(), targetUser, req)
+		isChanged = isChanged || workspaceDeltaChanges(targetUser, req)
 	}
 
 	if req.Qos != nil {
@@ -630,36 +631,41 @@ func validateWorkspaceDelta(req *view.PatchUserRequest) error {
 
 // authWorkspaceDelta authorizes an incremental workspace patch against exactly the workspaces
 // the request names, so the requester must be allowed to update user/workspace on each of them.
-// It reports whether the patch changes the target user's workspaces.
 func (h *Handler) authWorkspaceDelta(c *gin.Context, requestUser, targetUser *v1.User,
-	req *view.PatchUserRequest, roles []*v1.Role) (bool, error) {
-	current := commonuser.GetWorkspace(targetUser)
+	req *view.PatchUserRequest, roles []*v1.Role) error {
 	var named []string
-	changed := false
+	if req.AddWorkspaces != nil {
+		named = append(named, *req.AddWorkspaces...)
+	}
+	if req.RemoveWorkspaces != nil {
+		named = append(named, *req.RemoveWorkspaces...)
+	}
+	if len(named) == 0 {
+		return nil
+	}
+	return h.authUserAction(c, requestUser, targetUser,
+		named, authority.UserWorkspaceResource, roles, v1.UpdateVerb)
+}
+
+// workspaceDeltaChanges reports whether an incremental workspace patch changes the stored
+// workspaces of the target: an add of a workspace it lacks, or a remove of one it has.
+func workspaceDeltaChanges(target *v1.User, req *view.PatchUserRequest) bool {
+	current := commonuser.GetWorkspace(target)
 	if req.AddWorkspaces != nil {
 		for _, id := range *req.AddWorkspaces {
-			named = append(named, id)
 			if !slice.Contains(current, id) {
-				changed = true
+				return true
 			}
 		}
 	}
 	if req.RemoveWorkspaces != nil {
 		for _, id := range *req.RemoveWorkspaces {
-			named = append(named, id)
 			if slice.Contains(current, id) {
-				changed = true
+				return true
 			}
 		}
 	}
-	if len(named) == 0 {
-		return false, nil
-	}
-	if err := h.authUserAction(c, requestUser, targetUser,
-		named, authority.UserWorkspaceResource, roles, v1.UpdateVerb); err != nil {
-		return false, err
-	}
-	return changed, nil
+	return false
 }
 
 // authUserAction performs authorization checks for user-related actions.
