@@ -8,6 +8,7 @@ package resource
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -85,14 +86,24 @@ func (s *fakeUsageStore) DeleteWorkspaceUsageHourlyBefore(_ context.Context, bef
 type fakeUsageWindows struct {
 	byCluster map[string][]robustclient.WorkloadGPUWindow
 	failing   map[string]bool
-	windows   []string
-	steps     []string
+	// hanging clusters answer only when the context ends.
+	hanging map[string]bool
+
+	mu      sync.Mutex
+	windows []string
+	steps   []string
 }
 
-func (f *fakeUsageWindows) GetWorkloadGPUWindow(_ context.Context, cluster string,
+func (f *fakeUsageWindows) GetWorkloadGPUWindow(ctx context.Context, cluster string,
 	_ []string, window, step string) ([]robustclient.WorkloadGPUWindow, error) {
+	f.mu.Lock()
 	f.windows = append(f.windows, window)
 	f.steps = append(f.steps, step)
+	f.mu.Unlock()
+	if f.hanging[cluster] {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	if f.failing[cluster] {
 		return nil, errors.New("robust down")
 	}
@@ -182,6 +193,46 @@ func TestUsageCollectorSampleIsolatesClusterFailures(t *testing.T) {
 
 	assert.NotNil(t, usageRowOf(store.samples, "ws1", string(corev1.ResourceCPU)))
 	assert.Equal(t, []string{"5m", "5m"}, windows.windows)
+}
+
+func TestUsageCollectorSampleBoundsRobust(t *testing.T) {
+	now := time.Date(2026, 11, 20, 10, 7, 30, 0, time.UTC)
+	c, store, windows := newTestUsageCollector(t, now,
+		usageTestWorkspace("ws1", "c1"), usageTestWorkspace("ws2", "c2"),
+		usageTestWorkload("a", "ws1"), usageTestWorkload("b", "ws2"))
+	c.interval = 100 * time.Millisecond
+	windows.byCluster["c1"] = []robustclient.WorkloadGPUWindow{
+		{UID: "a-uid", Overall: robustclient.GPUWindowOverall{Avg: 25, Samples: 5, ExpectedSamples: 5}},
+	}
+	windows.hanging = map[string]bool{"c2": true}
+
+	start := time.Now()
+	require.NoError(t, c.sample(context.Background(), now))
+	assert.Less(t, time.Since(start), c.interval, "a hanging cluster does not hold the sample past its budget")
+
+	gpu1 := usageRowOf(store.samples, "ws1", common.AmdGpu)
+	require.NotNil(t, gpu1.Busy)
+	assert.InDelta(t, 2.0, *gpu1.Busy, 1e-9)
+	gpu2 := usageRowOf(store.samples, "ws2", common.AmdGpu)
+	assert.Nil(t, gpu2.Busy, "a cluster that timed out has unknown utilization")
+	assert.Nil(t, gpu2.UtilCoverage)
+}
+
+func TestUsageCollectorTickNeverWritesASampleTimeTwice(t *testing.T) {
+	now := time.Date(2026, 11, 20, 10, 9, 59, 0, time.UTC)
+	c, store, _ := newTestUsageCollector(t, now, usageTestWorkspace("ws1", "c1"))
+	c.tick(context.Background())
+	written := len(store.samples)
+	require.NotZero(t, written)
+
+	// A late tick lands in the same interval.
+	c.now = func() time.Time { return now.Add(time.Second / 2) }
+	c.tick(context.Background())
+	assert.Len(t, store.samples, written)
+
+	c.now = func() time.Time { return now.Add(time.Second) }
+	c.tick(context.Background())
+	assert.Len(t, store.samples, 2*written)
 }
 
 func TestUsageCollectorTickRollsUpAndPrunesOncePerHour(t *testing.T) {

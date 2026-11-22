@@ -28,6 +28,8 @@ import (
 const (
 	// How far back the hourly rollup is completed when the collector starts.
 	usageBackfillWindow = 24 * time.Hour
+	// The longest a sample waits for Robust, across all clusters; at most half the interval.
+	usageRobustTimeout = 30 * time.Second
 
 	usageStageList      = "list"
 	usageStageRobust    = "robust"
@@ -96,6 +98,8 @@ type WorkspaceUsageCollector struct {
 	// The first hour that is not rolled up yet, and the last time retention ran.
 	rolledUpTo   time.Time
 	lastPrunedAt time.Time
+	// The sample time of the last sample written; a tick never writes the same one twice.
+	lastSampleTime time.Time
 }
 
 // SetupWorkspaceUsageCollector registers the collector. It is skipped without a database.
@@ -151,9 +155,12 @@ func (c *WorkspaceUsageCollector) Start(ctx context.Context) error {
 // retention at most once an hour.
 func (c *WorkspaceUsageCollector) tick(ctx context.Context) {
 	now := c.now().UTC()
-	if err := c.sample(ctx, now.Truncate(c.interval)); err != nil {
+	if sampleTime := now.Truncate(c.interval); !sampleTime.After(c.lastSampleTime) {
+		klog.Infof("[workspace-usage-collector] sample at %s already written", sampleTime.Format(time.RFC3339))
+	} else if err := c.sample(ctx, sampleTime); err != nil {
 		klog.ErrorS(err, "[workspace-usage-collector] failed to sample")
 	} else {
+		c.lastSampleTime = sampleTime
 		usageCollectorLastSuccess.Set(float64(now.Unix()))
 	}
 	c.rollupPending(ctx, now.Truncate(time.Hour))
@@ -179,14 +186,52 @@ func (c *WorkspaceUsageCollector) sample(ctx context.Context, sampleTime time.Ti
 	if snapshot.Skipped > 0 {
 		klog.Warningf("[workspace-usage-collector] skipped %d workloads whose request could not be read", snapshot.Skipped)
 	}
+	utilization := c.clusterUtilization(ctx, snapshot)
 	for _, cluster := range snapshot.Clusters() {
-		snapshot.ApplyGPUUtilization(cluster, c.gpuUtilization(ctx, cluster, snapshot.GPUWorkloadUIDs(cluster)))
+		snapshot.ApplyGPUUtilization(cluster, utilization[cluster])
 	}
 	if err := c.store.UpsertWorkspaceUsageSamples(ctx, snapshot.SortedRows()); err != nil {
 		usageCollectorErrors.WithLabelValues(usageStageUpsert).Inc()
 		return err
 	}
 	return nil
+}
+
+// clusterUtilization asks Robust about every cluster of snapshot in parallel within
+// robustTimeout. A cluster that has not answered by then has no entry, so its utilization is
+// unknown.
+func (c *WorkspaceUsageCollector) clusterUtilization(ctx context.Context, snapshot *usage.Snapshot) map[string]map[string]float64 {
+	type answer struct {
+		cluster     string
+		utilization map[string]float64
+	}
+	ctx, cancel := context.WithTimeout(ctx, c.robustTimeout())
+	defer cancel()
+	clusters := snapshot.Clusters()
+	answers := make(chan answer, len(clusters))
+	for _, cluster := range clusters {
+		uids := snapshot.GPUWorkloadUIDs(cluster)
+		go func() {
+			answers <- answer{cluster: cluster, utilization: c.gpuUtilization(ctx, cluster, uids)}
+		}()
+	}
+	result := make(map[string]map[string]float64, len(clusters))
+	for range clusters {
+		select {
+		case a := <-answers:
+			result[a.cluster] = a.utilization
+		case <-ctx.Done():
+			usageCollectorErrors.WithLabelValues(usageStageRobust).Add(float64(len(clusters) - len(result)))
+			klog.Warningf("[workspace-usage-collector] %d of %d clusters did not report GPU utilization within %s",
+				len(clusters)-len(result), len(clusters), c.robustTimeout())
+			return result
+		}
+	}
+	return result
+}
+
+func (c *WorkspaceUsageCollector) robustTimeout() time.Duration {
+	return min(usageRobustTimeout, c.interval/2)
 }
 
 // gpuUtilization returns the average GPU utilization over the last interval of each workload
