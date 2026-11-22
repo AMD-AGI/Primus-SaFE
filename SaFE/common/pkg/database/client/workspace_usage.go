@@ -8,6 +8,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -35,6 +36,16 @@ var (
 		"queued_other_avg", "queued_quota_max", "queued_user_qos_max", "queued_external_max",
 		"queued_other_max", "allocated_hours", "busy_hours", "samples", "observed_seconds",
 		"cluster_queued_max",
+	}
+	// The hourly columns averaged, weighted by the observed seconds, and those taken the highest
+	// of, when hourly rows are aggregated.
+	workspaceUsageHourlyAverages = []string{
+		"quota_avg", "allocated_avg", "queued_avg", "queued_quota_avg", "queued_user_qos_avg",
+		"queued_external_avg", "queued_other_avg",
+	}
+	workspaceUsageHourlyMaxima = []string{
+		"allocated_max", "queued_max", "queued_quota_max", "queued_user_qos_max", "queued_external_max",
+		"queued_other_max", "cluster_queued_max",
 	}
 )
 
@@ -170,20 +181,55 @@ func (c *Client) UpsertWorkspaceUsageHourly(ctx context.Context, rows []*model.W
 	return nil
 }
 
-// ListWorkspaceUsageHourly returns the hourly rows the filter selects, oldest first.
-func (c *Client) ListWorkspaceUsageHourly(ctx context.Context,
-	filter WorkspaceUsageFilter) ([]*model.WorkspaceUsageHourly, error) {
+// AggregateWorkspaceUsageHourly aggregates the hourly rows of the hours that overlap
+// [filter.Start, filter.End), each clipped to that range, into one row per cluster, workspace,
+// resource and bucket of step from origin, oldest first. The hour of a result is the start of
+// its bucket. Averages are weighted by the observed seconds in the range, maxima are the
+// highest, and the integrated hours, samples and observed seconds add up. A row without observed
+// seconds weighs a whole hour. Start and End must be set, and origin must not be after the hour
+// Start is in.
+func (c *Client) AggregateWorkspaceUsageHourly(ctx context.Context, filter WorkspaceUsageFilter,
+	origin time.Time, step time.Duration) ([]*model.WorkspaceUsageHourly, error) {
 	if filter.isEmpty() {
 		return nil, nil
+	}
+	if filter.Start.IsZero() || filter.End.IsZero() || step <= 0 {
+		return nil, fmt.Errorf("aggregating workspace usage hourly rows needs a range and a step")
 	}
 	db, err := c.GetGormDB()
 	if err != nil {
 		return nil, err
 	}
+	db = db.WithContext(ctx)
+	overlapping := filter
+	overlapping.Start = filter.Start.Truncate(time.Hour)
+	clipped := overlapping.apply(db.Model(&model.WorkspaceUsageHourly{}), "hour").Select("*, "+
+		"CAST(? AS timestamptz) + floor(extract(epoch from hour - CAST(? AS timestamptz)) / ?) * ? * interval '1 second' AS bucket, "+
+		"greatest(extract(epoch from least(hour + interval '1 hour', CAST(? AS timestamptz)) - "+
+		"greatest(hour, CAST(? AS timestamptz))), 0) / 3600 AS part",
+		origin, origin, step.Seconds(), step.Seconds(), filter.End, filter.Start)
+	weighted := db.Table("(?) AS clipped", clipped).
+		Select("*, part * coalesce(nullif(observed_seconds, 0), 3600) AS w")
+	columns := []string{"cluster", "workspace", "resource", "bucket AS hour"}
+	for _, column := range workspaceUsageHourlyAverages {
+		columns = append(columns, fmt.Sprintf("coalesce(sum(w * %[1]s) / nullif(sum(w), 0), 0) AS %[1]s", column))
+	}
+	for _, column := range workspaceUsageHourlyMaxima {
+		columns = append(columns, fmt.Sprintf("max(%[1]s) AS %[1]s", column))
+	}
+	columns = append(columns,
+		"CASE WHEN count(busy_avg) > 0 THEN coalesce(sum(w * busy_avg) / nullif(sum(w), 0), 0) END AS busy_avg",
+		"sum(w * allocated_avg * util_coverage_avg) / nullif(sum(w * allocated_avg), 0) AS util_coverage_avg",
+		"sum(part * allocated_hours) AS allocated_hours",
+		"sum(part * busy_hours) AS busy_hours",
+		"sum(samples) AS samples",
+		"sum(w) AS observed_seconds",
+	)
 	var rows []*model.WorkspaceUsageHourly
-	err = filter.apply(db.WithContext(ctx), "hour").Order("hour").Find(&rows).Error
+	err = db.Table("(?) AS weighted", weighted).Select(strings.Join(columns, ", ")).
+		Group("cluster, workspace, resource, bucket").Order("bucket").Find(&rows).Error
 	if err != nil {
-		return nil, fmt.Errorf("failed to list workspace usage hourly rows: %w", err)
+		return nil, fmt.Errorf("failed to aggregate workspace usage hourly rows: %w", err)
 	}
 	return rows, nil
 }

@@ -51,10 +51,34 @@ func TestWorkspaceUsageEmptyInputsSkipTheDatabase(t *testing.T) {
 	latest, err := c.ListLatestWorkspaceUsageSamples(ctx, none)
 	require.NoError(t, err)
 	require.Empty(t, latest)
-	hourly, err := c.ListWorkspaceUsageHourly(ctx, none)
+	hourly, err := c.AggregateWorkspaceUsageHourly(ctx, none, time.Unix(0, 0), time.Hour)
 	require.NoError(t, err)
 	require.Empty(t, hourly)
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestAggregateWorkspaceUsageHourlyBucketsAndClipsInTheDatabase(t *testing.T) {
+	c, mock := newMockClient(t)
+	origin := time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC)
+	start, end := origin.Add(90*time.Minute), origin.Add(72*time.Hour)
+	mock.ExpectQuery(`SELECT cluster, workspace, resource, bucket AS hour, ` +
+		`coalesce\(sum\(w \* quota_avg\) / nullif\(sum\(w\), 0\), 0\) AS quota_avg, .*` +
+		`max\(cluster_queued_max\) AS cluster_queued_max, .*sum\(part \* allocated_hours\) AS allocated_hours, .*` +
+		`FROM \(SELECT \*, part \* coalesce\(nullif\(observed_seconds, 0\), 3600\) AS w ` +
+		`FROM \(SELECT \*, .* AS bucket, .* AS part FROM "workspace_usage_hourly" ` +
+		`WHERE resource = .* AND workspace IN \(.*\) AND hour >= .* AND hour < .*\) AS clipped\) AS weighted ` +
+		`GROUP BY cluster, workspace, resource, bucket ORDER BY bucket`).
+		WillReturnRows(sqlmock.NewRows([]string{"hour", "workspace", "observed_seconds"}).AddRow(origin, "a", 1800.0))
+	rows, err := c.AggregateWorkspaceUsageHourly(context.Background(), WorkspaceUsageFilter{
+		Resource: "amd.com/gpu", Workspaces: []string{"a"}, Start: start, End: end,
+	}, origin, 3*time.Hour)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.Equal(t, 1800.0, rows[0].ObservedSeconds)
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	_, err = c.AggregateWorkspaceUsageHourly(context.Background(), WorkspaceUsageFilter{End: end}, origin, time.Hour)
+	require.Error(t, err, "an open range is refused")
 }
 
 func TestListWorkspaceUsageSamplesFilter(t *testing.T) {

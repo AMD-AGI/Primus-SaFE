@@ -33,6 +33,8 @@ const (
 	defaultUsageRange = 24 * time.Hour
 	// A longer range is read from the hourly rollup.
 	maxUsageSampleRange = 48 * time.Hour
+	// The most buckets a series has; a longer range gets a coarser step.
+	maxUsagePoints = 1000
 	// A sample older than this many intervals is not current.
 	usageCurrentIntervals = 3
 	defaultUsageLimit     = 10
@@ -128,6 +130,9 @@ func parseUsageRange(query *view.UsageQuery, now time.Time, sampleInterval time.
 		}
 		r.step = max(r.step, step)
 	}
+	r.step = max(r.step, r.end.Sub(r.start)/maxUsagePoints)
+	// A bucket holds whole records.
+	r.step = (r.step + r.interval - 1) / r.interval * r.interval
 	return r, nil
 }
 
@@ -262,22 +267,16 @@ func (h *Handler) visibleUsageWorkspaces(ctx context.Context, viewer *usageViewe
 }
 
 // usageRecords reads the records the filter selects from the table the range is read from, each
-// clipped to the range.
+// clipped to the range. The hourly rows come aggregated by series bucket.
 func (h *Handler) usageRecords(ctx context.Context, r *usageRange, filter dbclient.WorkspaceUsageFilter) ([]usage.Record, error) {
 	var result []usage.Record
-	add := func(record usage.Record, span time.Duration) {
-		if clipped, ok := record.Clip(span, r.start, r.end); ok {
-			result = append(result, clipped)
-		}
-	}
 	if r.hourly {
-		filter.Start = r.start.Truncate(time.Hour)
-		rows, err := h.dbClient.ListWorkspaceUsageHourly(ctx, filter)
+		rows, err := h.dbClient.AggregateWorkspaceUsageHourly(ctx, filter, r.origin(), r.step)
 		if err != nil {
 			return nil, err
 		}
 		for _, row := range rows {
-			add(usage.FromHourly(row), time.Hour)
+			result = append(result, usage.FromHourly(row))
 		}
 		return result, nil
 	}
@@ -286,7 +285,9 @@ func (h *Handler) usageRecords(ctx context.Context, r *usageRange, filter dbclie
 		return nil, err
 	}
 	for _, row := range rows {
-		add(usage.FromSample(row, r.interval), r.interval)
+		if clipped, ok := usage.FromSample(row, r.interval).Clip(r.interval, r.start, r.end); ok {
+			result = append(result, clipped)
+		}
 	}
 	return result, nil
 }

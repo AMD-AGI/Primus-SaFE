@@ -52,6 +52,21 @@ func (mr *MockInterfaceMockRecorder) AckEmailOutbox(ctx, id interface{}) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AckEmailOutbox", reflect.TypeOf((*MockInterface)(nil).AckEmailOutbox), ctx, id)
 }
 
+// AggregateWorkspaceUsageHourly mocks base method.
+func (m *MockInterface) AggregateWorkspaceUsageHourly(ctx context.Context, filter client.WorkspaceUsageFilter, origin time.Time, step time.Duration) ([]*model.WorkspaceUsageHourly, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AggregateWorkspaceUsageHourly", ctx, filter, origin, step)
+	ret0, _ := ret[0].([]*model.WorkspaceUsageHourly)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AggregateWorkspaceUsageHourly indicates an expected call of AggregateWorkspaceUsageHourly.
+func (mr *MockInterfaceMockRecorder) AggregateWorkspaceUsageHourly(ctx, filter, origin, step interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AggregateWorkspaceUsageHourly", reflect.TypeOf((*MockInterface)(nil).AggregateWorkspaceUsageHourly), ctx, filter, origin, step)
+}
+
 // AppendOptimizationEvent mocks base method.
 func (m *MockInterface) AppendOptimizationEvent(ctx context.Context, event *client.OptimizationEvent) error {
 	m.ctrl.T.Helper()
@@ -1497,21 +1512,6 @@ func (m *MockInterface) ListWorkloadPods(ctx context.Context, workloadId, worklo
 func (mr *MockInterfaceMockRecorder) ListWorkloadPods(ctx, workloadId, workloadUid interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListWorkloadPods", reflect.TypeOf((*MockInterface)(nil).ListWorkloadPods), ctx, workloadId, workloadUid)
-}
-
-// ListWorkspaceUsageHourly mocks base method.
-func (m *MockInterface) ListWorkspaceUsageHourly(ctx context.Context, filter client.WorkspaceUsageFilter) ([]*model.WorkspaceUsageHourly, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListWorkspaceUsageHourly", ctx, filter)
-	ret0, _ := ret[0].([]*model.WorkspaceUsageHourly)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ListWorkspaceUsageHourly indicates an expected call of ListWorkspaceUsageHourly.
-func (mr *MockInterfaceMockRecorder) ListWorkspaceUsageHourly(ctx, filter interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListWorkspaceUsageHourly", reflect.TypeOf((*MockInterface)(nil).ListWorkspaceUsageHourly), ctx, filter)
 }
 
 // ListWorkspaceUsageHours mocks base method.
@@ -4013,6 +4013,21 @@ func (m *MockWorkspaceUsageInterface) EXPECT() *MockWorkspaceUsageInterfaceMockR
 	return m.recorder
 }
 
+// AggregateWorkspaceUsageHourly mocks base method.
+func (m *MockWorkspaceUsageInterface) AggregateWorkspaceUsageHourly(ctx context.Context, filter client.WorkspaceUsageFilter, origin time.Time, step time.Duration) ([]*model.WorkspaceUsageHourly, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AggregateWorkspaceUsageHourly", ctx, filter, origin, step)
+	ret0, _ := ret[0].([]*model.WorkspaceUsageHourly)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AggregateWorkspaceUsageHourly indicates an expected call of AggregateWorkspaceUsageHourly.
+func (mr *MockWorkspaceUsageInterfaceMockRecorder) AggregateWorkspaceUsageHourly(ctx, filter, origin, step interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AggregateWorkspaceUsageHourly", reflect.TypeOf((*MockWorkspaceUsageInterface)(nil).AggregateWorkspaceUsageHourly), ctx, filter, origin, step)
+}
+
 // DeleteWorkspaceUsageHourlyBefore mocks base method.
 func (m *MockWorkspaceUsageInterface) DeleteWorkspaceUsageHourlyBefore(ctx context.Context, before time.Time) (int64, error) {
 	m.ctrl.T.Helper()
@@ -4056,21 +4071,6 @@ func (m *MockWorkspaceUsageInterface) ListLatestWorkspaceUsageSamples(ctx contex
 func (mr *MockWorkspaceUsageInterfaceMockRecorder) ListLatestWorkspaceUsageSamples(ctx, filter interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListLatestWorkspaceUsageSamples", reflect.TypeOf((*MockWorkspaceUsageInterface)(nil).ListLatestWorkspaceUsageSamples), ctx, filter)
-}
-
-// ListWorkspaceUsageHourly mocks base method.
-func (m *MockWorkspaceUsageInterface) ListWorkspaceUsageHourly(ctx context.Context, filter client.WorkspaceUsageFilter) ([]*model.WorkspaceUsageHourly, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListWorkspaceUsageHourly", ctx, filter)
-	ret0, _ := ret[0].([]*model.WorkspaceUsageHourly)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ListWorkspaceUsageHourly indicates an expected call of ListWorkspaceUsageHourly.
-func (mr *MockWorkspaceUsageInterfaceMockRecorder) ListWorkspaceUsageHourly(ctx, filter interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListWorkspaceUsageHourly", reflect.TypeOf((*MockWorkspaceUsageInterface)(nil).ListWorkspaceUsageHourly), ctx, filter)
 }
 
 // ListWorkspaceUsageHours mocks base method.

@@ -65,6 +65,13 @@ func TestParseUsageRange(t *testing.T) {
 	assert.Equal(t, time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC), r.origin())
 	assert.Equal(t, view.UsageSourceHourly, r.view().Source)
 
+	r, err = parseUsageRange(&view.UsageQuery{Start: "2026-08-22T10:00:00Z", Step: "1h"}, now, interval)
+	require.NoError(t, err)
+	assert.Equal(t, 3*time.Hour, r.step, "90 days of hours are too many points")
+	r, err = parseUsageRange(&view.UsageQuery{Step: "7m"}, now, interval)
+	require.NoError(t, err)
+	assert.Equal(t, 10*time.Minute, r.step, "a step is whole samples")
+
 	for _, query := range []view.UsageQuery{
 		{Start: "yesterday"},
 		{End: "2026-11-20"},
@@ -415,7 +422,7 @@ func TestGetUsageWorkspaceLongRangeKeepsQueuedSplit(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h, mockDB := usageAccessFixture(t)
 	hour := time.Date(2026, 11, 10, 10, 0, 0, 0, time.UTC)
-	mockDB.EXPECT().ListWorkspaceUsageHourly(gomock.Any(), gomock.Any()).Return([]*model.WorkspaceUsageHourly{
+	mockDB.EXPECT().AggregateWorkspaceUsageHourly(gomock.Any(), gomock.Any(), hour, 2*time.Hour).Return([]*model.WorkspaceUsageHourly{
 		{Hour: hour, Cluster: "c1", Workspace: "ws-a", Resource: common.AmdGpu, QuotaAvg: 16, AllocatedAvg: 8,
 			QueuedAvg: 6, QueuedMax: 10, QueuedQuotaAvg: 3, QueuedUserQosAvg: 2, QueuedExternalAvg: 1,
 			QueuedQuotaMax: 6, QueuedUserQosMax: 4, QueuedExternalMax: 2, AllocatedHours: 8, Samples: 12},
@@ -447,21 +454,21 @@ func TestGetUsageWorkspaceLongRangeKeepsQueuedSplit(t *testing.T) {
 	}
 }
 
-func TestGetUsageWorkspaceClipsTheHourTheRangeStartsIn(t *testing.T) {
+func TestGetUsageWorkspaceAggregatesHourlyRowsInTheDatabase(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h, mockDB := usageAccessFixture(t)
 	hour := time.Date(2026, 11, 10, 10, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 11, 13, 10, 0, 0, 0, time.UTC)
-	mockDB.EXPECT().ListWorkspaceUsageHourly(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, filter dbclient.WorkspaceUsageFilter) ([]*model.WorkspaceUsageHourly, error) {
-			assert.Equal(t, hour, filter.Start, "the hour the range starts in is read")
+	mockDB.EXPECT().AggregateWorkspaceUsageHourly(gomock.Any(), gomock.Any(), hour, time.Hour).DoAndReturn(
+		func(_ context.Context, filter dbclient.WorkspaceUsageFilter, _ time.Time, _ time.Duration) ([]*model.WorkspaceUsageHourly, error) {
+			assert.Equal(t, hour.Add(30*time.Minute), filter.Start, "the database clips the first hour")
 			assert.Equal(t, end, filter.End)
-			var rows []*model.WorkspaceUsageHourly
-			for _, at := range []time.Time{hour, hour.Add(time.Hour)} {
-				rows = append(rows, &model.WorkspaceUsageHourly{Hour: at, Cluster: "c1", Workspace: "ws-a",
-					Resource: common.AmdGpu, QuotaAvg: 16, AllocatedAvg: 8, AllocatedHours: 8, Samples: 12, ObservedSeconds: 3600})
-			}
-			return rows, nil
+			return []*model.WorkspaceUsageHourly{
+				{Hour: hour, Cluster: "c1", Workspace: "ws-a", Resource: common.AmdGpu, QuotaAvg: 16, AllocatedAvg: 8,
+					AllocatedHours: 4, Samples: 12, ObservedSeconds: 1800},
+				{Hour: hour.Add(time.Hour), Cluster: "c1", Workspace: "ws-a", Resource: common.AmdGpu, QuotaAvg: 16,
+					AllocatedAvg: 8, AllocatedHours: 8, Samples: 12, ObservedSeconds: 3600},
+			}, nil
 		})
 	mockDB.EXPECT().ListLatestWorkspaceUsageSamples(gomock.Any(), gomock.Any()).Return(nil, nil)
 

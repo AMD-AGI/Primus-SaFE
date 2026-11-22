@@ -189,7 +189,8 @@ type WorkspaceUsageInterface interface {
 	ListLatestWorkspaceUsageSamples(ctx context.Context, filter WorkspaceUsageFilter) ([]*model.WorkspaceUsageSample, error)
 	DeleteWorkspaceUsageSamplesBefore(ctx context.Context, before time.Time) (int64, error)
 	UpsertWorkspaceUsageHourly(ctx context.Context, rows []*model.WorkspaceUsageHourly) error
-	ListWorkspaceUsageHourly(ctx context.Context, filter WorkspaceUsageFilter) ([]*model.WorkspaceUsageHourly, error)
+	AggregateWorkspaceUsageHourly(ctx context.Context, filter WorkspaceUsageFilter,
+		origin time.Time, step time.Duration) ([]*model.WorkspaceUsageHourly, error)
 	ListWorkspaceUsageHours(ctx context.Context, start, end time.Time) ([]time.Time, error)
 	DeleteWorkspaceUsageHourlyBefore(ctx context.Context, before time.Time) (int64, error)
 }
