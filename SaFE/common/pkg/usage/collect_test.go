@@ -249,7 +249,12 @@ func TestNewSnapshot(t *testing.T) {
 	assert.Equal(t, 256.0, cpu.Quota)
 	assert.Equal(t, 48.0, cpu.Allocated)
 
-	assert.Len(t, s.Rows, 6, "cpu, memory and amd.com/gpu for two workspaces; the orphan adds none")
+	nvidia := s.Rows[Key{Cluster: "c1", Workspace: "ws2", Resource: common.NvidiaGpu}]
+	require.NotNil(t, nvidia, "every supported GPU resource has a row")
+	assert.Zero(t, nvidia.Quota)
+	assert.Zero(t, nvidia.Allocated)
+
+	assert.Len(t, s.Rows, 8, "cpu, memory and both GPU resources for two workspaces; the orphan adds none")
 	assert.Equal(t, []string{"c1"}, s.Clusters())
 	assert.ElementsMatch(t, []string{"r-uid", "g-uid"}, s.GPUWorkloadUIDs("c1"))
 }

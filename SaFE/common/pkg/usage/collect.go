@@ -185,8 +185,8 @@ type Snapshot struct {
 }
 
 // NewSnapshot computes the usage rows of every workspace at sampleTime. Every workspace has a
-// cpu, memory and default GPU row, and a row for any other GPU resource it has quota, allocation
-// or a queued request of. Workloads of a workspace that is not listed are left out.
+// cpu, memory and GPU row for every supported GPU resource, zero when it has nothing of it.
+// Workloads of a workspace that is not listed are left out.
 func NewSnapshot(sampleTime time.Time, workspaces []v1.Workspace, workloads []v1.Workload) *Snapshot {
 	s := &Snapshot{
 		Rows:         map[Key]*model.WorkspaceUsageSample{},
@@ -196,7 +196,7 @@ func NewSnapshot(sampleTime time.Time, workspaces []v1.Workspace, workloads []v1
 	for i := range workspaces {
 		ws := &workspaces[i]
 		clusters[ws.Name] = ws.Spec.Cluster
-		for _, name := range []string{string(corev1.ResourceCPU), string(corev1.ResourceMemory), DefaultResource} {
+		for _, name := range append([]string{string(corev1.ResourceCPU), string(corev1.ResourceMemory)}, gpuResources...) {
 			s.row(sampleTime, Key{Cluster: ws.Spec.Cluster, Workspace: ws.Name, Resource: name})
 		}
 		for name, value := range toFloats(ws.Status.TotalResources) {
