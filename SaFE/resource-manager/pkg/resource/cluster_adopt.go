@@ -54,6 +54,9 @@ func defaultRunNodeSSH(ctx context.Context, cli client.Client, node *v1.Node, cm
 	return nil
 }
 
+// errAdoptedClientNotReady reports that the data plane client of an adopted cluster is unavailable.
+var errAdoptedClientNotReady = errors.New("data plane client is not ready")
+
 // adoptedSSHUserPattern limits the secret username before it is placed in a remote command.
 var adoptedSSHUserPattern = regexp.MustCompile(`^[a-z_][a-z0-9_-]*$`)
 
@@ -65,7 +68,7 @@ func (r *ClusterReconciler) adoptClusterContents(ctx context.Context, cluster *v
 	}
 	factory, err := utils.GetK8sClientFactory(r.clientManager, cluster.Name)
 	if err != nil || factory == nil || !factory.IsValid() {
-		return fmt.Errorf("data plane client for adopted cluster %s is not ready", cluster.Name)
+		return fmt.Errorf("adopted cluster %s: %w", cluster.Name, errAdoptedClientNotReady)
 	}
 	nodeList, err := factory.ClientSet().CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil {

@@ -45,6 +45,14 @@
         </span>
       </span>
     </div>
+    <el-alert
+      v-if="detailData.message"
+      class="mt-3"
+      type="warning"
+      :title="detailData.message"
+      :closable="false"
+      show-icon
+    />
   </div>
 
   <el-card class="mt-4 safe-card" shadow="never">

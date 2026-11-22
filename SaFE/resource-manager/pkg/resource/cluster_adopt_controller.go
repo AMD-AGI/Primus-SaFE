@@ -7,6 +7,7 @@ package resource
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -66,7 +67,13 @@ func (r *ClusterAdoptReconciler) Reconcile(ctx context.Context, req ctrlruntime.
 	if !isAdoptedClusterPending(cluster) {
 		return ctrlruntime.Result{}, nil
 	}
-	if err := r.adoptClusterContents(ctx, cluster); err != nil {
+	err := r.adoptClusterContents(ctx, cluster)
+	if !errors.Is(err, errAdoptedClientNotReady) {
+		if msgErr := r.setClusterMessage(ctx, cluster, adoptFailedMessage, err); msgErr != nil {
+			klog.ErrorS(msgErr, "failed to update cluster message", "cluster", cluster.Name)
+		}
+	}
+	if err != nil {
 		klog.ErrorS(err, "failed to adopt cluster contents", "cluster", cluster.Name)
 		rmmetrics.ClusterReconcileErrorsTotal.WithLabelValues("adopt_cluster").Inc()
 		return ctrlruntime.Result{}, err

@@ -303,7 +303,11 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reque
 		rmmetrics.ClusterReconcileErrorsTotal.WithLabelValues("control_plane_endpoints").Inc()
 		return ctrlruntime.Result{}, err
 	}
-	if err = r.guaranteeClientFactory(ctx, cluster); err != nil {
+	err = r.guaranteeClientFactory(ctx, cluster)
+	if msgErr := r.setClusterMessage(ctx, cluster, dataPlaneUnreachableMessage, err); msgErr != nil {
+		klog.ErrorS(msgErr, "failed to update cluster message", "cluster", cluster.Name)
+	}
+	if err != nil {
 		klog.ErrorS(err, "failed to guarantee client factory", "cluster", cluster.Name)
 		rmmetrics.ClusterReconcileErrorsTotal.WithLabelValues("client_factory").Inc()
 		return ctrlruntime.Result{}, err
@@ -488,6 +492,36 @@ func (r *ClusterReconciler) guaranteeClientFactory(ctx context.Context, cluster 
 		}
 	}
 	return nil
+}
+
+const (
+	// dataPlaneUnreachableMessage prefixes the status message written when no data plane client can be built.
+	dataPlaneUnreachableMessage = "data plane apiserver is unreachable: "
+	// adoptFailedMessage prefixes the status message written when adopting cluster contents fails.
+	adoptFailedMessage = "adoption failed: "
+	// maxClusterMessageLength bounds the status message size.
+	maxClusterMessageLength = 1024
+)
+
+// setClusterMessage records prefix plus cause in the cluster status message. A nil cause clears
+// the message only when it carries the same prefix, so messages owned by other steps are kept.
+func (r *ClusterReconciler) setClusterMessage(ctx context.Context, cluster *v1.Cluster, prefix string, cause error) error {
+	current := cluster.Status.ControlPlaneStatus.Message
+	message := ""
+	if cause != nil {
+		message = prefix + cause.Error()
+		if len(message) > maxClusterMessageLength {
+			message = message[:maxClusterMessageLength]
+		}
+	} else if !strings.HasPrefix(current, prefix) {
+		return nil
+	}
+	if message == current {
+		return nil
+	}
+	patch := client.MergeFrom(cluster.DeepCopy())
+	cluster.Status.ControlPlaneStatus.Message = message
+	return r.Status().Patch(ctx, cluster, patch)
 }
 
 // markClusterClientFactoryStale invalidates the cached data-plane client after backend pool changes.

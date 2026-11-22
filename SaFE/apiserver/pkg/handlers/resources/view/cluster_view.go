@@ -47,6 +47,8 @@ type ClusterResponseItem struct {
 	UserId string `json:"userId"`
 	// Cluster status, e.g. Ready,Creating,Failed,Deleting
 	Phase string `json:"phase"`
+	// Latest data plane access or adoption failure; empty when healthy
+	Message string `json:"message,omitempty"`
 	// Whether the cluster is under protection
 	IsProtected bool `json:"isProtected"`
 	// Whether the cluster is a control plane

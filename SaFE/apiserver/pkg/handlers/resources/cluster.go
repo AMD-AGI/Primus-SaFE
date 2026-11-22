@@ -833,6 +833,7 @@ func cvtToClusterResponseItem(cluster *v1.Cluster) view.ClusterResponseItem {
 		ClusterId:      cluster.Name,
 		UserId:         v1.GetUserId(cluster),
 		Phase:          string(cluster.Status.ControlPlaneStatus.Phase),
+		Message:        cluster.Status.ControlPlaneStatus.Message,
 		IsProtected:    v1.IsProtected(cluster),
 		IsControlPlane: v1.HasLabel(cluster, v1.ClusterControlPlaneLabel),
 		CreationTime:   timeutil.FormatRFC3339(cluster.CreationTimestamp.Time),

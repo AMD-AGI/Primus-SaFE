@@ -172,6 +172,8 @@ type ControlPlaneStatus struct {
 	// CAData takes precedence over CAFile
 	CAData    string   `json:"CAData,omitempty"`
 	Endpoints []string `json:"endpoints,omitempty"`
+	// Message describes the latest data plane access or adoption failure; empty when healthy.
+	Message string `json:"message,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
