@@ -78,13 +78,33 @@ func dropGrantedWorkspaces(ctx context.Context, target *v1.User, req *view.Patch
 	if len(granted) == 0 {
 		return
 	}
-	stored := commonuser.GetWorkspace(target)
-	kept := make([]string, 0, len(*req.Workspaces))
-	for _, ws := range *req.Workspaces {
+	kept := keepUngranted(*req.Workspaces, granted, commonuser.GetWorkspace(target))
+	req.Workspaces = &kept
+}
+
+// dropGrantedAdditions removes from an incremental add the workspaces the request's identity
+// grants the target and the record does not store, as dropGrantedWorkspaces does for the full
+// list. It runs after the named workspaces are authorized, so a refused request still fails.
+func dropGrantedAdditions(ctx context.Context, target *v1.User, req *view.PatchUserRequest) {
+	if req.AddWorkspaces == nil {
+		return
+	}
+	granted := extauth.GrantedWorkspaces(ctx, target)
+	if len(granted) == 0 {
+		return
+	}
+	kept := keepUngranted(*req.AddWorkspaces, granted, commonuser.GetWorkspace(target))
+	req.AddWorkspaces = &kept
+}
+
+// keepUngranted returns the ids that are not granted-only: a granted id the record stores stays.
+func keepUngranted(ids, granted, stored []string) []string {
+	kept := make([]string, 0, len(ids))
+	for _, ws := range ids {
 		if slice.Contains(granted, ws) && !slice.Contains(stored, ws) {
 			continue
 		}
 		kept = append(kept, ws)
 	}
-	req.Workspaces = &kept
+	return kept
 }
