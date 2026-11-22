@@ -585,7 +585,7 @@ watchEffect(() => {
 })
 
 // Menu items for users without platform access: Workspaces only for the current workspace's
-// administrator; Users for every member (the list is limited by the server to shared workspaces).
+// administrator; Users for every member. Which users the page lists is decided by the server.
 const memberMenuItems = computed<MenuItem[]>(() => [
   ...(wsStore.isCurrentWorkspaceAdmin()
     ? [{ index: '/workspace', name: 'Workspaces', icon: menuIcons.queue }]
