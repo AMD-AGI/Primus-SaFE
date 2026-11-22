@@ -1,17 +1,30 @@
 <template>
   <span class="pending-cause" @click.stop="analyze">
-    <el-tooltip content="Pending Cause Analysis" placement="top" :disabled="open">
+    <el-tooltip content="Pending Cause Analysis" placement="top">
       <el-icon
         class="pending-cause-icon"
-        :class="{ 'is-loading': loading, 'pulse-scale': pulse && !loading && !text }"
+        :class="{ 'pulse-scale': pulse && !loading }"
         :size="18"
       >
-        <Loading v-if="loading" />
+        <Loading v-if="loading" class="is-loading" />
         <InfoFilled v-else />
       </el-icon>
     </el-tooltip>
-    <span v-if="open && !loading" class="pending-cause-text">{{ text }}</span>
   </span>
+  <el-dialog
+    v-model="visible"
+    title="Pending Cause Analysis"
+    width="520px"
+    append-to-body
+  >
+    <div class="pending-cause-body">
+      <template v-if="loading">
+        <el-icon class="is-loading"><Loading /></el-icon>
+        <span>Analyzing...</span>
+      </template>
+      <span v-else>{{ text }}</span>
+    </div>
+  </el-dialog>
 </template>
 
 <script setup lang="ts">
@@ -27,7 +40,7 @@ const props = withDefaults(
   { pulse: false },
 )
 
-const open = ref(false)
+const visible = ref(false)
 const loading = ref(false)
 const text = ref('')
 
@@ -42,7 +55,7 @@ const errorText = (err: unknown) => {
 
 const analyze = async () => {
   if (!props.workloadId || loading.value) return
-  open.value = true
+  visible.value = true
   loading.value = true
   text.value = ''
   try {
@@ -60,8 +73,6 @@ const analyze = async () => {
 .pending-cause {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  max-width: 360px;
   vertical-align: middle;
 }
 .pending-cause-icon {
@@ -76,10 +87,11 @@ const analyze = async () => {
   color: var(--el-color-primary);
   transform: scale(1.2);
 }
-.pending-cause-text {
-  color: var(--el-text-color-regular);
-  font-size: 12px;
-  line-height: 1.4;
+.pending-cause-body {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  line-height: 1.6;
   word-break: break-word;
 }
 .pulse-scale {
