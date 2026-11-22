@@ -291,7 +291,8 @@ func TestUsageCollectorBackfill(t *testing.T) {
 	now := time.Date(2026, 11, 20, 11, 20, 0, 0, time.UTC)
 	c, store, _ := newTestUsageCollector(t, now)
 	current := now.Truncate(time.Hour)
-	for h := 2; h <= 24; h++ {
+	// Every hour of the 14 day sample retention but the last is rolled up.
+	for h := 2; h < 14*24; h++ {
 		store.hours = append(store.hours, current.Add(-time.Duration(h)*time.Hour))
 	}
 	c.backfill(context.Background())
@@ -301,6 +302,24 @@ func TestUsageCollectorBackfill(t *testing.T) {
 	// The first tick in the same hour does not roll up the previous hour again.
 	c.tick(context.Background())
 	assert.Len(t, store.rolledUp, 1)
+}
+
+func TestUsageCollectorBackfillContinuesPastAFailedHour(t *testing.T) {
+	now := time.Date(2026, 11, 20, 11, 20, 0, 0, time.UTC)
+	c, store, _ := newTestUsageCollector(t, now)
+	c.sampleRetention = 4 * time.Hour
+	current := now.Truncate(time.Hour)
+	store.failRollups = map[time.Time]int{current.Add(-2 * time.Hour): 1}
+
+	c.backfill(context.Background())
+	assert.Equal(t, []time.Time{current.Add(-3 * time.Hour), current.Add(-2 * time.Hour), current.Add(-time.Hour)},
+		store.rolledUp, "the partly pruned oldest hour is left out and the failure does not stop the rest")
+	assert.Equal(t, current.Add(-2*time.Hour), c.rolledUpTo)
+
+	c.tick(context.Background())
+	assert.Equal(t, []time.Time{current.Add(-2 * time.Hour), current.Add(-time.Hour)}, store.rolledUp[3:],
+		"the next tick picks the failed hour up")
+	assert.Equal(t, current, c.rolledUpTo)
 }
 
 func TestUsageRetentionCutoffs(t *testing.T) {

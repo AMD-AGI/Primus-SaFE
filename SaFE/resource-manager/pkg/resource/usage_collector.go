@@ -26,7 +26,8 @@ import (
 )
 
 const (
-	// How far back the hourly rollup is completed when the collector starts.
+	// How far back the hourly rollup is completed when the collector starts and the samples are
+	// kept forever.
 	usageBackfillWindow = 24 * time.Hour
 	// The longest a sample waits for Robust, across all clusters; at most half the interval.
 	usageRobustTimeout = 30 * time.Second
@@ -287,24 +288,32 @@ func (c *WorkspaceUsageCollector) rollupPending(ctx context.Context, current tim
 	}
 }
 
-// backfill rolls up the hours of the last day that have no hourly rows, for example because the
-// collector was not running when they ended.
+// backfill rolls up the hours within the sample retention that have no hourly rows, for example
+// because the collector was not running when they ended. The oldest hour, whose first samples
+// may be pruned already, is left out. A failed hour does not stop the others; it stays pending
+// for the next tick.
 func (c *WorkspaceUsageCollector) backfill(ctx context.Context) {
 	current := c.now().UTC().Truncate(time.Hour)
-	from := current.Add(-usageBackfillWindow)
+	window := c.sampleRetention
+	if window <= 0 {
+		window = usageBackfillWindow
+	}
+	from := current.Add(-window).Truncate(time.Hour).Add(time.Hour)
 	present, err := c.store.ListWorkspaceUsageHours(ctx, from, current.Add(-time.Microsecond))
 	if err != nil {
 		usageCollectorErrors.WithLabelValues(usageStageRollup).Inc()
 		klog.ErrorS(err, "[workspace-usage-collector] failed to list the rolled up hours")
 		return
 	}
+	c.rolledUpTo = current
 	for _, hour := range usage.MissingHours(from, current, present) {
 		if err = c.rollup(ctx, hour); err != nil {
 			klog.ErrorS(err, "[workspace-usage-collector] failed to roll up", "hour", hour)
-			return
+			if hour.Before(c.rolledUpTo) {
+				c.rolledUpTo = hour
+			}
 		}
 	}
-	c.rolledUpTo = current
 }
 
 // prune deletes the samples and hourly rows past their retention.
