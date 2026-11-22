@@ -19,6 +19,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/qos"
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 )
 
 // gpuWorkload is a workload of replica pods with 8 GPUs, 16 cores and 64Gi each, of which bound
@@ -142,6 +143,22 @@ func TestClassifyQueueReason(t *testing.T) {
 		"In queue - dependent workloads not yet complete":                ReasonOther,
 		"In queue - waiting for scheduled start time":                    ReasonOther,
 		"": ReasonOther,
+
+		commonworkload.ExternalWaitingScaleUpReason + " - 0/2 nodes are available": ReasonExternal,
+		commonworkload.ExternalCapacityReason:                                      ReasonExternal,
+		commonworkload.ExternalWaitingPRAcceptReason:                               ReasonExternal,
+		commonworkload.ExternalWaitingPRReason:                                     ReasonExternal,
+		commonworkload.ExternalCapacityUnavailableReason:                           ReasonExternal,
+		commonworkload.ExternalUnavailableReason:                                   ReasonExternal,
+		commonworkload.ExternalRateLimitedReason:                                   ReasonExternal,
+		commonworkload.ExternalPRExpiredReason:                                     ReasonExternal,
+		commonworkload.ExternalAuthReason:                                          ReasonOther,
+		commonworkload.ExternalProfileReason:                                       ReasonOther,
+		commonworkload.ExternalConstraintReason:                                    ReasonOther,
+		commonworkload.ExternalUnsupportedReason:                                   ReasonOther,
+		commonworkload.ExternalInvalidReason:                                       ReasonOther,
+		commonworkload.ExternalBudgetMissingReason:                                 ReasonOther,
+		commonworkload.ExternalPRFailedReason + ": quota":                          ReasonOther,
 	} {
 		assert.Equal(t, want, ClassifyQueueReason(message), message)
 	}

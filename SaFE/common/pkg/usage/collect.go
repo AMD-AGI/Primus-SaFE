@@ -36,7 +36,6 @@ const DefaultResource = common.AmdGpu
 const (
 	insufficientReasonPrefix = "In queue - insufficient resources"
 	earlierWorkloadsPrefix   = "In queue - waiting for earlier or higher priority workloads"
-	externalScaleUpPrefix    = "In queue - waiting for scale-up"
 )
 
 // gpuResources are the GPU resource names a workspace quota and a workload request can hold.
@@ -62,7 +61,7 @@ func ClassifyQueueReason(message string) string {
 	switch {
 	case qos.IsUserQuotaReason(message):
 		return ReasonUserQos
-	case strings.HasPrefix(message, externalScaleUpPrefix):
+	case commonworkload.IsExternalWaitReason(message):
 		return ReasonExternal
 	case strings.HasPrefix(message, insufficientReasonPrefix), strings.HasPrefix(message, earlierWorkloadsPrefix):
 		return ReasonQuota
