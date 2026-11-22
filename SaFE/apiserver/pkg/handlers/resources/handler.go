@@ -54,11 +54,9 @@ func NewHandler(mgr ctrlruntime.Manager, rc *robustclient.Client) (*Handler, err
 	if err != nil {
 		return nil, err
 	}
-	var dbClient *dbclient.Client
-	if commonconfig.IsDBEnable() {
-		if dbClient = dbclient.NewClient(); dbClient == nil {
-			return nil, fmt.Errorf("failed to new db client")
-		}
+	dbClient, err := newDBClient(commonconfig.IsDBEnable(), dbclient.NewClient)
+	if err != nil {
+		return nil, err
 	}
 	h := &Handler{
 		Client:           mgr.GetClient(),
@@ -70,6 +68,19 @@ func NewHandler(mgr ctrlruntime.Manager, rc *robustclient.Client) (*Handler, err
 		gpuWindows:       robustGPUWindowSource{rc: rc},
 	}
 	return h, nil
+}
+
+// newDBClient returns the database client, or a nil interface when the database is not enabled:
+// never an interface holding a nil *dbclient.Client, which h.dbClient == nil would miss.
+func newDBClient(enabled bool, connect func() *dbclient.Client) (dbclient.Interface, error) {
+	if !enabled {
+		return nil, nil
+	}
+	c := connect()
+	if c == nil {
+		return nil, fmt.Errorf("failed to new db client")
+	}
+	return c, nil
 }
 
 type handleFunc func(*gin.Context) (interface{}, error)
