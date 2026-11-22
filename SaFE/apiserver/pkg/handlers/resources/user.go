@@ -445,6 +445,9 @@ func (h *Handler) patchUser(c *gin.Context) (interface{}, error) {
 	if err = refuseExternalPasswordChange(req); err != nil {
 		return nil, err
 	}
+	if err = validateWorkspaceDelta(req); err != nil {
+		return nil, err
+	}
 	dropGrantedWorkspaces(c.Request.Context(), targetUser, req)
 	isChanged, err := h.authUserUpdate(c, targetUser, req)
 	if !isChanged || err != nil {
@@ -495,6 +498,14 @@ func workspaceOnlyQos(qos *v1.UserQos) *v1.UserQos {
 func applyUserPatch(targetUser *v1.User, req *view.PatchUserRequest) {
 	if req.Workspaces != nil {
 		commonuser.AssignWorkspace(targetUser, *req.Workspaces...)
+	}
+	if req.AddWorkspaces != nil {
+		commonuser.AddWorkspace(targetUser, *req.AddWorkspaces...)
+	}
+	if req.RemoveWorkspaces != nil {
+		for _, id := range *req.RemoveWorkspaces {
+			commonuser.RemoveWorkspace(targetUser, id)
+		}
 	}
 	if req.Roles != nil {
 		targetUser.Spec.Roles = *req.Roles
@@ -558,6 +569,14 @@ func (h *Handler) authUserUpdate(c *gin.Context, targetUser *v1.User, req *view.
 		}
 	}
 
+	if req.AddWorkspaces != nil || req.RemoveWorkspaces != nil {
+		changed, authErr := h.authWorkspaceDelta(c, requestUser, targetUser, req, roles)
+		if authErr != nil {
+			return false, authErr
+		}
+		isChanged = isChanged || changed
+	}
+
 	if req.Qos != nil {
 		if err = h.requireSystemAdmin(c); err != nil {
 			return false, err
@@ -578,6 +597,69 @@ func (h *Handler) authUserUpdate(c *gin.Context, targetUser *v1.User, req *view.
 		isChanged = true
 	}
 	return isChanged, nil
+}
+
+// validateWorkspaceDelta rejects an incremental workspace patch that is combined with the full
+// workspaces list, holds an empty id, or names a workspace in both the add and remove lists.
+func validateWorkspaceDelta(req *view.PatchUserRequest) error {
+	if req.AddWorkspaces == nil && req.RemoveWorkspaces == nil {
+		return nil
+	}
+	if req.Workspaces != nil {
+		return commonerrors.NewBadRequest("addWorkspaces and removeWorkspaces cannot be combined with workspaces")
+	}
+	var added, removed []string
+	if req.AddWorkspaces != nil {
+		added = *req.AddWorkspaces
+	}
+	if req.RemoveWorkspaces != nil {
+		removed = *req.RemoveWorkspaces
+	}
+	for _, id := range append(append([]string{}, added...), removed...) {
+		if id == "" {
+			return commonerrors.NewBadRequest("the workspace id is empty")
+		}
+	}
+	for _, id := range added {
+		if slice.Contains(removed, id) {
+			return commonerrors.NewBadRequest("the workspace " + id + " is in both addWorkspaces and removeWorkspaces")
+		}
+	}
+	return nil
+}
+
+// authWorkspaceDelta authorizes an incremental workspace patch against exactly the workspaces
+// the request names, so the requester must be allowed to update user/workspace on each of them.
+// It reports whether the patch changes the target user's workspaces.
+func (h *Handler) authWorkspaceDelta(c *gin.Context, requestUser, targetUser *v1.User,
+	req *view.PatchUserRequest, roles []*v1.Role) (bool, error) {
+	current := commonuser.GetWorkspace(targetUser)
+	var named []string
+	changed := false
+	if req.AddWorkspaces != nil {
+		for _, id := range *req.AddWorkspaces {
+			named = append(named, id)
+			if !slice.Contains(current, id) {
+				changed = true
+			}
+		}
+	}
+	if req.RemoveWorkspaces != nil {
+		for _, id := range *req.RemoveWorkspaces {
+			named = append(named, id)
+			if slice.Contains(current, id) {
+				changed = true
+			}
+		}
+	}
+	if len(named) == 0 {
+		return false, nil
+	}
+	if err := h.authUserAction(c, requestUser, targetUser,
+		named, authority.UserWorkspaceResource, roles, v1.UpdateVerb); err != nil {
+		return false, err
+	}
+	return changed, nil
 }
 
 // authUserAction performs authorization checks for user-related actions.

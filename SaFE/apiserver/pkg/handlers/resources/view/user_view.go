@@ -84,6 +84,10 @@ type PatchUserRequest struct {
 	Roles *[]v1.UserRole `json:"roles,omitempty"`
 	// The workspaces which user can access
 	Workspaces *[]string `json:"workspaces,omitempty"`
+	// The workspaces to add to the user's accessible workspaces, exclusive with workspaces
+	AddWorkspaces *[]string `json:"addWorkspaces,omitempty"`
+	// The workspaces to remove from the user's accessible workspaces, exclusive with workspaces
+	RemoveWorkspaces *[]string `json:"removeWorkspaces,omitempty"`
 	// User avatar URL
 	AvatarUrl *string `json:"avatarUrl,omitempty"`
 	// User password

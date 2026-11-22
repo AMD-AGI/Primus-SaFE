@@ -28,6 +28,8 @@ export interface EditUserResp {
   email?: string
   roles?: string[]
   workspaces?: string[]
+  addWorkspaces?: string[]
+  removeWorkspaces?: string[]
   managedWorkspaces?: string[]
   restrictedType?: number
   qos?: UserQos
