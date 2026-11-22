@@ -60,7 +60,7 @@ func TestWorkspaceUsageEmptyInputsSkipTheDatabase(t *testing.T) {
 func TestListWorkspaceUsageSamplesFilter(t *testing.T) {
 	c, mock := newMockClient(t)
 	start, end := time.Unix(100, 0), time.Unix(200, 0)
-	mock.ExpectQuery(`SELECT \* FROM "workspace_usage_sample" WHERE resource = \$1 AND cluster = \$2 AND workspace IN \(\$3,\$4\) AND sample_time >= \$5 AND sample_time <= \$6 ORDER BY sample_time`).
+	mock.ExpectQuery(`SELECT \* FROM "workspace_usage_sample" WHERE resource = \$1 AND cluster = \$2 AND workspace IN \(\$3,\$4\) AND sample_time >= \$5 AND sample_time < \$6 ORDER BY sample_time`).
 		WithArgs("amd.com/gpu", "c1", "a", "b", start, end).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "workspace"}).AddRow(int64(1), "a"))
 	rows, err := c.ListWorkspaceUsageSamples(context.Background(), WorkspaceUsageFilter{

@@ -81,7 +81,7 @@ func (h *Handler) GetUsageWorkspace(c *gin.Context) {
 	handle(c, h.getUsageWorkspace)
 }
 
-// usageRange is a parsed usage query.
+// usageRange is a parsed usage query over [start, end).
 type usageRange struct {
 	resource string
 	start    time.Time
@@ -119,8 +119,6 @@ func parseUsageRange(query *view.UsageQuery, now time.Time, sampleInterval time.
 	if r.end.Sub(r.start) > maxUsageSampleRange {
 		r.hourly = true
 		r.interval = time.Hour
-		// The row of an hour covers the whole hour, so the hour the range starts in is included.
-		r.start = r.start.Truncate(time.Hour)
 	}
 	r.step = r.interval
 	if query.Step != "" {
@@ -263,16 +261,23 @@ func (h *Handler) visibleUsageWorkspaces(ctx context.Context, viewer *usageViewe
 	return result, nil
 }
 
-// usageRecords reads the records the filter selects from the table the range is read from.
+// usageRecords reads the records the filter selects from the table the range is read from, each
+// clipped to the range.
 func (h *Handler) usageRecords(ctx context.Context, r *usageRange, filter dbclient.WorkspaceUsageFilter) ([]usage.Record, error) {
 	var result []usage.Record
+	add := func(record usage.Record, span time.Duration) {
+		if clipped, ok := record.Clip(span, r.start, r.end); ok {
+			result = append(result, clipped)
+		}
+	}
 	if r.hourly {
+		filter.Start = r.start.Truncate(time.Hour)
 		rows, err := h.dbClient.ListWorkspaceUsageHourly(ctx, filter)
 		if err != nil {
 			return nil, err
 		}
 		for _, row := range rows {
-			result = append(result, usage.FromHourly(row))
+			add(usage.FromHourly(row), time.Hour)
 		}
 		return result, nil
 	}
@@ -281,7 +286,7 @@ func (h *Handler) usageRecords(ctx context.Context, r *usageRange, filter dbclie
 		return nil, err
 	}
 	for _, row := range rows {
-		result = append(result, usage.FromSample(row, r.interval))
+		add(usage.FromSample(row, r.interval), r.interval)
 	}
 	return result, nil
 }

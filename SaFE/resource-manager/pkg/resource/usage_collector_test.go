@@ -57,7 +57,7 @@ func (s *fakeUsageStore) ListWorkspaceUsageSamples(_ context.Context,
 	}
 	var result []*model.WorkspaceUsageSample
 	for _, row := range s.samples {
-		if !row.SampleTime.Before(filter.Start) && !row.SampleTime.After(filter.End) {
+		if !row.SampleTime.Before(filter.Start) && row.SampleTime.Before(filter.End) {
 			result = append(result, row)
 		}
 	}

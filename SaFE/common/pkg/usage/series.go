@@ -66,6 +66,28 @@ func (r Record) scaled(k float64) Record {
 	return r
 }
 
+// Clip returns the part of r in [start, end), where r stands for [r.Time, r.Time+span). The part
+// starts no earlier than start, and its weight and integrated hours shrink with it while its
+// averages stay. ok is false when no part of r is in the range.
+func (r Record) Clip(span time.Duration, start, end time.Time) (Record, bool) {
+	from, to := r.Time, r.Time.Add(span)
+	if from.Before(start) {
+		from = start
+	}
+	if to.After(end) {
+		to = end
+	}
+	if !to.After(from) {
+		return r, false
+	}
+	k := to.Sub(from).Seconds() / span.Seconds()
+	r.Time = from
+	r.Weight = r.weight() * k
+	r.AllocatedHours *= k
+	r.BusyHours = scale(r.BusyHours, k)
+	return r, true
+}
+
 // FromSample reads a sample that stands for interval.
 func FromSample(s *model.WorkspaceUsageSample, interval time.Duration) Record {
 	queued := s.QueuedQuota + s.QueuedUserQos + s.QueuedExternal + s.QueuedOther

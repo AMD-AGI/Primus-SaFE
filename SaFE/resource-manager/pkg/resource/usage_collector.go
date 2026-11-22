@@ -291,7 +291,7 @@ func (c *WorkspaceUsageCollector) gpuUtilization(ctx context.Context, cluster st
 func (c *WorkspaceUsageCollector) rollup(ctx context.Context, hour time.Time) error {
 	samples, err := c.store.ListWorkspaceUsageSamples(ctx, dbclient.WorkspaceUsageFilter{
 		Start: hour,
-		End:   hour.Add(time.Hour - time.Microsecond),
+		End:   hour.Add(time.Hour),
 	})
 	if err == nil {
 		err = c.store.UpsertWorkspaceUsageHourly(ctx, usage.RollupHour(hour, samples, c.interval))
@@ -329,7 +329,7 @@ func (c *WorkspaceUsageCollector) backfill(ctx context.Context) {
 		window = usageBackfillWindow
 	}
 	from := current.Add(-window).Truncate(time.Hour).Add(time.Hour)
-	present, err := c.store.ListWorkspaceUsageHours(ctx, from, current.Add(-time.Microsecond))
+	present, err := c.store.ListWorkspaceUsageHours(ctx, from, current)
 	if err != nil {
 		usageCollectorErrors.WithLabelValues(usageStageRollup).Inc()
 		klog.ErrorS(err, "[workspace-usage-collector] failed to list the rolled up hours")

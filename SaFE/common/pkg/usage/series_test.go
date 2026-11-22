@@ -282,6 +282,32 @@ func TestHourlyAveragesAreWeightedByObservedTime(t *testing.T) {
 		"a row without observed seconds weighs a whole hour")
 }
 
+func TestClip(t *testing.T) {
+	r := FromSample(sample(t0, "ws", 32, 12, f(6), f(1), 0), interval)
+
+	inside, ok := r.Clip(interval, t0, t0.Add(time.Hour))
+	require.True(t, ok)
+	assert.Equal(t, r, inside)
+
+	atEnd, ok := r.Clip(interval, t0.Add(-time.Hour), t0.Add(time.Minute))
+	require.True(t, ok)
+	assert.Equal(t, t0, atEnd.Time)
+	assert.InDelta(t, 60, atEnd.Weight, 1e-9)
+	assert.InDelta(t, 12.0/60, atEnd.AllocatedHours, 1e-9)
+	assert.InDelta(t, 6.0/60, *atEnd.BusyHours, 1e-9)
+	assert.Equal(t, 12.0, atEnd.Allocated, "the averages stay")
+
+	atStart, ok := r.Clip(interval, t0.Add(4*time.Minute), t0.Add(time.Hour))
+	require.True(t, ok)
+	assert.Equal(t, t0.Add(4*time.Minute), atStart.Time)
+	assert.InDelta(t, 60, atStart.Weight, 1e-9)
+
+	_, ok = r.Clip(interval, t0.Add(interval), t0.Add(time.Hour))
+	assert.False(t, ok, "the end of a record is not in it")
+	_, ok = r.Clip(interval, t0.Add(-time.Hour), t0)
+	assert.False(t, ok, "the end of a range is not in it")
+}
+
 func TestBucket(t *testing.T) {
 	var records []Record
 	for i := 0; i < 6; i++ {

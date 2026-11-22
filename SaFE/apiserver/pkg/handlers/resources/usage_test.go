@@ -58,7 +58,7 @@ func TestParseUsageRange(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, r.hourly)
 	assert.Equal(t, "cpu", r.resource)
-	assert.Equal(t, time.Date(2026, 11, 10, 10, 0, 0, 0, time.UTC), r.start)
+	assert.Equal(t, time.Date(2026, 11, 10, 10, 7, 0, 0, time.UTC), r.start, "the start is kept; the hour it is in is clipped")
 	assert.Equal(t, time.Hour, r.interval)
 	assert.Equal(t, 5*time.Minute, r.sampleInterval)
 	assert.Equal(t, 24*time.Hour, r.step)
@@ -445,6 +445,35 @@ func TestGetUsageWorkspaceLongRangeKeepsQueuedSplit(t *testing.T) {
 		require.NotNil(t, pair.got, name)
 		assert.InDelta(t, pair.want, *pair.got, 1e-9, name)
 	}
+}
+
+func TestGetUsageWorkspaceClipsTheHourTheRangeStartsIn(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h, mockDB := usageAccessFixture(t)
+	hour := time.Date(2026, 11, 10, 10, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 11, 13, 10, 0, 0, 0, time.UTC)
+	mockDB.EXPECT().ListWorkspaceUsageHourly(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, filter dbclient.WorkspaceUsageFilter) ([]*model.WorkspaceUsageHourly, error) {
+			assert.Equal(t, hour, filter.Start, "the hour the range starts in is read")
+			assert.Equal(t, end, filter.End)
+			var rows []*model.WorkspaceUsageHourly
+			for _, at := range []time.Time{hour, hour.Add(time.Hour)} {
+				rows = append(rows, &model.WorkspaceUsageHourly{Hour: at, Cluster: "c1", Workspace: "ws-a",
+					Resource: common.AmdGpu, QuotaAvg: 16, AllocatedAvg: 8, AllocatedHours: 8, Samples: 12, ObservedSeconds: 3600})
+			}
+			return rows, nil
+		})
+	mockDB.EXPECT().ListLatestWorkspaceUsageSamples(gomock.Any(), gomock.Any()).Return(nil, nil)
+
+	c, rsp := usageRequest("admin", "ws-a", "start=2026-11-10T10:30:00Z&end=2026-11-13T10:00:00Z")
+	h.GetUsageWorkspace(c)
+	require.Equal(t, http.StatusOK, rsp.Code, rsp.Body.String())
+	var result view.GetUsageWorkspaceResponse
+	require.NoError(t, json.Unmarshal(rsp.Body.Bytes(), &result))
+	assert.InDelta(t, 4+8, result.Summary.AllocatedHours, 1e-9, "only the half of the first hour in the range counts")
+	assert.InDelta(t, 0.5, *result.Summary.Occupancy, 1e-9)
+	require.Len(t, result.Series, 2)
+	assert.Equal(t, hour, result.Series[0].Time)
 }
 
 func TestUsageRequiresDatabase(t *testing.T) {

@@ -39,8 +39,8 @@ var (
 )
 
 // WorkspaceUsageFilter selects workspace usage rows. An empty Resource or Cluster matches every
-// value. A nil Workspaces matches every workspace, an empty non-nil one matches none. Start and
-// End bound the row time, both inclusive; a zero time leaves that side open.
+// value. A nil Workspaces matches every workspace, an empty non-nil one matches none. The row
+// time is in [Start, End); a zero time leaves that side open.
 type WorkspaceUsageFilter struct {
 	Resource   string
 	Cluster    string
@@ -69,7 +69,7 @@ func (f WorkspaceUsageFilter) apply(db *gorm.DB, timeColumn string) *gorm.DB {
 		db = db.Where(timeColumn+" >= ?", f.Start)
 	}
 	if !f.End.IsZero() {
-		db = db.Where(timeColumn+" <= ?", f.End)
+		db = db.Where(timeColumn+" < ?", f.End)
 	}
 	return db
 }
@@ -188,7 +188,7 @@ func (c *Client) ListWorkspaceUsageHourly(ctx context.Context,
 	return rows, nil
 }
 
-// ListWorkspaceUsageHours returns the distinct hours in [start, end] that have hourly rows.
+// ListWorkspaceUsageHours returns the distinct hours in [start, end) that have hourly rows.
 func (c *Client) ListWorkspaceUsageHours(ctx context.Context, start, end time.Time) ([]time.Time, error) {
 	db, err := c.GetGormDB()
 	if err != nil {
