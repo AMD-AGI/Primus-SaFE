@@ -19,10 +19,12 @@ const (
 	UsageSortAllocatedHours       = "allocatedHours"
 )
 
-// The tables a usage series is read from.
+// The tables a usage series is read from: mixed reads the hourly rollup for the older part of
+// the range and the samples for the rest.
 const (
 	UsageSourceSample = "sample"
 	UsageSourceHourly = "hourly"
+	UsageSourceMixed  = "mixed"
 )
 
 // UsageQuery is the query of the usage APIs.

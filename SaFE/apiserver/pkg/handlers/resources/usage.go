@@ -89,14 +89,19 @@ type usageRange struct {
 	start    time.Time
 	end      time.Time
 	step     time.Duration
-	// interval is the time one record stands for: the sample interval, or an hour.
+	// interval is the finest step: the sample interval, or an hour for a long range.
 	interval       time.Duration
 	sampleInterval time.Duration
 	hourly         bool
+	// [start, sampleStart) is read from the hourly rollup and [sampleStart, end) from the samples.
+	sampleStart time.Time
 }
 
-// parseUsageRange reads the resource and time range of a query. now is the default end.
-func parseUsageRange(query *view.UsageQuery, now time.Time, sampleInterval time.Duration) (*usageRange, error) {
+// parseUsageRange reads the resource and time range of a query. now is the default end. The part
+// of the range older than the sample retention, a whole hour past now - sampleRetention, is read
+// from the hourly rollup; a retention that is not positive keeps the samples forever.
+func parseUsageRange(query *view.UsageQuery, now time.Time,
+	sampleInterval, sampleRetention time.Duration) (*usageRange, error) {
 	r := &usageRange{resource: query.Resource, end: now.UTC(), interval: sampleInterval, sampleInterval: sampleInterval}
 	if r.resource == "" {
 		r.resource = usage.DefaultResource
@@ -133,7 +138,39 @@ func parseUsageRange(query *view.UsageQuery, now time.Time, sampleInterval time.
 	r.step = max(r.step, r.end.Sub(r.start)/maxUsagePoints)
 	// A bucket holds whole records.
 	r.step = (r.step + r.interval - 1) / r.interval * r.interval
+	r.sampleStart = r.start
+	if sampleRetention > 0 {
+		cutoff := now.UTC().Add(-sampleRetention).Add(time.Hour - 1).Truncate(time.Hour)
+		r.setSampleStart(cutoff)
+	}
 	return r, nil
+}
+
+// setSampleStart moves the start of the samples later, to t within the range.
+func (r *usageRange) setSampleStart(t time.Time) {
+	if t.After(r.end) {
+		t = r.end
+	}
+	if t.After(r.sampleStart) {
+		r.sampleStart = t
+	}
+}
+
+// readRolledUpHours makes a long range read the hourly rollup as far as it goes, so the samples
+// only fill in the hours that are not rolled up yet. The rollup writes every row of an hour at
+// once, so any row marks the hour rolled up.
+func (h *Handler) readRolledUpHours(ctx context.Context, r *usageRange) error {
+	if !r.hourly {
+		return nil
+	}
+	hours, err := h.dbClient.ListWorkspaceUsageHours(ctx, r.start.Truncate(time.Hour), r.end)
+	if err != nil {
+		return err
+	}
+	if len(hours) > 0 {
+		r.setSampleStart(hours[len(hours)-1].Add(time.Hour))
+	}
+	return nil
 }
 
 // origin is the start of the first series bucket.
@@ -152,8 +189,11 @@ func (r *usageRange) filter(cluster string, workspaces []string) dbclient.Worksp
 }
 
 func (r *usageRange) view() view.UsageRange {
-	source := view.UsageSourceSample
-	if r.hourly {
+	source := view.UsageSourceMixed
+	switch {
+	case !r.sampleStart.After(r.start):
+		source = view.UsageSourceSample
+	case !r.sampleStart.Before(r.end):
 		source = view.UsageSourceHourly
 	}
 	return view.UsageRange{Resource: r.resource, Start: r.start, End: r.end, Step: r.step.String(), Source: source}
@@ -190,8 +230,12 @@ func (h *Handler) prepareUsageRequest(c *gin.Context) (*usageViewer, *view.Usage
 	if interval <= 0 {
 		interval = 300 * time.Second
 	}
-	r, err := parseUsageRange(query, time.Now(), interval)
+	retention := time.Duration(commonconfig.GetWorkloadUsageSampleRetentionDay()) * 24 * time.Hour
+	r, err := parseUsageRange(query, time.Now(), interval, retention)
 	if err != nil {
+		return nil, nil, nil, err
+	}
+	if err = h.readRolledUpHours(c.Request.Context(), r); err != nil {
 		return nil, nil, nil, err
 	}
 	viewer := &usageViewer{
@@ -266,27 +310,41 @@ func (h *Handler) visibleUsageWorkspaces(ctx context.Context, viewer *usageViewe
 	return result, nil
 }
 
-// usageRecords reads the records the filter selects from the table the range is read from, each
-// clipped to the range. The hourly rows come aggregated by series bucket.
+// usageRecords reads the records the filter selects: the hourly rows before r.sampleStart,
+// aggregated by series bucket, and the samples from then on, each clipped to its part.
 func (h *Handler) usageRecords(ctx context.Context, r *usageRange, filter dbclient.WorkspaceUsageFilter) ([]usage.Record, error) {
 	var result []usage.Record
-	if r.hourly {
-		rows, err := h.dbClient.AggregateWorkspaceUsageHourly(ctx, filter, r.origin(), r.step)
+	if r.sampleStart.After(r.start) {
+		hourly := filter
+		hourly.End = r.sampleStart
+		origin, step := r.origin(), r.step
+		if step%time.Hour != 0 {
+			origin, step = origin.Truncate(time.Hour), time.Hour
+		}
+		rows, err := h.dbClient.AggregateWorkspaceUsageHourly(ctx, hourly, origin, step)
 		if err != nil {
 			return nil, err
 		}
 		for _, row := range rows {
-			result = append(result, usage.FromHourly(row))
+			record := usage.FromHourly(row)
+			if record.Time.Before(r.origin()) {
+				record.Time = r.origin()
+			}
+			result = append(result, record)
 		}
-		return result, nil
 	}
-	rows, err := h.dbClient.ListWorkspaceUsageSamples(ctx, filter)
-	if err != nil {
-		return nil, err
-	}
-	for _, row := range rows {
-		if clipped, ok := usage.FromSample(row, r.interval).Clip(r.interval, r.start, r.end); ok {
-			result = append(result, clipped)
+	if r.sampleStart.Before(r.end) {
+		samples := filter
+		samples.Start = r.sampleStart
+		rows, err := h.dbClient.ListWorkspaceUsageSamples(ctx, samples)
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			record := usage.FromSample(row, r.sampleInterval)
+			if clipped, ok := record.Clip(r.sampleInterval, r.sampleStart, r.end); ok {
+				result = append(result, clipped)
+			}
 		}
 	}
 	return result, nil

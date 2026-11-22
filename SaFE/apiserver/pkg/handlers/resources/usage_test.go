@@ -39,8 +39,9 @@ import (
 func TestParseUsageRange(t *testing.T) {
 	now := time.Date(2026, 11, 20, 10, 7, 0, 0, time.UTC)
 	interval := 5 * time.Minute
+	retention := 7 * 24 * time.Hour
 
-	r, err := parseUsageRange(&view.UsageQuery{}, now, interval)
+	r, err := parseUsageRange(&view.UsageQuery{}, now, interval, retention)
 	require.NoError(t, err)
 	assert.Equal(t, common.AmdGpu, r.resource)
 	assert.Equal(t, now, r.end)
@@ -49,12 +50,12 @@ func TestParseUsageRange(t *testing.T) {
 	assert.Equal(t, interval, r.step)
 	assert.Equal(t, view.UsageSourceSample, r.view().Source)
 
-	r, err = parseUsageRange(&view.UsageQuery{Start: "2026-11-18T10:07:00Z", End: "2026-11-20T10:07:00Z", Step: "1m"}, now, interval)
+	r, err = parseUsageRange(&view.UsageQuery{Start: "2026-11-18T10:07:00Z", End: "2026-11-20T10:07:00Z", Step: "1m"}, now, interval, retention)
 	require.NoError(t, err)
 	assert.False(t, r.hourly, "two days are read from the samples")
 	assert.Equal(t, interval, r.step, "a step finer than the samples is raised")
 
-	r, err = parseUsageRange(&view.UsageQuery{Start: "2026-11-10T10:07:00Z", Resource: "cpu", Step: "24h"}, now, interval)
+	r, err = parseUsageRange(&view.UsageQuery{Start: "2026-11-10T10:07:00Z", Resource: "cpu", Step: "24h"}, now, interval, retention)
 	require.NoError(t, err)
 	assert.True(t, r.hourly)
 	assert.Equal(t, "cpu", r.resource)
@@ -63,12 +64,24 @@ func TestParseUsageRange(t *testing.T) {
 	assert.Equal(t, 5*time.Minute, r.sampleInterval)
 	assert.Equal(t, 24*time.Hour, r.step)
 	assert.Equal(t, time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC), r.origin())
-	assert.Equal(t, view.UsageSourceHourly, r.view().Source)
+	assert.Equal(t, time.Date(2026, 11, 13, 11, 0, 0, 0, time.UTC), r.sampleStart,
+		"the samples are read from the first whole hour within the retention")
+	assert.Equal(t, view.UsageSourceMixed, r.view().Source)
 
-	r, err = parseUsageRange(&view.UsageQuery{Start: "2026-08-22T10:00:00Z", Step: "1h"}, now, interval)
+	r, err = parseUsageRange(&view.UsageQuery{Start: "2026-11-01T00:00:00Z", End: "2026-11-02T00:00:00Z"}, now, interval, retention)
+	require.NoError(t, err)
+	assert.False(t, r.hourly)
+	assert.Equal(t, r.end, r.sampleStart)
+	assert.Equal(t, view.UsageSourceHourly, r.view().Source, "a short range older than the samples")
+
+	r, err = parseUsageRange(&view.UsageQuery{Start: "2026-11-01T00:00:00Z", End: "2026-11-02T00:00:00Z"}, now, interval, 0)
+	require.NoError(t, err)
+	assert.Equal(t, r.start, r.sampleStart, "samples kept forever")
+
+	r, err = parseUsageRange(&view.UsageQuery{Start: "2026-08-22T10:00:00Z", Step: "1h"}, now, interval, retention)
 	require.NoError(t, err)
 	assert.Equal(t, 3*time.Hour, r.step, "90 days of hours are too many points")
-	r, err = parseUsageRange(&view.UsageQuery{Step: "7m"}, now, interval)
+	r, err = parseUsageRange(&view.UsageQuery{Step: "7m"}, now, interval, retention)
 	require.NoError(t, err)
 	assert.Equal(t, 10*time.Minute, r.step, "a step is whole samples")
 
@@ -79,7 +92,7 @@ func TestParseUsageRange(t *testing.T) {
 		{Step: "0s"},
 		{Step: "often"},
 	} {
-		_, err = parseUsageRange(&query, now, interval)
+		_, err = parseUsageRange(&query, now, interval, retention)
 		assert.Error(t, err, query)
 	}
 }
@@ -278,7 +291,7 @@ func TestVisibleUsageWorkspaces(t *testing.T) {
 func TestListUsageClustersSumsVisibleWorkspaces(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h, mockDB := usageAccessFixture(t)
-	at := time.Date(2026, 11, 20, 10, 0, 0, 0, time.UTC)
+	at := time.Now().UTC().Truncate(time.Hour).Add(-time.Hour)
 	busy := 4.0
 	coverage := 1.0
 	var filters []dbclient.WorkspaceUsageFilter
@@ -294,7 +307,7 @@ func TestListUsageClustersSumsVisibleWorkspaces(t *testing.T) {
 		})
 	mockDB.EXPECT().ListLatestWorkspaceUsageSamples(gomock.Any(), gomock.Any()).Return(nil, nil)
 
-	c, rsp := usageRequest("bob", "", "start=2026-11-20T09:00:00Z&end=2026-11-20T11:00:00Z")
+	c, rsp := usageRequest("bob", "", usageRangeQuery(at.Add(-time.Hour), at.Add(time.Hour)))
 	h.ListUsageClusters(c)
 	require.Equal(t, http.StatusOK, rsp.Code, rsp.Body.String())
 	require.Len(t, filters, 1)
@@ -422,6 +435,7 @@ func TestGetUsageWorkspaceLongRangeKeepsQueuedSplit(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h, mockDB := usageAccessFixture(t)
 	hour := time.Date(2026, 11, 10, 10, 0, 0, 0, time.UTC)
+	expectRolledUpUntil(mockDB, time.Date(2026, 11, 13, 10, 0, 0, 0, time.UTC))
 	mockDB.EXPECT().AggregateWorkspaceUsageHourly(gomock.Any(), gomock.Any(), hour, 2*time.Hour).Return([]*model.WorkspaceUsageHourly{
 		{Hour: hour, Cluster: "c1", Workspace: "ws-a", Resource: common.AmdGpu, QuotaAvg: 16, AllocatedAvg: 8,
 			QueuedAvg: 6, QueuedMax: 10, QueuedQuotaAvg: 3, QueuedUserQosAvg: 2, QueuedExternalAvg: 1,
@@ -459,6 +473,7 @@ func TestGetUsageWorkspaceAggregatesHourlyRowsInTheDatabase(t *testing.T) {
 	h, mockDB := usageAccessFixture(t)
 	hour := time.Date(2026, 11, 10, 10, 0, 0, 0, time.UTC)
 	end := time.Date(2026, 11, 13, 10, 0, 0, 0, time.UTC)
+	expectRolledUpUntil(mockDB, end)
 	mockDB.EXPECT().AggregateWorkspaceUsageHourly(gomock.Any(), gomock.Any(), hour, time.Hour).DoAndReturn(
 		func(_ context.Context, filter dbclient.WorkspaceUsageFilter, _ time.Time, _ time.Duration) ([]*model.WorkspaceUsageHourly, error) {
 			assert.Equal(t, hour.Add(30*time.Minute), filter.Start, "the database clips the first hour")
@@ -481,6 +496,103 @@ func TestGetUsageWorkspaceAggregatesHourlyRowsInTheDatabase(t *testing.T) {
 	assert.InDelta(t, 0.5, *result.Summary.Occupancy, 1e-9)
 	require.Len(t, result.Series, 2)
 	assert.Equal(t, hour, result.Series[0].Time)
+}
+
+func usageRangeQuery(start, end time.Time) string {
+	return "start=" + start.Format(time.RFC3339) + "&end=" + end.Format(time.RFC3339)
+}
+
+// expectRolledUpUntil has the database report every hour before until rolled up.
+func expectRolledUpUntil(mockDB *mock_client.MockInterface, until time.Time) {
+	mockDB.EXPECT().ListWorkspaceUsageHours(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]time.Time{until.Add(-time.Hour)}, nil)
+}
+
+func TestGetUsageWorkspaceFillsTheHoursNotRolledUpFromSamples(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h, mockDB := usageAccessFixture(t)
+	end := time.Now().UTC().Truncate(time.Hour)
+	start := end.Add(-72 * time.Hour)
+	rolledUp := end.Add(-2 * time.Hour)
+	mockDB.EXPECT().ListWorkspaceUsageHours(gomock.Any(), start, end).Return([]time.Time{start, rolledUp.Add(-time.Hour)}, nil)
+	mockDB.EXPECT().AggregateWorkspaceUsageHourly(gomock.Any(), gomock.Any(), start, time.Hour).DoAndReturn(
+		func(_ context.Context, filter dbclient.WorkspaceUsageFilter, _ time.Time, _ time.Duration) ([]*model.WorkspaceUsageHourly, error) {
+			assert.Equal(t, rolledUp, filter.End, "the hourly rows up to the last hour rolled up")
+			return []*model.WorkspaceUsageHourly{{Hour: start, Cluster: "c1", Workspace: "ws-a", Resource: common.AmdGpu,
+				QuotaAvg: 16, AllocatedAvg: 8, AllocatedHours: 8, Samples: 12, ObservedSeconds: 3600}}, nil
+		})
+	mockDB.EXPECT().ListWorkspaceUsageSamples(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, filter dbclient.WorkspaceUsageFilter) ([]*model.WorkspaceUsageSample, error) {
+			assert.Equal(t, rolledUp, filter.Start, "the samples from there on")
+			assert.Equal(t, end, filter.End)
+			return []*model.WorkspaceUsageSample{{SampleTime: rolledUp, Cluster: "c1", Workspace: "ws-a",
+				Resource: common.AmdGpu, Quota: 16, Allocated: 8}}, nil
+		})
+	mockDB.EXPECT().ListLatestWorkspaceUsageSamples(gomock.Any(), gomock.Any()).Return(nil, nil)
+
+	c, rsp := usageRequest("admin", "ws-a", usageRangeQuery(start, end))
+	h.GetUsageWorkspace(c)
+	require.Equal(t, http.StatusOK, rsp.Code, rsp.Body.String())
+	var result view.GetUsageWorkspaceResponse
+	require.NoError(t, json.Unmarshal(rsp.Body.Bytes(), &result))
+	assert.Equal(t, view.UsageSourceMixed, result.Source)
+	assert.InDelta(t, 8+8*5.0/60, result.Summary.AllocatedHours, 1e-9)
+	require.Len(t, result.Series, 2)
+	assert.Equal(t, rolledUp, result.Series[1].Time)
+}
+
+func TestGetUsageWorkspaceReadsAShortRangeOlderThanTheSamplesFromTheRollup(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h, mockDB := usageAccessFixture(t)
+	end := time.Now().UTC().Truncate(time.Hour).Add(-30 * 24 * time.Hour)
+	start := end.Add(-24 * time.Hour)
+	mockDB.EXPECT().AggregateWorkspaceUsageHourly(gomock.Any(), gomock.Any(), start, time.Hour).DoAndReturn(
+		func(_ context.Context, filter dbclient.WorkspaceUsageFilter, _ time.Time, _ time.Duration) ([]*model.WorkspaceUsageHourly, error) {
+			assert.Equal(t, end, filter.End)
+			return []*model.WorkspaceUsageHourly{{Hour: start, Cluster: "c1", Workspace: "ws-a", Resource: common.AmdGpu,
+				QuotaAvg: 16, AllocatedAvg: 8, AllocatedHours: 8, Samples: 12, ObservedSeconds: 3600}}, nil
+		})
+	mockDB.EXPECT().ListLatestWorkspaceUsageSamples(gomock.Any(), gomock.Any()).Return(nil, nil)
+
+	c, rsp := usageRequest("admin", "ws-a", usageRangeQuery(start, end))
+	h.GetUsageWorkspace(c)
+	require.Equal(t, http.StatusOK, rsp.Code, rsp.Body.String())
+	var result view.GetUsageWorkspaceResponse
+	require.NoError(t, json.Unmarshal(rsp.Body.Bytes(), &result))
+	assert.Equal(t, view.UsageSourceHourly, result.Source)
+	require.Len(t, result.Series, 1)
+	assert.Equal(t, 8.0, result.Series[0].Allocated)
+}
+
+func TestGetUsageWorkspaceMergesTheRollupAndTheSamplesAtTheRetention(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h, mockDB := usageAccessFixture(t)
+	// The default sample retention is 14 days.
+	cutoff := time.Now().UTC().Add(-14 * 24 * time.Hour)
+	start, end := cutoff.Add(-12*time.Hour).Truncate(time.Hour), cutoff.Add(12*time.Hour).Truncate(time.Hour)
+	var hourlyEnd, samplesStart time.Time
+	mockDB.EXPECT().AggregateWorkspaceUsageHourly(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, filter dbclient.WorkspaceUsageFilter, _ time.Time, _ time.Duration) ([]*model.WorkspaceUsageHourly, error) {
+			hourlyEnd = filter.End
+			return nil, nil
+		})
+	mockDB.EXPECT().ListWorkspaceUsageSamples(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, filter dbclient.WorkspaceUsageFilter) ([]*model.WorkspaceUsageSample, error) {
+			samplesStart = filter.Start
+			assert.Equal(t, end, filter.End)
+			return nil, nil
+		})
+	mockDB.EXPECT().ListLatestWorkspaceUsageSamples(gomock.Any(), gomock.Any()).Return(nil, nil)
+
+	c, rsp := usageRequest("admin", "ws-a", usageRangeQuery(start, end))
+	h.GetUsageWorkspace(c)
+	require.Equal(t, http.StatusOK, rsp.Code, rsp.Body.String())
+	assert.Equal(t, hourlyEnd, samplesStart, "no gap and no overlap between the two sources")
+	assert.True(t, hourlyEnd.After(start) && hourlyEnd.Before(end))
+	assert.Equal(t, hourlyEnd, hourlyEnd.Truncate(time.Hour))
+	var result view.GetUsageWorkspaceResponse
+	require.NoError(t, json.Unmarshal(rsp.Body.Bytes(), &result))
+	assert.Equal(t, view.UsageSourceMixed, result.Source)
 }
 
 func TestUsageRequiresDatabase(t *testing.T) {
