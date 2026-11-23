@@ -356,6 +356,23 @@ const router = createRouter({
           meta: { requiresSystemAdmin: true },
         },
         {
+          path: '/post-training',
+          name: 'PostTraining',
+          component: () => import('@/pages/PostTraining/index.vue'),
+          children: [
+            {
+              path: 'create',
+              name: 'PostTrainingCreate',
+              component: () => import('@/pages/PostTraining/Create/index.vue'),
+            },
+          ],
+        },
+        {
+          path: '/post-training/detail',
+          name: 'PostTrainingDetail',
+          component: () => import('@/pages/PostTraining/Detail.vue'),
+        },
+        {
           path: '/posttrain',
           name: 'PostTrain',
           component: () => import('@/pages/PostTrain/index.vue'),

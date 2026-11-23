@@ -57,6 +57,12 @@ func TestChartRegistryIsValid(t *testing.T) {
 	r, err := Parse(chartRegistry(t))
 	require.NoError(t, err)
 	require.NotNil(t, r.FrameworkByName(""))
+	// Every run needs the full feature of a validated image; one without it takes no run at all.
+	for _, img := range r.Images {
+		if img.Validated {
+			require.True(t, img.HasFeature(FeatureFull), "validated image %s does not list %s", img.Image, FeatureFull)
+		}
+	}
 
 	qwen4b := &v1.ModelConfig{Architectures: []string{"Qwen3ForCausalLM"}, NumHiddenLayers: 36, HiddenSize: 2560,
 		NumAttentionHeads: 32, NumKeyValueHeads: 8, RopeTheta: "1000000"}

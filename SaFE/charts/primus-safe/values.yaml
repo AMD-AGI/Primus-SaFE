@@ -529,12 +529,16 @@ model_optimization:
   # per-deploy via .env `optimize_max_concurrent` (synced into values.yaml by
   # upgrade.sh and into the live apiserver ConfigMap by cd-deploy.sh).
   max_concurrent: 1024
-# Post Training (slime). When enabled, the post-training-registry ConfigMap is rendered from
-# post_training.registry; the apiserver and the Post Training controller treat a missing ConfigMap
-# as Post Training being disabled. Override the registry per cluster to enable images and features
-# once they pass acceptance.
+# Post Training (slime), on by default. When enabled, the post-training-registry ConfigMap is rendered
+# from post_training.registry; the apiserver and the Post Training controller treat a missing
+# ConfigMap as Post Training being disabled, so enabled: false turns it off.
+# The registry below has a validated default image for MI300X/MI325X (gfx942) and MI350X/MI355X
+# (gfx950). An environment can override it: upgrade.sh merges post_training_registry from .env (a
+# base64-encoded JSON object, e.g. {"images": [...]}) over this registry, and features are enabled the
+# same way once they pass acceptance. The web console shows Post Training in place of the legacy Post
+# Train only in a workspace whose GPU architecture has a validated image; elsewhere Post Train stays.
 post_training:
-  enabled: false
+  enabled: true
   registry:
     frameworks:
       - name: slime
@@ -690,16 +694,42 @@ post_training:
             # only builds FP8 weights when the rollout needs them.
             hfDirect: true
     images:
-      # Registered unvalidated: mark validated and list features once the Qwen3-4B SFT and GRPO smoke runs
-      # pass on the target nodes.
+      # The default image of each architecture; an environment can replace the list through
+      # post_training_registry in .env. features lists what passed acceptance on the image. full, which
+      # every run needs, alone allows full-parameter SFT without a validation set and synchronous,
+      # colocated BF16 RL other than PPO; valLoss, freeze, ppo, separate, fp8Rollout, async and pd are
+      # added as their runs pass.
       - image: primussafe/slime:540ea91-rocm724-gfx950
         framework: slime
         arch: [gfx950]
         frameworkCommit: 540ea91
         megatronBridge: v0.6.2
-        env: {RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES: "1"}
-        validated: false
-        features: []
+        env:
+          # The image sets it too; listed here so that a multi-node run merges the AINIC env into it.
+          LD_LIBRARY_PATH: /opt/venv/lib/python3.12/site-packages/torch/lib:/opt/rocm/lib
+          RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES: "1"
+        validated: true
+        default: true
+        features: [full]
+      # lmsysorg/sglang:v0.5.21-rocm724-mi30x with slime 540ea91 and its ROCm patches installed under
+      # /opt/slime-rocm; validated by the SFT and colocated GRPO smoke runs on MI300X.
+      - image: primussafe/slime:540ea91-rocm724-gfx942
+        framework: slime
+        arch: [gfx942]
+        frameworkCommit: 540ea91
+        megatronBridge: v0.6.2
+        env:
+          SLIME_DIR: /opt/slime-rocm/src/slime
+          MEGATRON_DIR: /opt/slime-rocm/src/megatron
+          PYTHONPATH: /opt/slime-rocm/overlay/py312/lib/python3.12/site-packages:/opt/slime-rocm/src/slime:/opt/slime-rocm/src/megatron:/opt/slime-rocm/src/sglang/python
+          PATH: /opt/slime-rocm/overlay/py312/bin:/root/.cargo/bin:/opt/venv/bin:/opt/rocm/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/go/bin
+          LD_LIBRARY_PATH: /opt/venv/lib/python3.12/site-packages/torch/lib:/opt/rocm/lib
+          RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES: "1"
+          INDEXER_ROPE_NEOX_STYLE: "0"
+          SGLANG_DSA_HIP_DISABLE_PRESHUFFLE: "1"
+        validated: true
+        default: true
+        features: [full]
     gpuArch: {MI300X: gfx942, MI325X: gfx942, MI350X: gfx950, MI355X: gfx950}
     # Multi-node runs get network.ainic.env. Clusters with AINIC set it to the values the older SFT
     # job uses: USING_AINIC=1, NCCL_IB_GID_INDEX=1, NCCL_DMABUF_ENABLE=0, NCCL_MAX_P2P_CHANNELS=56,
