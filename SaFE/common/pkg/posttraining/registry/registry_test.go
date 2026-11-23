@@ -37,14 +37,16 @@ frameworks:
     default: true
     compiler: slime
     adapter: frameworks/slime
-    metrics: {include: ["train/*"], maxPointsPerRun: 1000}
+    metrics: {include: ["train/*"], maxPointsPerRun: 1000, summary: {sft: train/loss}, better: {"train/*": lower}}
 specs:
   - name: a
     match: {architectures: [X], num_hidden_layers: 2, rope_theta: 1000000}
     frameworks:
       slime:
+        modelScript: scripts/models/a.sh
         methods: {sft: [full], rl: [full]}
         minNodes: {sft-full: 1, rl: 1, rl-separate: 2}
+        convertNodes: 1
 images:
   - {image: img:1, framework: slime, arch: [gfx950], frameworkCommit: abc, validated: true, default: true, features: [full]}
 gpuArch: {MI355X: gfx950}
@@ -85,6 +87,12 @@ func TestParseRejects(t *testing.T) {
 		"text default":       {"minNodes: {", "defaults: {tp: \"2\"}\n        minNodes: {", "default tp must be a positive whole number"},
 		"zero default":       {"minNodes: {", "defaults: {gfx950: {tp: 0}}\n        minNodes: {", "default gfx950.tp must be a positive whole number"},
 		"unknown unverified": {"minNodes: {", "unverified: [sft-qlora]\n        minNodes: {", "unverified names no combination sft-qlora"},
+		"zero minNodes":      {"sft-full: 1", "sft-full: 0", "minNodes sft-full must be positive"},
+		"no model script":    {"        modelScript: scripts/models/a.sh\n", "", "framework slime: no modelScript"},
+		"no convert nodes":   {"convertNodes: 1", "convertNodes: 0", "convertNodes must be positive unless hfDirect"},
+		"bad better":         {"lower}", "lowest}", `metrics.better train/* must be lower or higher, not "lowest"`},
+		"bad summary key":    {"summary: {sft:", "summary: {dpo:", "metrics.summary names unknown train type dpo"},
+		"empty summary":      {"summary: {sft: train/loss}", `summary: {sft: ""}`, "metrics.summary.sft names no metric"},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -103,8 +111,10 @@ func TestOverlappingSpecsAreRejected(t *testing.T) {
     match: {architectures: [X], num_hidden_layers: 2}
     frameworks:
       slime:
+        modelScript: scripts/models/b.sh
         methods: {sft: [full]}
         minNodes: {sft-full: 1}
+        convertNodes: 1
 images:`
 	_, err := Parse([]byte(strings.Replace(minimal, "\nimages:", second, 1)))
 	require.ErrorContains(t, err, "specs a and b can match the same model")
@@ -112,6 +122,35 @@ images:`
 	distinct := strings.Replace(second, "num_hidden_layers: 2}", "num_hidden_layers: 2, rope_theta: 5000000}", 1)
 	_, err = Parse([]byte(strings.Replace(minimal, "\nimages:", distinct, 1)))
 	require.NoError(t, err)
+}
+
+// A spec using hfDirect loads the base weights for training and needs no convertNodes.
+func TestHFDirectNeedsNoConvertNodes(t *testing.T) {
+	_, err := Parse([]byte(strings.Replace(minimal, "convertNodes: 1", "hfDirect: true", 1)))
+	require.NoError(t, err)
+}
+
+// A model that lists the architectures of two specs, which validation lets through as they list different ones,
+// hits both and is matched to neither.
+func TestAModelHittingTwoSpecsMatchesNone(t *testing.T) {
+	second := `
+  - name: b
+    match: {architectures: [Z]}
+    frameworks:
+      slime:
+        modelScript: scripts/models/b.sh
+        methods: {sft: [full]}
+        minNodes: {sft-full: 1}
+        convertNodes: 1
+images:`
+	r, err := Parse([]byte(strings.Replace(minimal, "\nimages:", second, 1)))
+	require.NoError(t, err)
+	cfg := &v1.ModelConfig{Architectures: []string{"X"}, NumHiddenLayers: 2, RopeTheta: "1000000"}
+	require.Equal(t, "a", r.MatchSpec(cfg).Name)
+	cfg.Architectures = []string{"Z"}
+	require.Equal(t, "b", r.MatchSpec(cfg).Name)
+	cfg.Architectures = []string{"X", "Z"}
+	require.Nil(t, r.MatchSpec(cfg), "a model both specs hit is ambiguous")
 }
 
 // Each framework and architecture needs exactly one validated default image.
@@ -138,10 +177,12 @@ func TestDefaultImages(t *testing.T) {
 // The combinations of a framework follow its methods and freeze, and a missing minNodes entry falls back.
 func TestCombinationsAndMinNodes(t *testing.T) {
 	fs := &FrameworkSpec{
-		Methods:  map[string][]string{TrainTypeSFT: {MethodFull}, TrainTypeRL: {MethodFull}},
-		Freeze:   &Freeze{Allowed: true},
-		MinNodes: map[string]int{"sft-full": 8, "sft-freeze": 2, "rl-separate": 3, "rl-full-separate": 9},
-		Rollout:  &Rollout{RequireSeparate: true},
+		ModelScript: "scripts/models/glm.sh",
+		Methods:     map[string][]string{TrainTypeSFT: {MethodFull}, TrainTypeRL: {MethodFull}},
+		Freeze:      &Freeze{Allowed: true},
+		MinNodes:    map[string]int{"sft-full": 8, "sft-freeze": 2, "rl-separate": 3, "rl-full-separate": 9},
+		Rollout:     &Rollout{RequireSeparate: true},
+		HFDirect:    true,
 	}
 	require.Equal(t, []Combination{{Variant: VariantFull, Separate: true}, {Variant: VariantFreeze, Separate: true}},
 		fs.Combinations(TrainTypeRL))

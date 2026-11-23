@@ -249,6 +249,9 @@ func (r *Registry) Validate() error {
 		case f.Metrics.MaxPointsPerRun <= 0:
 			add("framework %s needs a positive metrics.maxPointsPerRun", f.Name)
 		}
+		for _, msg := range f.Metrics.validate() {
+			add("framework %s: %s", f.Name, msg)
+		}
 		frameworks[f.Name] = true
 		if f.Default {
 			defaults++
@@ -365,8 +368,20 @@ func (r *Registry) Validate() error {
 // validate checks one framework section of a spec, including that minNodes covers every allowed combination.
 func (fs *FrameworkSpec) validate() []string {
 	var errs []string
+	if fs.ModelScript == "" {
+		errs = append(errs, "no modelScript")
+	}
 	if len(fs.Methods) == 0 {
 		errs = append(errs, "no methods")
+	}
+	for k, n := range fs.MinNodes {
+		if n < 1 {
+			errs = append(errs, fmt.Sprintf("minNodes %s must be positive", k))
+		}
+	}
+	// Without hfDirect every run converts the weights first, on convertNodes nodes.
+	if !fs.HFDirect && fs.ConvertNodes < 1 {
+		errs = append(errs, "convertNodes must be positive unless hfDirect is set")
 	}
 	for trainType, methods := range fs.Methods {
 		if trainType != TrainTypeSFT && trainType != TrainTypeRL {
@@ -405,6 +420,34 @@ func (fs *FrameworkSpec) validate() []string {
 			errs = append(errs, "freeze.trainableB exceeds freeze.totalB")
 		}
 	}
+	return errs
+}
+
+// Values of Metrics.Better.
+const (
+	BetterLower  = "lower"
+	BetterHigher = "higher"
+)
+
+// validate checks that the summary names a metric for known train types only and that every better value is one
+// the pages understand.
+func (m *Metrics) validate() []string {
+	var errs []string
+	for trainType, name := range m.Summary {
+		switch {
+		case trainType != TrainTypeSFT && trainType != TrainTypeRL:
+			errs = append(errs, fmt.Sprintf("metrics.summary names unknown train type %s", trainType))
+		case name == "":
+			errs = append(errs, fmt.Sprintf("metrics.summary.%s names no metric", trainType))
+		}
+	}
+	for pattern, better := range m.Better {
+		if better != BetterLower && better != BetterHigher {
+			errs = append(errs, fmt.Sprintf("metrics.better %s must be %s or %s, not %q", pattern, BetterLower,
+				BetterHigher, better))
+		}
+	}
+	sort.Strings(errs)
 	return errs
 }
 
@@ -495,7 +538,8 @@ func (fs *FrameworkSpec) IsUnverified(trainType, variant string, separate bool) 
 }
 
 // overlaps tells whether some model could hit both matches: their architectures intersect and no field is set to
-// different values in both.
+// different values in both. Matches with disjoint architectures pass, as real models list one architecture; one
+// that lists the architectures of both hits both, and MatchSpec takes it as neither.
 func (m *Match) overlaps(o *Match) bool {
 	shared := false
 	for _, a := range m.Architectures {
@@ -556,14 +600,20 @@ func (m *Match) Hits(cfg *v1.ModelConfig) bool {
 	return true
 }
 
-// MatchSpec returns the only spec a model structure hits, or nil when none does.
+// MatchSpec returns the only spec a model structure hits, or nil when none or more than one does. Validate
+// refuses specs whose matches can hit one model, except for those that list different architectures, which a
+// model whose config.json lists several architectures can hit together; such a model is not taken as either.
 func (r *Registry) MatchSpec(cfg *v1.ModelConfig) *Spec {
+	var found *Spec
 	for i := range r.Specs {
 		if r.Specs[i].Match.Hits(cfg) {
-			return &r.Specs[i]
+			if found != nil {
+				return nil
+			}
+			found = &r.Specs[i]
 		}
 	}
-	return nil
+	return found
 }
 
 // FrameworkByName returns a framework, or the default framework when name is empty.
