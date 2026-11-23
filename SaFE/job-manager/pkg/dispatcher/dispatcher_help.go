@@ -663,10 +663,12 @@ func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload,
 }
 
 // modifyEnvFrom exposes the general secrets marked asEnv to the container as environment variables.
+// The sandbox signing key is skipped for the same reason modifyVolumeMounts skips it: it must never
+// reach the main containers, even if its entry is marked asEnv.
 func modifyEnvFrom(container map[string]interface{}, workload *v1.Workload) {
 	var sources []interface{}
 	for _, secret := range workload.Spec.Secrets {
-		if secret.AsEnv && secret.Type == v1.SecretGeneral {
+		if secret.AsEnv && secret.Type == v1.SecretGeneral && !isSandboxSigningSecret(workload, secret) {
 			sources = append(sources, map[string]interface{}{
 				"secretRef": map[string]interface{}{"name": secret.Id},
 			})

@@ -811,6 +811,20 @@ func TestModifyEnvFrom(t *testing.T) {
 	modifyEnvFrom(plain, &v1.Workload{Spec: v1.WorkloadSpec{Secrets: []v1.SecretEntity{{Id: "files", Type: v1.SecretGeneral}}}})
 	_, found := plain["envFrom"]
 	assert.Assert(t, !found, "workloads without asEnv keep their containers unchanged")
+
+	// The sandbox signing key (a general secret named after the workload) stays out of envFrom.
+	signing := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "wl-1"},
+		Spec: v1.WorkloadSpec{Secrets: []v1.SecretEntity{
+			{Id: "wl-1", Type: v1.SecretGeneral, AsEnv: true},
+			{Id: "wandb", Type: v1.SecretGeneral, AsEnv: true},
+		}},
+	}
+	withSigning := map[string]interface{}{"name": "main"}
+	modifyEnvFrom(withSigning, signing)
+	assert.DeepEqual(t, withSigning["envFrom"], []interface{}{
+		map[string]interface{}{"secretRef": map[string]interface{}{"name": "wandb"}},
+	})
 }
 
 func TestModifyHostPid(t *testing.T) {
