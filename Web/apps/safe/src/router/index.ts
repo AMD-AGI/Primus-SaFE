@@ -73,6 +73,12 @@ const router = createRouter({
           meta: { requiresSystemAdmin: true },
         },
         {
+          path: '/usage',
+          name: 'Usage',
+          component: () => import('../pages/Usage/index.vue'),
+          meta: { requiresSystemAdmin: true },
+        },
+        {
           path: '/cluster/detail',
           name: 'clusterDetail',
           component: () => import('../pages/Clusters/ClusterDetail.vue'),

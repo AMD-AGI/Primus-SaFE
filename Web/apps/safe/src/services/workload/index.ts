@@ -148,24 +148,6 @@ export const getLensHourlyStats = (p: {
     .catch(emptyOnUnauthorized)
 }
 
-export const getGPUAggregation = (p: {
-  cluster: string
-  namespace?: string
-  start_time?: string
-  end_time?: string
-  page?: number
-  page_size?: number
-  order_by?: string
-  order_direction?: 'asc' | 'desc'
-}) => {
-  const qs = toQuery(p)
-  return lensRequest
-    .get(`/gpu-aggregation/namespaces/hourly-stats${qs ? `?${qs}` : ''}`, {
-      params: undefined as any,
-    })
-    .catch(emptyOnUnauthorized)
-}
-
 // Root Cause Analysis
 export const getRootCauseAnalysis = (workloadId: string): Promise<RootCauseAnalysisResult> =>
   rootCauseRequest.get(`/api/workloads/${workloadId}`)
