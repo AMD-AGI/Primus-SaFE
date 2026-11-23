@@ -361,6 +361,40 @@ func newRunID(displayName string) string {
 	return commonutils.GenerateName("pt-" + slug)
 }
 
+// searchPathEnv are the variables that hold a colon-separated search path. The AINIC env of a multi-node run is
+// merged into an image's value of them rather than replacing it, as the image may need its own entries (such as the
+// torch libraries ahead of /opt/rocm/lib).
+var searchPathEnv = map[string]bool{"LD_LIBRARY_PATH": true, "PATH": true, "PYTHONPATH": true}
+
+// mergeSearchPath merges two search paths into one that keeps the order of each: the entries of first up to the
+// first one that second also has, then second, then the rest of first. For first
+// /opt/amd-anp/build:/opt/rccl/build/release:/opt/rocm/lib and second /opt/venv/torch/lib:/opt/rocm/lib it gives
+// /opt/amd-anp/build:/opt/rccl/build/release:/opt/venv/torch/lib:/opt/rocm/lib. Empty and repeated entries are
+// dropped.
+func mergeSearchPath(first, second string) string {
+	a, b := strings.Split(first, ":"), strings.Split(second, ":")
+	inB := map[string]bool{}
+	for _, p := range b {
+		inB[p] = true
+	}
+	split := len(a)
+	for i, p := range a {
+		if inB[p] {
+			split = i
+			break
+		}
+	}
+	seen := map[string]bool{"": true}
+	var out []string
+	for _, p := range append(append(append([]string{}, a[:split]...), b...), a[split:]...) {
+		if !seen[p] {
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	return strings.Join(out, ":")
+}
+
 // buildWorkload creates the RayJob of a run: the launcher entry point, the recipe, the log and network environment
 // and whole-node resources from the workspace's node flavor.
 func buildWorkload(c *gin.Context, reg *registry.Registry, req *recipe.SubmitRequest, res *recipe.Result,
@@ -385,6 +419,9 @@ func buildWorkload(c *gin.Context, reg *registry.Registry, req *recipe.SubmitReq
 	}
 	if nodes > 1 && reg.Network.AINIC != nil {
 		for k, v := range reg.Network.AINIC.Env {
+			if searchPathEnv[k] {
+				v = mergeSearchPath(v, env[k])
+			}
 			env[k] = v
 		}
 	}

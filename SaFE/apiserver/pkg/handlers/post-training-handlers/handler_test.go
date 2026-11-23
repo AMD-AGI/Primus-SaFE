@@ -195,6 +195,35 @@ func TestBuildWorkload(t *testing.T) {
 	require.NotContains(t, env, "NCCL_DEBUG_FILE")
 }
 
+// The AINIC env of a multi-node run is merged into the search paths the image sets, keeping the order of each.
+func TestBuildWorkloadMergesSearchPaths(t *testing.T) {
+	reg, req, res := compiled(t, 2)
+	reg.Network.AINIC.Env = map[string]string{"USING_AINIC": "1",
+		"LD_LIBRARY_PATH": "/opt/amd-anp/build:/opt/rccl/build/release:/opt/rocm/lib"}
+	res.Image.Env = map[string]string{"LD_LIBRARY_PATH": "/opt/venv/torch/lib:/opt/rocm/lib", "NCCL_IB_GID_INDEX": "3"}
+	w, err := buildWorkload(testContext(), reg, req, res, &workspaceInfo{flavor: flavor()}, "pt-x", []byte("{}"))
+	require.NoError(t, err)
+	require.Equal(t, "/opt/amd-anp/build:/opt/rccl/build/release:/opt/venv/torch/lib:/opt/rocm/lib",
+		w.Spec.Env["LD_LIBRARY_PATH"])
+
+	res.Image.Env = map[string]string{}
+	w, err = buildWorkload(testContext(), reg, req, res, &workspaceInfo{flavor: flavor()}, "pt-x", []byte("{}"))
+	require.NoError(t, err)
+	require.Equal(t, "/opt/amd-anp/build:/opt/rccl/build/release:/opt/rocm/lib", w.Spec.Env["LD_LIBRARY_PATH"])
+}
+
+func TestMergeSearchPath(t *testing.T) {
+	for _, c := range []struct{ first, second, want string }{
+		{"a:b:c", "x:c", "a:b:x:c"},
+		{"a:b", "x:y", "a:b:x:y"},
+		{"a:b", "", "a:b"},
+		{"", "x", "x"},
+		{"a::b:a", "b", "a:b"},
+	} {
+		require.Equal(t, c.want, mergeSearchPath(c.first, c.second), "%q + %q", c.first, c.second)
+	}
+}
+
 // A single-node run gets the node's network settings and needs a workspace with a node flavor.
 func TestBuildWorkloadSingleNode(t *testing.T) {
 	reg, req, res := compiled(t, 1)
