@@ -23,6 +23,7 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/robustclient"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/httpclient"
 )
@@ -35,6 +36,7 @@ type Handler struct {
 	clientManager     *commonutils.ObjectManager
 	accessController  *authority.AccessController
 	pendingSummarizer pendingReasonSummarizer
+	gpuWindows        gpuWindowSource
 }
 
 // NewHandler creates a new Handler instance with the provided controller manager.
@@ -45,17 +47,16 @@ type Handler struct {
 // - httpClient: HTTP client for external requests
 // - clientManager: Object manager for dataplane client caching
 // - accessController: AccessController for access control
+// - gpuWindows: GPU utilization windows read through the Robust client rc
 // Returns the initialized Handler or an error if initialization fails.
-func NewHandler(mgr ctrlruntime.Manager) (*Handler, error) {
+func NewHandler(mgr ctrlruntime.Manager, rc *robustclient.Client) (*Handler, error) {
 	clientSet, err := k8sclient.NewClientSetWithRestConfig(mgr.GetConfig())
 	if err != nil {
 		return nil, err
 	}
-	var dbClient *dbclient.Client
-	if commonconfig.IsDBEnable() {
-		if dbClient = dbclient.NewClient(); dbClient == nil {
-			return nil, fmt.Errorf("failed to new db client")
-		}
+	dbClient, err := newDBClient(commonconfig.IsDBEnable(), dbclient.NewClient)
+	if err != nil {
+		return nil, err
 	}
 	h := &Handler{
 		Client:           mgr.GetClient(),
@@ -64,8 +65,22 @@ func NewHandler(mgr ctrlruntime.Manager) (*Handler, error) {
 		httpClient:       httpclient.NewClient(),
 		clientManager:    commonutils.NewObjectManagerSingleton(),
 		accessController: authority.NewAccessController(mgr.GetClient()),
+		gpuWindows:       robustGPUWindowSource{rc: rc},
 	}
 	return h, nil
+}
+
+// newDBClient returns the database client, or a nil interface when the database is not enabled:
+// never an interface holding a nil *dbclient.Client, which h.dbClient == nil would miss.
+func newDBClient(enabled bool, connect func() *dbclient.Client) (dbclient.Interface, error) {
+	if !enabled {
+		return nil, nil
+	}
+	c := connect()
+	if c == nil {
+		return nil, fmt.Errorf("failed to new db client")
+	}
+	return c, nil
 }
 
 type handleFunc func(*gin.Context) (interface{}, error)

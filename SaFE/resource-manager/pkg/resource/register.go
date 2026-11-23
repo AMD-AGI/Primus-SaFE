@@ -11,6 +11,8 @@ import (
 	"time"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/opensearch"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/robustclient"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -80,6 +82,18 @@ func SetupControllers(ctx context.Context, mgr manager.Manager) error {
 	}
 	if err := SetupNodeRobustSyncer(mgr, rc); err != nil {
 		return fmt.Errorf("failed to set up node robust syncer: %v", err)
+	}
+	var connectUsageStore func() workspaceUsageStore
+	if commonconfig.IsDBEnable() {
+		connectUsageStore = func() workspaceUsageStore {
+			if db := dbclient.NewClient(); db != nil {
+				return db
+			}
+			return nil
+		}
+	}
+	if err := SetupWorkspaceUsageCollector(mgr, rc, connectUsageStore); err != nil {
+		return fmt.Errorf("failed to set up workspace usage collector: %v", err)
 	}
 
 	return nil

@@ -103,7 +103,7 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 	// annotation — no apiserver config or helm upgrade.
 	routes.lens = lenscompat.NewHandler(model_handlers.GetRobustClient())
 
-	if routes.resources, err = reshandler.NewHandler(mgr); err != nil {
+	if routes.resources, err = reshandler.NewHandler(mgr, model_handlers.GetRobustClient()); err != nil {
 		return nil, err
 	}
 	if routes.cd, err = cdhandlers.NewHandler(mgr); err != nil {

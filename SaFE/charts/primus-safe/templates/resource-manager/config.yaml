@@ -46,6 +46,12 @@ data:
       robust_sync_retention_day: {{ default 7 (default .Values.workload).robust_sync_retention_day }}
       # Whether the nodes SaFE manages are synced to Robust as well.
       robust_node_sync_enable: {{ ne (toString (default dict .Values.workload).robust_node_sync_enable) "false" }}
+      # Seconds between samples of each workspace's resource usage.
+      usage_sample_interval_second: {{ default 300 (default .Values.workload).usage_sample_interval_second }}
+      # Days the workspace usage samples are kept; 0 keeps them forever.
+      usage_sample_retention_day: {{ if hasKey (default dict .Values.workload) "usage_sample_retention_day" }}{{ .Values.workload.usage_sample_retention_day }}{{ else }}14{{ end }}
+      # Days the hourly workspace usage rollups are kept; 0 keeps them forever.
+      usage_hourly_retention_day: {{ if hasKey (default dict .Values.workload) "usage_hourly_retention_day" }}{{ .Values.workload.usage_hourly_retention_day }}{{ else }}400{{ end }}
     db:
       # Whether to enable database, The database will store some historical data regarding workloads, faults, and ops jobs.
       enable: {{ .Values.db.enable }}

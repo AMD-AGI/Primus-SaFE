@@ -73,6 +73,11 @@ const (
 	workloadRobustSyncRetention = workloadPrefix + "robust_sync_retention_day"
 	workloadRobustNodeSync      = workloadPrefix + "robust_node_sync_enable"
 	workloadLowUtilEnable       = workloadPrefix + "low_utilization_enable"
+	// How often workspace usage is sampled, and for how many days the samples
+	// and their hourly rollups are kept.
+	workloadUsageSampleInterval  = workloadPrefix + "usage_sample_interval_second"
+	workloadUsageSampleRetention = workloadPrefix + "usage_sample_retention_day"
+	workloadUsageHourlyRetention = workloadPrefix + "usage_hourly_retention_day"
 
 	// opensearch
 	openSearchPrefix      = "opensearch."

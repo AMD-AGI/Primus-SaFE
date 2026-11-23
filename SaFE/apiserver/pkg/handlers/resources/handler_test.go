@@ -11,6 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 )
 
 // TestCvtToResourceList tests the conversion from Kubernetes ResourceList to custom ResourceList
@@ -91,4 +93,19 @@ func TestCvtToResourceList(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestNewDBClient(t *testing.T) {
+	connected := &dbclient.Client{}
+	c, err := newDBClient(false, func() *dbclient.Client { return connected })
+	assert.NoError(t, err)
+	assert.True(t, c == nil, "a disabled database leaves the interface nil")
+
+	c, err = newDBClient(true, func() *dbclient.Client { return nil })
+	assert.Error(t, err)
+	assert.True(t, c == nil, "a failed connection leaves the interface nil")
+
+	c, err = newDBClient(true, func() *dbclient.Client { return connected })
+	assert.NoError(t, err)
+	assert.True(t, c == dbclient.Interface(connected))
 }
