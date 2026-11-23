@@ -48,7 +48,9 @@
         <template #default="{ row }">
           <el-tag :type="clusterPhaseTagType(row.phase)">{{ row.phase }}</el-tag>
           <el-tooltip v-if="row.message" :content="row.message" placement="top">
-            <el-icon class="ml-1 align-middle" color="var(--el-color-warning)"><WarningFilled /></el-icon>
+            <el-icon class="ml-1 align-middle" color="var(--el-color-warning)">
+              <WarningFilled />
+            </el-icon>
           </el-tooltip>
         </template>
       </el-table-column>
