@@ -26,6 +26,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/exporter"
 	rmhealth "github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/health"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/ops_job"
+	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/posttraining"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/resource"
 )
 
@@ -85,6 +86,10 @@ func (s *Server) init() error {
 	}
 	if err = ops_job.SetupOpsJobs(s.ctrlManager.ctx, s.ctrlManager.ctrlManager); err != nil {
 		klog.ErrorS(err, "failed to setup ops-job controllers")
+		return err
+	}
+	if err = posttraining.SetupPostTrainingController(s.ctrlManager.ctx, s.ctrlManager.ctrlManager); err != nil {
+		klog.ErrorS(err, "failed to setup the Post Training controller")
 		return err
 	}
 	if err = exporter.SetupExporters(s.ctrlManager.ctx, s.ctrlManager.ctrlManager); err != nil {

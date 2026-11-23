@@ -86,6 +86,10 @@ func (w *WorkloadInformer) OnUpdate(oldObj, newObj interface{}) {
 // submitWorkloadNotification deduplicates by workload name + phase, ensuring
 // at most one notification per workload per phase transition.
 func (w *WorkloadInformer) submitWorkloadNotification(workload *v1.Workload) {
+	// The cleanup of a Post Training conversion cache needs no notification.
+	if v1.GetLabel(workload, v1.PostTrainingConvertCacheLabel) != "" {
+		return
+	}
 	phase := string(workload.Status.Phase)
 	notifyData := map[string]interface{}{
 		"topic":     model.TopicWorkload,

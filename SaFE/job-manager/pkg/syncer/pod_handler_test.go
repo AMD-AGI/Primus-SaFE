@@ -637,6 +637,24 @@ func TestHandleRaySubmitterTimeoutNonRayJob(t *testing.T) {
 	assert.Equal(t, ok, false)
 }
 
+// A pod event long after a RayJob succeeded must not turn it into a failure.
+func TestHandleRaySubmitterTimeoutEndedWorkload(t *testing.T) {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	w.Spec.GroupVersionKind.Kind = common.RayJobKind
+	w.Status.Phase = v1.WorkloadSucceeded
+	end := time.Now().UTC().Add(-2 * MaxRayJobWaitTime * time.Second).Format(timeutil.TimeRFC3339Short)
+	w.Status.Pods = []v1.WorkloadPod{{PodId: "submitter", EndTime: end}}
+	cl := ctrlfake.NewClientBuilder().WithScheme(syncerScheme(t)).WithObjects(w).WithStatusSubresource(w).Build()
+	r := &SyncerReconciler{Client: cl}
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "submitter"}}
+	ok, err := r.handleRaySubmitterTimeout(context.Background(), w, pod)
+	assert.NilError(t, err)
+	assert.Equal(t, ok, false)
+	got := &v1.Workload{}
+	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, got))
+	assert.Equal(t, got.Status.Phase, v1.WorkloadSucceeded)
+}
+
 func TestBuildPodTerminatedInfoRunningNoop(t *testing.T) {
 	w := &v1.Workload{}
 	pod := &corev1.Pod{Status: corev1.PodStatus{Phase: corev1.PodRunning}}

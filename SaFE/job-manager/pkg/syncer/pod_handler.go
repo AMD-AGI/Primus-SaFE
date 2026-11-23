@@ -1371,7 +1371,7 @@ func (r *SyncerReconciler) deleteStaleStickyNodeFaults(
 }
 
 func (r *SyncerReconciler) handleRaySubmitterTimeout(ctx context.Context, adminWorkload *v1.Workload, pod *corev1.Pod) (bool, error) {
-	if !commonworkload.IsRayJob(adminWorkload) {
+	if !commonworkload.IsRayJob(adminWorkload) || adminWorkload.IsEnd() {
 		return false, nil
 	}
 	id := -1
@@ -1477,10 +1477,15 @@ func buildPodTerminatedInfo(ctx context.Context, clientSet kubernetes.Interface,
 			mainContainerName = c.Name
 		}
 		// The preflight results are handled by job self-parse.
+		// A job that logs no result lines keeps its termination message, the reason it gives for ending.
 		if commonworkload.IsOpsJob(adminWorkload) && c.Name == mainContainerName &&
 			v1.GetOpsJobType(adminWorkload) != string(v1.OpsJobPreflightType) {
-			message := getPodLog(ctx, clientSet, pod, mainContainerName)
-			c.Message = message
+			if message := getPodLog(ctx, clientSet, pod, mainContainerName); message != "" {
+				c.Message = message
+			}
+		}
+		if commonworkload.IsPostTraining(adminWorkload) && c.Name == common.RayJobSubmitterName {
+			c.Message = getPostTrainingResult(ctx, clientSet, pod, v1.GetLabel(adminWorkload, v1.PostTrainingRunIdLabel))
 		}
 		workloadPod.Containers = append(workloadPod.Containers, c)
 	}
@@ -1729,6 +1734,18 @@ func getPodLog(ctx context.Context, clientSet kubernetes.Interface, pod *corev1.
 	}
 
 	return commonopsjob.FilterResultLog(data)
+}
+
+// getPostTrainingResult reads the tail of a Post Training submitter log and keeps the result lines of run.
+func getPostTrainingResult(ctx context.Context, clientSet kubernetes.Interface, pod *corev1.Pod, run string) string {
+	var tailLine int64 = LogTailLines
+	opt := &corev1.PodLogOptions{Container: common.RayJobSubmitterName, TailLines: &tailLine}
+	data, err := clientSet.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, opt).DoRaw(ctx)
+	if err != nil {
+		klog.ErrorS(err, "failed to get log of pod", "namespace", pod.Namespace, "podName", pod.Name)
+		return ""
+	}
+	return commonopsjob.FilterRunResultLog(data, run)
 }
 
 // sortWorkloadPods sorts workload pods by host IP and pod ID to maintain consistent ordering.
