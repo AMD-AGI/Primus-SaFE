@@ -1,4 +1,5 @@
 import dayjs from 'dayjs'
+import type { LocationQuery } from 'vue-router'
 import type { UsageQuery, UsageSortKey } from '@/services/usage/type'
 
 /** 'name' leaves sortBy unset, so the server orders the workspaces by name. */
@@ -41,6 +42,27 @@ export const buildUsageQuery = (range: UsageRangeValue, now = new Date()): Usage
     end: now.toISOString(),
     step: stepForHours(hours),
   }
+}
+
+const PRESET_KEYS = Object.keys(PRESET_HOURS)
+
+/** Reads the range from a page query: `range=1d|7d|30d`, or `start` and `end` for Custom. */
+export const rangeFromQuery = (query: LocationQuery): UsageRangeValue => {
+  const start = typeof query.start === 'string' ? new Date(query.start) : null
+  const end = typeof query.end === 'string' ? new Date(query.end) : null
+  if (start && end && start.getTime() < end.getTime()) {
+    return { key: 'custom', custom: [start, end] }
+  }
+  const key =
+    typeof query.range === 'string' && PRESET_KEYS.includes(query.range) ? query.range : '7d'
+  return { key: key as UsageRangeKey, custom: null }
+}
+
+/** The page query of a range; Custom without dates writes nothing and reads back as 7d. */
+export const rangeToQuery = (range: UsageRangeValue): Record<string, string> => {
+  if (range.key !== 'custom') return { range: range.key }
+  if (!range.custom) return {}
+  return { start: range.custom[0].toISOString(), end: range.custom[1].toISOString() }
 }
 
 /** A ratio (0..1) as a percentage; null means "no data". */

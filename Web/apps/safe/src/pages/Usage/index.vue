@@ -1,16 +1,18 @@
 <template>
   <div class="usage-page__header">
     <el-breadcrumb separator="/" class="usage-page__crumbs">
-      <el-breadcrumb-item :to="cluster ? { path: '/usage' } : undefined">Usage</el-breadcrumb-item>
+      <el-breadcrumb-item :to="cluster ? { path: '/usage', query: rangeQuery } : undefined">
+        Usage
+      </el-breadcrumb-item>
       <el-breadcrumb-item
         v-if="cluster"
-        :to="workspace ? { path: '/usage', query: { cluster } } : undefined"
+        :to="workspace ? { path: '/usage', query: { ...rangeQuery, cluster } } : undefined"
       >
         {{ cluster }}
       </el-breadcrumb-item>
       <el-breadcrumb-item v-if="workspace">{{ workspace }}</el-breadcrumb-item>
     </el-breadcrumb>
-    <UsageRangePicker v-model="range" @change="reload" />
+    <UsageRangePicker v-model="range" @change="writeRange" />
   </div>
 
   <div class="usage-page__body">
@@ -38,7 +40,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter, type LocationQuery } from 'vue-router'
 import { getUsageWorkspace, listUsageClusters, listUsageWorkspaces } from '@/services/usage'
 import type {
   GetUsageWorkspaceResp,
@@ -50,7 +52,13 @@ import ClusterUsageCards from './Components/ClusterUsageCards.vue'
 import ClusterUsageDetail from './Components/ClusterUsageDetail.vue'
 import UsageRangePicker from './Components/UsageRangePicker.vue'
 import WorkspaceUsagePanel from './Components/WorkspaceUsagePanel.vue'
-import { buildUsageQuery, type UsageRangeValue, type WorkspaceSort } from './usageUtils'
+import {
+  buildUsageQuery,
+  rangeFromQuery,
+  rangeToQuery,
+  type UsageRangeValue,
+  type WorkspaceSort,
+} from './usageUtils'
 
 // Workload list length of the workspace detail.
 const WORKLOAD_LIMIT = 5
@@ -61,7 +69,9 @@ const router = useRouter()
 const cluster = computed(() => (route.query.cluster as string) || '')
 const workspace = computed(() => (route.query.workspace as string) || '')
 
-const range = ref<UsageRangeValue>({ key: '7d', custom: null })
+// The range lives in the query next to the level, so a refresh or a shared link keeps it.
+const range = ref<UsageRangeValue>(rangeFromQuery(route.query))
+const rangeQuery = computed(() => rangeToQuery(rangeFromQuery(route.query)))
 const sort = ref<WorkspaceSort>('occupancy')
 
 const clustersData = ref<ListUsageClustersResp | null>(null)
@@ -135,11 +145,36 @@ function reload() {
   load()
 }
 
-const goCluster = (name: string) => router.push({ path: '/usage', query: { cluster: name } })
+const goCluster = (name: string) =>
+  router.push({ path: '/usage', query: { ...rangeQuery.value, cluster: name } })
 const goWorkspace = (name: string) =>
-  router.push({ path: '/usage', query: { cluster: cluster.value, workspace: name } })
+  router.push({
+    path: '/usage',
+    query: { ...rangeQuery.value, cluster: cluster.value, workspace: name },
+  })
 
-watch([cluster, workspace], load)
+// The picker only writes the query; the query watcher below reloads.
+const writeRange = () =>
+  router.replace({
+    query: {
+      cluster: cluster.value || undefined,
+      workspace: workspace.value || undefined,
+      ...rangeToQuery(range.value),
+    },
+  })
+
+const rangeKey = (query: LocationQuery) => JSON.stringify(rangeToQuery(rangeFromQuery(query)))
+
+// Back / forward can change the level and the range at once, so one watcher handles both.
+watch(
+  () => route.query,
+  (now, before) => {
+    if (route.name !== 'Usage') return
+    if (rangeKey(now) === rangeKey(before)) return load()
+    range.value = rangeFromQuery(now)
+    reload()
+  },
+)
 watch(sort, () => {
   if (cluster.value && !workspace.value) loadWorkspaces()
 })

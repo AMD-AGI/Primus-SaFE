@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { buildUsageQuery, fmtPercent, fmtRatio, stepForHours, utilizationTone } from './usageUtils'
+import {
+  buildUsageQuery,
+  fmtPercent,
+  fmtRatio,
+  rangeFromQuery,
+  rangeToQuery,
+  stepForHours,
+  utilizationTone,
+  type UsageRangeValue,
+} from './usageUtils'
 
 describe('buildUsageQuery', () => {
   const now = new Date('2026-11-23T00:00:00Z')
@@ -25,6 +34,30 @@ describe('buildUsageQuery', () => {
 
   it('sends nothing for Custom before dates are picked', () => {
     expect(buildUsageQuery({ key: 'custom', custom: null }, now)).toEqual({})
+  })
+})
+
+describe('range in the page query', () => {
+  const nov1 = new Date('2026-11-01T00:00:00Z')
+  const nov2 = new Date('2026-11-02T00:00:00Z')
+
+  it('reads a preset or a custom range and falls back to 7d', () => {
+    expect(rangeFromQuery({ range: '1d' })).toEqual({ key: '1d', custom: null })
+    expect(rangeFromQuery({ start: nov1.toISOString(), end: nov2.toISOString() })).toEqual({
+      key: 'custom',
+      custom: [nov1, nov2],
+    })
+    expect(rangeFromQuery({ range: 'constructor', start: 'yesterday' })).toEqual({
+      key: '7d',
+      custom: null,
+    })
+  })
+
+  it('writes a range that reads back the same', () => {
+    const custom: UsageRangeValue = { key: 'custom', custom: [nov1, nov2] }
+    expect(rangeFromQuery(rangeToQuery(custom))).toEqual(custom)
+    expect(rangeToQuery({ key: '30d', custom: null })).toEqual({ range: '30d' })
+    expect(rangeToQuery({ key: 'custom', custom: null })).toEqual({})
   })
 })
 

@@ -33,7 +33,7 @@ import { useUserStore } from '@/stores/user'
 import { useWorkspaceStore } from '@/stores/workspace'
 import UsageRangePicker from '../Usage/Components/UsageRangePicker.vue'
 import WorkspaceUsagePanel from '../Usage/Components/WorkspaceUsagePanel.vue'
-import { buildUsageQuery, type UsageRangeValue } from '../Usage/usageUtils'
+import { buildUsageQuery, rangeToQuery, type UsageRangeValue } from '../Usage/usageUtils'
 
 // Workload list length of the panel.
 const WORKLOAD_LIMIT = 5
@@ -74,7 +74,11 @@ const openInUsage = () => {
   if (!data.value) return
   router.push({
     path: '/usage',
-    query: { cluster: data.value.cluster, workspace: data.value.workspace },
+    query: {
+      ...rangeToQuery(range.value),
+      cluster: data.value.cluster,
+      workspace: data.value.workspace,
+    },
   })
 }
 
