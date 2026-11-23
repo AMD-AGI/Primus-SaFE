@@ -372,6 +372,7 @@ func TestATimeoutAboveTheRuntimeCeilingNeedsTheGrant(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, code, body)
 	require.Contains(t, body, "workload/long-runtime")
 
+	var extended []metav1.Condition
 	extendedBy := func(user string, timeout int) string {
 		var runID string
 		db.EXPECT().CreatePostTrainingRun(gomock.Any(), gomock.Any()).DoAndReturn(
@@ -385,8 +386,18 @@ func TestATimeoutAboveTheRuntimeCeilingNeedsTheGrant(t *testing.T) {
 		w := &v1.Workload{}
 		require.NoError(t, cli.Get(context.Background(), ctrlclient.ObjectKey{Name: runID}, w))
 		require.Equal(t, timeout, *w.Spec.Timeout)
+		extended = nil
+		for _, cond := range w.Status.Conditions {
+			if cond.Type == string(v1.RuntimeExtended) {
+				extended = append(extended, cond)
+			}
+		}
 		return v1.GetAnnotation(w, v1.WorkloadRuntimeExtendedByAnnotation)
 	}
 	require.Equal(t, "admin", extendedBy("admin", 7200), "the webhook keeps an authorized timeout")
+	require.Len(t, extended, 1, "the timeline says who set the timeout above the ceiling, as for any workload")
+	require.Contains(t, extended[0].Message, "runtime set to 2h by")
+	require.Contains(t, extended[0].Message, "above the qos limit 1h")
 	require.Empty(t, extendedBy("u1", 1800), "a timeout within the ceiling needs no grant")
+	require.Empty(t, extended)
 }

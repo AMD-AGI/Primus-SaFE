@@ -137,6 +137,8 @@ type preparedRun struct {
 	row      *dbclient.PostTrainingRun
 	workload *v1.Workload
 	warnings []recipe.Diagnostic
+	// runtimeCond is the timeline entry of a timeout set above the runtime ceiling, added once the workload exists.
+	runtimeCond *metav1.Condition
 }
 
 // submit runs the whole submission; it returns diagnostics without a response when the request does not compile.
@@ -188,14 +190,15 @@ func (h *Handler) prepareRun(c *gin.Context, reg *registry.Registry,
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := h.authorizeRuntime(c, workload); err != nil {
+	runtimeCond, err := h.authorizeRuntime(c, workload)
+	if err != nil {
 		return nil, nil, err
 	}
 	row := runRow(c, req, res, ws, model, runID, string(recipeJSON))
 	if in.Dataset != nil {
 		row.DatasetName = in.Dataset.Name
 	}
-	return &preparedRun{row: row, workload: workload, warnings: res.Diagnostics}, nil, nil
+	return &preparedRun{row: row, workload: workload, warnings: res.Diagnostics, runtimeCond: runtimeCond}, nil, nil
 }
 
 // refused tells whether the cluster answered a creation with a refusal, after which the object does not exist. That
@@ -244,6 +247,12 @@ func (h *Handler) createRun(c *gin.Context, p *preparedRun) (*submitResponse, er
 			klog.ErrorS(uerr, "failed to mark the run failed", "run", p.row.RunID)
 		}
 		return nil, err
+	}
+	if p.runtimeCond != nil {
+		// As POST /workloads does, the timeline says who set the timeout above the ceiling; the run goes on without it.
+		if err := h.appendWorkloadCondition(ctx, p.workload, p.runtimeCond); err != nil {
+			klog.ErrorS(err, "failed to record the runtime extension", "run", p.row.RunID)
+		}
 	}
 	return &submitResponse{RunID: p.row.RunID, WorkloadID: p.workload.Name, Warnings: p.warnings}, nil
 }
@@ -445,33 +454,74 @@ func buildWorkload(c *gin.Context, reg *registry.Registry, req *recipe.SubmitReq
 // runtime ceiling of the user's QoS needs the workload/long-runtime grant in the workspace, and the workload is then
 // marked with WorkloadRuntimeExtendedByAnnotation, which the workload webhook takes as that authorization. A timeout
 // that is unset is filled from the ceiling by the webhook. It runs before the run is recorded, so a timeout the user
-// may not set is refused without leaving a failed run behind.
-func (h *Handler) authorizeRuntime(c *gin.Context, w *v1.Workload) error {
+// may not set is refused without leaving a failed run behind. For an extended timeout it returns the RuntimeExtended
+// timeline entry that POST /workloads adds as well.
+func (h *Handler) authorizeRuntime(c *gin.Context, w *v1.Workload) (*metav1.Condition, error) {
 	v1.RemoveAnnotation(w, v1.WorkloadRuntimeExtendedByAnnotation)
 	if w.Spec.Timeout == nil || *w.Spec.Timeout <= 0 {
-		return nil
+		return nil, nil
 	}
 	ctx := c.Request.Context()
 	userID := c.GetString(common.UserId)
 	limits, err := commonqos.Ceiling(ctx, h.client, userID, commonqos.WorkspaceID(w),
 		string(commonworkload.GetScope(w)))
 	if err != nil {
-		return commonerrors.NewInternalError("failed to read the runtime limit: " + err.Error())
+		return nil, commonerrors.NewInternalError("failed to read the runtime limit: " + err.Error())
 	}
 	if ceiling := limits.RuntimeSeconds; ceiling <= 0 || *w.Spec.Timeout <= ceiling {
-		return nil
+		return nil, nil
 	}
 	if err := h.authorizeKinds(c, v1.CreateVerb, w.Spec.Workspace, "", w.Name,
 		authority.WorkloadLongRuntimeKind); err != nil {
 		if apierrors.IsForbidden(err) {
-			return commonerrors.NewForbidden(fmt.Sprintf("resources.timeoutSeconds %d is above the limit of %d "+
+			return nil, commonerrors.NewForbidden(fmt.Sprintf("resources.timeoutSeconds %d is above the limit of %d "+
 				"seconds in workspace %s; a longer timeout requires the %s grant in the workspace",
 				*w.Spec.Timeout, limits.RuntimeSeconds, w.Spec.Workspace, authority.WorkloadLongRuntimeKind))
 		}
-		return err
+		return nil, err
 	}
 	v1.SetAnnotation(w, v1.WorkloadRuntimeExtendedByAnnotation, userID)
-	return nil
+	name := c.GetString(common.UserName)
+	if name == "" {
+		name = userID
+	}
+	return &metav1.Condition{
+		Type:   string(v1.RuntimeExtended),
+		Status: metav1.ConditionTrue,
+		Reason: "Extended",
+		Message: fmt.Sprintf("runtime set to %s by %s, above the qos limit %s", formatRuntime(*w.Spec.Timeout), name,
+			formatRuntime(limits.RuntimeSeconds)),
+		LastTransitionTime: metav1.NewTime(time.Now().UTC()),
+	}, nil
+}
+
+// formatRuntime renders a timeout in seconds as the workload timeline does, such as 3h or 1h30m.
+func formatRuntime(seconds int) string {
+	text := (time.Duration(seconds) * time.Second).String()
+	if strings.HasSuffix(text, "m0s") {
+		text = strings.TrimSuffix(text, "0s")
+	}
+	if strings.HasSuffix(text, "h0m") {
+		text = strings.TrimSuffix(text, "0m")
+	}
+	return text
+}
+
+// appendWorkloadCondition adds one timeline entry to a workload's status, reading the workload again on a conflict.
+func (h *Handler) appendWorkloadCondition(ctx context.Context, w *v1.Workload, cond *metav1.Condition) error {
+	for attempt := 0; ; attempt++ {
+		base := w.DeepCopy()
+		w.Status.Conditions = append(w.Status.Conditions, *cond)
+		err := h.client.Status().Patch(ctx, w, ctrlclient.MergeFromWithOptions(base, ctrlclient.MergeFromWithOptimisticLock{}))
+		if !apierrors.IsConflict(err) || attempt == 2 {
+			return err
+		}
+		latest := &v1.Workload{}
+		if err := h.client.Get(ctx, ctrlclient.ObjectKeyFromObject(w), latest); err != nil {
+			return err
+		}
+		w = latest
+	}
 }
 
 // rewardSecret returns the secret of an RL request's remote reward service, or an empty string.
