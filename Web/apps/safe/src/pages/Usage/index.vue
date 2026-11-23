@@ -14,7 +14,7 @@
   </div>
 
   <div class="usage-page__body">
-    <ClusterUsageTable
+    <ClusterUsageCards
       v-if="!cluster"
       :items="clustersData?.items ?? []"
       :loading="clustersLoading"
@@ -46,7 +46,7 @@ import type {
   ListUsageWorkspacesResp,
   UsageQuery,
 } from '@/services/usage/type'
-import ClusterUsageTable from './Components/ClusterUsageTable.vue'
+import ClusterUsageCards from './Components/ClusterUsageCards.vue'
 import ClusterUsageDetail from './Components/ClusterUsageDetail.vue'
 import UsageRangePicker from './Components/UsageRangePicker.vue'
 import WorkspaceUsagePanel from './Components/WorkspaceUsagePanel.vue'
