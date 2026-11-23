@@ -67,78 +67,7 @@
     </div>
   </div>
 
-  <section class="gpu-chart-section">
-    <div class="header-row">
-      <h3 class="chart-title">GPU Utilization & Allocation</h3>
-      <div class="chart-filters">
-        <el-segmented
-          v-model="quickDateRange"
-          :options="[
-            { label: 'Past 1 Day', value: 1 },
-            { label: 'Past 7 Days', value: 7 },
-            { label: 'Past 30 Days', value: 30 },
-            { label: 'Custom', value: 0 },
-          ]"
-          @change="onQuickDateChange"
-        />
-        <el-date-picker
-          v-model="dateRange"
-          type="datetimerange"
-          range-separator="To"
-          start-placeholder="Start time"
-          end-placeholder="End time"
-          :disabled="quickDateRange !== 0"
-          class="gpu-date-picker"
-          @change="onDateRangeChange"
-        />
-      </div>
-    </div>
-
-    <div class="gpu-layout">
-      <el-card shadow="never" class="gpu-chart-card safe-card" v-loading="gpuLoading">
-        <div ref="gpuChartRef" class="gpu-chart-box" />
-      </el-card>
-
-      <div class="gpu-stats-panel">
-        <el-card shadow="never" class="gpu-stat-card safe-card">
-          <div class="gpu-stat-icon gpu-stat-icon--info">
-            <el-icon><List /></el-icon>
-          </div>
-          <div class="gpu-stat-copy">
-            <div class="gpu-stat-label">Total Workloads</div>
-            <div class="gpu-stat-value">{{ gpuStats.totalWorkloads }}</div>
-          </div>
-        </el-card>
-        <el-card shadow="never" class="gpu-stat-card safe-card">
-          <div class="gpu-stat-icon gpu-stat-icon--success">
-            <el-icon><TrendCharts /></el-icon>
-          </div>
-          <div class="gpu-stat-copy">
-            <div class="gpu-stat-label">Avg Allocation</div>
-            <div class="gpu-stat-value">{{ gpuStats.avgAllocation }}<span>%</span></div>
-          </div>
-        </el-card>
-        <el-card shadow="never" class="gpu-stat-card safe-card">
-          <div class="gpu-stat-icon gpu-stat-icon--primary">
-            <el-icon><Odometer /></el-icon>
-          </div>
-          <div class="gpu-stat-copy">
-            <div class="gpu-stat-label">Avg Utilization</div>
-            <div class="gpu-stat-value">{{ gpuStats.avgUtilization }}<span>%</span></div>
-          </div>
-        </el-card>
-        <el-card shadow="never" class="gpu-stat-card safe-card">
-          <div class="gpu-stat-icon gpu-stat-icon--warning">
-            <el-icon><WarningFilled /></el-icon>
-          </div>
-          <div class="gpu-stat-copy">
-            <div class="gpu-stat-label">Low Utilization</div>
-            <div class="gpu-stat-value">{{ gpuStats.lowUtilization }}</div>
-          </div>
-        </el-card>
-      </div>
-    </div>
-  </section>
+  <WorkspaceUsageSection />
     </div>
 
     <aside class="home-rail">
@@ -215,35 +144,23 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onBeforeUnmount, onMounted, type Component } from 'vue'
+import { ref, computed, watch, nextTick, onBeforeUnmount, type Component } from 'vue'
 import * as echarts from 'echarts'
 import {
-  List,
-  Odometer,
   Right,
-  TrendCharts,
-  WarningFilled,
   Cpu,
   Promotion,
   Notebook,
 } from '@element-plus/icons-vue'
 import { useWorkspaceStore } from '@/stores/workspace'
-import { useClusterStore } from '@/stores/cluster'
 import { getWorkspaceDetail } from '@/services/workspace/index'
-import { getGPUAggregation, getWorkloadsList } from '@/services/workload/index'
+import { getWorkloadsList } from '@/services/workload/index'
 import { WorkloadPhaseButtonType, KindPathMap, WorkloadKind } from '@/services/workload/type'
 import { useUserStore } from '@/stores/user'
 import { useRouter } from 'vue-router'
 import type { ScopesKeys } from '@/services/base/type'
 import { byte2Gi } from '@/utils/index'
-import {
-  buildGpuStats,
-  buildGpuUsageSeries,
-  formatDateWithTimezone,
-  getDateRange,
-  unwrapGpuAggregationRows,
-  type GPUAggregationItem,
-} from './gpuUsage'
+import WorkspaceUsageSection from './WorkspaceUsageSection.vue'
 
 // Check if in production environment
 const isProd = import.meta.env.PROD
@@ -253,7 +170,6 @@ const goToHyperloom = () => {
 }
 
 const store = useWorkspaceStore()
-const clusterStore = useClusterStore()
 const PIE_COLORS = ['#47b881', '#d65f68', '#0d9488'] as const
 
 // ── Right rail: my running / pending workloads ──
@@ -401,18 +317,11 @@ const buildNodePieOption = (): echarts.EChartsOption => {
 
 const nodePieRef = ref<HTMLElement | null>(null)
 let nodePieChart: echarts.ECharts | null = null
-const gpuChartRef = ref<HTMLElement | null>(null)
-let gpuChart: echarts.ECharts | null = null
 let chartResizeObserver: ResizeObserver | null = null
 const observedChartContainers = new Set<HTMLElement>()
-const gpuLoading = ref(false)
-const quickDateRange = ref(7)
-const dateRange = ref<[Date, Date] | null>(null)
-const gpuData = ref<GPUAggregationItem[]>([])
 
 function resizeCharts() {
   nodePieChart?.resize()
-  gpuChart?.resize()
 }
 
 function observeChartContainers() {
@@ -422,7 +331,7 @@ function observeChartContainers() {
     })
   }
 
-  ;[nodePieRef.value, gpuChartRef.value].forEach((el) => {
+  ;[nodePieRef.value].forEach((el) => {
     if (!el || observedChartContainers.has(el)) return
     chartResizeObserver?.observe(el)
     observedChartContainers.add(el)
@@ -436,113 +345,6 @@ function renderAllCharts() {
   }
   nodePieChart?.setOption(buildNodePieOption(), true)
   observeChartContainers()
-}
-
-const calculateAxisInterval = (dataLength: number) => {
-  if (dataLength <= 24) return 0
-  if (dataLength <= 48) return 1
-  if (dataLength <= 168) return Math.floor(dataLength / 12)
-  return Math.floor(dataLength / 10)
-}
-
-async function renderGpuChart() {
-  await nextTick()
-  if (!gpuChartRef.value) return
-
-  if (!gpuChart) {
-    gpuChart = echarts.init(gpuChartRef.value)
-  }
-  observeChartContainers()
-
-  if (!gpuData.value.length) {
-    gpuChart.setOption(
-      {
-        title: {
-          show: true,
-          text: 'No Data',
-          left: 'center',
-          top: 'center',
-          textStyle: { color: '#999', fontSize: 18 },
-        },
-      },
-      true,
-    )
-    return
-  }
-
-  const series = buildGpuUsageSeries(gpuData.value)
-  const isDark =
-    document.documentElement.classList.contains('dark') ||
-    (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
-  const colorText = isDark ? '#E5EAF3' : '#303133'
-  const colorSubtext = isDark ? '#C8CDD5' : '#606266'
-  const colorAxis = isDark ? '#FFFFFF33' : '#00000026'
-  const colorGrid = isDark ? '#FFFFFF1F' : '#00000012'
-
-  const option: echarts.EChartsOption = {
-    animation: false,
-    tooltip: {
-      trigger: 'axis',
-      confine: true,
-      valueFormatter: (value) => `${value}%`,
-    },
-    legend: {
-      data: ['Avg Utilization', 'Allocation Rate'],
-      top: 12,
-      textStyle: { color: colorText, fontSize: 13 },
-    },
-    grid: {
-      left: '2%',
-      right: '2%',
-      bottom: '8%',
-      top: '16%',
-      containLabel: true,
-    },
-    xAxis: {
-      type: 'category',
-      boundaryGap: false,
-      data: series.times,
-      axisTick: { show: false },
-      axisLine: { lineStyle: { color: colorAxis } },
-      axisLabel: {
-        color: colorSubtext,
-        fontSize: 12,
-        rotate: 45,
-        interval: calculateAxisInterval(series.times.length),
-      },
-    },
-    yAxis: {
-      type: 'value',
-      name: 'Percentage (%)',
-      min: 0,
-      max: 100,
-      nameTextStyle: { color: colorText, fontSize: 13, fontWeight: 600 },
-      axisLabel: { color: colorSubtext, formatter: '{value}%' },
-      splitLine: { lineStyle: { color: colorGrid } },
-    },
-    series: [
-      {
-        name: 'Avg Utilization',
-        type: 'line',
-        smooth: true,
-        showSymbol: false,
-        data: series.utilization,
-        lineStyle: { width: 3, color: '#0d9488' },
-        areaStyle: { color: 'rgba(13, 148, 136, 0.12)' },
-      },
-      {
-        name: 'Allocation Rate',
-        type: 'line',
-        smooth: true,
-        showSymbol: false,
-        data: series.allocation,
-        lineStyle: { width: 3, color: '#47b881' },
-        areaStyle: { color: 'rgba(71, 184, 129, 0.12)' },
-      },
-    ],
-  }
-
-  gpuChart.setOption(option, true)
 }
 
 type StatCard = {
@@ -609,63 +411,10 @@ const statCards = computed<StatCard[]>(() => {
 
   return res
 })
-const gpuStats = computed(() => buildGpuStats(gpuData.value))
 
 async function getDetail() {
   if (!store.currentWorkspaceId) return
   detailData.value = await getWorkspaceDetail(store.currentWorkspaceId)
-}
-
-async function fetchGPUData() {
-  if (!dateRange.value || !store.currentWorkspaceId || !clusterStore.currentClusterId) return
-  // GPU aggregation is served by Robust. Call it only when /envs reports enableRobust.
-  if (userStore.envs?.enableRobust !== true) {
-    gpuData.value = []
-    await renderGpuChart()
-    return
-  }
-  if (store.isCurrentWorkspaceExternal) {
-    gpuData.value = []
-    await renderGpuChart()
-    return
-  }
-
-  gpuLoading.value = true
-  try {
-    const [start, end] = dateRange.value
-    const res = await getGPUAggregation({
-      cluster: clusterStore.currentClusterId,
-      namespace: store.currentWorkspaceId,
-      start_time: formatDateWithTimezone(start),
-      end_time: formatDateWithTimezone(end),
-      page: 1,
-      page_size: 20,
-      order_by: 'time',
-      order_direction: 'desc',
-    })
-    gpuData.value = unwrapGpuAggregationRows(res)
-    await renderGpuChart()
-  } finally {
-    gpuLoading.value = false
-  }
-}
-
-const initDateRange = () => {
-  if (quickDateRange.value > 0) {
-    dateRange.value = getDateRange(quickDateRange.value)
-  }
-}
-
-const onQuickDateChange = (value: number | string | boolean | undefined) => {
-  const days = Number(value)
-  if (days > 0) {
-    dateRange.value = getDateRange(days)
-    fetchGPUData()
-  }
-}
-
-const onDateRangeChange = () => {
-  if (dateRange.value) fetchGPUData()
 }
 
 watch(
@@ -673,49 +422,18 @@ watch(
   (id) => {
     if (!id) return
     getDetail()
-    fetchGPUData()
   },
   { immediate: true },
-)
-
-watch(
-  () => store.isCurrentWorkspaceExternal,
-  (external) => {
-    if (external) fetchGPUData()
-  },
 )
 
 watch([() => store.currentWorkspaceId, () => userStore.userId], fetchMyWorkloads, {
   immediate: true,
 })
 
-watch(
-  () => clusterStore.currentClusterId,
-  () => {
-    fetchGPUData()
-  },
-)
-
-watch(
-  () => userStore.envs?.enableRobust,
-  () => {
-    fetchGPUData()
-  },
-)
-
-onMounted(() => {
-  initDateRange()
-  fetchGPUData()
-})
-
 onBeforeUnmount(() => {
   if (nodePieChart) {
     nodePieChart.dispose()
     nodePieChart = null
-  }
-  if (gpuChart) {
-    gpuChart.dispose()
-    gpuChart = null
   }
   chartResizeObserver?.disconnect()
   chartResizeObserver = null
@@ -924,107 +642,6 @@ watch(
   text-decoration: underline;
 }
 
-.gpu-chart-section {
-  margin-top: 20px;
-}
-
-.chart-filters {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-
-.gpu-date-picker {
-  max-width: 420px;
-}
-
-.gpu-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 280px;
-  gap: 16px;
-  align-items: stretch;
-}
-
-.gpu-chart-card {
-  min-height: 390px;
-}
-
-.gpu-chart-card :deep(.el-card__body) {
-  height: 100%;
-  box-sizing: border-box;
-  padding: 18px;
-}
-
-.gpu-chart-box {
-  width: 100%;
-  height: 350px;
-}
-
-.gpu-stats-panel {
-  display: grid;
-  grid-template-rows: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.gpu-stat-card {
-  min-height: 84px;
-}
-
-.gpu-stat-card :deep(.el-card__body) {
-  display: flex;
-  height: 100%;
-  box-sizing: border-box;
-  align-items: center;
-  gap: 14px;
-  padding: 16px;
-}
-
-.gpu-stat-icon {
-  display: inline-flex;
-  width: 42px;
-  height: 42px;
-  flex: 0 0 42px;
-  align-items: center;
-  justify-content: center;
-  border-radius: 14px;
-  color: var(--safe-primary);
-  background: var(--safe-primary-plain-bg);
-  box-shadow: inset 0 0 0 1px var(--safe-primary-plain-border);
-  font-size: 22px;
-}
-
-.gpu-stat-icon--success {
-  color: #47b881;
-}
-
-.gpu-stat-icon--warning {
-  color: #e6a23c;
-}
-
-.gpu-stat-copy {
-  min-width: 0;
-}
-
-.gpu-stat-label {
-  margin-bottom: 6px;
-  color: var(--safe-muted);
-  font-size: calc(12px * var(--scale));
-  font-weight: 700;
-}
-
-.gpu-stat-value {
-  color: var(--safe-primary);
-  font-size: calc(26px * var(--scale));
-  font-weight: 800;
-  line-height: 1;
-}
-
-.gpu-stat-value span {
-  margin-left: 2px;
-  font-size: calc(14px * var(--scale));
-}
-
 .usage-dashboard {
   display: grid;
   gap: 16px;
@@ -1056,8 +673,8 @@ watch(
   grid-auto-rows: 232px;
 }
 
-/* Wide screens: right rail fills the row height (bottom aligns with the GPU
-   section) and splits My Workloads / Quick Actions in an 8:2 ratio. */
+/* Wide screens: right rail fills the row height (bottom aligns with the Workspace
+   Usage section) and splits My Workloads / Quick Actions in an 8:2 ratio. */
 @media (min-width: 1440px) {
   .home-rail {
     align-self: stretch;
@@ -1083,12 +700,6 @@ watch(
   .stat-grid {
     grid-auto-rows: 188px;
   }
-  .gpu-chart-card {
-    min-height: 300px;
-  }
-  .gpu-chart-box {
-    height: 260px;
-  }
 }
 
 /* Small screen responsive: two columns / one column */
@@ -1096,15 +707,6 @@ watch(
   .stat-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     grid-auto-rows: 180px;
-  }
-
-  .gpu-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .gpu-stats-panel {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    grid-template-rows: auto;
   }
 
   /* First card does not span rows on small screens */
@@ -1129,19 +731,6 @@ watch(
   .stat-grid {
     grid-template-columns: 1fr;
     grid-auto-rows: auto;
-  }
-
-  .chart-filters {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .gpu-date-picker {
-    width: 100%;
-  }
-
-  .gpu-stats-panel {
-    grid-template-columns: 1fr;
   }
 
   .small-pie-box {

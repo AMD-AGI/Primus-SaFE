@@ -519,6 +519,12 @@ watchEffect(() => {
       canAccess: hasManagerAccess.value, // Admin only
     },
     {
+      index: '/usage',
+      name: 'Usage',
+      icon: menuIcons.cluster,
+      canAccess: hasManagerAccess.value, // Admin only
+    },
+    {
       index: '/usermanage',
       name: 'Users',
       icon: menuIcons.usermanage,
