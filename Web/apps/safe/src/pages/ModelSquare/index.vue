@@ -488,9 +488,15 @@ const activeTab = ref((router.currentRoute.value.query.tab as string) || 'models
 
 const ptReasonOf = ref<(modelId: string) => string>()
 
-// Load why Train with Post Training is unavailable for the models of the current workspace
+// Load why Train with Post Training is unavailable for the models of the current workspace; an answer for a
+// workspace the user has left since is dropped
+let ptSeq = 0
 const loadPostTrainingReasons = async () => {
-  ptReasonOf.value = await postTrainingEntryReasons(wsStore.currentWorkspaceId ?? '')
+  const seq = ++ptSeq
+  // No Train with Post Training shows for the new workspace until it answers.
+  ptReasonOf.value = undefined
+  const reasons = await postTrainingEntryReasons(wsStore.currentWorkspaceId ?? '')
+  if (seq === ptSeq) ptReasonOf.value = reasons
 }
 
 // Why Train with Post Training is disabled for a model, or an empty string

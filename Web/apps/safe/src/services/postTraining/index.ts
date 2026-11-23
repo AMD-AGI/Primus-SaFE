@@ -34,7 +34,7 @@ export function getPostTrainingModels(
 ) {
   return request.get<ModelsResp>('/post-training/models', {
     params: { workspace, ...support },
-    skipErrorHandler: true,
+    silentErrors: true,
   })
 }
 
@@ -47,7 +47,7 @@ export async function postTrainingIsOn(workspace: string): Promise<boolean> {
   try {
     await request.get<RunListResp>('/post-training/runs', {
       params: { workspace, limit: 1 },
-      skipErrorHandler: true,
+      silentErrors: true,
     })
     return true
   } catch {
@@ -77,7 +77,7 @@ export function getPostTrainingConfig(params: {
 /** Compiles a request without creating anything; errors are reported, not thrown. */
 export function previewPostTrainingRecipe(body: SubmitRequest) {
   return request.post<PreviewResp>('/post-training/recipes/preview', body, {
-    skipErrorHandler: true,
+    silentErrors: true,
   })
 }
 
@@ -94,7 +94,7 @@ export function noAnswer(err: unknown): boolean {
 /** Submits a run; diagnostics of a request that does not compile come back as the error body. */
 export function submitPostTrainingRun(body: SubmitRequest) {
   return request.post<SubmitResp>('/post-training/runs', body, {
-    skipErrorHandler: true,
+    silentErrors: true,
     timeout: SUBMIT_TIMEOUT_MS,
   })
 }
@@ -123,12 +123,12 @@ export function fieldStep(field?: string): number {
 
 /** Lists the runs of a workspace, newest first. */
 export function listPostTrainingRuns(params: RunListParams, quiet = false) {
-  return request.get<RunListResp>('/post-training/runs', { params, skipErrorHandler: quiet })
+  return request.get<RunListResp>('/post-training/runs', { params, silentErrors: quiet })
 }
 
 /** Returns a run with its recipe, stage history and output model. */
 export function getPostTrainingRun(runId: string, quiet = false) {
-  return request.get<RunDetail>(`/post-training/runs/${runId}`, { skipErrorHandler: quiet })
+  return request.get<RunDetail>(`/post-training/runs/${runId}`, { silentErrors: quiet })
 }
 
 /**
@@ -164,7 +164,7 @@ export function getPostTrainingMetrics(
 ) {
   return request.get<MetricsResp>(`/post-training/runs/${runId}/metrics`, {
     params,
-    skipErrorHandler: quiet,
+    silentErrors: quiet,
   })
 }
 

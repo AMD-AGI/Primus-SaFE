@@ -176,7 +176,7 @@ describe('createWizard', () => {
     await w.loadModels()
     expect(get).toHaveBeenLastCalledWith('/post-training/models', {
       params: { workspace: 'ws1', trainType: 'sft', method: 'full' },
-      skipErrorHandler: true,
+      silentErrors: true,
     })
     await w.loadModels()
     expect(get).toHaveBeenCalledTimes(1)
@@ -185,7 +185,7 @@ describe('createWizard', () => {
     expect(get).toHaveBeenCalledTimes(2)
     expect(get).toHaveBeenLastCalledWith('/post-training/models', {
       params: { workspace: 'ws1', trainType: 'rl', method: 'full' },
-      skipErrorHandler: true,
+      silentErrors: true,
     })
     scope.stop()
   })

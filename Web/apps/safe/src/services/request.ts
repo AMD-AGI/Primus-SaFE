@@ -10,6 +10,11 @@ declare module 'axios' {
     skipErrorHandler?: boolean
     /** HTTP statuses the global interceptor rejects silently; 401 session handling still runs first */
     silentStatuses?: number[]
+    /**
+     * When true a failed request is rejected with the raw error object and no ElMessage, as with
+     * skipErrorHandler, but a 401 still ends the session first
+     */
+    silentErrors?: boolean
   }
 }
 
@@ -113,7 +118,10 @@ function attachInterceptors(
         return Promise.reject(error)
       }
 
-      if (status !== undefined && error?.config?.silentStatuses?.includes(status)) {
+      if (
+        error?.config?.silentErrors ||
+        (status !== undefined && error?.config?.silentStatuses?.includes(status))
+      ) {
         return Promise.reject(error)
       }
 

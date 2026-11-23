@@ -235,7 +235,7 @@ describe('postTrainingIsOn', () => {
     await postTrainingIsOn('ws1')
     expect(vi.mocked(request.get)).toHaveBeenCalledWith('/post-training/runs', {
       params: { workspace: 'ws1', limit: 1 },
-      skipErrorHandler: true,
+      silentErrors: true,
     })
   })
 })

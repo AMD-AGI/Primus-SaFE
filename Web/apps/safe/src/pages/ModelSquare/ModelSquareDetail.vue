@@ -501,11 +501,32 @@ const onDelete = () => {
     })
 }
 
-onMounted(async () => {
-  getDetail()
-  ptReasonOf.value = await postTrainingEntryReasons(wsStore.currentWorkspaceId ?? '')
+// Load whether Post Training is on in the current workspace and why it cannot train each model. An answer for a
+// workspace the user has left since is dropped.
+let ptSeq = 0
+const loadPostTrainingReasons = async () => {
+  const seq = ++ptSeq
+  // Neither Train button shows until the new workspace answers.
+  ptReasonOf.value = undefined
+  ptChecked.value = false
+  const reasons = await postTrainingEntryReasons(wsStore.currentWorkspaceId ?? '')
+  if (seq !== ptSeq) return
+  ptReasonOf.value = reasons
   ptChecked.value = true
+}
+
+onMounted(() => {
+  getDetail()
+  loadPostTrainingReasons()
 })
+
+// Switching workspace on this page decides Train or Train with Post Training again.
+watch(
+  () => wsStore.currentWorkspaceId,
+  (id, old) => {
+    if (id !== old) loadPostTrainingReasons()
+  },
+)
 
 // The page stays mounted when a lineage link opens another model, whose page does not show the one before.
 watch(modelId, (id) => {
