@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	batchv1 "k8s.io/api/batch/v1"
@@ -30,7 +31,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/clientset/versioned/scheme"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	mockclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonopsjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
 	commonsecret "github.com/AMD-AIG-AIMA/SAFE/common/pkg/secret"
@@ -1429,4 +1433,221 @@ func TestModelDownloadSavesFinishedJobOnLaterError(t *testing.T) {
 		}
 		assert.Equal(t, v1.LocalPathStatusReady, getModel(t, cl, "m1").Status.LocalPaths[0].Status, step)
 	}
+}
+
+// The reported model config is parsed with its rope theta and dtype, next to the size line.
+func TestReportedModelConfig(t *testing.T) {
+	lines := `["[SUCCESS] MODEL_CONFIG={\"architectures\":[\"Qwen3ForCausalLM\"],\"model_type\":\"qwen3\",` +
+		`\"num_hidden_layers\":36,\"num_key_value_heads\":8,\"rope_theta\":1000000.0,\"torch_dtype\":\"bfloat16\"}",` +
+		`"[SUCCESS] MODEL_SIZE_BYTES=42"]`
+	job := &v1.OpsJob{Status: v1.OpsJobStatus{Outputs: []v1.Parameter{{Name: "result", Value: lines}}}}
+	cfg := reportedModelConfig(job)
+	require.NotNil(t, cfg)
+	assert.Equal(t, []string{"Qwen3ForCausalLM"}, cfg.Architectures)
+	assert.Equal(t, 36, cfg.NumHiddenLayers)
+	assert.Equal(t, "1000000.0", cfg.RopeTheta)
+	assert.Equal(t, "bfloat16", cfg.TorchDtype)
+	assert.Equal(t, int64(42), reportedModelSize(job), "the size line next to it still parses")
+	assert.Nil(t, reportedModelConfig(&v1.OpsJob{Status: v1.OpsJobStatus{Outputs: []v1.Parameter{
+		{Name: "result", Value: "[SUCCESS] MODEL_CONFIG={}"}}}}), "a config without model_type or architectures")
+}
+
+// A Post Training output's weights stay while runs train from it, and go with it after.
+func TestPostTrainingOutputCleanupWaitsForBasedRuns(t *testing.T) {
+	model := genMockModel("qwen-sft-out", v1.AccessModeLocalPath, "ws1")
+	model.Spec.PostTrainingRunId = "pt-qwen-abc12"
+	r := &ModelReconciler{}
+	assert.True(t, r.needsCleanup(model), "a Post Training output is deleted with its weights")
+	assert.False(t, r.needsCleanup(genMockModel("registered", v1.AccessModeLocalPath, "ws1")))
+
+	now := metav1.Now()
+	model.DeletionTimestamp = &now
+	model.Finalizers = []string{ModelFinalizer}
+	cli := fake.NewClientBuilder().WithScheme(scheme.Scheme).WithObjects(model).WithStatusSubresource(model).Build()
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	db.EXPECT().ListPostTrainingRuns(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, f dbclient.PostTrainingRunFilter) ([]*dbclient.PostTrainingRun, int64, error) {
+			assert.Equal(t, "qwen-sft-out", f.BaseModelID)
+			return nil, 2, nil
+		})
+	r = &ModelReconciler{ClusterBaseReconciler: &ClusterBaseReconciler{Client: cli}, db: db}
+	res, err := r.handleDelete(context.Background(), model)
+	require.NoError(t, err)
+	assert.Equal(t, baseInUseRequeue, res.RequeueAfter)
+	got := &v1.Model{}
+	require.NoError(t, cli.Get(context.Background(), client.ObjectKeyFromObject(model), got))
+	assert.Contains(t, got.Finalizers, ModelFinalizer, "the weights stay while runs train from them")
+}
+
+// The download and inspect scripts are valid shell.
+func TestModelScriptsAreValidShell(t *testing.T) {
+	for name, script := range map[string]string{"download": hfDownloadScript, "inspect": modelInspectScript} {
+		out, err := exec.Command("sh", "-n", "-c", script).CombinedOutput()
+		require.NoError(t, err, "%s: %s", name, out)
+	}
+	assert.Contains(t, hfDownloadScript, modelConfigShell)
+}
+
+// The inspect script reports the model's config.json, or an error when it cannot.
+func TestModelInspectScript(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 is not installed")
+	}
+	dir := t.TempDir()
+	run := func() (string, error) {
+		cmd := exec.Command("sh", "-c", modelInspectScript)
+		cmd.Env = append(os.Environ(), "DEST_PATH="+dir)
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+	out, err := run()
+	assert.Error(t, err)
+	assert.Contains(t, out, "[ERROR] "+dir+"/config.json does not exist")
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.json"),
+		[]byte(`{"architectures":["Qwen3ForCausalLM"],"model_type":"qwen3","num_hidden_layers":36}`), 0o644))
+	out, err = run()
+	require.NoError(t, err, out)
+	job := &v1.OpsJob{Status: v1.OpsJobStatus{Outputs: []v1.Parameter{{Name: "result",
+		Value: commonopsjob.FilterResultLog([]byte(out))}}}}
+	require.NotNil(t, reportedModelConfig(job))
+	assert.Equal(t, 36, reportedModelConfig(job).NumHiddenLayers)
+}
+
+// ptRegistry is the ConfigMap whose presence turns Post Training on.
+func ptRegistry() *corev1.ConfigMap {
+	return &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Namespace: common.PrimusSafeNamespace,
+		Name: v1.PostTrainingRegistryConfigMap}}
+}
+
+// A model's config is read once, and a failed read is tried again.
+func TestInspectModelReadsConfigOnce(t *testing.T) {
+	model := genMockModel("registered", v1.AccessModeLocalPath, "ws1")
+	model.Spec.Source.LocalPath = "/data/models/org--repo"
+	model.Status.Phase = v1.ModelPhaseReady
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1"}}
+	cli := fake.NewClientBuilder().WithScheme(lifecycleScheme(t)).WithObjects(model, ws, ptRegistry()).
+		WithStatusSubresource(model).Build()
+	r := &ModelReconciler{ClusterBaseReconciler: &ClusterBaseReconciler{Client: cli}, apiReader: cli,
+		db: mockclient.NewMockInterface(gomock.NewController(t))}
+	ctx := context.Background()
+
+	_, err := r.inspectModel(ctx, model)
+	require.NoError(t, err)
+	job := &v1.OpsJob{}
+	require.NoError(t, cli.Get(ctx, client.ObjectKey{Name: inspectJobName(model)}, job))
+	assert.Equal(t, v1.OpsJobModelInspectType, job.Spec.Type)
+	assert.Equal(t, "/data/models/org--repo", job.GetParameter(v1.ParameterDestPath).Value)
+
+	job.Status.Phase = v1.OpsJobSucceeded
+	job.Status.Outputs = []v1.Parameter{{Name: "result", Value: `["[SUCCESS] MODEL_CONFIG={\"model_type\":\"qwen3\"}"]`}}
+	require.NoError(t, cli.Update(ctx, job))
+	_, err = r.inspectModel(ctx, model)
+	require.NoError(t, err)
+	got := &v1.Model{}
+	require.NoError(t, cli.Get(ctx, client.ObjectKeyFromObject(model), got))
+	assert.Equal(t, "qwen3", got.Status.ModelConfig.ModelType)
+	assert.Equal(t, inspectDone, got.Annotations[v1.ModelInspectAnnotation])
+	assert.True(t, errors.IsNotFound(cli.Get(ctx, client.ObjectKey{Name: inspectJobName(model)}, &v1.OpsJob{})))
+
+	failed := genMockModel("broken", v1.AccessModeLocalPath, "ws1")
+	failed.Spec.Source.LocalPath = "/data/models/broken"
+	require.NoError(t, cli.Create(ctx, failed))
+	for attempt := 1; attempt <= inspectAttempts; attempt++ {
+		require.NoError(t, cli.Get(ctx, client.ObjectKeyFromObject(failed), failed))
+		_, err = r.inspectModel(ctx, failed)
+		require.NoError(t, err)
+		job = &v1.OpsJob{}
+		require.NoError(t, cli.Get(ctx, client.ObjectKey{Name: inspectJobName(failed)}, job), "attempt %d", attempt)
+		long := metav1.NewTime(time.Now().Add(-time.Hour))
+		job.Status.Phase, job.Status.FinishedAt = v1.OpsJobFailed, &long
+		job.Status.Conditions = []metav1.Condition{{Type: opsJobCompletedCondition, Reason: opsJobFailedReason,
+			Message: "config.json does not exist"}}
+		require.NoError(t, cli.Update(ctx, job))
+		_, err = r.inspectModel(ctx, failed)
+		require.NoError(t, err)
+		require.NoError(t, cli.Get(ctx, client.ObjectKeyFromObject(failed), got))
+		if attempt < inspectAttempts {
+			assert.Empty(t, got.Annotations[v1.ModelInspectAnnotation], "a failed read is tried again, attempt %d", attempt)
+			assert.True(t, errors.IsNotFound(cli.Get(ctx, client.ObjectKey{Name: inspectJobName(failed)}, &v1.OpsJob{})))
+		}
+	}
+	assert.Equal(t, inspectFailed, got.Annotations[v1.ModelInspectAnnotation])
+	assert.Equal(t, "config.json does not exist", got.Annotations[v1.ModelInspectErrorAnnotation])
+	_, err = r.inspectModel(ctx, got)
+	require.NoError(t, err)
+	assert.True(t, errors.IsNotFound(cli.Get(ctx, client.ObjectKey{Name: inspectJobName(failed)}, &v1.OpsJob{})),
+		"after the last attempt the failure is kept")
+}
+
+// A model is inspected once Post Training is on, and a job that cannot be built fails the read with its reason.
+func TestInspectModelWaitsForPostTrainingAndFailsAJobItCannotBuild(t *testing.T) {
+	model := genMockModel("registered", v1.AccessModeLocalPath, "ws1")
+	model.Spec.Source.LocalPath = "/data/models/org--repo"
+	model.Status.Phase = v1.ModelPhaseReady
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
+	cli := fake.NewClientBuilder().WithScheme(lifecycleScheme(t)).WithObjects(model, ws).WithStatusSubresource(model).Build()
+	r := &ModelReconciler{ClusterBaseReconciler: &ClusterBaseReconciler{Client: cli}, apiReader: cli}
+	ctx := context.Background()
+	res, err := r.inspectModel(ctx, model)
+	require.NoError(t, err)
+	assert.Zero(t, res.RequeueAfter, "without a database there is no Post Training to wait for")
+	r.db = mockclient.NewMockInterface(gomock.NewController(t))
+	res, err = r.inspectModel(ctx, model)
+	require.NoError(t, err)
+	assert.Positive(t, res.RequeueAfter, "the model is read once Post Training is turned on")
+	assert.True(t, errors.IsNotFound(cli.Get(ctx, client.ObjectKey{Name: inspectJobName(model)}, &v1.OpsJob{})),
+		"without Post Training no model is read")
+
+	require.NoError(t, cli.Create(ctx, ptRegistry()))
+	r.ptCheckedAt = time.Time{}
+	_, err = r.inspectModel(ctx, model)
+	require.NoError(t, err)
+	got := &v1.Model{}
+	require.NoError(t, cli.Get(ctx, client.ObjectKeyFromObject(model), got))
+	assert.Equal(t, inspectFailed, got.Annotations[v1.ModelInspectAnnotation],
+		"a job that cannot be built, here for a workspace without a cluster, fails the read and is not tried for good")
+	assert.Contains(t, got.Annotations[v1.ModelInspectErrorAnnotation], "no cluster")
+}
+
+// A model-inspect job the API server did not take is tried again, and the read is not recorded as failed.
+func TestInspectModelRetriesAJobTheAPIServerDidNotTake(t *testing.T) {
+	model := genMockModel("registered", v1.AccessModeLocalPath, "ws1")
+	model.Spec.Source.LocalPath = "/data/models/org--repo"
+	model.Status.Phase = v1.ModelPhaseReady
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1"}}
+	stored := fake.NewClientBuilder().WithScheme(lifecycleScheme(t)).WithObjects(model, ws, ptRegistry()).
+		WithStatusSubresource(model).Build()
+	cli := interceptor.NewClient(stored, interceptor.Funcs{
+		Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+			if _, ok := obj.(*v1.OpsJob); ok {
+				return errors.NewServiceUnavailable("the API server is busy")
+			}
+			return c.Create(ctx, obj, opts...)
+		},
+	})
+	r := &ModelReconciler{ClusterBaseReconciler: &ClusterBaseReconciler{Client: cli}, apiReader: cli,
+		db: mockclient.NewMockInterface(gomock.NewController(t))}
+	ctx := context.Background()
+	_, err := r.inspectModel(ctx, model)
+	require.Error(t, err, "the controller tries again with its backoff")
+	got := &v1.Model{}
+	require.NoError(t, cli.Get(ctx, client.ObjectKeyFromObject(model), got))
+	assert.Empty(t, got.Annotations[v1.ModelInspectAnnotation])
+}
+
+// A directory cleanup job refuses a path outside the workspace volume.
+func TestNewDirectoryCleanupOpsJob(t *testing.T) {
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1",
+		Volumes: []v1.WorkspaceVolume{{Type: v1.PFS, MountPath: "/wekafs"}}}}
+	dir := "/wekafs/custom/models/post-training-cache/slime-qwen3-8B-m1-540ea91"
+	job, err := NewDirectoryCleanupOpsJob(ws, dir, map[string]string{v1.PostTrainingConvertCacheLabel: "7"})
+	require.NoError(t, err)
+	assert.Equal(t, DirectoryCleanupJobName("ws1", dir), job.Name)
+	assert.Equal(t, v1.OpsJobModelCleanupType, job.Spec.Type)
+	assert.Equal(t, dir, job.GetParameter(v1.ParameterDestPath).Value)
+	assert.Equal(t, "/wekafs", job.Spec.Env["VOLUME_ROOT"])
+	assert.Equal(t, "7", job.Labels[v1.PostTrainingConvertCacheLabel])
+	_, err = NewDirectoryCleanupOpsJob(ws, "/etc/models/x", nil)
+	assert.Error(t, err, "a path outside the workspace volume is refused")
 }

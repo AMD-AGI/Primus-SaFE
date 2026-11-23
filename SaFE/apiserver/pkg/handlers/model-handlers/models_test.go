@@ -1359,6 +1359,15 @@ func TestModelInfoTags(t *testing.T) {
 	assert.Assert(t, len(info.CategorizedTags) > 0)
 }
 
+// A model's info carries the Post Training run that made it, from the CR and from the database.
+func TestModelInfoPostTrainingRun(t *testing.T) {
+	model := genMockLocalK8sModel("test-model", "")
+	model.Spec.PostTrainingRunId = "pt-abc"
+	h := newMockModelHandler(nil)
+	assert.Equal(t, h.convertK8sModelToInfo(model).PostTrainingRunId, "pt-abc")
+	assert.Equal(t, cvtDBModelToInfo(&dbclient.Model{ID: "m", PostTrainingRunID: "pt-abc"}).PostTrainingRunId, "pt-abc")
+}
+
 // TestModelPhaseMessages tests model phase and message handling
 func TestModelPhaseMessages(t *testing.T) {
 	tests := []struct {
