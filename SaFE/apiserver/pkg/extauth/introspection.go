@@ -322,22 +322,24 @@ func (a *IntrospectionAuthenticator) store(key string, id *Identity) {
 // introspectionAnswer is an RFC 7662 response with the extension members this
 // authenticator reads. Active is a pointer so that an answer without it is told from "false".
 type introspectionAnswer struct {
-	Active     *bool           `json:"active"`
-	Issuer     string          `json:"iss"`
-	Audience   json.RawMessage `json:"aud"` // a string or an array of strings
-	ClientID   string          `json:"client_id"`
-	Sub        string          `json:"sub"`
-	Username   string          `json:"username"`
-	Name       string          `json:"name"`
-	Email      string          `json:"email"`
-	UserType   string          `json:"user_type"`
-	Groups     []string        `json:"groups"`
-	Roles      []string        `json:"roles"`
-	Scope      string          `json:"scope"`
-	Jti        string          `json:"jti"`
-	Exp        json.Number     `json:"exp"`
-	Restricted bool            `json:"restricted"`
-	Act        *struct {
+	Active   *bool           `json:"active"`
+	Issuer   string          `json:"iss"`
+	Audience json.RawMessage `json:"aud"` // a string or an array of strings
+	ClientID string          `json:"client_id"`
+	Sub      string          `json:"sub"`
+	Username string          `json:"username"`
+	// PreferredUsername is the SSO login name the identity holds for the user; Username is the e-mail or display name.
+	PreferredUsername string      `json:"preferred_username"`
+	Name              string      `json:"name"`
+	Email             string      `json:"email"`
+	UserType          string      `json:"user_type"`
+	Groups            []string    `json:"groups"`
+	Roles             []string    `json:"roles"`
+	Scope             string      `json:"scope"`
+	Jti               string      `json:"jti"`
+	Exp               json.Number `json:"exp"`
+	Restricted        bool        `json:"restricted"`
+	Act               *struct {
 		ClientID string `json:"client_id"`
 		Sub      string `json:"sub"`
 	} `json:"act"`
@@ -469,8 +471,8 @@ func (a *IntrospectionAuthenticator) identity(r *introspectionAnswer) (*Identity
 		return nil, nil
 	}
 	id := &Identity{
-		ID: r.Sub, Name: r.Name, Email: r.Email, AccountType: r.UserType, Jti: r.Jti, Restricted: r.Restricted,
-		Groups: unionOf(r.Groups, r.Roles), Scopes: strings.Fields(r.Scope),
+		ID: r.Sub, Name: r.Name, PreferredName: r.PreferredUsername, Email: r.Email, AccountType: r.UserType,
+		Jti: r.Jti, Restricted: r.Restricted, Groups: unionOf(r.Groups, r.Roles), Scopes: strings.Fields(r.Scope),
 	}
 	if id.Name == "" {
 		id.Name = r.Username

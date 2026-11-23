@@ -322,6 +322,80 @@ func TestExternalJITCreatesAndRefreshesUser(t *testing.T) {
 	require.Len(t, list.Items, 1)
 }
 
+// TestExternalJITSetsPreferredName checks that the preferred name the identity states is recorded for
+// a new SSO user, and filled for an existing one that has none, so the workload account can be stamped.
+func TestExternalJITSetsPreferredName(t *testing.T) {
+	e := newExtEnv(t, nil, false)
+	_, err := extParse(t, http.MethodGet, "/api/v1/workloads", e.jwt(map[string]any{"preferred_username": "jihong.he@amd.com"}))
+	require.NoError(t, err)
+	require.Equal(t, "jihong.he@amd.com", v1.GetAnnotation(e.user(extUser), v1.UserPreferredNameAnnotation))
+
+	// A record created before this change has no preferred name; the next request fills it.
+	u := e.user(extUser)
+	patch := client.MergeFrom(u.DeepCopy())
+	v1.RemoveAnnotation(u, v1.UserPreferredNameAnnotation)
+	require.NoError(t, e.cli.Patch(context.Background(), u, patch))
+	require.Empty(t, v1.GetAnnotation(e.user(extUser), v1.UserPreferredNameAnnotation))
+
+	_, err = extParse(t, http.MethodGet, "/api/v1/workloads", e.jwt(map[string]any{"preferred_username": "jihong.he@amd.com"}))
+	require.NoError(t, err)
+	require.Equal(t, "jihong.he@amd.com", v1.GetAnnotation(e.user(extUser), v1.UserPreferredNameAnnotation))
+}
+
+// TestExternalPreferredNameIsNeverDerivedFromEmail checks that the preferred name is only the preferred_username
+// the issuer reported, never the local part of an e-mail, and that an existing value is kept when a later
+// identity has none.
+func TestExternalPreferredNameIsNeverDerivedFromEmail(t *testing.T) {
+	e := newExtEnv(t, nil, false)
+	_, err := extParse(t, http.MethodGet, "/api/v1/workloads", e.jwt(map[string]any{
+		"preferred_username": "zhuang12", "email": "Zhen.Huang@amd.com",
+	}))
+	require.NoError(t, err)
+	require.Equal(t, "zhuang12", v1.GetAnnotation(e.user(extUser), v1.UserPreferredNameAnnotation))
+
+	_, err = extParse(t, http.MethodGet, "/api/v1/workloads", e.jwt(map[string]any{
+		"preferred_username": nil, "email": "Zhen.Huang@amd.com",
+	}))
+	require.NoError(t, err)
+	require.Equal(t, "zhuang12", v1.GetAnnotation(e.user(extUser), v1.UserPreferredNameAnnotation))
+
+	e2 := newExtEnvWith(t, nil, false, nil)
+	_, err = extParse(t, http.MethodGet, "/api/v1/workloads", e2.jwt(map[string]any{"preferred_username": nil, "email": "Jihong.He@amd.com"}))
+	require.NoError(t, err)
+	require.Empty(t, v1.GetAnnotation(e2.user(extUser), v1.UserPreferredNameAnnotation))
+
+	e3 := newExtEnvWith(t, nil, false, nil)
+	e3.revUsers["ak-email"] = map[string]any{"sub": "jihong-id", "username": "Jihong.He@amd.com", "aud": extAudience}
+	_, err = extParse(t, http.MethodGet, "/api/v1/workloads", "ak-email")
+	require.NoError(t, err)
+	require.Empty(t, v1.GetAnnotation(e3.user("jihong-id"), v1.UserPreferredNameAnnotation))
+
+	e4 := newExtEnvWith(t, nil, false, nil)
+	e4.revUsers["ak-default"] = map[string]any{"sub": "zhuang-id", "username": "zhuang12@amd.com", "user_type": "default", "aud": extAudience}
+	_, err = extParse(t, http.MethodGet, "/api/v1/workloads", "ak-default")
+	require.NoError(t, err)
+	require.Empty(t, v1.GetAnnotation(e4.user("zhuang-id"), v1.UserPreferredNameAnnotation))
+}
+
+// TestExternalIntrospectionSetsPreferredName checks that the preferred name comes from the answer's
+// preferred_username, the SSO login name, and never from username, which is the e-mail or display name.
+func TestExternalIntrospectionSetsPreferredName(t *testing.T) {
+	e := newExtEnvWith(t, nil, false, nil)
+	e.revUsers["ak-ours"] = map[string]any{
+		"sub": extUser, "username": "Zhen.Huang", "name": "Zhen Huang", "preferred_username": "zhuang12", "aud": extAudience,
+	}
+	_, err := extParse(t, http.MethodGet, "/api/v1/workloads", "ak-ours")
+	require.NoError(t, err)
+	require.Equal(t, "zhuang12", v1.GetAnnotation(e.user(extUser), v1.UserPreferredNameAnnotation))
+
+	// An answer with no preferred_username records none, even though username is present.
+	e2 := newExtEnvWith(t, nil, false, nil)
+	e2.revUsers["ak-no-pref"] = map[string]any{"sub": extUser, "username": "Zhen.Huang", "aud": extAudience}
+	_, err = extParse(t, http.MethodGet, "/api/v1/workloads", "ak-no-pref")
+	require.NoError(t, err)
+	require.Empty(t, v1.GetAnnotation(e2.user(extUser), v1.UserPreferredNameAnnotation))
+}
+
 // TestExternalLocalAccountIsDefault records a new username/password account as default.
 // An existing sso record is not rewritten. A default record is never rewritten as sso.
 func TestExternalLocalAccountIsDefault(t *testing.T) {
@@ -356,6 +430,39 @@ func TestExternalLocalAccountIsDefault(t *testing.T) {
 	require.Equal(t, "Kept", v1.GetUserName(e.user("kept-id")))
 }
 
+// TestExternalDefaultAccountPreferredName checks that a username/password account takes its preferred name
+// only from the identity's preferred_username, which an administrator sets, and that an existing SSO record
+// keeps its preferred name when an answer names a default account.
+func TestExternalDefaultAccountPreferredName(t *testing.T) {
+	e := newExtEnv(t, nil, false)
+	e.revUsers["local"] = map[string]any{
+		"sub": "local-id", "username": "local", "name": "Local", "email": "local@example.test", "user_type": "default",
+		"preferred_username": "local-ntid",
+	}
+	_, err := extParse(t, http.MethodGet, "/apis/v1/users", "local")
+	require.NoError(t, err)
+	require.Equal(t, v1.DefaultUserType, e.user("local-id").Spec.Type)
+	require.Equal(t, "local-ntid", v1.GetAnnotation(e.user("local-id"), v1.UserPreferredNameAnnotation))
+
+	e.revUsers["bare"] = map[string]any{
+		"sub": "bare-id", "username": "bare", "name": "Bare", "user_type": "default",
+	}
+	_, err = extParse(t, http.MethodGet, "/apis/v1/users", "bare")
+	require.NoError(t, err)
+	require.Empty(t, v1.GetAnnotation(e.user("bare-id"), v1.UserPreferredNameAnnotation), "the login name is not an NTID")
+
+	sso := &v1.User{}
+	sso.Name = "old-id"
+	sso.Spec.Type = v1.SSOUserType
+	v1.SetAnnotation(sso, v1.UserNameAnnotation, "Old")
+	v1.SetAnnotation(sso, v1.UserPreferredNameAnnotation, "old-ntid@amd.com")
+	require.NoError(t, e.cli.Create(context.Background(), sso))
+	e.revUsers["old"] = map[string]any{"sub": "old-id", "username": "old", "name": "Old", "user_type": "default", "preferred_username": "old-other"}
+	_, err = extParse(t, http.MethodGet, "/apis/v1/users", "old")
+	require.NoError(t, err)
+	require.Equal(t, "old-ntid@amd.com", v1.GetAnnotation(e.user("old-id"), v1.UserPreferredNameAnnotation))
+}
+
 // The identity provider names existing users by their SaFE user id, so a login can land
 // on a local account (type default) whose stored name is not the provider's. The user
 // webhook refuses a rename of a local account, and that used to turn into 401 on every
@@ -372,6 +479,7 @@ func TestExternalExistingUsersAreNeverLockedOut(t *testing.T) {
 	sso := func(name, email string) *v1.User {
 		u := local(name, email)
 		u.Spec.Type, u.Spec.Password = v1.SSOUserType, ""
+		v1.SetAnnotation(u, v1.UserPreferredNameAnnotation, "alice")
 		return u
 	}
 	for _, tt := range []struct {

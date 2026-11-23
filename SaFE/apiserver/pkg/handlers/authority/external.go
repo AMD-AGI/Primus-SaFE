@@ -330,7 +330,7 @@ func (st *externalAuth) overlay(id *extauth.Identity) *extauth.Overlay {
 var errInvalidUserId = errors.New("the authenticated user id is not a valid resource name")
 
 // ensureUser creates the user record the first time an identity is seen. For a record
-// that already exists it refreshes the name and email annotations, best effort: roles
+// that already exists it refreshes the name, email and preferred name annotations, best effort: roles
 // are not touched (the admission webhook gives a new user the default role, and group
 // roles are computed per request), and a refresh that fails never fails the request.
 // It returns the record as it is after that.
@@ -351,8 +351,9 @@ func (st *externalAuth) ensureUser(ctx context.Context, id *extauth.Identity) (*
 		ObjectMeta: metav1.ObjectMeta{
 			Name: id.ID,
 			Annotations: map[string]string{
-				v1.UserNameAnnotation:  id.Name,
-				v1.UserEmailAnnotation: id.Email,
+				v1.UserNameAnnotation:          id.Name,
+				v1.UserEmailAnnotation:         id.Email,
+				v1.UserPreferredNameAnnotation: id.PreferredName,
 			},
 		},
 		Spec: v1.UserSpec{Type: accountType(id)},
@@ -405,20 +406,33 @@ func CheckExternalDeployment() error {
 	return nil
 }
 
-// refreshUser makes the name and email annotations of an existing record follow the
-// identity's claims. It is for the display only, so it is best effort: an error is
-// logged and the request goes on. The account itself is never changed, and a record
-// that is not an SSO user is left alone: the identity provider names an existing local
-// account (Spec.Type default) by its user id, but the account stays what it is. Its
-// user name is immutable, the user webhook refuses a patch that changes it, and a login
-// through the provider is no reason to rewrite a record that SaFE manages.
+// refreshUser makes the name, email and preferred name annotations of an existing record follow the
+// identity's claims. The name and email annotations are display metadata. The preferred name
+// annotation is execution metadata: new workloads take their run-as account from it, while
+// workloads that already exist keep the account stamped at submission. The refresh is best
+// effort: an error is logged and the request goes on, and the next request tries again.
+// The account type and its other fields are never changed, and a record that is not an SSO
+// user is left alone: the identity provider names an existing local account (Spec.Type
+// default) by its user id, but the account stays what it is. Its user name is immutable,
+// the user webhook refuses a patch that changes it, and a login through the provider is no
+// reason to rewrite a record that SaFE manages.
 func (st *externalAuth) refreshUser(ctx context.Context, user *v1.User, id *extauth.Identity) {
 	if user.Spec.Type != v1.SSOUserType {
 		return
 	}
 	patch := client.MergeFrom(user.DeepCopy())
 	changed := false
-	for k, val := range map[string]string{v1.UserNameAnnotation: id.Name, v1.UserEmailAnnotation: id.Email} {
+	// The preferred name is refreshed only from an SSO answer: an answer that names a default account
+	// for an SSO record is not the same account, so the record keeps the preferred name it has.
+	preferred := id.PreferredName
+	if accountType(id) != v1.SSOUserType {
+		preferred = ""
+	}
+	for k, val := range map[string]string{
+		v1.UserNameAnnotation:          id.Name,
+		v1.UserEmailAnnotation:         id.Email,
+		v1.UserPreferredNameAnnotation: preferred,
+	} {
 		if val != "" && v1.GetAnnotation(user, k) != val {
 			v1.SetAnnotation(user, k, val)
 			changed = true
