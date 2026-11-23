@@ -594,18 +594,36 @@ func ignoreRecordNotFound(err error) error {
 	return err
 }
 
-// dropResumedPoints deletes the stored points after the step a resumed attempt starts from, which that attempt
-// writes again, and takes them off the run's point count so a run resumed often does not reach its cap early.
-func (r *RunReconciler) dropResumedPoints(ctx context.Context, runID string, in *ingestion) error {
+// takeResumedPoints takes the stored points after the step a resumed attempt starts from off the run's point
+// count, before the read's points are checked against the cap: the attempt writes them again, so a run resumed
+// often does not reach its cap early, and one resumed near its cap keeps the points that replace them. It returns
+// the step after which the save deletes the stored points, in the transaction that saves the read, or nil when
+// the read has no resume.
+func (r *RunReconciler) takeResumedPoints(ctx context.Context, runID string, in *ingestion) (*int, error) {
 	if in.resumeFrom == nil {
-		return nil
+		return nil, nil
 	}
-	deleted, err := r.db.DeletePostTrainingRunMetricsAfterStep(ctx, runID, int(*in.resumeFrom))
+	step := int(*in.resumeFrom)
+	replaced, err := r.db.CountPostTrainingRunMetricsAfterStep(ctx, runID, step)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	in.sum.Points = max(in.sum.Points-deleted, 0)
-	return nil
+	in.sum.Points = max(in.sum.Points-replaced, 0)
+	if in.sum.Points < in.maxPoints {
+		in.sum.Capped = false
+	}
+	return &step, nil
+}
+
+// finishRead returns the points of a read to save, and the step after which the save deletes the stored points a
+// resume replaces. The replaced points are taken off the count before the cap is applied to the read's points.
+func (r *RunReconciler) finishRead(ctx context.Context, runID string, in *ingestion) (
+	[]*dbclient.PostTrainingRunMetric, *int, error) {
+	dropAfterStep, err := r.takeResumedPoints(ctx, runID, in)
+	if err != nil {
+		return nil, nil, err
+	}
+	return in.finish(), dropAfterStep, nil
 }
 
 // readLog reads the submitter log from the run's cursor, applies the markers and saves the points with the
@@ -618,8 +636,8 @@ func (r *RunReconciler) readLog(ctx context.Context, w *v1.Workload, u *runUpdat
 	readCtx, cancel := context.WithTimeout(ctx, logReadTimeout)
 	more, readErr := r.readSubmitter(readCtx, w, cur, in)
 	cancel()
-	points := in.finish()
-	if err := r.dropResumedPoints(ctx, run.RunID, in); err != nil {
+	points, dropAfterStep, err := r.finishRead(ctx, run.RunID, in)
+	if err != nil {
 		return false, err
 	}
 	switch {
@@ -647,7 +665,7 @@ func (r *RunReconciler) readLog(ctx context.Context, w *v1.Workload, u *runUpdat
 		u.fields["metric_summary"] = summary
 	}
 	fields := u.columns()
-	if err := r.db.SavePostTrainingRunMetrics(ctx, run.RunID, points, fields); err != nil {
+	if err := r.db.SavePostTrainingRunMetrics(ctx, run.RunID, points, fields, dropAfterStep); err != nil {
 		return false, ignoreRecordNotFound(err)
 	}
 	countRead(in, rejected, skipped, run.MetricGap, gap)

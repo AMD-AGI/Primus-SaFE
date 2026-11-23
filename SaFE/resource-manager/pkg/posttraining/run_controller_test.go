@@ -87,7 +87,7 @@ func newTestReconciler(t *testing.T, run *dbclient.PostTrainingRun, objs ...clie
 		WithStatusSubresource(&v1.Model{}, &v1.Workload{}).Build()
 	db := mockclient.NewMockInterface(gomock.NewController(t))
 	db.EXPECT().GetPostTrainingRun(gomock.Any(), testRun).Return(run, nil).AnyTimes()
-	db.EXPECT().SavePostTrainingRunMetrics(gomock.Any(), testRun, gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	db.EXPECT().SavePostTrainingRunMetrics(gomock.Any(), testRun, gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	updates := &[]map[string]interface{}{}
 	db.EXPECT().UpdatePostTrainingRun(gomock.Any(), testRun, gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ string, fields map[string]interface{}) error {
@@ -108,8 +108,9 @@ func TestAnUnreadableLogDoesNotMarkTheLauncherLost(t *testing.T) {
 	w.Status.EndTime = nil
 	db := mockclient.NewMockInterface(gomock.NewController(t))
 	var saved map[string]interface{}
-	db.EXPECT().SavePostTrainingRunMetrics(gomock.Any(), testRun, gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, _ string, _ []*dbclient.PostTrainingRunMetric, fields map[string]interface{}) error {
+	db.EXPECT().SavePostTrainingRunMetrics(gomock.Any(), testRun, gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, _ []*dbclient.PostTrainingRunMetric, fields map[string]interface{},
+			_ *int) error {
 			saved = fields
 			return nil
 		})
@@ -436,8 +437,9 @@ func readTestLog(t *testing.T, pod string, cur *logCursor) map[string]interface{
 	manager.AddOrReplace("c1", clients)
 	db := mockclient.NewMockInterface(gomock.NewController(t))
 	var saved map[string]interface{}
-	db.EXPECT().SavePostTrainingRunMetrics(gomock.Any(), testRun, gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, _ string, _ []*dbclient.PostTrainingRunMetric, fields map[string]interface{}) error {
+	db.EXPECT().SavePostTrainingRunMetrics(gomock.Any(), testRun, gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, _ []*dbclient.PostTrainingRunMetric, fields map[string]interface{},
+			_ *int) error {
 			saved = fields
 			return nil
 		})
@@ -553,31 +555,69 @@ func TestARunDeletedAtTheEndOfItsWorkloadIsNotRetried(t *testing.T) {
 		db.EXPECT().GetPostTrainingRun(gomock.Any(), testRun).Return(run, nil),
 		db.EXPECT().GetPostTrainingRun(gomock.Any(), testRun).Return(nil, gorm.ErrRecordNotFound),
 	)
-	db.EXPECT().SavePostTrainingRunMetrics(gomock.Any(), testRun, gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	db.EXPECT().SavePostTrainingRunMetrics(gomock.Any(), testRun, gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	r.db = db
 	res := reconcileRun(t, r)
 	require.Zero(t, res.RequeueAfter)
 }
 
-// The points a resumed attempt replaces are deleted and no longer count against the run's cap.
+// The points a resumed attempt replaces no longer count against the run's cap, and the save deletes them.
 func TestAResumeTakesTheReplacedPointsOffTheCount(t *testing.T) {
 	db := mockclient.NewMockInterface(gomock.NewController(t))
 	r := &RunReconciler{db: db}
 	in := newTestIngestion(100)
 	in.sum.Points = 10
-	require.NoError(t, r.dropResumedPoints(context.Background(), testRun, in), "a read without a resume deletes nothing")
+	drop, err := r.takeResumedPoints(context.Background(), testRun, in)
+	require.NoError(t, err)
+	require.Nil(t, drop, "a read without a resume deletes nothing")
 	require.Equal(t, int64(10), in.sum.Points)
 
 	step := int64(5)
 	in.resumeFrom = &step
-	db.EXPECT().DeletePostTrainingRunMetricsAfterStep(gomock.Any(), testRun, 5).Return(int64(4), nil)
-	require.NoError(t, r.dropResumedPoints(context.Background(), testRun, in))
+	db.EXPECT().CountPostTrainingRunMetricsAfterStep(gomock.Any(), testRun, 5).Return(int64(4), nil)
+	drop, err = r.takeResumedPoints(context.Background(), testRun, in)
+	require.NoError(t, err)
+	require.Equal(t, 5, *drop, "the save deletes the points after the resume step")
 	require.Equal(t, int64(6), in.sum.Points)
 
-	db.EXPECT().DeletePostTrainingRunMetricsAfterStep(gomock.Any(), testRun, 5).Return(int64(50), nil)
-	require.NoError(t, r.dropResumedPoints(context.Background(), testRun, in))
+	db.EXPECT().CountPostTrainingRunMetricsAfterStep(gomock.Any(), testRun, 5).Return(int64(50), nil)
+	_, err = r.takeResumedPoints(context.Background(), testRun, in)
+	require.NoError(t, err)
 	require.Zero(t, in.sum.Points, "the count never goes below zero")
 
-	db.EXPECT().DeletePostTrainingRunMetricsAfterStep(gomock.Any(), testRun, 5).Return(int64(0), errors.New("db down"))
-	require.Error(t, r.dropResumedPoints(context.Background(), testRun, in))
+	db.EXPECT().CountPostTrainingRunMetricsAfterStep(gomock.Any(), testRun, 5).Return(int64(0), errors.New("db down"))
+	_, err = r.takeResumedPoints(context.Background(), testRun, in)
+	require.Error(t, err)
+}
+
+// A run resumed at its cap on points keeps the points of the resumed attempt that replace the ones after its
+// resume step, and is no longer capped; the read deletes the replaced points in the transaction that saves it.
+func TestARunResumedAtItsCapKeepsTheReplacingPoints(t *testing.T) {
+	first := newTestIngestion(3)
+	feed(first, stageLine("a1", "train", "running", `{"resumeStep":0}`),
+		metricLine("a1", 1, 1, `{"train/loss":1}`), metricLine("a1", 2, 2, `{"train/loss":0.9}`),
+		metricLine("a1", 3, 3, `{"train/loss":0.8}`), metricLine("a1", 4, 4, `{"train/loss":0.7}`))
+	require.Len(t, first.finish(), 3)
+	require.True(t, first.sum.Capped)
+	data, err := json.Marshal(first.cur)
+	require.NoError(t, err)
+	summary, err := json.Marshal(first.sum)
+	require.NoError(t, err)
+
+	run := testRunRow("Running", "train")
+	run.MetricCursor, run.MetricSummary = string(data), string(summary)
+	in := newTestIngestion(3)
+	in.u, in.cur, in.sum = newRunUpdate(run), loadCursor(run.MetricCursor), loadSummary(run.MetricSummary)
+	feed(in, stageLine("a2", "train", "running", `{"resumeStep":1}`),
+		metricLine("a2", 1, 2, `{"train/loss":0.6}`), metricLine("a2", 2, 3, `{"train/loss":0.5}`))
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	db.EXPECT().CountPostTrainingRunMetricsAfterStep(gomock.Any(), testRun, 1).Return(int64(2), nil)
+	r := &RunReconciler{db: db}
+	points, drop, err := r.finishRead(context.Background(), testRun, in)
+	require.NoError(t, err)
+	require.Equal(t, 1, *drop)
+	require.Equal(t, []string{"train/loss@2=0.6", "train/loss@3=0.5"}, pointKeys(points),
+		"the replacements fit in the room the replaced points left")
+	require.False(t, in.sum.Capped)
+	require.Equal(t, int64(3), in.sum.Points)
 }

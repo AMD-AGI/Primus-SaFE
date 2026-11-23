@@ -126,7 +126,7 @@ func TestPostTrainingRunInputs(t *testing.T) {
 	_, err := c.GetPostTrainingRun(ctx, "r1")
 	require.Error(t, err, "expected error when gorm not initialized")
 	require.NoError(t, c.UpdatePostTrainingRun(ctx, "r1", nil))
-	require.NoError(t, c.SavePostTrainingRunMetrics(ctx, "r1", []*PostTrainingRunMetric{nil}, nil))
+	require.NoError(t, c.SavePostTrainingRunMetrics(ctx, "r1", []*PostTrainingRunMetric{nil}, nil, nil))
 	require.Error(t, c.DeletePostTrainingRunMetrics(ctx, "r1"))
 }
 
@@ -157,7 +157,7 @@ func TestSavePostTrainingRunMetricsCommits(t *testing.T) {
 		{Name: "eval/val/loss", Step: 1, Value: math.NaN(), WallTime: now},
 	}
 	err := c.SavePostTrainingRunMetrics(context.Background(), "r1", points,
-		map[string]interface{}{"metric_cursor": `{"seq":3}`})
+		map[string]interface{}{"metric_cursor": `{"seq":3}`}, nil)
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -173,21 +173,41 @@ func TestSavePostTrainingRunMetricsRollsBackWhenRunMissing(t *testing.T) {
 
 	points := []*PostTrainingRunMetric{{Name: "train/loss", Step: 1, Value: 1, WallTime: time.Now()}}
 	err := c.SavePostTrainingRunMetrics(context.Background(), "missing", points,
-		map[string]interface{}{"metric_gap": true})
+		map[string]interface{}{"metric_gap": true}, nil)
 	require.ErrorIs(t, err, gorm.ErrRecordNotFound)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// Rewinding a run deletes the points after a step and says how many it deleted.
-func TestDeletePostTrainingRunMetricsAfterStep(t *testing.T) {
+// The points a resumed attempt replaces are counted before the read is saved.
+func TestCountPostTrainingRunMetricsAfterStep(t *testing.T) {
 	c, mock := newMockClient(t)
-	mock.ExpectExec(`DELETE FROM "post_training_run_metric" WHERE run_id = \$1 AND step > \$2`).
+	mock.ExpectQuery(`SELECT count\(\*\) FROM "post_training_run_metric" WHERE run_id = \$1 AND step > \$2`).
 		WithArgs("r1", int64(10)).
-		WillReturnResult(sqlmock.NewResult(0, 3))
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(int64(3)))
 
-	deleted, err := c.DeletePostTrainingRunMetricsAfterStep(context.Background(), "r1", 10)
+	n, err := c.CountPostTrainingRunMetricsAfterStep(context.Background(), "r1", 10)
 	require.NoError(t, err)
-	require.Equal(t, int64(3), deleted)
+	require.Equal(t, int64(3), n)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// A resumed attempt's points replace those after its resume step in the transaction that saves them, so a save
+// that fails deletes nothing either.
+func TestSavePostTrainingRunMetricsDropsReplacedPointsInTheTransaction(t *testing.T) {
+	c, mock := newMockClient(t)
+	mock.ExpectBegin()
+	mock.ExpectExec(`DELETE FROM "post_training_run_metric" WHERE run_id = \$1 AND step > \$2`).
+		WithArgs("r1", int64(10)).WillReturnResult(sqlmock.NewResult(0, 3))
+	mock.ExpectQuery(`INSERT INTO "post_training_run_metric"`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(int64(1)))
+	mock.ExpectExec(`UPDATE "post_training_run" SET`).WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectRollback()
+
+	step := 10
+	points := []*PostTrainingRunMetric{{Name: "train/loss", Step: 11, Value: 1, WallTime: time.Now()}}
+	err := c.SavePostTrainingRunMetrics(context.Background(), "r1", points, map[string]interface{}{"metric_gap": true},
+		&step)
+	require.ErrorIs(t, err, gorm.ErrRecordNotFound, "the run is gone, so the deletion is rolled back with the points")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

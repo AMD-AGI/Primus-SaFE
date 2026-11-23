@@ -331,8 +331,8 @@ type PostTrainingConvertCacheInterface interface {
 // PostTrainingRunMetricInterface defines database operations for the metric points of Post Training runs.
 type PostTrainingRunMetricInterface interface {
 	SavePostTrainingRunMetrics(ctx context.Context, runID string, points []*PostTrainingRunMetric,
-		runFields map[string]interface{}) error
-	DeletePostTrainingRunMetricsAfterStep(ctx context.Context, runID string, step int) (int64, error)
+		runFields map[string]interface{}, dropAfterStep *int) error
+	CountPostTrainingRunMetricsAfterStep(ctx context.Context, runID string, step int) (int64, error)
 	ListPostTrainingRunMetrics(ctx context.Context, runID string, names []string) ([]*PostTrainingRunMetric, error)
 	ListLatestPostTrainingRunMetrics(ctx context.Context, runID string, names []string,
 		limit int) ([]*PostTrainingRunMetric, error)
