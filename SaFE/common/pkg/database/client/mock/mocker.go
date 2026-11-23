@@ -572,11 +572,12 @@ func (mr *MockInterfaceMockRecorder) DeletePostTrainingRunMetrics(ctx, runID int
 }
 
 // DeletePostTrainingRunMetricsAfterStep mocks base method.
-func (m *MockInterface) DeletePostTrainingRunMetricsAfterStep(ctx context.Context, runID string, step int) error {
+func (m *MockInterface) DeletePostTrainingRunMetricsAfterStep(ctx context.Context, runID string, step int) (int64, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DeletePostTrainingRunMetricsAfterStep", ctx, runID, step)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // DeletePostTrainingRunMetricsAfterStep indicates an expected call of DeletePostTrainingRunMetricsAfterStep.
@@ -5828,11 +5829,12 @@ func (mr *MockPostTrainingRunMetricInterfaceMockRecorder) DeletePostTrainingRunM
 }
 
 // DeletePostTrainingRunMetricsAfterStep mocks base method.
-func (m *MockPostTrainingRunMetricInterface) DeletePostTrainingRunMetricsAfterStep(ctx context.Context, runID string, step int) error {
+func (m *MockPostTrainingRunMetricInterface) DeletePostTrainingRunMetricsAfterStep(ctx context.Context, runID string, step int) (int64, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DeletePostTrainingRunMetricsAfterStep", ctx, runID, step)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // DeletePostTrainingRunMetricsAfterStep indicates an expected call of DeletePostTrainingRunMetricsAfterStep.

@@ -178,14 +178,16 @@ func TestSavePostTrainingRunMetricsRollsBackWhenRunMissing(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// Rewinding a run deletes the points after a step.
+// Rewinding a run deletes the points after a step and says how many it deleted.
 func TestDeletePostTrainingRunMetricsAfterStep(t *testing.T) {
 	c, mock := newMockClient(t)
 	mock.ExpectExec(`DELETE FROM "post_training_run_metric" WHERE run_id = \$1 AND step > \$2`).
 		WithArgs("r1", int64(10)).
 		WillReturnResult(sqlmock.NewResult(0, 3))
 
-	require.NoError(t, c.DeletePostTrainingRunMetricsAfterStep(context.Background(), "r1", 10))
+	deleted, err := c.DeletePostTrainingRunMetricsAfterStep(context.Background(), "r1", 10)
+	require.NoError(t, err)
+	require.Equal(t, int64(3), deleted)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

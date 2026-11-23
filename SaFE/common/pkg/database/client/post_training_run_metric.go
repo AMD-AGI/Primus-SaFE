@@ -80,13 +80,14 @@ func (c *Client) SavePostTrainingRunMetrics(
 }
 
 // DeletePostTrainingRunMetricsAfterStep removes the points after step when a new attempt resumes from a
-// checkpoint at that step.
-func (c *Client) DeletePostTrainingRunMetricsAfterStep(ctx context.Context, runID string, step int) error {
+// checkpoint at that step. It returns how many points it removed.
+func (c *Client) DeletePostTrainingRunMetricsAfterStep(ctx context.Context, runID string, step int) (int64, error) {
 	db, err := c.GetGormDB()
 	if err != nil {
-		return err
+		return 0, err
 	}
-	return db.WithContext(ctx).Where("run_id = ? AND step > ?", runID, step).Delete(&PostTrainingRunMetric{}).Error
+	res := db.WithContext(ctx).Where("run_id = ? AND step > ?", runID, step).Delete(&PostTrainingRunMetric{})
+	return res.RowsAffected, res.Error
 }
 
 // ListPostTrainingRunMetrics returns a run's points for the given names, or for all names when names is
