@@ -264,11 +264,14 @@ def cache_lock(root, owner=None, sleep=time.sleep, clock=time.time):
         try:
             os.mkdir(lock)
         except FileExistsError:
+            # The owner record is read before the mtime. take_over refreshes the mtime before it moves the record
+            # away, so a run that finds no record also finds a fresh lock and waits, instead of moving away a lock
+            # that another run is taking over.
+            held = lock_owner(lock)
             try:
                 age = clock() - os.path.getmtime(lock)
             except OSError:
                 continue
-            held = lock_owner(lock)
             earlier = me.get("run") and held.get("run") == me["run"] and held.get("attempt") != me.get("attempt")
             if age > LOCK_STALE_SECONDS or earlier:
                 if take_over(lock, held, me):
@@ -561,10 +564,10 @@ class Runner:
         self.emitter.stage("prepare", state="done", detail=stats)
 
     def keep_conversion(self, held):
-        """Fail the stage instead of keeping a conversion when another run took the lock over meanwhile, as that run
-        now converts into the cache; the next attempt converts again under the lock."""
+        """Fail the stage instead of changing the cache when another run took the lock over meanwhile, as that run
+        now converts into it; the next attempt converts again under the lock."""
         if not held():
-            raise StageError("convert", "another run took the conversion lock over; the conversion is not kept")
+            raise StageError("convert", "another run took the conversion lock over; this run leaves the cache to it")
 
     def build(self, held, out, make):
         """Make a conversion output with make(directory) in a directory of the lock holder's own, and move it to out
@@ -572,6 +575,8 @@ class Runner:
         out nor have its output removed by the new holder before it is moved. A command the watchdog stopped fails
         with the watchdog's reason."""
         tmp = "%s%s.%s" % (out, PARTIAL_SUFFIX, held.token)
+        # The partial outputs removed here may be the new holder's when the lock was taken over.
+        self.keep_conversion(held)
         remove_partials(out, keep=held.token)
         os.makedirs(os.path.dirname(out), exist_ok=True)
         if self.watchdog:
@@ -601,6 +606,8 @@ class Runner:
                  "pid": os.getpid()}
         with cache_lock(root, owner=owner, sleep=self.sleep) as held:
             fingerprint = weights_fingerprint(self.recipe["model"]["path"])
+            # Nothing in the cache is changed by a run whose lock was taken over meanwhile.
+            self.keep_conversion(held)
             stale = os.path.exists(self.conversion_mark()) and not self.source_matches(root)
             if stale:
                 discard(fp8_out, held.token)

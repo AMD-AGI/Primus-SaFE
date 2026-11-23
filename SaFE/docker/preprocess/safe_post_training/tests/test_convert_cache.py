@@ -321,6 +321,76 @@ def test_a_conversion_whose_lock_was_taken_over_is_not_kept(tmp_path):
     assert sorted(os.listdir(root)) == [stages.CONVERT_LOCK, "torch_dist.partial.other"]
 
 
+def test_a_run_that_reads_a_lock_while_another_takes_it_over_waits(monkeypatch, tmp_path):
+    """take_over refreshes the lock and then moves its record away. A run that reads the lock between the two steps
+    finds no record and a fresh lock, so it waits instead of moving away the lock the other run is taking."""
+    root = tmp_path / "cache"
+    lock = root / stages.CONVERT_LOCK
+    lock.mkdir(parents=True)
+    (lock / stages.LOCK_OWNER).write_text(json.dumps({"run": "pt-gone", "attempt": "a1", "token": "gone"}))
+    old = time.time() - stages.LOCK_STALE_SECONDS - 60
+    os.utime(lock, (old, old))
+    read = stages.lock_owner
+
+    def midway(path):
+        # Another run is halfway through take_over: the lock is refreshed and its record moved away.
+        if (lock / stages.LOCK_OWNER).exists():
+            os.utime(lock)
+            os.rename(lock / stages.LOCK_OWNER, lock / (stages.LOCK_OWNER + ".other"))
+        return read(path)
+
+    monkeypatch.setattr(stages, "lock_owner", midway)
+    with pytest.raises(Waited):
+        with stages.cache_lock(str(root), owner={"run": "pt-r1", "attempt": "a1"}, sleep=wait):
+            pytest.fail("the lock another run is taking over is not taken")
+    assert sorted(os.listdir(lock)) == [stages.LOCK_OWNER + ".other"], "the lock stays with the run taking it"
+
+
+def take_over_while_fingerprinting(monkeypatch, lock, out):
+    """Make another run take the lock over and start its conversion while the holder reads the weights."""
+    fingerprint = stages.weights_fingerprint
+
+    def taken_over(path):
+        if not os.path.exists(out + ".partial.other"):
+            with open(os.path.join(lock, stages.LOCK_OWNER), "w") as f:
+                json.dump({"run": "pt-r2", "attempt": "a1", "token": "other"}, f)
+            os.makedirs(out + ".partial.other")
+        return fingerprint(path)
+
+    monkeypatch.setattr(stages, "weights_fingerprint", taken_over)
+
+
+def test_a_run_whose_lock_was_taken_over_before_it_converts_leaves_the_new_holders_output(monkeypatch, tmp_path):
+    runner, _ = setup(tmp_path, "r1")
+    runner.adapter = adapter = CountingAdapter()
+    out, root, complete = runner.convert_paths()
+    take_over_while_fingerprinting(monkeypatch, os.path.join(root, stages.CONVERT_LOCK), out)
+    with pytest.raises(stages.StageError) as e:
+        runner.stage_convert()
+    assert e.value.retry and adapter.conversions == 0
+    assert sorted(os.listdir(root)) == [stages.CONVERT_LOCK, "torch_dist.partial.other"]
+
+
+def test_a_run_whose_lock_was_taken_over_leaves_a_stale_cache_to_the_new_holder(monkeypatch, tmp_path):
+    """A cache made from other weights is made again only by the run that holds the lock; one that lost it removes
+    neither the FP8 weights nor the source record."""
+    first, _ = setup(tmp_path, "r0")
+    first.recipe["convert"]["fp8"], first.adapter = True, FP8Adapter()
+    first.stage_convert()
+    (tmp_path / "model" / "model.safetensors").write_text("new weights")
+    runner, _ = setup(tmp_path, "r1")
+    runner.adapter = adapter = FP8Adapter()
+    runner.recipe["convert"]["fp8"] = True
+    out, root, _ = runner.convert_paths()
+    fp8_out, fp8_complete = runner.fp8_paths()
+    source = open(os.path.join(root, stages.SOURCE_FILE)).read()
+    take_over_while_fingerprinting(monkeypatch, os.path.join(root, stages.CONVERT_LOCK), out)
+    with pytest.raises(stages.StageError) as e:
+        runner.stage_convert()
+    assert e.value.retry and (adapter.conversions, adapter.fp8) == (0, 0)
+    assert os.path.exists(fp8_complete) and open(os.path.join(root, stages.SOURCE_FILE)).read() == source
+
+
 def test_the_holder_removes_what_earlier_holders_left(tmp_path):
     runner, _ = setup(tmp_path, "r1")
     runner.adapter = CountingAdapter()
