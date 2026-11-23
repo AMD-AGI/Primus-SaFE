@@ -88,6 +88,9 @@ const (
 	openSearchPassword    = "password"
 	openSearchIndexPrefix = openSearchPrefix + "prefix"
 
+	// post training
+	postTrainingEnable = "post_training.enable"
+
 	// db
 	dbPrefix               = "db."
 	dbEnable               = dbPrefix + "enable"

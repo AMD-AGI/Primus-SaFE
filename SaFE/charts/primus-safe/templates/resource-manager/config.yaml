@@ -52,6 +52,9 @@ data:
       usage_sample_retention_day: {{ if hasKey (default dict .Values.workload) "usage_sample_retention_day" }}{{ .Values.workload.usage_sample_retention_day }}{{ else }}14{{ end }}
       # Days the hourly workspace usage rollups are kept; 0 keeps them forever.
       usage_hourly_retention_day: {{ if hasKey (default dict .Values.workload) "usage_hourly_retention_day" }}{{ .Values.workload.usage_hourly_retention_day }}{{ else }}400{{ end }}
+    post_training:
+      # Whether Post Training is enabled; it also needs the database.
+      enable: {{ and .Values.db.enable (default dict .Values.post_training).enabled | default false }}
     db:
       # Whether to enable database, The database will store some historical data regarding workloads, faults, and ops jobs.
       enable: {{ .Values.db.enable }}
