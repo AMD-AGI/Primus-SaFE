@@ -216,8 +216,19 @@ func TestGenerateCluster(t *testing.T) {
 	detail := cvtToGetClusterResponse(context.Background(), h.Client, gateway)
 	assert.Equal(t, 443, detail.ApiserverPort)
 	assert.Equal(t, "lb-apiserver.kubernetes.local", detail.ApiserverServerName)
+	assert.Empty(t, detail.NodeTemplateId)
+
+	req.NodeTemplateId = "node-template"
+	withTemplate, err := h.generateCluster(context.Background(), user, req, []byte(`{}`))
+	testifyassert.NoError(t, err)
+	assert.Equal(t, "node-template", v1.GetAnnotation(withTemplate, v1.ClusterAdoptNodeTemplateAnnotation))
+	assert.Equal(t, "node-template", cvtToGetClusterResponse(context.Background(), h.Client, withTemplate).NodeTemplateId)
 
 	req.Adopt = false
+	_, err = h.generateCluster(context.Background(), user, req, []byte(`{}`))
+	testifyassert.Error(t, err)
+
+	req.ApiserverPort, req.ApiserverServerName = 0, ""
 	_, err = h.generateCluster(context.Background(), user, req, []byte(`{}`))
 	testifyassert.Error(t, err)
 }

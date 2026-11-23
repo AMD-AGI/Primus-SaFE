@@ -559,6 +559,10 @@ func (r *ClusterReconciler) guaranteePriorityClass(ctx context.Context, cluster 
 	for _, pc := range allPriorityClass {
 		existing, getErr := clientSet.SchedulingV1().PriorityClasses().Get(ctx, pc.name, metav1.GetOptions{})
 		if getErr == nil {
+			// An adopted cluster keeps its existing PriorityClass.
+			if v1.IsAdoptedCluster(cluster) {
+				continue
+			}
 			if err = ensurePriorityClassMatches(ctx, clientSet, existing, pc); err != nil {
 				return ctrlruntime.Result{}, err
 			}
@@ -745,7 +749,8 @@ func (r *ClusterReconciler) guaranteeImageSecret(ctx context.Context, cluster *v
 
 	dataPlaneSecret, err := clientSet.CoreV1().Secrets(targetNamespace).Get(ctx, targetName, metav1.GetOptions{})
 	if err == nil {
-		if dataPlaneSecret.UID == adminPlaneSecret.UID {
+		// An adopted cluster keeps its existing secret.
+		if dataPlaneSecret.UID == adminPlaneSecret.UID || v1.IsAdoptedCluster(cluster) {
 			return nil
 		}
 		dataPlaneSecret.Type = adminPlaneSecret.Type
@@ -1130,7 +1135,8 @@ func (r *ClusterReconciler) guaranteeDataPlaneClusterRole(ctx context.Context,
 	// Try to get the role in the target/data-plane cluster
 	dataPlaneCR, err := clientSet.RbacV1().ClusterRoles().Get(ctx, adminClusterRoleName, metav1.GetOptions{})
 	if err == nil {
-		if dataPlaneCR.UID == adminClusterRole.UID {
+		// An adopted cluster keeps its existing ClusterRole.
+		if dataPlaneCR.UID == adminClusterRole.UID || v1.IsAdoptedCluster(cluster) {
 			return nil
 		}
 		// Update existing role to match admin-plane definition

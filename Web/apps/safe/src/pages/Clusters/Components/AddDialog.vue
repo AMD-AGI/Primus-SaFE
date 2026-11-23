@@ -123,6 +123,20 @@
         </el-text>
       </el-form-item>
 
+      <el-form-item v-if="isAdopt" label="Node Template" prop="nodeTemplateId">
+        <el-select v-model="form.nodeTemplateId" clearable placeholder="None">
+          <el-option
+            v-for="item in state.templateOptions"
+            :key="item"
+            :label="item"
+            :value="item"
+          />
+        </el-select>
+        <el-text size="small" type="info">
+          Addons of this template are installed once on each adopted node. Leave empty to skip.
+        </el-text>
+      </el-form-item>
+
       <el-form-item v-if="!isAdopt" label="Nodes" prop="nodes">
         <el-select
           v-model="form.nodes"
@@ -229,7 +243,9 @@ import {
   addCluster,
   getClusterDetail,
   patchCluster,
+  getNodeTemps,
 } from '@/services/nodes'
+import type { TemplateOptionsType } from '@/services/nodes/type'
 import { useUserStore } from '@/stores/user'
 import CidrPicker from './CidrPicker.vue'
 
@@ -253,7 +269,10 @@ const state = reactive({
   imageSecretOptions: [] as string[],
   pluginOptions: ['cilium', 'flannel'],
   nodeOptions: [] as Array<{ label: string; value: string }>,
+  templateOptions: [] as string[],
 })
+
+const DEFAULT_NODE_TEMPLATE = 'node-template'
 
 // The API owns which KubeSpray images exist and which Kubernetes version each one
 // installs, so the pair is read from /envs rather than pinned in the frontend.
@@ -277,6 +296,7 @@ const initialForm = () => ({
   controlPlaneIps: [] as string[],
   apiserverPort: 6443,
   apiserverServerName: '',
+  nodeTemplateId: '',
   kubeSprayImage: '',
   kubePodsSubnet: '',
   kubeServiceAddress: '',
@@ -434,6 +454,14 @@ const fetchNodes = async () => {
     value: n.nodeId ?? n.name ?? n.hostname,
   }))
 }
+// Default to the standard node template when it exists.
+const fetchNodeTemplates = async () => {
+  const temps = await getNodeTemps().catch(() => ({ items: [] }))
+  state.templateOptions = (temps?.items ?? []).map((t: TemplateOptionsType) => t.templateId)
+  if (state.templateOptions.includes(DEFAULT_NODE_TEMPLATE)) {
+    form.nodeTemplateId = DEFAULT_NODE_TEMPLATE
+  }
+}
 const fetchSecretsOnce = async () => {
   const secrets = await getSecrets({ type: 'ssh' }).catch(() => ({ items: [] }))
   state.secretOptions = (secrets?.items ?? []).map((s: any) => s.secretId ?? s.name ?? s.id)
@@ -477,6 +505,7 @@ const onOpen = async () => {
   formRef.value?.clearValidate()
   fetchSecretsOnce()
   fetchNodes()
+  if (isAdopt.value) fetchNodeTemplates()
   // envs is fetched once per session, so a session that started against an API build
   // without the mapping would never see it. Retry on the mapping itself rather than on
   // envs being absent, which is what makes the dialog pick it up after a backend roll.
@@ -542,6 +571,7 @@ const onSubmit = async (el?: FormInstance) => {
           controlPlaneIps: form.controlPlaneIps,
           apiserverPort: form.apiserverPort,
           apiserverServerName: form.apiserverServerName.trim() || undefined,
+          nodeTemplateId: form.nodeTemplateId || undefined,
           adopt: true,
         }
       : {

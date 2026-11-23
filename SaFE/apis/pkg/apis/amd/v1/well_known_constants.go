@@ -105,6 +105,8 @@ const (
 	ClusterAdoptAnnotation = ClusterPrefix + "adopt"
 	// ClusterAdoptNodeFlavorAnnotation names the NodeFlavor used for nodes that carry no flavor label.
 	ClusterAdoptNodeFlavorAnnotation = ClusterPrefix + "adopt.node-flavor"
+	// ClusterAdoptNodeTemplateAnnotation names the NodeTemplate whose addons are installed on adopted nodes.
+	ClusterAdoptNodeTemplateAnnotation = ClusterPrefix + "adopt.node-template"
 	// ClusterAdoptControlPlaneIPsAnnotation lists comma-separated control plane IPs used to read an adopted kubeconfig.
 	ClusterAdoptControlPlaneIPsAnnotation = ClusterPrefix + "adopt.control-plane-ips"
 	// ClusterApiserverPortAnnotation sets the port used to reach the data plane apiserver on each control plane IP.

@@ -340,6 +340,12 @@ func (r *ClusterReconciler) ensureAdoptedNode(ctx context.Context, cluster *v1.C
 			existing.Labels[v1.WorkspaceIdLabel] = workspace
 			changed = true
 		}
+		if existing.Spec.NodeTemplate == nil {
+			if ref := adoptedNodeTemplate(cluster); ref != nil {
+				existing.Spec.NodeTemplate = ref
+				changed = true
+			}
+		}
 		if !changed {
 			return nil
 		}
@@ -360,12 +366,13 @@ func (r *ClusterReconciler) ensureAdoptedNode(ctx context.Context, cluster *v1.C
 			},
 		},
 		Spec: v1.NodeSpec{
-			Cluster:    pointer.String(cluster.Name),
-			Hostname:   pointer.String(k8sNode.Name),
-			PrivateIP:  ip,
-			Port:       pointer.Int32(22),
-			SSHSecret:  cluster.Spec.ControlPlane.SSHSecret,
-			NodeFlavor: &corev1.ObjectReference{Name: flavorName, Kind: v1.NodeFlavorKind, APIVersion: v1.SchemeGroupVersion.String()},
+			Cluster:      pointer.String(cluster.Name),
+			Hostname:     pointer.String(k8sNode.Name),
+			PrivateIP:    ip,
+			Port:         pointer.Int32(22),
+			SSHSecret:    cluster.Spec.ControlPlane.SSHSecret,
+			NodeFlavor:   &corev1.ObjectReference{Name: flavorName, Kind: v1.NodeFlavorKind, APIVersion: v1.SchemeGroupVersion.String()},
+			NodeTemplate: adoptedNodeTemplate(cluster),
 		},
 	}
 	if workspace != "" {
@@ -376,6 +383,15 @@ func (r *ClusterReconciler) ensureAdoptedNode(ctx context.Context, cluster *v1.C
 		node.Labels[v1.KubernetesControlPlane] = ""
 	}
 	return client.IgnoreAlreadyExists(r.Create(ctx, node))
+}
+
+// adoptedNodeTemplate returns the NodeTemplate reference named by the cluster annotation, or nil when unset.
+func adoptedNodeTemplate(cluster *v1.Cluster) *corev1.ObjectReference {
+	name := strings.TrimSpace(v1.GetAnnotation(cluster, v1.ClusterAdoptNodeTemplateAnnotation))
+	if name == "" {
+		return nil
+	}
+	return &corev1.ObjectReference{Name: name, Kind: v1.NodeTemplateKind, APIVersion: v1.SchemeGroupVersion.String()}
 }
 
 // adoptedNodeWorkspace returns the workspace named by the data plane node label when that

@@ -31,6 +31,8 @@ type CreateClusterRequest struct {
 	ApiserverPort int `json:"apiserverPort,omitempty"`
 	// TLS server name (SNI) sent to the apiserver of an adopted cluster, e.g. for gateway passthrough.
 	ApiserverServerName string `json:"apiserverServerName,omitempty"`
+	// NodeTemplate whose addons are installed on the nodes of an adopted cluster. Empty means none.
+	NodeTemplateId string `json:"nodeTemplateId,omitempty"`
 }
 
 type CreateClusterResponse struct {
@@ -93,6 +95,8 @@ type GetClusterResponse struct {
 	Labels map[string]string `json:"labels,omitempty"`
 	// Port used to reach the data plane apiserver on each control plane IP
 	ApiserverPort int `json:"apiserverPort"`
+	// NodeTemplate whose addons are installed on the nodes of an adopted cluster.
+	NodeTemplateId string `json:"nodeTemplateId,omitempty"`
 	// TLS server name (SNI) sent to the data plane apiserver; empty when not set
 	ApiserverServerName string `json:"apiserverServerName,omitempty"`
 }

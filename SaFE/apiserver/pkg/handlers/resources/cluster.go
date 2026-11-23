@@ -166,13 +166,16 @@ func (h *Handler) generateCluster(ctx context.Context,
 		if name := strings.TrimSpace(req.ApiserverServerName); name != "" {
 			v1.SetAnnotation(cluster, v1.ClusterApiserverServerNameAnnotation, name)
 		}
+		if name := strings.TrimSpace(req.NodeTemplateId); name != "" {
+			v1.SetAnnotation(cluster, v1.ClusterAdoptNodeTemplateAnnotation, name)
+		}
 		// Nodes are discovered after the kubeconfig is read. A nil slice encodes as null and the CRD rejects it.
 		if cluster.Spec.ControlPlane.Nodes == nil {
 			cluster.Spec.ControlPlane.Nodes = []string{}
 		}
 	} else {
-		if req.ApiserverPort != 0 || req.ApiserverServerName != "" {
-			return nil, commonerrors.NewBadRequest("apiserverPort and apiserverServerName are only supported when adopting a cluster")
+		if req.ApiserverPort != 0 || req.ApiserverServerName != "" || req.NodeTemplateId != "" {
+			return nil, commonerrors.NewBadRequest("apiserverPort, apiserverServerName and nodeTemplateId are only supported when adopting a cluster")
 		}
 		if req.IsControlPlane {
 			v1.SetLabel(cluster, v1.ClusterControlPlaneLabel, "")
@@ -872,6 +875,7 @@ func cvtToGetClusterResponse(ctx context.Context, client client.Client, cluster 
 		KubeApiServerArgs:     cluster.Spec.ControlPlane.KubeApiServerArgs,
 		ApiserverPort:         v1.GetApiserverPort(cluster),
 		ApiserverServerName:   v1.GetApiserverServerName(cluster),
+		NodeTemplateId:        v1.GetAnnotation(cluster, v1.ClusterAdoptNodeTemplateAnnotation),
 	}
 	if cluster.Spec.ControlPlane.ImageSecret != nil {
 		result.ImageSecretId = cluster.Spec.ControlPlane.ImageSecret.Name

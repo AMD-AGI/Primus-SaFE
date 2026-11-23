@@ -841,8 +841,8 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 	if r.syncClusterStatus(ctx, adminNode) != nil {
 		return ctrlruntime.Result{RequeueAfter: time.Second * 30}, nil
 	}
-	// A node of an adopted cluster is already part of its data plane: the host is not
-	// reconfigured, rebooted or provisioned, and only SaFE labels are synced to its Kubernetes Node.
+	// A node of an adopted cluster is already part of its data plane: the host resolv.conf is not
+	// modified and the host is not rebooted or provisioned. Node template addons are still installed.
 	adopted, err := r.belongsToAdoptedCluster(ctx, adminNode)
 	if err != nil {
 		return ctrlruntime.Result{}, err
@@ -861,9 +861,9 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 			if err = r.modifyResolvConf(ctx, adminNode); err != nil {
 				return ctrlruntime.Result{}, err
 			}
-			if err = r.installAddons(ctx, adminNode); err != nil {
-				return ctrlruntime.Result{}, err
-			}
+		}
+		if err = r.installAddons(ctx, adminNode); err != nil {
+			return ctrlruntime.Result{}, err
 		}
 		if err = r.deletePods(ctx, adminNode.GetSpecCluster(), adminNode.Name, string(v1.ClusterScaleUpAction)); err != nil {
 			return ctrlruntime.Result{}, err

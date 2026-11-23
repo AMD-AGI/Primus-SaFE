@@ -440,6 +440,66 @@ func TestGuaranteeDataPlaneClusterRole(t *testing.T) {
 	testifyassert.NoError(t, err)
 }
 
+func TestAdoptedClusterKeepsExistingDataPlaneObjects(t *testing.T) {
+	viper.Set("external_execution.enabled", false)
+	t.Cleanup(func() { viper.Set("external_execution.enabled", false) })
+
+	cluster := readyCluster("c1")
+	v1.SetAnnotation(cluster, v1.ClusterAdoptAnnotation, v1.TrueStr)
+	adminRole := newClusterRole("role1")
+	adminRole.Rules = []rbacv1.PolicyRule{{Verbs: []string{"get"}, Resources: []string{"pods"}, APIGroups: []string{""}}}
+	dataRole := newClusterRole("role1")
+	pcs := genAllPriorityClass(cluster.Name)
+	existingPC := &schedulingv1.PriorityClass{ObjectMeta: metav1.ObjectMeta{Name: pcs[0].name}, Value: pcs[0].value + 1}
+	cs := k8sfake.NewSimpleClientset(dataRole, existingPC)
+
+	scheme, _ := genMockScheme()
+	_ = rbacAddToSchemeForTest(scheme)
+	cl := ctrlfake.NewClientBuilder().WithScheme(scheme).WithObjects(adminRole).Build()
+	mgr := commonutils.NewObjectManager()
+	_ = mgr.Add("c1", commonclient.NewClientFactoryWithOnlyClient(context.Background(), "c1", cs))
+	r := &ClusterReconciler{ClusterBaseReconciler: &ClusterBaseReconciler{Client: cl}, clientManager: mgr}
+
+	testifyassert.NoError(t, r.guaranteeDataPlaneClusterRole(context.Background(), cluster, "role1"))
+	_, err := r.guaranteePriorityClass(context.Background(), cluster)
+	testifyassert.NoError(t, err)
+
+	for _, a := range cs.Actions() {
+		if a.GetVerb() == "update" || a.GetVerb() == "delete" {
+			t.Fatalf("adopted cluster must not %s %s", a.GetVerb(), a.GetResource().Resource)
+		}
+	}
+	list, err := cs.SchedulingV1().PriorityClasses().List(context.Background(), metav1.ListOptions{})
+	testifyassert.NoError(t, err)
+	testifyassert.Len(t, list.Items, len(pcs))
+}
+
+func TestAdoptedClusterKeepsExistingImageSecret(t *testing.T) {
+	commonconfig.SetValue("global.image_secret", "img-secret")
+	defer commonconfig.SetValue("global.image_secret", "")
+
+	cluster := readyCluster("c1")
+	v1.SetAnnotation(cluster, v1.ClusterAdoptAnnotation, v1.TrueStr)
+	adminSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "img-secret", Namespace: common.PrimusSafeNamespace},
+		Data:       map[string][]byte{".dockerconfigjson": []byte(`{"auths":{"admin":{}}}`)},
+	}
+	dataSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "img-secret", Namespace: common.PrimusSafeNamespace},
+		Data:       map[string][]byte{".dockerconfigjson": []byte(`{"auths":{"data":{}}}`)},
+	}
+	cs := k8sfake.NewSimpleClientset(dataSecret)
+	r := newClusterReconcilerWithFactory(t, "c1", cs, adminSecret)
+	testifyassert.NoError(t, r.guaranteeAllImageSecrets(context.Background(), cluster))
+
+	got, err := cs.CoreV1().Secrets(common.PrimusSafeNamespace).Get(context.Background(), "img-secret", metav1.GetOptions{})
+	testifyassert.NoError(t, err)
+	testifyassert.Equal(t, dataSecret.Data, got.Data)
+	_, err = cs.CoreV1().Secrets(corev1.NamespaceDefault).Get(context.Background(),
+		commonutils.GenerateClusterSecret("c1", "img-secret"), metav1.GetOptions{})
+	testifyassert.NoError(t, err)
+}
+
 func TestGuaranteeDataPlaneClusterRoleEmptyName(t *testing.T) {
 	r := newClusterReconcilerWithFactory(t, "c1", k8sfake.NewSimpleClientset())
 	testifyassert.NoError(t, r.guaranteeDataPlaneClusterRole(context.Background(), testCluster("c1"), ""))

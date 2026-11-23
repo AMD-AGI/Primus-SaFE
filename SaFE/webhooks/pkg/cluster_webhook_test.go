@@ -302,6 +302,23 @@ func TestApiserverAccessAnnotations(t *testing.T) {
 	assert.Assert(t, v.validateImmutableFields(newCluster("443", ""), old) != nil)
 }
 
+func TestValidateAdoptNodeTemplate(t *testing.T) {
+	scheme := newScheme(t)
+	ctx := context.Background()
+	tpl := &v1.NodeTemplate{ObjectMeta: metav1.ObjectMeta{Name: "node-template"}}
+	v := &ClusterValidator{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(tpl).Build()}
+	newCluster := func(name string) *v1.Cluster {
+		cluster := &v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "ccs300"}}
+		if name != "" {
+			v1.SetAnnotation(cluster, v1.ClusterAdoptNodeTemplateAnnotation, name)
+		}
+		return cluster
+	}
+	assert.NilError(t, v.validateAdoptNodeTemplate(ctx, newCluster("")))
+	assert.NilError(t, v.validateAdoptNodeTemplate(ctx, newCluster("node-template")))
+	assert.Assert(t, v.validateAdoptNodeTemplate(ctx, newCluster("missing")) != nil)
+}
+
 // TestClusterValidateOnUpdate verifies update-time validation.
 func TestClusterValidateOnUpdate(t *testing.T) {
 	v := &ClusterValidator{}

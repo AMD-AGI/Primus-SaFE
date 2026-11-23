@@ -121,6 +121,10 @@
         detailData.apiserverServerName || '-'
       }}</el-descriptions-item>
 
+      <el-descriptions-item label="nodeTemplate">{{
+        detailData.nodeTemplateId || '-'
+      }}</el-descriptions-item>
+
       <el-descriptions-item label="nodes">{{ detailData.nodes?.join(', ') }}</el-descriptions-item>
       <el-descriptions-item label="storage" v-if="detailData.storage?.length">{{
         detailData.storage

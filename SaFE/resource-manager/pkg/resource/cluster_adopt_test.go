@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"os"
@@ -221,6 +222,38 @@ func TestEnsureAdoptedNodeFillsEmptyWorkspace(t *testing.T) {
 	got := &v1.Node{}
 	assert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "cp"}, got))
 	assert.Equal(t, "ccs300-cpu", got.GetSpecWorkspace())
+}
+
+func TestEnsureAdoptedNodeSetsNodeTemplate(t *testing.T) {
+	cluster := testCluster("ccs300")
+	v1.SetAnnotation(cluster, v1.ClusterAdoptNodeTemplateAnnotation, "node-template")
+	existing := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "cp"},
+		Spec:       v1.NodeSpec{Cluster: pointer.String("ccs300"), Hostname: pointer.String("cp")},
+	}
+	r := newPlaneReconciler(t, existing)
+	assert.NoError(t, r.ensureAdoptedNode(context.Background(), cluster, &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "gpu1"}}))
+	assert.NoError(t, r.ensureAdoptedNode(context.Background(), cluster, &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "cp"}}))
+	for _, name := range []string{"gpu1", "cp"} {
+		got := &v1.Node{}
+		assert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: name}, got))
+		if assert.NotNil(t, got.Spec.NodeTemplate, name) {
+			assert.Equal(t, "node-template", got.Spec.NodeTemplate.Name)
+			assert.Equal(t, v1.NodeTemplateKind, got.Spec.NodeTemplate.Kind)
+		}
+	}
+}
+
+func TestEnsureAdoptedNodeOmitsUnsetNodeTemplate(t *testing.T) {
+	cluster := testCluster("ccs300")
+	r := newPlaneReconciler(t)
+	assert.NoError(t, r.ensureAdoptedNode(context.Background(), cluster, &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "gpu1"}}))
+	got := &v1.Node{}
+	assert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "gpu1"}, got))
+	assert.Nil(t, got.Spec.NodeTemplate)
+	data, err := json.Marshal(got.Spec)
+	assert.NoError(t, err)
+	assert.NotContains(t, string(data), "nodeTemplate")
 }
 
 func TestEnsureAdoptedNodeSkipsForeignCluster(t *testing.T) {

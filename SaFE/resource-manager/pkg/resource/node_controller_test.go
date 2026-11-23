@@ -728,7 +728,7 @@ func TestSyncHostnameKeepsAdoptedHost(t *testing.T) {
 	testifyassert.Equal(t, "ip-10-0-0-5.ec2.internal", hostname)
 }
 
-func TestManageAdoptedNodeSkipsHostChanges(t *testing.T) {
+func TestManageAdoptedNodeInstallsAddonsOnly(t *testing.T) {
 	cluster, node := adoptedManagedNode()
 	k8sNode := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "ip-10-0-0-5.ec2.internal"}}
 	cs := k8sfake.NewSimpleClientset(k8sNode)
@@ -755,7 +755,7 @@ func TestManageAdoptedNodeSkipsHostChanges(t *testing.T) {
 	result, err := r.manage(context.Background(), node, nil)
 	testifyassert.NoError(t, err)
 	testifyassert.Positive(t, result.RequeueAfter)
-	testifyassert.Empty(t, called)
+	testifyassert.Equal(t, []string{"installAddons"}, called)
 }
 
 // --- merged from node_predicate_test.go ---

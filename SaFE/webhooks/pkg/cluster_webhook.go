@@ -131,6 +131,9 @@ func (v *ClusterValidator) validateOnCreation(ctx context.Context, cluster *v1.C
 		if err := v.validateAdoptedCluster(ctx, cluster); err != nil {
 			return err
 		}
+		if err := v.validateAdoptNodeTemplate(ctx, cluster); err != nil {
+			return err
+		}
 	} else if err := v.validateControlPlane(ctx, cluster); err != nil {
 		return err
 	}
@@ -169,6 +172,18 @@ func (v *ClusterValidator) validateAdoptedCluster(ctx context.Context, cluster *
 		return err
 	}
 	return v.validateNodesReady(ctx, cluster)
+}
+
+// validateAdoptNodeTemplate checks that the NodeTemplate named for adopted nodes exists.
+func (v *ClusterValidator) validateAdoptNodeTemplate(ctx context.Context, cluster *v1.Cluster) error {
+	name := strings.TrimSpace(v1.GetAnnotation(cluster, v1.ClusterAdoptNodeTemplateAnnotation))
+	if name == "" {
+		return nil
+	}
+	if err := v.Get(ctx, client.ObjectKey{Name: name}, &v1.NodeTemplate{}); err != nil {
+		return fmt.Errorf("failed to get node template %q: %v", name, err)
+	}
+	return nil
 }
 
 // validateAdoptControlPlaneIPs checks the bootstrap addresses used before control plane nodes are registered.
