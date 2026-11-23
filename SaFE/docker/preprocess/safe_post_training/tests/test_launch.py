@@ -25,8 +25,8 @@ class FakeAdapter:
     def __init__(self, fail_train=False):
         self.fail_train = fail_train
 
-    def convert(self, recipe, run_dir, run_command):
-        os.makedirs(recipe["convert"]["dir"], exist_ok=True)
+    def convert(self, recipe, run_dir, run_command, out):
+        os.makedirs(out, exist_ok=True)
 
     def train_command(self, recipe, run_dir):
         code = ("import sys\n"
@@ -291,6 +291,37 @@ def test_wandb_unreachable(monkeypatch, tmp_path):
     assert code == 1
     assert ms[-1][1]["stage"] == "check"
     assert ms[-1][1]["reason"] == "the training nodes can't reach wandb at http://127.0.0.1:9"
+
+
+def test_urls_in_check_errors_carry_no_credentials(monkeypatch, tmp_path):
+    monkeypatch.setenv("WANDB_BASE_URL", "http://me:s3cret@127.0.0.1:9/wandb")
+    recipe = recipe_for(tmp_path)
+    recipe["tracking"] = {"wandb": {"enabled": True}}
+    code, out, ms = run(monkeypatch, recipe, FakeAdapter())
+    assert code == 1 and ms[-1][1]["reason"] == "the training nodes can't reach wandb at http://***@127.0.0.1:9/wandb"
+    assert "s3cret" not in out.getvalue()
+    assert stages.redact_url("https://a:b@c@host:8/p?q=x@y") == "https://***@host:8/p?q=x@y"
+    assert stages.redact_url("https://host/path@x") == "https://host/path@x"
+
+
+class EscapingAdapter(FakeAdapter):
+    """Asks for a file outside the run directory to be written before training."""
+
+    def __init__(self, name):
+        super().__init__()
+        self.name = name
+
+    def train_command(self, recipe, run_dir):
+        cmd, env, _ = super().train_command(recipe, run_dir)
+        return cmd, env, {self.name: "a: 1"}
+
+
+@pytest.mark.parametrize("name", ["../outside.yaml", "/tmp/outside.yaml", "conf/../../outside.yaml", "."])
+def test_recipe_files_stay_in_the_run_directory(monkeypatch, tmp_path, name):
+    code, _, ms = run(monkeypatch, recipe_for(tmp_path), EscapingAdapter(name))
+    assert code == 1 and ms[-1][1]["stage"] == "train" and ms[-1][1]["retry"] is False
+    assert ms[-1][1]["reason"] == "the recipe file %s is not inside the run directory" % name
+    assert not (tmp_path / "outside.yaml").exists()
 
 
 def test_a_run_without_the_hf_export_exports_nothing(monkeypatch, tmp_path):

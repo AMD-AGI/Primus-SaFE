@@ -42,13 +42,15 @@ CONVERT_LOCK = ".lock"
 FP8_DIR = "fp8_hf"
 SOURCE_FILE = "source.json"
 # The holder of a conversion lock refreshes it every LOCK_HEARTBEAT_SECONDS; a lock not refreshed for
-# LOCK_STALE_SECONDS was left by a launcher that died, and the next run takes it over.
+# LOCK_STALE_SECONDS was left by a launcher that died, and the next run takes it over. A lock without an owner record
+# goes stale after the same time: it is left by a launcher that died between taking the lock and writing the record.
 LOCK_HEARTBEAT_SECONDS = 60
 LOCK_STALE_SECONDS = 10 * 60
-# A lock without an owner record is one of a launcher from before the heartbeat, which holds it for a whole
-# conversion without refreshing it.
-LOCK_UNOWNED_STALE_SECONDS = 6 * 3600
 LOCK_OWNER = "owner.json"
+# A conversion is written to <dir>.partial.<lock token> and moved to <dir> only while its run still holds the lock; a
+# replaced <dir> is moved to <dir>.stale.<lock token> before it is removed.
+PARTIAL_SUFFIX = ".partial"
+STALE_SUFFIX = ".stale"
 ITER_DIR = re.compile(r"^iter_(\d{7})$")
 VAL_LOSS = re.compile(r"^eval/[^/]+/loss$")
 WANDB_DEFAULT_URL = "https://api.wandb.ai"
@@ -211,7 +213,7 @@ def take_over(lock, held, me):
     """Take a stale lock whose owner record was held over for me, and return whether me holds it now. The lock
     stays where it is: the owner record is what is taken, by a rename only one run can win, and a record that is
     not the one found stale belongs to a run that took the lock meanwhile and goes back. A lock without a record,
-    which a launcher from before the heartbeat left, is moved away as a whole for the next mkdir to win."""
+    which a launcher that died before writing it left, is moved away as a whole for the next mkdir to win."""
     if not held:
         gone = "%s.%s" % (lock, me["token"])
         try:
@@ -251,9 +253,10 @@ def take_over(lock, held, me):
 def cache_lock(root, owner=None, sleep=time.sleep, clock=time.time):
     """Hold the conversion lock of a cache directory. mkdir is atomic on the shared storage, so one run converts
     while the others wait. The holder records owner and a token in the lock and refreshes it every
-    LOCK_HEARTBEAT_SECONDS; a lock not refreshed for LOCK_STALE_SECONDS, or for LOCK_UNOWNED_STALE_SECONDS when it
-    has no owner record, or left by an earlier attempt of the same run, is taken over, and a holder removes the lock
-    only while its token is still there. It yields a function that tells whether the lock is still the holder's."""
+    LOCK_HEARTBEAT_SECONDS; a lock not refreshed for LOCK_STALE_SECONDS, with an owner record or without one, or left
+    by an earlier attempt of the same run, is taken over, and a holder removes the lock only while its token is still
+    there. It yields a function that tells whether the lock is still the holder's; its token attribute is the
+    holder's token."""
     os.makedirs(root, exist_ok=True)
     lock = os.path.join(root, CONVERT_LOCK)
     me = dict(owner or {}, token=uuid.uuid4().hex)
@@ -267,7 +270,7 @@ def cache_lock(root, owner=None, sleep=time.sleep, clock=time.time):
                 continue
             held = lock_owner(lock)
             earlier = me.get("run") and held.get("run") == me["run"] and held.get("attempt") != me.get("attempt")
-            if age > (LOCK_STALE_SECONDS if held else LOCK_UNOWNED_STALE_SECONDS) or earlier:
+            if age > LOCK_STALE_SECONDS or earlier:
                 if take_over(lock, held, me):
                     break
                 continue
@@ -276,7 +279,7 @@ def cache_lock(root, owner=None, sleep=time.sleep, clock=time.time):
         try:
             write_owner(lock, me)
         except OSError:
-            # A lock without an owner record would be waited for far longer than one whose holder died.
+            # A lock without an owner record would make every other run wait until it goes stale.
             shutil.rmtree(lock, ignore_errors=True)
             raise
         break
@@ -297,15 +300,51 @@ def cache_lock(root, owner=None, sleep=time.sleep, clock=time.time):
             except OSError:
                 pass
 
+    def held():
+        """Tell whether the lock is still the holder's."""
+        return os.path.isdir(lock) and not other()
+
+    held.token = me["token"]
     beat = threading.Thread(target=heartbeat, daemon=True)
     beat.start()
     try:
-        yield lambda: os.path.isdir(lock) and not other()
+        yield held
     finally:
         stop.set()
         beat.join()
         if lock_owner(lock).get("token") == me["token"]:
             shutil.rmtree(lock, ignore_errors=True)
+
+
+def remove_partials(out, keep=None):
+    """Remove what earlier holders of a conversion lock left next to out: their unfinished outputs and the replaced
+    outputs they did not get to remove, except those of the token keep. Called while holding the lock, so each of
+    them belongs to a holder that died or lost the lock, which may no longer move its output into place."""
+    parent, name = os.path.split(out)
+    try:
+        names = os.listdir(parent)
+    except FileNotFoundError:
+        return
+    for entry in names:
+        for suffix in (PARTIAL_SUFFIX, STALE_SUFFIX):
+            if entry == name + suffix or entry.startswith(name + suffix + "."):
+                if keep is None or entry != "%s%s.%s" % (name, suffix, keep):
+                    shutil.rmtree(os.path.join(parent, entry), ignore_errors=True)
+
+
+def discard(out, token):
+    """Remove a conversion output: it is first moved aside, so readers never find half of it at its place."""
+    stale = "%s%s.%s" % (out, STALE_SUFFIX, token)
+    try:
+        os.rename(out, stale)
+    except FileNotFoundError:
+        return
+    shutil.rmtree(stale, ignore_errors=True)
+
+
+def redact_url(url):
+    """Return url without the user name and password it may carry, for messages."""
+    return re.sub(r"^([A-Za-z][A-Za-z0-9+.-]*://)?[^/?#]*@", r"\1***@", url)
 
 
 def weights_size(model_dir):
@@ -429,31 +468,48 @@ class Runner:
                       "sizeBytes": torch_size + (dir_size(fp8_out) if fp8 else 0)}
         self.emitter.stage("convert", state=state, detail=detail)
 
-    def check_source(self, root):
-        """Fail unless the conversion in root was made from the model's current weights."""
+    def source_matches(self, root):
+        """Tell whether the conversion in root was made from the model's current weights. A missing or damaged
+        record does not match; a record the storage fails to read fails the stage, which a retry may get past."""
+        path = os.path.join(root, SOURCE_FILE)
         try:
-            with open(os.path.join(root, SOURCE_FILE)) as f:
+            with open(path) as f:
                 source = json.load(f)
-        except (OSError, ValueError):
-            source = {}
-        if source.get("fingerprint") != weights_fingerprint(self.recipe["model"]["path"]):
-            raise StageError("convert", "the conversion cache does not match the model weights", retry=False)
+        except FileNotFoundError:
+            return False
+        except ValueError:
+            return False
+        except OSError as e:
+            raise StageError("convert", "cannot read %s: %s" % (path, e))
+        return isinstance(source, dict) and \
+            source.get("fingerprint") == weights_fingerprint(self.recipe["model"]["path"])
 
-    def write_source(self, root):
-        """Record the model fingerprint next to a shared conversion so later runs can refuse a stale cache."""
-        source = {"model": self.recipe["model"]["path"],
-                  "fingerprint": weights_fingerprint(self.recipe["model"]["path"])}
-        with open(os.path.join(root, SOURCE_FILE), "w") as f:
+    def write_source(self, root, token, fingerprint):
+        """Record the fingerprint of the weights a shared conversion was made from, taken before it was made, so
+        later runs can tell a stale cache. It is written aside and moved into place, so a run that reads it without
+        the lock never finds half of it."""
+        source = {"model": self.recipe["model"]["path"], "fingerprint": fingerprint}
+        path = os.path.join(root, SOURCE_FILE)
+        tmp = "%s.tmp.%s" % (path, token)
+        with open(tmp, "w") as f:
             json.dump(source, f)
+        os.replace(tmp, path)
+
+    def conversion_mark(self):
+        """Return the file whose presence means the shared conversion is complete: source.json for HF-direct recipes,
+        which convert nothing but FP8 weights, the conversion's completion mark otherwise."""
+        _, root, complete = self.convert_paths()
+        return os.path.join(root, SOURCE_FILE) if self.hf_direct() else complete
 
     def reuse_conversion(self):
-        """Report a complete conversion of the model's current weights as skipped; returns whether there is one."""
-        _, root, complete = self.convert_paths()
-        if self.hf_direct():
-            complete = os.path.join(root, SOURCE_FILE)
-        if not os.path.exists(complete) or (self.wants_fp8() and not os.path.exists(self.fp8_paths()[1])):
+        """Report a complete conversion of the model's current weights as skipped; returns whether there is one. A
+        conversion of other weights is not reused: the convert stage makes it again under the lock."""
+        _, root, _ = self.convert_paths()
+        if not os.path.exists(self.conversion_mark()) or \
+                (self.wants_fp8() and not os.path.exists(self.fp8_paths()[1])):
             return False
-        self.check_source(root)
+        if not self.source_matches(root):
+            return False
         self.report_conversion("skipped")
         return True
 
@@ -505,34 +561,63 @@ class Runner:
         self.emitter.stage("prepare", state="done", detail=stats)
 
     def keep_conversion(self, held):
-        """Fail the stage instead of marking a conversion complete when another run took the lock over meanwhile,
-        as both then wrote the cache directory; the next attempt converts again under the lock."""
+        """Fail the stage instead of keeping a conversion when another run took the lock over meanwhile, as that run
+        now converts into the cache; the next attempt converts again under the lock."""
         if not held():
             raise StageError("convert", "another run took the conversion lock over; the conversion is not kept")
 
+    def build(self, held, out, make):
+        """Make a conversion output with make(directory) in a directory of the lock holder's own, and move it to out
+        only after checking that the lock is still held: a run whose lock was taken over must neither write into
+        out nor have its output removed by the new holder before it is moved. A command the watchdog stopped fails
+        with the watchdog's reason."""
+        tmp = "%s%s.%s" % (out, PARTIAL_SUFFIX, held.token)
+        remove_partials(out, keep=held.token)
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        if self.watchdog:
+            self.watchdog.reason = None
+        try:
+            try:
+                make(tmp)
+            except StageError as e:
+                if self.watchdog and self.watchdog.reason:
+                    raise StageError(e.stage, self.watchdog.reason) from e
+                raise
+            self.keep_conversion(held)
+            discard(out, held.token)
+            os.replace(tmp, out)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
     def stage_convert(self):
         """Convert the base weights for training under the cache lock, unless a run that held the lock first
-        converted them, and record the source fingerprint before the completion mark. HF-direct recipes skip
-        torch_dist and only build FP8 weights when the rollout needs them."""
-        _, root, complete = self.convert_paths()
+        converted them, and record the source fingerprint before the completion mark. A cache made from other
+        weights, which the model path held before, is made again; its FP8 weights are removed first, so no run takes
+        them meanwhile. HF-direct recipes skip torch_dist and only build FP8 weights when the rollout needs them."""
+        out, root, complete = self.convert_paths()
         fp8_out, fp8_complete = self.fp8_paths()
         run_command = functools.partial(self.run_command, watch="convert")
         owner = {"run": self.emitter.run_id, "attempt": self.emitter.attempt, "host": socket.gethostname(),
                  "pid": os.getpid()}
         with cache_lock(root, owner=owner, sleep=self.sleep) as held:
+            fingerprint = weights_fingerprint(self.recipe["model"]["path"])
+            stale = os.path.exists(self.conversion_mark()) and not self.source_matches(root)
+            if stale:
+                discard(fp8_out, held.token)
             if self.hf_direct():
-                if not os.path.exists(os.path.join(root, SOURCE_FILE)):
-                    self.write_source(root)
-            elif not os.path.exists(complete):
-                self.adapter.convert(self.recipe, self.run_dir, run_command)
-                self.keep_conversion(held)
-                self.write_source(root)
+                if stale or not os.path.exists(os.path.join(root, SOURCE_FILE)):
+                    self.write_source(root, held.token, fingerprint)
+            elif stale or not os.path.exists(complete):
+                self.build(held, out, lambda tmp: self.adapter.convert(self.recipe, self.run_dir, run_command, tmp))
+                self.write_source(root, held.token, fingerprint)
                 open(complete, "w").close()
             if self.wants_fp8() and not os.path.exists(fp8_complete):
-                self.adapter.convert_fp8(self.recipe, self.run_dir, run_command, fp8_out)
-                self.keep_conversion(held)
+                self.build(held, fp8_out,
+                           lambda tmp: self.adapter.convert_fp8(self.recipe, self.run_dir, run_command, tmp))
                 open(fp8_complete, "w").close()
-        self.check_source(root)
+        if not self.source_matches(root):
+            raise StageError("convert", "the model weights at %s changed while they were converted"
+                             % self.recipe["model"]["path"])
         self.report_conversion("done")
 
     def stage_check(self):
@@ -624,7 +709,7 @@ class Runner:
             return
         url = os.environ.get("WANDB_BASE_URL") or WANDB_DEFAULT_URL
         if http_status(url, timeout) is None:
-            raise StageError("check", "the training nodes can't reach wandb at %s" % url)
+            raise StageError("check", "the training nodes can't reach wandb at %s" % redact_url(url))
 
     def check_reward(self, timeout=REWARD_PROBE_SECONDS):
         """Fail before training when an RL run's reward can't work: the custom reward file is missing, or the remote
@@ -644,10 +729,11 @@ class Runner:
                 headers["Authorization"] = "Bearer " + os.environ.get(REWARD_KEY_ENV, "")
             status = http_status(url, timeout, headers)
             if status is None:
-                raise StageError("check", "the training nodes can't reach the reward service at %s" % url)
+                raise StageError("check", "the training nodes can't reach the reward service at %s"
+                                 % redact_url(url))
             if headers and status in (401, 403):
-                raise StageError("check", "the reward service at %s rejected the key (HTTP %d)" % (url, status),
-                                 retry=False)
+                raise StageError("check", "the reward service at %s rejected the key (HTTP %d)"
+                                 % (redact_url(url), status), retry=False)
 
     def space_needed(self):
         """Estimate the bytes the run writes: the checkpoints kept at the same time plus the exported model. With a
@@ -715,6 +801,10 @@ class Runner:
         """Run the training command, resuming from the latest checkpoint when there is one."""
         self.align_critic()
         cmd, env, files = self.adapter.train_command(self.recipe, self.run_dir)
+        for rel in files or {}:
+            target = self.path(rel)
+            if not under(self.run_dir, target) or os.path.abspath(target) == os.path.abspath(self.run_dir):
+                raise StageError("train", "the recipe file %s is not inside the run directory" % rel, retry=False)
         for rel, content in (files or {}).items():
             target = self.path(rel)
             os.makedirs(os.path.dirname(target), exist_ok=True)

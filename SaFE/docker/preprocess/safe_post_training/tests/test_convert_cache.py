@@ -19,10 +19,10 @@ class CountingAdapter:
     def __init__(self):
         self.conversions = 0
 
-    def convert(self, recipe, run_dir, run_command):
+    def convert(self, recipe, run_dir, run_command, out):
         self.conversions += 1
-        os.makedirs(recipe["convert"]["dir"], exist_ok=True)
-        with open(os.path.join(recipe["convert"]["dir"], "model.pt"), "w") as f:
+        os.makedirs(out, exist_ok=True)
+        with open(os.path.join(out, "model.pt"), "w") as f:
             f.write("x" * 10)
 
 
@@ -66,15 +66,98 @@ def test_runs_of_a_model_share_one_conversion(tmp_path):
     assert adapter.conversions == 1
 
 
-def test_changed_weights_do_not_reuse_the_cache(tmp_path):
+def test_changed_weights_are_converted_again(tmp_path):
+    adapter = FP8Adapter()
+    runner, _ = setup(tmp_path, "r1")
+    runner.recipe["convert"]["fp8"], runner.adapter = True, adapter
+    runner.stage_convert()
+    out, root, complete = runner.convert_paths()
+    plain, out_markers = setup(tmp_path, "r2")
+    again, _ = setup(tmp_path, "r3")
+    with open(os.path.join(runner.recipe["model"]["path"], "model.safetensors"), "w") as f:
+        f.write("retrained weights")
+
+    plain.adapter = adapter
+    assert not plain.reuse_conversion(), "a conversion of other weights is not reused"
+    plain.stage_convert()
+    assert (adapter.conversions, adapter.fp8) == (2, 1)
+    assert plain.source_matches(root) and os.path.exists(complete)
+    assert not os.path.exists(plain.fp8_paths()[0]), "the FP8 weights of the old model are gone"
+    assert sorted(os.listdir(root)) == [stages.SOURCE_FILE, "torch_dist"]
+    assert convert_markers(out_markers)[-1][1]["fp8"] is False
+
+    again.recipe["convert"]["fp8"], again.adapter = True, adapter
+    assert not again.reuse_conversion()
+    again.stage_convert()
+    assert (adapter.conversions, adapter.fp8) == (2, 2), "only the FP8 weights are made again"
+
+
+def test_changed_weights_of_an_hf_direct_spec_are_recorded_again(tmp_path):
+    adapter = FP8Adapter()
+    runner, _ = setup(tmp_path, "r1")
+    runner.recipe["convert"].update(hfDirect=True, fp8=True)
+    runner.adapter = adapter
+    runner.stage_convert()
+    second, _ = setup(tmp_path, "r2")
+    with open(os.path.join(runner.recipe["model"]["path"], "model.safetensors"), "w") as f:
+        f.write("retrained weights")
+    second.recipe["convert"].update(hfDirect=True, fp8=True)
+    second.adapter = adapter
+    assert not second.reuse_conversion()
+    second.stage_convert()
+    assert adapter.fp8 == 2 and second.reuse_conversion()
+
+
+def test_weights_that_change_during_the_conversion_fail_the_stage_for_a_retry(tmp_path):
+    runner, _ = setup(tmp_path, "r1")
+    model = runner.recipe["model"]["path"]
+
+    class Changing(CountingAdapter):
+        def convert(self, recipe, run_dir, run_command, out):
+            super().convert(recipe, run_dir, run_command, out)
+            with open(os.path.join(model, "model.safetensors"), "w") as f:
+                f.write("weights being copied")
+
+    runner.adapter = Changing()
+    with pytest.raises(stages.StageError, match="changed while they were converted") as e:
+        runner.stage_convert()
+    assert e.value.retry
+
+
+def test_a_source_record_that_cannot_be_read_is_retried(monkeypatch, tmp_path):
+    """A read error of the storage may pass on the next attempt; it is not a stale cache."""
     runner, _ = setup(tmp_path, "r1")
     runner.adapter = CountingAdapter()
     runner.stage_convert()
-    with open(os.path.join(runner.recipe["model"]["path"], "model.safetensors"), "w") as f:
-        f.write("retrained weights")
-    with pytest.raises(stages.StageError) as err:
+    real_open = open
+
+    def failing(path, *args, **kwargs):
+        if str(path).endswith(stages.SOURCE_FILE):
+            raise OSError(errno.EIO, "Input/output error")
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr("builtins.open", failing)
+    with pytest.raises(stages.StageError, match="Input/output error") as e:
         runner.reuse_conversion()
-    assert err.value.reason == "the conversion cache does not match the model weights" and not err.value.retry
+    assert e.value.stage == "convert" and e.value.retry
+
+
+def test_the_source_record_is_replaced_in_one_step(monkeypatch, tmp_path):
+    runner, _ = setup(tmp_path, "r1")
+    root = str(tmp_path / "cache")
+    os.makedirs(root)
+    replaced = []
+    real_replace = os.replace
+
+    def replace(src, dst):
+        replaced.append((src, dst))
+        assert json.load(open(src))["fingerprint"], "the record is complete before it is moved into place"
+        real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", replace)
+    runner.write_source(root, "tok", stages.weights_fingerprint(runner.recipe["model"]["path"]))
+    assert replaced == [(os.path.join(root, stages.SOURCE_FILE + ".tmp.tok"), os.path.join(root, stages.SOURCE_FILE))]
+    assert runner.source_matches(root) and os.listdir(root) == [stages.SOURCE_FILE]
 
 
 def test_a_waiting_run_reuses_what_the_lock_holder_converted(tmp_path):
@@ -174,7 +257,7 @@ def test_a_run_that_found_a_lock_stale_leaves_the_lock_another_run_took_meanwhil
 
 
 def test_a_lock_whose_owner_record_cannot_be_written_is_not_left_behind(monkeypatch, tmp_path):
-    """A lock without an owner record would be waited for six hours."""
+    """A lock without an owner record would make every other run wait until it goes stale."""
     root = str(tmp_path / "cache")
 
     def full(lock, owner):
@@ -196,44 +279,78 @@ def wait(_):
     raise Waited()
 
 
-def test_a_lock_without_an_owner_record_is_waited_for_longer(tmp_path):
-    """A launcher from before the heartbeat holds a lock without a record, which is not refreshed while it converts."""
+def test_a_lock_without_an_owner_record_goes_stale_like_any_other(tmp_path):
+    """Only a launcher that died between taking the lock and writing its record leaves a lock without one; a fresh one
+    is a holder about to write it."""
     runner, _ = setup(tmp_path, "r1")
     runner.adapter = adapter = CountingAdapter()
     _, root, _ = runner.convert_paths()
     lock = os.path.join(root, stages.CONVERT_LOCK)
     os.makedirs(lock)
-    old = time.time() - stages.LOCK_STALE_SECONDS - 60
-    os.utime(lock, (old, old))
     runner.sleep = wait
     with pytest.raises(Waited):
         runner.stage_convert()
     assert adapter.conversions == 0 and os.path.exists(lock)
-    old = time.time() - stages.LOCK_UNOWNED_STALE_SECONDS - 60
+    old = time.time() - stages.LOCK_STALE_SECONDS - 60
     os.utime(lock, (old, old))
     runner.stage_convert()
     assert adapter.conversions == 1 and not os.path.exists(lock)
 
 
 class TakenOverAdapter(CountingAdapter):
-    """Converts while another run takes the lock over."""
+    """Converts while another run takes the lock over and starts its own conversion."""
 
-    def convert(self, recipe, run_dir, run_command):
-        super().convert(recipe, run_dir, run_command)
+    def convert(self, recipe, run_dir, run_command, out):
+        super().convert(recipe, run_dir, run_command, out)
         with open(os.path.join(self.lock, stages.LOCK_OWNER), "w") as f:
             json.dump({"run": "pt-r2", "attempt": "a1", "token": "other"}, f)
+        os.makedirs(recipe["convert"]["dir"] + ".partial.other")
 
 
-def test_a_conversion_whose_lock_was_taken_over_is_not_marked_complete(tmp_path):
-    """Two runs then wrote the same cache directory, so neither result is recorded as usable."""
+def test_a_conversion_whose_lock_was_taken_over_is_not_kept(tmp_path):
+    """The run that took the lock over converts into the cache, so the stale holder leaves the cache and the new
+    holder's output alone."""
     runner, _ = setup(tmp_path, "r1")
     runner.adapter = adapter = TakenOverAdapter()
-    _, root, complete = runner.convert_paths()
+    out, root, complete = runner.convert_paths()
     adapter.lock = os.path.join(root, stages.CONVERT_LOCK)
     with pytest.raises(stages.StageError) as e:
         runner.stage_convert()
-    assert e.value.retry and not os.path.exists(complete)
+    assert e.value.retry and not os.path.exists(out) and not os.path.exists(complete)
     assert os.path.exists(adapter.lock), "the lock stays with the run that took it over"
+    assert sorted(os.listdir(root)) == [stages.CONVERT_LOCK, "torch_dist.partial.other"]
+
+
+def test_the_holder_removes_what_earlier_holders_left(tmp_path):
+    runner, _ = setup(tmp_path, "r1")
+    runner.adapter = CountingAdapter()
+    out, root, complete = runner.convert_paths()
+    for left in ("torch_dist.partial", "torch_dist.partial.dead", "torch_dist.stale.dead", "fp8_hf.partial.dead"):
+        os.makedirs(os.path.join(root, left, "iter_0000000"))
+    os.makedirs(os.path.join(out, "iter_0000000"))
+    runner.stage_convert()
+    assert sorted(os.listdir(root)) == ["fp8_hf.partial.dead", stages.SOURCE_FILE, "torch_dist"], \
+        "only the leftovers of the output being made are removed"
+    assert sorted(os.listdir(out)) == [".complete", "model.pt"], "an unfinished conversion is replaced"
+
+
+def test_a_conversion_the_watchdog_stopped_fails_with_its_reason(tmp_path):
+    runner, _ = setup(tmp_path, "r1")
+
+    class Dog:
+        reason = "stale"
+
+    class Stopped(CountingAdapter):
+        def convert(self, recipe, run_dir, run_command, out):
+            os.makedirs(out)
+            runner.watchdog.reason = "30 minutes without training progress (last step none)"
+            raise stages.StageError("convert", "weight conversion exited with code -15")
+
+    runner.watchdog, runner.adapter = Dog(), Stopped()
+    with pytest.raises(stages.StageError) as e:
+        runner.stage_convert()
+    assert e.value.reason == "30 minutes without training progress (last step none)" and e.value.retry
+    assert sorted(os.listdir(runner.convert_paths()[1])) == [], "the unfinished output is removed"
 
 
 class FP8Adapter(CountingAdapter):

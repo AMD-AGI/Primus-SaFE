@@ -114,42 +114,33 @@ class Adapter:
         self.train_type = ""
         self.seen_eval_zero = False
 
-    def convert(self, recipe, run_dir, run_command):
-        """Convert the base HF weights to torch_dist in the recipe's convert directory on one node."""
+    def convert(self, recipe, run_dir, run_command, out):
+        """Convert the base HF weights to torch_dist into out on one node. out is the lock holder's own directory,
+        which the convert stage moves to the recipe's convert directory."""
         conv = recipe["convert"]
         if conv.get("nodes", 1) > 1:
             raise StageError("convert", "a %d-node conversion is not supported; the model's spec should load the HF "
                              "weights directly (hfDirect)" % conv["nodes"], retry=False)
         root = slime_dir(self.env)
-        tmp = conv["dir"] + ".partial"
-        shutil.rmtree(tmp, ignore_errors=True)
         cmd = ["torchrun", "--standalone", "--nproc-per-node", str(recipe["layout"]["gpusPerNode"]),
                os.path.join(root, "tools", "convert_hf_to_torch_dist.py")]
         cmd += model_args(root, recipe["model"]["script"])
         # ROCm conversion builds the Megatron model on the host; without this the tool asserts.
-        cmd += ["--use-cpu-initialization", "--hf-checkpoint", recipe["model"]["path"], "--save", tmp]
+        cmd += ["--use-cpu-initialization", "--hf-checkpoint", recipe["model"]["path"], "--save", out]
         code = run_command(cmd, env={"PYTHONPATH": python_path(root, self.env)})
         if code != 0:
-            shutil.rmtree(tmp, ignore_errors=True)
             raise StageError("convert", "weight conversion exited with code %d" % code)
-        shutil.rmtree(conv["dir"], ignore_errors=True)
-        os.makedirs(os.path.dirname(conv["dir"]), exist_ok=True)
-        os.replace(tmp, conv["dir"])
 
     def convert_fp8(self, recipe, run_dir, run_command, out):
-        """Quantize the base HF weights blockwise to FP8 into out, the weights an FP8 rollout serves."""
+        """Quantize the base HF weights blockwise to FP8 into out, the weights an FP8 rollout serves. out is the lock
+        holder's own directory, which the convert stage moves next to the conversion."""
         root = slime_dir(self.env)
-        tmp = out + ".partial"
-        shutil.rmtree(tmp, ignore_errors=True)
         cmd = [sys.executable, os.path.join(root, "tools", "convert_hf_to_fp8.py"), "--model-dir",
-               recipe["model"]["path"], "--save-dir", tmp, "--strategy", "block", "--block-size", "128", "128",
+               recipe["model"]["path"], "--save-dir", out, "--strategy", "block", "--block-size", "128", "128",
                "--max-workers", "4"]
         code = run_command(cmd, env={"PYTHONPATH": python_path(root, self.env)})
         if code != 0:
-            shutil.rmtree(tmp, ignore_errors=True)
             raise StageError("convert", "FP8 weight conversion exited with code %d" % code)
-        shutil.rmtree(out, ignore_errors=True)
-        os.replace(tmp, out)
 
     def train_command(self, recipe, run_dir):
         """Return the train.py command, its environment and the files to write before it starts."""

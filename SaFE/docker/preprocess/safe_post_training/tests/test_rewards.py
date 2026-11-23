@@ -121,6 +121,10 @@ def test_check_reward(monkeypatch, tmp_path):
     with pytest.raises(stages.StageError) as e:
         check(remote, tmp_path)
     assert e.value.retry and "can't reach the reward service" in e.value.reason
+    remote["choices"]["rewardRemote"]["url"] = "http://user:pw@127.0.0.1:9/score"
+    with pytest.raises(stages.StageError) as e:
+        check(remote, tmp_path)
+    assert e.value.reason == "the training nodes can't reach the reward service at http://***@127.0.0.1:9/score"
 
     custom = {"trainType": "rl", "choices": {"rewardType": "custom", "rewardHook": str(tmp_path / "rm.py:score")}}
     with pytest.raises(stages.StageError) as e:

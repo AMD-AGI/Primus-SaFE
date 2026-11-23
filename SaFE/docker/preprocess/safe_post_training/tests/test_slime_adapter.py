@@ -183,48 +183,41 @@ def test_conversion_builds_the_model_on_the_host(tmp_path):
 
     def run_command(cmd, env=None):
         commands.append(cmd)
-        (tmp_path / "cache" / "torch_dist.partial").mkdir(parents=True)
         return 0
 
-    conv = tmp_path / "cache" / "torch_dist"
+    out = str(tmp_path / "cache" / "torch_dist.partial.token")
     recipe = {"model": {"path": "/wekafs/models/Qwen3-8B", "script": "model.sh"}, "layout": {"gpusPerNode": 8},
-              "convert": {"dir": str(conv)}}
+              "convert": {"dir": str(tmp_path / "cache" / "torch_dist")}}
     a = Adapter(env={"SLIME_DIR": str(tmp_path)})
-    a.convert(recipe, str(tmp_path), run_command)
+    a.convert(recipe, str(tmp_path), run_command, out)
     cmd = commands[0]
     assert "--use-cpu-initialization" in cmd, "the ROCm conversion tool asserts it"
-    assert cmd[cmd.index("--num-layers") + 1] == "2" and conv.is_dir()
+    assert cmd[cmd.index("--num-layers") + 1] == "2" and cmd[cmd.index("--save") + 1] == out
     recipe["convert"]["nodes"] = 4
     with pytest.raises(StageError, match="4-node conversion is not supported") as e:
-        a.convert(recipe, str(tmp_path), run_command)
+        a.convert(recipe, str(tmp_path), run_command, out)
     assert not e.value.retry
 
 
 def test_fp8_weights_are_quantized_blockwise(tmp_path):
     root = tmp_path / "slime"
     (root / "tools").mkdir(parents=True)
-    out = tmp_path / "cache" / "fp8_hf"
+    out = str(tmp_path / "cache" / "fp8_hf.partial.token")
     commands, codes = [], [0]
 
     def run_command(cmd, env=None):
         commands.append(cmd)
-        if codes[0] == 0:
-            save = cmd[cmd.index("--save-dir") + 1]
-            (tmp_path / "cache").mkdir(exist_ok=True)
-            (tmp_path / "cache" / "fp8_hf.partial").mkdir(exist_ok=True)
-            (tmp_path / "cache" / "fp8_hf.partial" / "config.json").write_text(save)
         return codes[0]
 
     a = Adapter(env={"SLIME_DIR": str(root)})
     recipe = {"model": {"path": "/wekafs/models/Qwen3-8B"}}
-    a.convert_fp8(recipe, str(tmp_path), run_command, str(out))
+    a.convert_fp8(recipe, str(tmp_path), run_command, out)
     cmd = commands[0]
     assert cmd[1] == str(root / "tools" / "convert_hf_to_fp8.py")
     assert cmd[cmd.index("--model-dir") + 1] == "/wekafs/models/Qwen3-8B", "quantized from the BF16 base"
     assert cmd[cmd.index("--strategy"):cmd.index("--strategy") + 5] == ["--strategy", "block", "--block-size", "128",
                                                                        "128"]
-    assert (out / "config.json").read_text() == str(out) + ".partial", "written aside, then moved in place"
+    assert cmd[cmd.index("--save-dir") + 1] == out, "written to the directory the convert stage gives"
     codes[0] = 3
     with pytest.raises(StageError, match="FP8 weight conversion exited with code 3"):
-        a.convert_fp8(recipe, str(tmp_path), run_command, str(tmp_path / "other"))
-    assert not (tmp_path / "other.partial").exists()
+        a.convert_fp8(recipe, str(tmp_path), run_command, out)
