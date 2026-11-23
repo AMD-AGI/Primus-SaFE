@@ -749,3 +749,92 @@ func TestJobManagerLogLinesSkipsUnusableSources(t *testing.T) {
 	h := &Handler{clientSet: k8sfake.NewSimpleClientset(noSelector, withSelector, jmPod)}
 	assert.Empty(t, h.jobManagerLogLines(ctx, "wl-1"))
 }
+
+func workloadObjectEvent(namespace, name, kind, reason, message string, typ string, at time.Time) *corev1.Event {
+	return &corev1.Event{
+		ObjectMeta:     metav1.ObjectMeta{Name: name + "." + reason, Namespace: namespace},
+		InvolvedObject: corev1.ObjectReference{Kind: kind, Name: name, Namespace: namespace},
+		Type:           typ,
+		Reason:         reason,
+		Message:        message,
+		LastTimestamp:  metav1.NewTime(at),
+	}
+}
+
+// A workload's controller object (PyTorchJob, or the ReplicaSet of a Deployment) can fail to create
+// its Pods, for example when an admission webhook denies them. No Pod exists then, so the warning on
+// the controller object is the only evidence.
+func TestCollectPendingEvidenceWorkloadObjectEvents(t *testing.T) {
+	const denial = "admission webhook denied the request: SiteAccountRefused: primus-safe.user.account: \"Zhen.Huang\" is not a site account name"
+	at := time.Date(2026, 11, 23, 7, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name     string
+		events   []runtime.Object
+		want     []string
+		notWant  []string
+		fallback bool
+	}{
+		{
+			name:     "warning on the job is the fallback when no pod exists",
+			events:   []runtime.Object{workloadObjectEvent("ws-a", "wl-app", "PyTorchJob", "FailedCreate", "Error creating: "+denial, corev1.EventTypeWarning, at)},
+			want:     []string{"event PyTorchJob/wl-app FailedCreate: Error creating: " + denial[:60]},
+			fallback: true,
+		},
+		{
+			name:     "warning on the replica set of a deployment is included",
+			events:   []runtime.Object{workloadObjectEvent("ws-a", "wl-app-7d9f8", "ReplicaSet", "FailedCreate", "Error creating: "+denial, corev1.EventTypeWarning, at)},
+			want:     []string{"event ReplicaSet/wl-app-7d9f8 FailedCreate:"},
+			fallback: true,
+		},
+		{
+			name: "other objects and normal events are skipped",
+			events: []runtime.Object{
+				workloadObjectEvent("ws-a", "other-app-1", "ReplicaSet", "FailedCreate", "other denial", corev1.EventTypeWarning, at),
+				workloadObjectEvent("ws-a", "wl-app", "PyTorchJob", "Created", "Created pod", corev1.EventTypeNormal, at),
+				workloadObjectEvent("other-ns", "wl-app", "PyTorchJob", "FailedCreate", "other namespace", corev1.EventTypeWarning, at),
+			},
+			notWant: []string{"other denial", "Created pod", "other namespace"},
+		},
+		{
+			name:    "pod warnings are left to the pod path and not repeated",
+			events:  []runtime.Object{workloadObjectEvent("ws-a", "wl-app-0", "Pod", "FailedScheduling", "pod-only denial", corev1.EventTypeWarning, at)},
+			notWant: []string{"event Pod/wl-app-0"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data := k8sfake.NewSimpleClientset(tt.events...)
+			text, fallback := notReadyEvidenceHandler(t, data).collectPendingEvidence(context.Background(), pendingEvidenceWorkload())
+			for _, w := range tt.want {
+				assert.Contains(t, text, w)
+			}
+			for _, nw := range tt.notWant {
+				assert.NotContains(t, text, nw)
+			}
+			if tt.fallback {
+				assert.Contains(t, fallback, "SiteAccountRefused")
+			}
+		})
+	}
+}
+
+// A pod's own warning is listed once, through the pod path.
+func TestCollectPendingEvidencePodEventNotRepeated(t *testing.T) {
+	at := time.Date(2026, 11, 23, 7, 0, 0, 0, time.UTC)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "wl-app-0", Namespace: "ws-a", Labels: map[string]string{v1.WorkloadIdLabel: "wl-app"}},
+		Status:     corev1.PodStatus{Phase: corev1.PodPending},
+	}
+	ev := workloadObjectEvent("ws-a", "wl-app-0", "Pod", "FailedScheduling", "0/8 nodes are available: pod-only-marker", corev1.EventTypeWarning, at)
+	data := k8sfake.NewSimpleClientset(pod, ev)
+	text, _ := notReadyEvidenceHandler(t, data).collectPendingEvidence(context.Background(), pendingEvidenceWorkload())
+	assert.Equal(t, 1, strings.Count(text, "pod-only-marker"))
+}
+
+func pendingEvidenceWorkload() *v1.Workload {
+	return &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "wl-app", Labels: map[string]string{v1.ClusterIdLabel: "c1"}},
+		Spec:       v1.WorkloadSpec{Workspace: "ws-a"},
+		Status:     v1.WorkloadStatus{Phase: v1.WorkloadPending},
+	}
+}

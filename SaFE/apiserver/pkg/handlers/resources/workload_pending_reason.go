@@ -30,16 +30,18 @@ import (
 )
 
 const (
-	pendingEvidencePodLimit     = 5
-	pendingEvidencePodListLimit = 50
-	pendingEvidencePodListPages = 10
-	pendingEvidenceEventLimit   = 5
-	pendingEvidenceLogPods      = 3
-	pendingEvidenceLogTail      = 400
-	pendingEvidenceLogLines     = 30
-	pendingEvidenceLineLimit    = 300
-	pendingEvidenceLimit        = 6000
-	pendingReasonSentenceLimit  = 400
+	pendingEvidencePodLimit      = 5
+	pendingEvidencePodListLimit  = 50
+	pendingEvidencePodListPages  = 10
+	pendingEvidenceEventLimit    = 5
+	pendingEvidenceEventPageSize = 200
+	pendingEvidenceEventPages    = 5
+	pendingEvidenceLogPods       = 3
+	pendingEvidenceLogTail       = 400
+	pendingEvidenceLogLines      = 30
+	pendingEvidenceLineLimit     = 300
+	pendingEvidenceLimit         = 6000
+	pendingReasonSentenceLimit   = 400
 
 	jobManagerAppLabelKey   = "primus-safe-app-name"
 	jobManagerAppLabelValue = "job-manager"
@@ -216,6 +218,9 @@ func (h *Handler) collectPendingEvidence(ctx context.Context, w *v1.Workload) (s
 	podLines, podFallback := h.pendingPodEvidence(ctx, w)
 	lines = append(lines, podLines...)
 	fallback = preferFallback(fallback, podFallback)
+	objectLines, objectFallback := h.workloadObjectEvidence(ctx, w)
+	lines = append(lines, objectLines...)
+	fallback = preferFallback(fallback, objectFallback)
 	logLines := h.jobManagerLogLines(ctx, w.Name)
 	for _, line := range logLines {
 		lines = append(lines, "job-manager "+line)
@@ -244,19 +249,84 @@ func provisioningLine(w *v1.Workload) string {
 	return clipText("provisioning "+msg, pendingEvidenceLineLimit)
 }
 
-// pendingPodEvidence reads the pods that hold a workload back and their scheduling events from the
-// data-plane cluster. A Pending workload reads Pending pods; a NotReady one also reads Running pods that are not ready.
-func (h *Handler) pendingPodEvidence(ctx context.Context, w *v1.Workload) ([]string, string) {
+// dataPlaneClientSet returns the clientset of the data-plane cluster that runs the workload, or nil.
+func (h *Handler) dataPlaneClientSet(w *v1.Workload) kubernetes.Interface {
 	clusterID := v1.GetClusterId(w)
 	if h.clientManager == nil || clusterID == "" || w.Name == "" {
-		return nil, ""
+		return nil
 	}
 	factory, err := commonutils.GetK8sClientFactory(h.clientManager, clusterID)
 	if err != nil {
 		klog.ErrorS(err, "failed to get data plane client", "cluster", clusterID, "workload", w.Name)
+		return nil
+	}
+	return factory.ClientSet()
+}
+
+// workloadObjectEvidence reads the warnings recorded on the workload's controller objects in its
+// workspace namespace, such as the PyTorchJob or a Deployment's ReplicaSet, when they failed to create Pods.
+// The second result is the strongest of them, used as the fallback.
+func (h *Handler) workloadObjectEvidence(ctx context.Context, w *v1.Workload) ([]string, string) {
+	clientSet := h.dataPlaneClientSet(w)
+	if clientSet == nil || w.Spec.Workspace == "" {
 		return nil, ""
 	}
-	clientSet := factory.ClientSet()
+	var events []*corev1.Event
+	listOpts := metav1.ListOptions{FieldSelector: fields.OneTermEqualSelector("type", corev1.EventTypeWarning).String(), Limit: pendingEvidenceEventPageSize}
+	for page := 0; page < pendingEvidenceEventPages; page++ {
+		list, err := clientSet.CoreV1().Events(w.Spec.Workspace).List(ctx, listOpts)
+		if err != nil {
+			klog.ErrorS(err, "failed to list workspace events", "workload", w.Name, "namespace", w.Spec.Workspace)
+			break
+		}
+		for i := range list.Items {
+			if isWorkloadObjectWarning(&list.Items[i], w.Name) {
+				events = append(events, &list.Items[i])
+			}
+		}
+		if list.Continue == "" {
+			break
+		}
+		listOpts.Continue = list.Continue
+	}
+	sort.Slice(events, func(i, j int) bool {
+		return eventLastTime(events[i]).After(eventLastTime(events[j]))
+	})
+	if len(events) > pendingEvidenceEventLimit {
+		events = events[:pendingEvidenceEventLimit]
+	}
+	var lines []string
+	seen := map[string]bool{}
+	var fallback string
+	for _, ev := range events {
+		line := joinReason(fmt.Sprintf("event %s/%s", ev.InvolvedObject.Kind, ev.InvolvedObject.Name),
+			strings.TrimSpace(ev.Reason), strings.TrimSpace(ev.Message))
+		if seen[line] {
+			continue
+		}
+		seen[line] = true
+		lines = append(lines, line)
+		if fallback == "" {
+			fallback = line
+		}
+	}
+	return lines, fallback
+}
+
+// isWorkloadObjectWarning reports whether an event is a warning on the workload's own object or on
+// an object named after it (the workload's ReplicaSet, for example). Pod events are read by the pod path.
+func isWorkloadObjectWarning(ev *corev1.Event, workloadName string) bool {
+	if ev == nil || ev.Type != corev1.EventTypeWarning || ev.InvolvedObject.Kind == "Pod" {
+		return false
+	}
+	name := ev.InvolvedObject.Name
+	return name == workloadName || strings.HasPrefix(name, workloadName+"-")
+}
+
+// pendingPodEvidence reads the pods that hold a workload back and their scheduling events from the
+// data-plane cluster. A Pending workload reads Pending pods; a NotReady one also reads Running pods that are not ready.
+func (h *Handler) pendingPodEvidence(ctx context.Context, w *v1.Workload) ([]string, string) {
+	clientSet := h.dataPlaneClientSet(w)
 	if clientSet == nil {
 		return nil, ""
 	}
