@@ -121,7 +121,8 @@ def rl_row(row, field_map):
 def prepare(src, dst, train_type, field_map, limit=None, split_dst=None, split=0.0, split_limit=None):
     """Convert the dataset at src into dst and return its statistics. A field missing from any row fails the
     stage, naming the field and how many rows lack it; limit keeps only the first rows (validation sets). With
-    split_dst and split, a fixed-seed random share of the rows goes to split_dst instead, up to split_limit rows."""
+    split_dst and split, a fixed-seed random share of the rows goes to split_dst instead, up to split_limit rows; once
+    split_dst is full every further row goes to dst. On any failure no output is left, not even a partial one."""
     convert = rl_row if train_type == "rl" else sft_row
     rng = random.Random(SPLIT_SEED)
     missing = {}
@@ -131,6 +132,7 @@ def prepare(src, dst, train_type, field_map, limit=None, split_dst=None, split=0
         os.makedirs(os.path.dirname(path), exist_ok=True)
     out = open(dst + ".tmp", "w", encoding="utf-8")
     val = open(split_dst + ".tmp", "w", encoding="utf-8") if split_dst else None
+    ok = False
     try:
         for path in input_files(src):
             for row in read_rows(path):
@@ -143,24 +145,29 @@ def prepare(src, dst, train_type, field_map, limit=None, split_dst=None, split=0
                     missing[field] = missing.get(field, 0) + 1
                     continue
                 line = json.dumps(converted, ensure_ascii=False) + "\n"
-                if val and rng.random() < split:
-                    if split_limit is None or held < split_limit:
-                        val.write(line)
-                        held += 1
+                if val and (split_limit is None or held < split_limit) and rng.random() < split:
+                    val.write(line)
+                    held += 1
                 elif limit is None or written < limit:
                     out.write(line)
                     written += 1
+        if missing:
+            field, count = max(missing.items(), key=lambda kv: kv[1])
+            raise DatasetError("field '%s' missing in %d of %d rows" % (field, count, total))
+        if written == 0 or (val and held == 0):
+            raise DatasetError("the dataset has no rows" if written == 0 else "the validation split holds no rows")
+        ok = True
     finally:
         out.close()
         if val:
             val.close()
-    if missing or written == 0 or (val and held == 0):
-        for path in outputs:
-            os.remove(path + ".tmp")
-        if missing:
-            field, count = max(missing.items(), key=lambda kv: kv[1])
-            raise DatasetError("field '%s' missing in %d of %d rows" % (field, count, total))
-        raise DatasetError("the dataset has no rows" if written == 0 else "the validation split holds no rows")
+        if not ok:
+            # A file that cannot be read, a malformed row or a crash leaves no partial output behind.
+            for path in outputs:
+                try:
+                    os.remove(path + ".tmp")
+                except OSError:
+                    pass
     for path in outputs:
         os.replace(path + ".tmp", path)
     stats = {"rows": total, "written": written}

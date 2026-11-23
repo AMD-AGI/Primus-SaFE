@@ -4,6 +4,7 @@
 #
 import errno
 import json
+import os
 
 import pytest
 
@@ -61,8 +62,19 @@ def test_validation_split_is_reproducible(tmp_path):
         stats = dataset.prepare(str(src), str(tmp_path / ("t%d.jsonl" % n)), "sft", {},
                                 split_dst=str(tmp_path / ("e%d.jsonl" % n)), split=0.1, split_limit=50)
         runs.append((tmp_path / ("e%d.jsonl" % n)).read_text())
-    assert stats["split"] == 50 and stats["written"] + 50 < 1000
+    assert stats["split"] == 50 and stats["written"] + 50 == 1000, "rows past the split limit go to training"
     assert runs[0] == runs[1], "a fixed seed picks the same rows on a retry"
+    assert len(read_jsonl(tmp_path / "t0.jsonl")) == 950 and len(read_jsonl(tmp_path / "e0.jsonl")) == 50
+
+
+def test_every_row_goes_to_training_or_validation(tmp_path):
+    src = tmp_path / "train.jsonl"
+    write_jsonl(src, [{"instruction": str(i), "output": "x"} for i in range(10000)])
+    stats = dataset.prepare(str(src), str(tmp_path / "t.jsonl"), "sft", {}, split_dst=str(tmp_path / "e.jsonl"),
+                            split=0.1, split_limit=50)
+    assert stats == {"rows": 10000, "written": 9950, "split": 50}
+    seen = read_jsonl(tmp_path / "t.jsonl") + read_jsonl(tmp_path / "e.jsonl")
+    assert sorted(int(r["messages"][0]["content"]) for r in seen) == list(range(10000))
 
 
 def test_limit_and_errors(tmp_path):
@@ -86,7 +98,9 @@ def test_limit_and_errors(tmp_path):
 def test_malformed_files_are_dataset_errors(tmp_path, name, content, message):
     (tmp_path / name).write_bytes(content)
     with pytest.raises(dataset.DatasetError, match=message):
-        dataset.prepare(str(tmp_path / name), str(tmp_path / "t.jsonl"), "sft", {})
+        dataset.prepare(str(tmp_path / name), str(tmp_path / "out" / "t.jsonl"), "sft", {},
+                        split_dst=str(tmp_path / "out" / "e.jsonl"), split=0.5)
+    assert os.listdir(tmp_path / "out") == [], "no partial output is left behind"
 
 
 def test_a_broken_parquet_file_is_a_dataset_error(tmp_path):
