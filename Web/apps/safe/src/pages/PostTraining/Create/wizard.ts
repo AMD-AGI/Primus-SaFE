@@ -1,9 +1,20 @@
-import { computed, inject, provide, reactive, ref, watch, type InjectionKey } from 'vue'
+import {
+  computed,
+  getCurrentScope,
+  inject,
+  onScopeDispose,
+  provide,
+  reactive,
+  ref,
+  watch,
+  type InjectionKey,
+} from 'vue'
 import debounce from 'lodash/debounce'
 import { getDatasets } from '@/services/dataset'
 import type { DatasetItem } from '@/services/dataset/type'
 import { getNodeFlavorAvail } from '@/services/workload'
 import {
+  errorMessageOf,
   fieldStep,
   getPostTrainingConfig,
   getPostTrainingModels,
@@ -28,6 +39,16 @@ export const STEPS = [
 ] as const
 
 export const PREVIEW_DEBOUNCE_MS = 400
+
+/** The longest run name the API takes. */
+export const MAX_NAME_LENGTH = 128
+
+/** The name of a clone of a run: the run's name with -clone, cut so that it stays within MAX_NAME_LENGTH. */
+export function cloneName(name: string): string {
+  const suffix = '-clone'
+  // Cut by code point, as the API counts, so a character outside the BMP is not split.
+  return [...name].slice(0, MAX_NAME_LENGTH - suffix.length).join('') + suffix
+}
 
 /** The dataset type each train type trains on. */
 export const DATASET_TYPE: Record<'sft' | 'rl', string> = { sft: 'sft', rl: 'rlhf' }
@@ -112,13 +133,30 @@ export function createWizard(workspace: string, nodeFlavor?: string) {
   const previewError = ref('')
   const checking = ref(false)
   const checkedAt = ref(0)
+  // Whether the request changed since the last preview started; with checking, the preview shown may be stale.
+  const dirty = ref(false)
   // The GPU count of the workspace's nodes, zero until it is read.
   const nodeGpus = ref(0)
   let previewSeq = 0
+  let modelsSeq = 0
+  // The train type and method the models were read for.
+  let modelsFor = ''
 
-  /** Reads which models of the workspace can be trained and why the workspace cannot run now. */
+  /**
+   * Reads which models of the workspace can be trained with the request's train type and method, and why the
+   * workspace cannot run now; it reads again only when they changed, and drops an answer for older ones.
+   */
   const loadModels = async () => {
-    models.value = (await getPostTrainingModels(workspace)) as unknown as ModelsResp
+    const key = `${form.trainType}/${form.method}`
+    if (key === modelsFor && models.value) return
+    const seq = ++modelsSeq
+    const res = (await getPostTrainingModels(workspace, {
+      trainType: form.trainType,
+      method: form.method,
+    })) as unknown as ModelsResp
+    if (seq !== modelsSeq) return
+    models.value = res
+    modelsFor = key
   }
 
   /** Reads the GPU count of the workspace's nodes; the request starts with all of them. */
@@ -165,6 +203,8 @@ export function createWizard(workspace: string, nodeFlavor?: string) {
   /** Compiles the request; an answer to an older request is dropped. */
   const runPreview = async () => {
     const seq = ++previewSeq
+    // The request is read now: an edit from here on marks it dirty again and schedules another preview.
+    dirty.value = false
     if (!form.modelId) {
       // The compiler needs the base model; a request without one is refused.
       preview.value = undefined
@@ -183,16 +223,31 @@ export function createWizard(workspace: string, nodeFlavor?: string) {
       checkedAt.value = Date.now()
     } catch (err) {
       if (seq !== previewSeq) return
-      const status = (err as { response?: { status?: number } })?.response?.status
-      previewError.value = status
-        ? `POST /post-training/recipes/preview returned ${status}.`
-        : String(err)
+      previewError.value = errorMessageOf(err, 'The preflight check')
     } finally {
       if (seq === previewSeq) checking.value = false
     }
   }
   const schedulePreview = debounce(runPreview, PREVIEW_DEBOUNCE_MS)
-  watch(form, () => schedulePreview(), { deep: true })
+  watch(
+    form,
+    () => {
+      dirty.value = true
+      schedulePreview()
+    },
+    { deep: true },
+  )
+  /** Whether a preview of the current request is still to come: one waits for the debounce or is in flight. */
+  const previewPending = computed(() => dirty.value || checking.value)
+
+  /** Cancels the preview waiting for the debounce and drops the answer of one in flight. */
+  const dispose = () => {
+    schedulePreview.cancel()
+    previewSeq++
+    modelsSeq++
+  }
+  // The page that creates the wizard disposes of it when it unmounts.
+  if (getCurrentScope()) onScopeDispose(dispose)
 
   const diagnostics = computed(() => preview.value?.diagnostics ?? [])
   const errors = computed(() => diagnostics.value.filter((d) => d.level === 'error'))
@@ -213,6 +268,7 @@ export function createWizard(workspace: string, nodeFlavor?: string) {
     previewError,
     checking,
     checkedAt,
+    previewPending,
     nodeGpus,
     errors,
     warnings,
@@ -224,6 +280,7 @@ export function createWizard(workspace: string, nodeFlavor?: string) {
     loadDatasets,
     runPreview,
     schedulePreview,
+    dispose,
   }
 }
 

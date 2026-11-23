@@ -52,8 +52,9 @@
           </el-button>
         </el-tooltip>
 
+        <!-- Post Train's SFT and RL jobs, which Train with Post Training replaces where it is on. -->
         <el-tooltip
-          v-if="canTrainModel"
+          v-if="canTrainModel && ptChecked && !ptReasonOf"
           content="Train"
           placement="top"
         >
@@ -363,12 +364,16 @@ const canTrainModel = computed(() => {
 
 const userStore = useUserStore()
 const wsStore = useWorkspaceStore()
+// Why Post Training cannot train each model; unset where Post Training is off or until ptChecked.
 const ptReasonOf = ref<(modelId: string) => string>()
+// Whether the page knows if Post Training is on; until then neither Train nor Train with Post Training shows.
+const ptChecked = ref(false)
 
 // Why Train with Post Training and Start RL from This Model are disabled, or an empty string
 const ptReason = computed(() => {
   if (userStore.isReadonlyManager) return 'Read-only access'
-  return ptReasonOf.value && detailData.value ? ptReasonOf.value(detailData.value.id) : ''
+  if (!ptReasonOf.value) return 'Post Training is not available.'
+  return detailData.value ? ptReasonOf.value(detailData.value.id) : ''
 })
 
 // Open the Post Training wizard with this model as the base model
@@ -499,6 +504,7 @@ const onDelete = () => {
 onMounted(async () => {
   getDetail()
   ptReasonOf.value = await postTrainingEntryReasons(wsStore.currentWorkspaceId ?? '')
+  ptChecked.value = true
 })
 
 // The page stays mounted when a lineage link opens another model, whose page does not show the one before.

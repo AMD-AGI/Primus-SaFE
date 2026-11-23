@@ -23,9 +23,7 @@
       :closable="false"
       show-icon
       :title="`Post Training isn't available in this workspace. ${unavailableReason}`"
-    >
-      <el-link type="primary" @click="router.push('/posttrain')">Open Post Train</el-link>
-    </el-alert>
+    />
     <el-alert
       v-if="pausedReason"
       class="mt-3"
@@ -532,10 +530,15 @@ const refreshAgo = computed(
   () => `${Math.max(0, Math.round((now.value.getTime() - lastRefresh.value) / 1000))}s ago`,
 )
 
+// Numbers the list reads: only the answer to the latest is shown, so a slow one for earlier filters, an earlier
+// page or another workspace does not replace it.
+let listSeq = 0
+
 /** Loads one page of runs; a quiet refresh keeps the current rows when it fails. */
 const fetchData = async (quiet = false) => {
   const workspace = wsStore.currentWorkspaceId
   if (!workspace) return
+  const seq = ++listSeq
   if (!quiet) {
     writeQuery()
     loading.value = true
@@ -555,12 +558,14 @@ const fetchData = async (quiet = false) => {
       total: number
       items: PostTrainingRun[]
     }
+    if (seq !== listSeq) return
     rows.value = res.items ?? []
     pagination.total = res.total ?? 0
     loadError.value = ''
     refreshFailed.value = false
     for (const r of rows.value) knownBaseModels.set(r.baseModelId, r.baseModelName || r.baseModelId)
   } catch (err) {
+    if (seq !== listSeq) return
     if (quiet) {
       refreshFailed.value = true
     } else {
@@ -568,12 +573,17 @@ const fetchData = async (quiet = false) => {
       loadError.value = `GET /post-training/runs failed: ${String(err)}`
     }
   } finally {
-    lastRefresh.value = Date.now()
-    loading.value = false
+    if (seq === listSeq) {
+      lastRefresh.value = Date.now()
+      loading.value = false
+    }
   }
 }
 
-/** Reads whether Post Training is on, and why the workspace cannot create runs now. */
+/**
+ * Reads whether Post Training is on, and why the workspace cannot create runs now; an answer for a workspace left
+ * meanwhile is dropped.
+ */
 const fetchAvailability = async () => {
   const workspace = wsStore.currentWorkspaceId
   if (!workspace) return
@@ -582,19 +592,29 @@ const fetchAvailability = async () => {
       unavailableReason?: string
       pausedReason?: string
     }
+    if (wsStore.currentWorkspaceId !== workspace) return
     notEnabled.value = false
     unavailableReason.value = res.unavailableReason ?? ''
     pausedReason.value = res.pausedReason ?? ''
   } catch (err) {
+    if (wsStore.currentWorkspaceId !== workspace) return
     notEnabled.value = (err as { response?: { status?: number } })?.response?.status === 404
+    // The banners read before belong to another workspace or an earlier state; nothing says they still hold.
+    unavailableReason.value = ''
+    pausedReason.value = ''
   }
 }
 
 /** Reads whether Post Training is on, then lists the runs where it is. */
 const loadPage = async () => {
+  const workspace = wsStore.currentWorkspaceId
+  // A list asked for before is for another workspace: its answer is dropped.
+  listSeq++
   // The table shows as loading, not as empty, while it waits to learn whether Post Training is on.
-  loading.value = !!wsStore.currentWorkspaceId
+  loading.value = !!workspace
   await fetchAvailability()
+  // The workspace changed meanwhile, and the load of the new one shows the page.
+  if (wsStore.currentWorkspaceId !== workspace) return
   if (notEnabled.value) loading.value = false
   else fetchData()
 }
@@ -685,8 +705,12 @@ const handleStop = async (row: PostTrainingRun) => {
   } catch {
     return
   }
-  await stopPostTrainingRun(row.runId)
-  ElMessage.success('Run stopped')
+  try {
+    await stopPostTrainingRun(row.runId)
+    ElMessage.success('Run stopped')
+  } catch {
+    // The request's error handler has shown why; the run may have ended meanwhile, which the list shows.
+  }
   fetchData()
 }
 
@@ -720,6 +744,9 @@ watch(
   () => wsStore.currentWorkspaceId,
   () => {
     knownBaseModels.clear()
+    // The old workspace's rows go now: where Post Training is off in the new one, no list replaces them.
+    rows.value = []
+    pagination.total = 0
     pagination.page = 1
     loadPage()
   },

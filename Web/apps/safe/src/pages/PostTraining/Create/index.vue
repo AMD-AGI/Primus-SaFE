@@ -96,6 +96,7 @@ import { useWorkspaceStore } from '@/stores/workspace'
 import { useUserStore } from '@/stores/user'
 import {
   getPostTrainingRun,
+  noAnswer,
   submitPostTrainingRun,
   type Diagnostic,
   type RunDetail,
@@ -108,7 +109,14 @@ import StepResources from './StepResources.vue'
 import StepTraining from './StepTraining.vue'
 import StepOutputs from './StepOutputs.vue'
 import StepReview from './StepReview.vue'
-import { STEPS, createWizard, newRequest, provideWizard, requestFromRun } from './wizard'
+import {
+  STEPS,
+  cloneName,
+  createWizard,
+  newRequest,
+  provideWizard,
+  requestFromRun,
+} from './wizard'
 
 defineOptions({ name: 'PostTrainingCreatePage' })
 
@@ -205,6 +213,8 @@ const submitDiagnostics = ref<Diagnostic[]>([])
 const submitBlocked = computed(() => {
   if (userStore.isReadonlyManager) return 'Read-only access'
   if (w.models.value?.pausedReason) return `New runs are paused. ${w.models.value.pausedReason}`
+  // The warnings to confirm are those of the request as it is now, which only its own preview tells.
+  if (w.previewPending.value) return 'Wait for the preflight check of the latest changes.'
   if (w.previewError.value) return 'Preflight unavailable'
   if (w.errors.value.length) return 'Fix the errors in the preflight first.'
   if (!w.form.displayName.trim()) return 'Name the run.'
@@ -225,7 +235,21 @@ const submit = async () => {
     const res = (await submitPostTrainingRun(
       JSON.parse(JSON.stringify(w.form)),
     )) as unknown as SubmitResp
-    ElMessage.success(`Run ${res.runId} submitted`)
+    // The submit compiles the request again; a warning the preview did not show was not confirmed.
+    const shown = new Set(w.warnings.value.map((d) => d.message))
+    const unconfirmed = (res.warnings ?? []).filter((d) => !shown.has(d.message))
+    if (unconfirmed.length) {
+      ElMessage({
+        type: 'warning',
+        duration: 10_000,
+        showClose: true,
+        message: `Run ${res.runId} submitted with warnings: ${unconfirmed
+          .map((d) => d.message)
+          .join(' ')}`,
+      })
+    } else {
+      ElMessage.success(`Run ${res.runId} submitted`)
+    }
     router.push(
       router.hasRoute('PostTrainingDetail')
         ? { path: '/post-training/detail', query: { runId: res.runId } }
@@ -233,10 +257,16 @@ const submit = async () => {
     )
   } catch (err) {
     const resp = (err as SubmitFailure)?.response
-    submitError.value =
-      resp?.status === 503
-        ? `Submission is paused: ${resp.data?.errorMessage ?? ''}`
-        : (resp?.data?.errorMessage ?? `Submission failed: ${String(err)}`)
+    if (noAnswer(err)) {
+      // The run may have been created before the answer was lost, and submitting again would create another.
+      submitError.value =
+        'No answer to the submission: the run may have been created. Check the run list before submitting again.'
+    } else {
+      submitError.value =
+        resp?.status === 503
+          ? `Submission is paused: ${resp.data?.errorMessage ?? ''}`
+          : (resp?.data?.errorMessage ?? `Submission failed: ${String(err)}`)
+    }
     submitDiagnostics.value = resp?.data?.diagnostics ?? []
   } finally {
     submitting.value = false
@@ -249,7 +279,7 @@ const onChanged = async (field: string) => {
     w.form.datasetId = ''
     w.form.evalDatasetId = undefined
     w.form.choices = {}
-    await w.loadDatasets()
+    await Promise.all([w.loadDatasets(), openStep('load the models', w.loadModels)])
     formKey.value++
   }
   await w.loadConfig()
@@ -278,7 +308,7 @@ const prefillFromRun = async (runId: string) => {
   const { resources, ...copied } = requestFromRun(detail)
   Object.assign(w.form, copied, {
     workspace: w.form.workspace,
-    displayName: `${detail.displayName}-clone`,
+    displayName: cloneName(detail.displayName),
   })
   if (resources.nodes) w.form.resources.nodes = resources.nodes
   if (resources.gpusPerNode) w.form.resources.gpusPerNode = resources.gpusPerNode
@@ -294,8 +324,11 @@ const prefillFromRun = async (runId: string) => {
     Object.assign(w.form, newRequest(w.workspace))
     prefill.value = ''
     router.replace({ query: {} })
-    w.loadNodeGpus()
-    w.loadConfig()
+    // The new request is an SFT one: the datasets and the models' support are those of its train type again.
+    openStep('read the GPUs of a node', w.loadNodeGpus)
+    openStep('load the datasets', w.loadDatasets)
+    openStep('load the models', w.loadModels)
+    openStep('load the options', w.loadConfig)
   }
 }
 
@@ -326,7 +359,9 @@ const openStep = async (what: string, run: () => Promise<unknown>) => {
     const reason =
       (err as { response?: { data?: { errorMessage?: string } } })?.response?.data?.errorMessage ??
       String(err)
-    loadErrors.value.push(`Couldn't ${what}: ${reason}`)
+    // A step that runs twice, as loading the models does after a prefill, reports its failure once.
+    const message = `Couldn't ${what}: ${reason}`
+    if (!loadErrors.value.includes(message)) loadErrors.value.push(message)
   }
 }
 
@@ -339,6 +374,8 @@ onMounted(async () => {
   await Promise.all([
     openStep('load the datasets', w.loadDatasets),
     openStep('load the options', w.loadConfig),
+    // A prefill can change the train type or method, which the models' support depends on.
+    openStep('load the models', w.loadModels),
   ])
   pristine = JSON.stringify(w.form)
   ready.value = true

@@ -20,6 +20,8 @@ import {
   curvesDue,
   backToRuns,
   postTrainingIsOn,
+  errorMessageOf,
+  noAnswer,
 } from './index'
 import type { Router } from 'vue-router'
 import request from '@/services/request'
@@ -216,22 +218,58 @@ describe('panels', () => {
 })
 
 describe('postTrainingIsOn', () => {
-  it('takes only a 404 for Post Training off', async () => {
+  it('takes only an answer for Post Training on', async () => {
     vi.mocked(request.get).mockRejectedValueOnce({ response: { status: 404 } })
     expect(await postTrainingIsOn('ws1')).toBe(false)
+    vi.mocked(request.get).mockRejectedValueOnce({ response: { status: 403 } })
+    expect(await postTrainingIsOn('ws1')).toBe(false)
     vi.mocked(request.get).mockRejectedValueOnce({ response: { status: 503 } })
+    expect(await postTrainingIsOn('ws1')).toBe(false)
+    vi.mocked(request.get).mockResolvedValueOnce({ total: 0, items: [] } as never)
     expect(await postTrainingIsOn('ws1')).toBe(true)
-    vi.mocked(request.get).mockResolvedValueOnce({ items: [] })
-    expect(await postTrainingIsOn('ws1')).toBe(true)
+  })
+
+  it('reads one run rather than every model', async () => {
+    vi.mocked(request.get).mockClear()
+    vi.mocked(request.get).mockResolvedValueOnce({ total: 0, items: [] } as never)
+    await postTrainingIsOn('ws1')
+    expect(vi.mocked(request.get)).toHaveBeenCalledWith('/post-training/runs', {
+      params: { workspace: 'ws1', limit: 1 },
+      skipErrorHandler: true,
+    })
+  })
+})
+
+describe('errorMessageOf', () => {
+  it("shows the API's message, else the status, else the error", () => {
+    const bad = { response: { status: 400, data: { errorMessage: 'choices.tp must be positive' } } }
+    expect(errorMessageOf(bad, 'The preflight check')).toBe('choices.tp must be positive')
+    expect(errorMessageOf({ response: { status: 502 } }, 'The preflight check')).toBe(
+      'The preflight check returned 502.',
+    )
+    expect(errorMessageOf(new Error('timeout of 10000ms exceeded'), 'x')).toBe(
+      'timeout of 10000ms exceeded',
+    )
+  })
+})
+
+describe('noAnswer', () => {
+  it('tells a call cut off without an answer from one the server answered', () => {
+    expect(noAnswer({ code: 'ECONNABORTED' })).toBe(true)
+    expect(noAnswer({ code: 'ERR_NETWORK' })).toBe(true)
+    expect(noAnswer({ code: 'ERR_BAD_REQUEST', response: { status: 400 } })).toBe(false)
+    expect(noAnswer('Request failed.')).toBe(false)
+    expect(noAnswer(undefined)).toBe(false)
   })
 })
 
 describe('postTrainingEntryReasons', () => {
-  it('offers no entry where Post Training is off', async () => {
+  it('offers no entry unless Post Training answers', async () => {
     vi.mocked(request.get).mockRejectedValueOnce({ response: { status: 404 } })
     expect(await postTrainingEntryReasons('ws1')).toBeUndefined()
+    // Only an answer says Post Training is on, as for the menu.
     vi.mocked(request.get).mockRejectedValueOnce({ response: { status: 503 } })
-    expect((await postTrainingEntryReasons('ws1'))?.('m1')).toBe('Post Training is unavailable.')
+    expect(await postTrainingEntryReasons('ws1')).toBeUndefined()
   })
 
   it('names a model missing from the list as not ready here', async () => {

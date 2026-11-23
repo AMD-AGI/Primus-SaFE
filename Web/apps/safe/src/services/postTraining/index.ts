@@ -24,22 +24,43 @@ import type {
 
 export * from './types'
 
-/** Lists the models of a workspace with their Post Training support; a 404 means Post Training is off. */
-export function getPostTrainingModels(workspace: string) {
+/**
+ * Lists the models of a workspace with whether they can be trained, for a train type and method when given; a 404
+ * means Post Training is off.
+ */
+export function getPostTrainingModels(
+  workspace: string,
+  support?: { trainType?: string; method?: string },
+) {
   return request.get<ModelsResp>('/post-training/models', {
-    params: { workspace },
+    params: { workspace, ...support },
     skipErrorHandler: true,
   })
 }
 
-/** Whether Post Training is on in the cluster; where it is off its API answers 404. */
+/**
+ * Whether Post Training is on in the cluster, read from one run of the workspace's list, the cheapest call of its
+ * API. Only an answer says it is on: where it is off the API answers 404, and a call that fails otherwise (no
+ * access to the workspace, a server error) cannot tell, so the legacy Post Train entries stay.
+ */
 export async function postTrainingIsOn(workspace: string): Promise<boolean> {
   try {
-    await getPostTrainingModels(workspace)
+    await request.get<RunListResp>('/post-training/runs', {
+      params: { workspace, limit: 1 },
+      skipErrorHandler: true,
+    })
     return true
-  } catch (err) {
-    return (err as { response?: { status?: number } })?.response?.status !== 404
+  } catch {
+    return false
   }
+}
+
+/** The message of a failed call: the API's errorMessage, or what failed when the answer has none. */
+export function errorMessageOf(err: unknown, what: string): string {
+  const e = err as { response?: { status?: number; data?: { errorMessage?: string } } } | undefined
+  if (e?.response?.data?.errorMessage) return e.response.data.errorMessage
+  if (e?.response?.status) return `${what} returned ${e.response.status}.`
+  return err instanceof Error ? err.message : String(err)
 }
 
 /** Returns the frameworks and wizard options of a model for a train type and method. */
@@ -60,9 +81,22 @@ export function previewPostTrainingRecipe(body: SubmitRequest) {
   })
 }
 
+// A submit compiles the request, records the run and creates its workload, which can take longer than the 10 s of
+// the other calls; a submit cut off by the client may still have created the run.
+export const SUBMIT_TIMEOUT_MS = 60_000
+
+/** Whether a call failed without an answer, cut off by its timeout or the network, so its outcome is unknown. */
+export function noAnswer(err: unknown): boolean {
+  const e = err as { response?: unknown; code?: string } | undefined
+  return !e?.response && ['ECONNABORTED', 'ETIMEDOUT', 'ERR_NETWORK'].includes(e?.code ?? '')
+}
+
 /** Submits a run; diagnostics of a request that does not compile come back as the error body. */
 export function submitPostTrainingRun(body: SubmitRequest) {
-  return request.post<SubmitResp>('/post-training/runs', body, { skipErrorHandler: true })
+  return request.post<SubmitResp>('/post-training/runs', body, {
+    skipErrorHandler: true,
+    timeout: SUBMIT_TIMEOUT_MS,
+  })
 }
 
 /** Returns the wizard step, 1 to 5, that edits the request field a diagnostic names, or 0 when none does. */
@@ -115,9 +149,10 @@ export async function postTrainingEntryReasons(
     )
     // The list leaves out the models not ready in the workspace.
     return (id) => global || (byId.get(id) ?? 'The model is not ready in this workspace.')
-  } catch (err) {
-    if ((err as { response?: { status?: number } })?.response?.status === 404) return undefined
-    return () => 'Post Training is unavailable.'
+  } catch {
+    // As for postTrainingIsOn, only an answer says Post Training is on: a 404 says it is off, and any other
+    // failure cannot tell, so the page keeps the legacy Post Train entries as the menu does.
+    return undefined
   }
 }
 

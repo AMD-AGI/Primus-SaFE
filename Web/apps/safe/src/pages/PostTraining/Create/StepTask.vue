@@ -4,7 +4,7 @@
       <el-input
         v-model="w.form.displayName"
         placeholder="e.g. qwen3-8b-sft-lr2e-5"
-        maxlength="64"
+        :maxlength="MAX_NAME_LENGTH"
         style="width: 420px"
       />
     </el-form-item>
@@ -102,7 +102,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useWizard } from './wizard'
+import { MAX_NAME_LENGTH, useWizard } from './wizard'
 
 const emit = defineEmits<{
   changed: [field: string]

@@ -428,12 +428,18 @@ watchEffect(() => {
   workloadMenuItems.value = allWorkloadItems.filter((item) => item.canAccess !== false)
 })
 
-// Post Training takes the place of Post Train where it is on.
+// Post Training takes the place of Post Train where it is on; the /posttrain pages stay reachable by URL, which
+// the lineage of models trained there links to.
 const postTrainingOn = ref(false)
+let postTrainingSeq = 0
 watch(
   [() => wsStore.currentWorkspaceId, hasManagerAccess],
   async ([workspace, manager]) => {
-    if (workspace && manager) postTrainingOn.value = await postTrainingIsOn(workspace)
+    if (!workspace || !manager) return
+    const seq = ++postTrainingSeq
+    const on = await postTrainingIsOn(workspace)
+    // A slow answer for a workspace left meanwhile is dropped: the latest workspace's answer decides.
+    if (seq === postTrainingSeq) postTrainingOn.value = on
   },
   { immediate: true },
 )

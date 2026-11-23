@@ -6,6 +6,18 @@
       </template>
     </el-result>
 
+    <el-result
+      v-else-if="loadError"
+      icon="error"
+      title="Couldn't load the run"
+      :sub-title="loadError"
+    >
+      <template #extra>
+        <el-button round @click="load">Retry</el-button>
+        <el-button round @click="backToRuns(router)">Back to runs</el-button>
+      </template>
+    </el-result>
+
     <div v-else-if="!run" v-loading="true" class="h-[240px]" />
 
     <template v-else>
@@ -66,13 +78,13 @@
               />
             </span>
           </el-tooltip>
-          <el-tooltip :content="actionTip('Clone', isReadonly ? readOnlyTip : '')" placement="top">
+          <el-tooltip :content="actionTip('Clone', cloneBlocked)" placement="top">
             <span>
               <el-button
                 circle
                 class="btn-success-plain"
                 :icon="CopyDocument"
-                :disabled="isReadonly"
+                :disabled="!!cloneBlocked"
                 @click="copyAsNew"
               />
             </span>
@@ -114,7 +126,7 @@
             v-if="banner.actions"
             link
             type="primary"
-            :disabled="isReadonly"
+            :disabled="!!cloneBlocked"
             @click="copyAsNew"
           >
             Clone
@@ -270,6 +282,7 @@ import { ArrowLeft, CloseBold, CopyDocument, Delete } from '@element-plus/icons-
 import { useDocumentVisibility, useIntervalFn, useNow } from '@vueuse/core'
 import dayjs from 'dayjs'
 import { useUserStore } from '@/stores/user'
+import { useWorkspaceStore } from '@/stores/workspace'
 import { copyText } from '@/utils/index'
 import {
   LOST_MESSAGE,
@@ -278,8 +291,10 @@ import {
   backToRuns,
   curvesDue,
   deletePostTrainingRun,
+  errorMessageOf,
   formatDuration,
   getPostTrainingMetrics,
+  getPostTrainingModels,
   getPostTrainingRun,
   metricsCsvUrl,
   panelsOf,
@@ -289,6 +304,7 @@ import {
   timeOf,
   type MetricSeries,
   type MetricsResp,
+  type ModelsResp,
   type RunDetail,
   type RunStage,
 } from '@/services/postTraining'
@@ -307,6 +323,7 @@ const readOnlyTip = 'Read-only access'
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+const wsStore = useWorkspaceStore()
 const isReadonly = computed(() => userStore.isReadonlyManager)
 const now = useNow({ interval: 1000 })
 const visibility = useDocumentVisibility()
@@ -317,6 +334,8 @@ watch(tab, (t) => router.replace({ query: { ...route.query, tab: t } }))
 
 const run = ref<RunDetail>()
 const notFound = ref(false)
+// Why the run could not be read, when it exists or that is unknown: no access, or a failing server.
+const loadError = ref('')
 // Replaced as a whole on every load; its points stay plain arrays for the charts.
 const metrics = shallowRef<MetricsResp>()
 const smoothing = ref(0.6)
@@ -347,21 +366,27 @@ const sentence = (s: string) => (s.trim() && !/[.!?]$/.test(s.trim()) ? `${s.tri
 const shortTime = (t?: string) => (t ? dayjs(t).format('MM-DD HH:mm') : '—')
 const stageLabel = (s?: string) => STAGE_LABELS[(s || 'train') as RunStage] ?? s
 
-/** Loads the run; a quiet refresh keeps what is shown when it fails. */
-const fetchRun = async (quiet = false) => {
+/**
+ * Loads the run; a refresh keeps what is shown when it fails. The page reports a failure itself rather than through
+ * the request's handler, whose rejection does not carry the status: a missing run shows as not found, and one that
+ * cannot be read, forbidden or failing, as an error instead of loading forever.
+ */
+const fetchRun = async (refresh = false) => {
   const id = runId.value
   if (!id) {
     notFound.value = true
     return
   }
   try {
-    const loaded = (await getPostTrainingRun(id, quiet)) as unknown as RunDetail
+    const loaded = (await getPostTrainingRun(id, true)) as unknown as RunDetail
     // The page may show another run by now: the answer for the run it left is dropped.
     if (runId.value !== id) return
     run.value = loaded
+    loadError.value = ''
   } catch (err) {
-    if (runId.value !== id) return
+    if (runId.value !== id || (refresh && run.value)) return
     if ((err as { response?: { status?: number } })?.response?.status === 404) notFound.value = true
+    else loadError.value = errorMessageOf(err, 'Reading the run')
   }
 }
 
@@ -369,14 +394,45 @@ const fetchRun = async (quiet = false) => {
 let curvesReadAt = 0
 /** Loads all metric series and their markers. */
 const fetchMetrics = async (quiet = false) => {
-  if (!runId.value) return
+  const id = runId.value
+  if (!id) return
   curvesReadAt = Date.now()
   try {
-    metrics.value = (await getPostTrainingMetrics(runId.value, {}, quiet)) as unknown as MetricsResp
+    const loaded = (await getPostTrainingMetrics(id, {}, quiet)) as unknown as MetricsResp
+    // The curves of a run the page has left are dropped, as fetchRun drops its answer.
+    if (runId.value !== id) return
+    metrics.value = loaded
   } catch {
     /* the curves keep what they show */
   }
 }
+
+/** Loads the run, then its curves: a run that cannot be read has none to show, nor a second error to report. */
+const load = async () => {
+  const id = runId.value
+  loadError.value = ''
+  await fetchRun()
+  if (run.value && runId.value === id) fetchMetrics()
+}
+
+// Why a clone of the run cannot be created in the workspace now, as the run list tells for its Clone.
+const createBlocked = ref('')
+/** Reads whether the workspace can create runs now; an answer for a workspace left meanwhile is dropped. */
+const fetchAvailability = async () => {
+  const workspace = wsStore.currentWorkspaceId
+  if (!workspace) return
+  let blocked = ''
+  try {
+    const res = (await getPostTrainingModels(workspace)) as unknown as ModelsResp
+    blocked =
+      res.unavailableReason ||
+      (res.pausedReason ? `New runs are paused. ${res.pausedReason}` : '')
+  } catch {
+    /* the wizard reports what fails */
+  }
+  if (wsStore.currentWorkspaceId === workspace) createBlocked.value = blocked
+}
+const cloneBlocked = computed(() => (isReadonly.value ? readOnlyTip : createBlocked.value))
 
 // The run is read every 10 seconds, and its curves every 30 while a tab shows them or their markers.
 useIntervalFn(() => {
@@ -627,9 +683,13 @@ const handleStop = async () => {
   } catch {
     return
   }
-  await stopPostTrainingRun(run.value.runId)
-  ElMessage.success('Run stopped')
-  fetchRun()
+  try {
+    await stopPostTrainingRun(run.value.runId)
+    ElMessage.success('Run stopped')
+  } catch {
+    // The request's error handler has shown why; the run may have ended meanwhile, which the read shows.
+  }
+  fetchRun(true)
 }
 
 const deleteDialog = reactive({ visible: false, loading: false, deleteModel: false })
@@ -654,13 +714,14 @@ watch(runId, () => {
   run.value = undefined
   metrics.value = undefined
   notFound.value = false
-  fetchRun()
-  fetchMetrics()
+  load()
 })
 
+watch(() => wsStore.currentWorkspaceId, fetchAvailability)
+
 onMounted(() => {
-  fetchRun()
-  fetchMetrics()
+  load()
+  fetchAvailability()
 })
 </script>
 

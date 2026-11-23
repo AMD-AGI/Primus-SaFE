@@ -38,7 +38,7 @@
                   w.form.choices.rolloutGpus ?? defaults.rolloutGpus ?? w.form.resources.gpusPerNode
                 "
                 :min="1"
-                :max="totalGpus - 1"
+                :max="rolloutGpusMax"
                 @update:model-value="(v?: number) => (w.form.choices.rolloutGpus = v ?? undefined)"
               />
             </el-form-item>
@@ -101,6 +101,9 @@ const w = useWizard()
 const parallelKeys = ['tp', 'pp', 'cp', 'ep'] as const
 const defaults = computed(() => w.config.value?.options?.defaults ?? {})
 const totalGpus = computed(() => w.form.resources.nodes * w.form.resources.gpusPerNode)
+// Training keeps at least one GPU; on a single GPU, where a separate layout cannot fit, the bound stays at the input's
+// minimum of 1 rather than below it, and the preflight reports the layout.
+const rolloutGpusMax = computed(() => Math.max(1, totalGpus.value - 1))
 
 const layoutOptions = computed(() =>
   w.fieldValues('layout').map((o) => ({ label: o.label, value: o.value, disabled: o.disabled })),
