@@ -18,7 +18,7 @@ import (
 	"k8s.io/klog/v2"
 )
 
-const pendingSummarySystemPrompt = "You explain why a workload is pending. Reply with one short sentence a user can act on. Use only the evidence. Do not invent causes, names, or numbers that are not in the evidence."
+const pendingSummarySystemPrompt = "You explain to a non-technical user why a workload is waiting. Reply in one or two short plain sentences: first what is blocking it and why, then what the user or an administrator can do. Avoid internal terms such as scheduling gate, scale-up, QoS or provisioning request; when one is unavoidable, say it in everyday words, for example that the account is not allowed to use this kind of node. Use only the evidence. Do not invent causes, names, or numbers that are not in the evidence."
 
 const pendingSummaryInputLimit = 6000
 
@@ -85,7 +85,7 @@ func (h *Handler) SummarizePendingReason(ctx context.Context, email, ntid, evide
 			{Role: "system", Content: pendingSummarySystemPrompt},
 			{Role: "user", Content: evidence},
 		},
-		MaxTokens:   120,
+		MaxTokens:   200,
 		Temperature: 0,
 	}
 	if err = h.applyPendingSummaryHeaders(&reqBody, binding.ApimKey, upstreamUser(binding.ApimKeyHash, ntid)); err != nil {

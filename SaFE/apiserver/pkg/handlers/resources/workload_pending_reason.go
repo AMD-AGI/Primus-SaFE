@@ -26,11 +26,13 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 )
 
 const (
 	pendingEvidencePodLimit     = 5
 	pendingEvidencePodListLimit = 50
+	pendingEvidencePodListPages = 10
 	pendingEvidenceEventLimit   = 5
 	pendingEvidenceLogPods      = 3
 	pendingEvidenceLogTail      = 400
@@ -74,8 +76,8 @@ func (h *Handler) SetPendingReasonSummarizer(s pendingReasonSummarizer) {
 	h.pendingSummarizer = s
 }
 
-// GetWorkloadPendingReason explains why a workload is Pending.
-// The reason is empty when the workload is not Pending.
+// GetWorkloadPendingReason explains why a workload is Pending, or why an application is NotReady.
+// The reason is empty for any other phase.
 func (h *Handler) GetWorkloadPendingReason(c *gin.Context) {
 	handle(c, h.getWorkloadPendingReason)
 }
@@ -131,7 +133,7 @@ func (h *Handler) resolvePendingReason(ctx context.Context, w *v1.Workload, emai
 	if w == nil {
 		return ""
 	}
-	action := pendingReasonActionFor(w.Status.Phase, w.Status.QueuePosition, w.Status.Message)
+	action := pendingReasonActionFor(w.Status.Phase, commonworkload.IsApplication(w), w.Status.QueuePosition, w.Status.Message)
 	return applyPendingReason(action, w.Status.Message,
 		func() (string, string) { return h.collectPendingEvidence(ctx, w) },
 		func(text string) (string, error) {
@@ -147,11 +149,11 @@ func (h *Handler) resolvePendingReason(ctx context.Context, w *v1.Workload, emai
 	)
 }
 
-// pendingReasonActionFor chooses how a Pending workload is explained.
+// pendingReasonActionFor chooses how a Pending workload, or a NotReady application, is explained.
 // A queue position of 1 or more keeps a non-empty scheduler message as written, since no pod exists yet.
 // Otherwise the pods are collected, and a non-empty message is included as one piece of evidence.
-func pendingReasonActionFor(phase v1.WorkloadPhase, queuePosition int, message string) pendingReasonAction {
-	if phase != v1.WorkloadPending {
+func pendingReasonActionFor(phase v1.WorkloadPhase, application bool, queuePosition int, message string) pendingReasonAction {
+	if phase != v1.WorkloadPending && !(phase == v1.WorkloadNotReady && application) {
 		return pendingReasonNone
 	}
 	if queuePosition >= 1 && strings.TrimSpace(message) != "" {
@@ -222,7 +224,7 @@ func (h *Handler) collectPendingEvidence(ctx context.Context, w *v1.Workload) (s
 		return "", ""
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "Workload %s is Pending, queuePosition %d.\n", w.Name, w.Status.QueuePosition)
+	fmt.Fprintf(&b, "Workload %s is %s, queuePosition %d.\n", w.Name, w.Status.Phase, w.Status.QueuePosition)
 	for _, line := range lines {
 		b.WriteString(line)
 		b.WriteByte('\n')
@@ -242,7 +244,8 @@ func provisioningLine(w *v1.Workload) string {
 	return clipText("provisioning "+msg, pendingEvidenceLineLimit)
 }
 
-// pendingPodEvidence reads Pending pods and their scheduling events from the data-plane cluster.
+// pendingPodEvidence reads the pods that hold a workload back and their scheduling events from the
+// data-plane cluster. A Pending workload reads Pending pods; a NotReady one also reads Running pods that are not ready.
 func (h *Handler) pendingPodEvidence(ctx context.Context, w *v1.Workload) ([]string, string) {
 	clusterID := v1.GetClusterId(w)
 	if h.clientManager == nil || clusterID == "" || w.Name == "" {
@@ -257,20 +260,31 @@ func (h *Handler) pendingPodEvidence(ctx context.Context, w *v1.Workload) ([]str
 	if clientSet == nil {
 		return nil, ""
 	}
-	list, err := clientSet.CoreV1().Pods(metav1.NamespaceAll).List(ctx, metav1.ListOptions{
+	listOpts := metav1.ListOptions{
 		LabelSelector: labels.Set{v1.WorkloadIdLabel: w.Name}.String(),
-		FieldSelector: fields.OneTermEqualSelector("status.phase", string(corev1.PodPending)).String(),
 		Limit:         pendingEvidencePodListLimit,
-	})
-	if err != nil {
-		klog.ErrorS(err, "failed to list workload pods", "workload", w.Name)
-		return nil, ""
 	}
-	pending := make([]corev1.Pod, 0, len(list.Items))
-	for i := range list.Items {
-		if list.Items[i].Status.Phase == corev1.PodPending {
-			pending = append(pending, list.Items[i])
+	if w.Status.Phase != v1.WorkloadNotReady {
+		listOpts.FieldSelector = fields.OneTermEqualSelector("status.phase", string(corev1.PodPending)).String()
+	}
+	var pending []corev1.Pod
+	// The readiness filter runs client side, so follow the continuation until enough
+	// held-back pods are found or the pages are exhausted.
+	for page := 0; page < pendingEvidencePodListPages; page++ {
+		list, err := clientSet.CoreV1().Pods(metav1.NamespaceAll).List(ctx, listOpts)
+		if err != nil {
+			klog.ErrorS(err, "failed to list workload pods", "workload", w.Name)
+			break
 		}
+		for i := range list.Items {
+			if isHeldBackPod(&list.Items[i], w.Status.Phase == v1.WorkloadNotReady) {
+				pending = append(pending, list.Items[i])
+			}
+		}
+		if len(pending) >= pendingEvidencePodLimit || list.Continue == "" {
+			break
+		}
+		listOpts.Continue = list.Continue
 	}
 	sort.Slice(pending, func(i, j int) bool { return pending[i].Name < pending[j].Name })
 	if len(pending) > pendingEvidencePodLimit {
@@ -289,8 +303,25 @@ func (h *Handler) pendingPodEvidence(ctx context.Context, w *v1.Workload) ([]str
 	return lines, fallback
 }
 
-// describePendingPod formats container waiting reasons and an unschedulable condition.
-// The fallback prefers a container waiting reason over the scheduling condition.
+// isHeldBackPod reports whether a pod is Pending, or, when includeNotReady is set, Running without being ready.
+func isHeldBackPod(pod *corev1.Pod, includeNotReady bool) bool {
+	if pod.Status.Phase == corev1.PodPending {
+		return true
+	}
+	if !includeNotReady || pod.Status.Phase != corev1.PodRunning {
+		return false
+	}
+	for i := range pod.Status.Conditions {
+		if pod.Status.Conditions[i].Type == corev1.PodReady {
+			return pod.Status.Conditions[i].Status != corev1.ConditionTrue
+		}
+	}
+	return true
+}
+
+// describePendingPod formats container waiting reasons, an unschedulable condition, and, for a
+// Running pod, the readiness conditions that are not true.
+// The fallback prefers a container waiting reason over the scheduling condition, then a readiness condition.
 func describePendingPod(pod *corev1.Pod) ([]string, string) {
 	if pod == nil {
 		return nil, ""
@@ -324,7 +355,40 @@ func describePendingPod(pod *corev1.Pod) ([]string, string) {
 			fallback = line
 		}
 	}
+	readyLines := notReadyConditionLines(pod)
+	lines = append(lines, readyLines...)
+	if fallback == "" && len(readyLines) > 0 {
+		fallback = readyLines[0]
+	}
 	return lines, fallback
+}
+
+// notReadyConditionLines formats the readiness conditions of a Running pod that are not true:
+// Ready, ContainersReady, and the pod's readiness gates. Conditions that repeat a reason and message are listed once.
+func notReadyConditionLines(pod *corev1.Pod) []string {
+	if pod == nil || pod.Status.Phase != corev1.PodRunning {
+		return nil
+	}
+	relevant := map[corev1.PodConditionType]bool{corev1.PodReady: true, corev1.ContainersReady: true}
+	for _, gate := range pod.Spec.ReadinessGates {
+		relevant[gate.ConditionType] = true
+	}
+	var lines []string
+	seen := map[string]bool{}
+	for i := range pod.Status.Conditions {
+		cond := &pod.Status.Conditions[i]
+		if !relevant[cond.Type] || cond.Status == corev1.ConditionTrue {
+			continue
+		}
+		reason, message := strings.TrimSpace(cond.Reason), strings.TrimSpace(cond.Message)
+		key := reason + "|" + message
+		if (reason != "" || message != "") && seen[key] {
+			continue
+		}
+		seen[key] = true
+		lines = append(lines, joinReason(fmt.Sprintf("pod/%s condition %s is %s", pod.Name, cond.Type, cond.Status), reason, message))
+	}
+	return lines
 }
 
 // podSchedulingEvents returns the newest warning or scheduling events for one pod.

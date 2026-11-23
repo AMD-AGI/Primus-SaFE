@@ -49,6 +49,10 @@
             >
               {{ detailData.phase }}
             </el-tag>
+            <PendingCauseIcon
+              v-if="canAnalyzePending(detailData)"
+              :workload-id="detailData.workloadId || detailData.jobId"
+            />
             <el-tooltip
               v-if="
                 detailData.phase === 'Failed' && detailData.groupVersionKind?.kind === 'PyTorchJob'
@@ -185,6 +189,7 @@ import {
   Edit,
 } from '@element-plus/icons-vue'
 import PendingCauseIcon from '@/components/Workload/PendingCauseIcon.vue'
+import { canAnalyzePending } from '@/utils/workloadPending'
 import { WorkloadPhaseButtonType } from '@/services'
 import { RESUMABLE_PHASES } from '@/composables/useWorkloadResumePermission'
 import { copyText, formatTimeStr, historyBack } from '@/utils'
