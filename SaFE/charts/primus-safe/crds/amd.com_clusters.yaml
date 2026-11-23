@@ -268,8 +268,8 @@ spec:
                       KeyData takes precedence over KeyFile
                     type: string
                   message:
-                    description: Message describes the latest data plane access
-                      or adoption failure; empty when healthy.
+                    description: Message describes the latest data plane access or
+                      adoption failure; empty when healthy.
                     type: string
                   phase:
                     type: string
