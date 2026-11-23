@@ -209,8 +209,8 @@ func (h *Handler) PreviewRecipe(c *gin.Context) {
 		return
 	}
 	var req recipe.SubmitRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("invalid request body: "+err.Error()))
+	if err := bindRequest(c, &req); err != nil {
+		apiutils.AbortWithApiError(c, err)
 		return
 	}
 	if regErr != nil {

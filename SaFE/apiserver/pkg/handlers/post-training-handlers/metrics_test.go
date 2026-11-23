@@ -143,20 +143,6 @@ func remaining(t *testing.T, cli ctrlclient.Client) []string {
 	return names
 }
 
-// Stopping a run stops its training workload only.
-func TestStopRunStopsTheTrainingWorkload(t *testing.T) {
-	scheme := runtime.NewScheme()
-	require.NoError(t, v1.AddToScheme(scheme))
-	objs := runChildren(v1.WorkloadRunning)
-	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).WithStatusSubresource(objs...).Build()
-	h := NewHandler(cli, nil)
-	run := &dbclient.PostTrainingRun{RunID: "pt-x", WorkloadID: "pt-x", Status: string(v1.WorkloadRunning), Stage: "train"}
-	stopped, err := h.stopRun(context.Background(), run, "stopped by alice")
-	require.NoError(t, err)
-	require.True(t, stopped)
-	require.Empty(t, remaining(t, cli))
-}
-
 // Deleting a run stops its training workload, which the controller no longer follows.
 func TestDeleteRunEndsWhatTheControllerNoLongerFollows(t *testing.T) {
 	scheme := runtime.NewScheme()

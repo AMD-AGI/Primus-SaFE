@@ -37,22 +37,25 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/posttraining/registry"
 )
 
-// submitHandler returns a handler with Post Training on whose user u1 is a member of workspace ws1, which has
-// two MI355X nodes, the Ready Qwen3-4B model m1 and the SFT dataset d1; refuse, when set, decides which workload
-// creations the cluster refuses.
+// submitHandler returns a handler with Post Training on whose users u1 and u2 are members of workspace ws1, admin is
+// a system admin and outsider is in no workspace. ws1 has two MI355X nodes, a volume at /wekafs, the Ready Qwen3-4B
+// model m1 and the SFT dataset d1; refuse, when set, decides which workload creations the cluster refuses.
 func submitHandler(t *testing.T, db *mockclient.MockInterface,
 	refuse func(*v1.Workload) error) (*Handler, ctrlclient.Client) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1.AddToScheme(scheme))
 	require.NoError(t, corev1.AddToScheme(scheme))
-	member := &v1.User{ObjectMeta: metav1.ObjectMeta{Name: "u1", Labels: map[string]string{v1.UserIdLabel: "u1"}},
-		Spec: v1.UserSpec{Type: v1.DefaultUserType, Roles: []v1.UserRole{v1.DefaultRole},
-			Resources: map[string][]string{common.UserWorkspaces: {"ws1"}}}}
+	user := func(name string, role v1.UserRole, workspaces ...string) *v1.User {
+		return &v1.User{ObjectMeta: metav1.ObjectMeta{Name: name, Labels: map[string]string{v1.UserIdLabel: name}},
+			Spec: v1.UserSpec{Type: v1.DefaultUserType, Roles: []v1.UserRole{role},
+				Resources: map[string][]string{common.UserWorkspaces: workspaces}}}
+	}
 	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Namespace: common.PrimusSafeNamespace,
 		Name: registry.ConfigMapName}, Data: map[string]string{registry.DataKey: testRegistry}}
 	nf := flavor()
 	nf.Name = "mi355x"
-	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{NodeFlavor: nf.Name}}
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{NodeFlavor: nf.Name,
+		Volumes: []v1.WorkspaceVolume{{Type: v1.PFS, MountPath: "/wekafs"}}}}
 	ws.Status.AvailableReplica = 2
 	model := &v1.Model{ObjectMeta: metav1.ObjectMeta{Name: "m1"}}
 	model.Spec.Source.AccessMode = v1.AccessModeLocal
@@ -60,8 +63,9 @@ func submitHandler(t *testing.T, db *mockclient.MockInterface,
 	model.Status.LocalPaths = []v1.ModelLocalPath{{Workspace: "ws1", Path: "/wekafs/models/m1",
 		Status: v1.LocalPathStatusReady}}
 	model.Status.ModelConfig = &v1.ModelConfig{Architectures: []string{"Qwen3ForCausalLM"}, HiddenSize: 2560}
-	objs := append(authtest.ChartRoles(t), member, cm, nf, ws, model)
-	builder := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...)
+	objs := append(authtest.ChartRoles(t), user("u1", v1.DefaultRole, "ws1"), user("u2", v1.DefaultRole, "ws1"),
+		user("admin", v1.SystemAdminRole), user("outsider", v1.DefaultRole), cm, nf, ws, model)
+	builder := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).WithStatusSubresource(&v1.Workload{})
 	if refuse != nil {
 		builder = builder.WithInterceptorFuncs(interceptor.Funcs{Create: func(ctx context.Context,
 			c ctrlclient.WithWatch, obj ctrlclient.Object, opts ...ctrlclient.CreateOption) error {
@@ -250,3 +254,139 @@ type errFromString string
 
 // Error returns the message.
 func (e errFromString) Error() string { return string(e) }
+
+// submittable is an SFT request on m1 and d1 that compiles in ws1.
+func submittable() recipe.SubmitRequest {
+	req := sftRequest()
+	req.DisplayName = "Qwen3 SFT"
+	return req
+}
+
+// A valid request records its run and creates its training workload in the run's directory on the workspace volume.
+func TestSubmitRecordsTheRunAndCreatesItsWorkload(t *testing.T) {
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	h, cli := submitHandler(t, db, nil)
+	var row *dbclient.PostTrainingRun
+	db.EXPECT().CreatePostTrainingRun(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, r *dbclient.PostTrainingRun) error {
+			row = r
+			return nil
+		})
+	req := submittable()
+	req.Ext = map[string]interface{}{"note": "x"}
+	db.EXPECT().ListPostTrainingRecipeRecords(gomock.Any(), "ws1", gomock.Len(1)).Return(
+		map[string]dbclient.RecipeRecord{}, nil)
+	code, body := postAs(h.PreviewRecipe, req)
+	require.Equal(t, http.StatusOK, code, body)
+	require.Contains(t, body, `"frameworkArgs":["--actor-num-nodes","1"`, "the preview shows the compiled recipe")
+
+	code, body = postAs(h.SubmitRun, req)
+	require.Equal(t, http.StatusOK, code, body)
+	var resp submitResponse
+	require.NoError(t, json.Unmarshal([]byte(body), &resp))
+	require.Equal(t, resp.RunID, row.RunID)
+	require.Equal(t, "u1", row.UserID)
+	require.Equal(t, "m1", row.BaseModelID)
+	require.Equal(t, string(v1.WorkloadPending), row.Status)
+	require.Equal(t, `{"note":"x"}`, row.Ext)
+	require.Equal(t, "/wekafs/custom/models/"+row.RunID, row.OutputPath, "the run writes to the workspace volume")
+	w := &v1.Workload{}
+	require.NoError(t, cli.Get(context.Background(), ctrlclient.ObjectKey{Name: resp.WorkloadID}, w))
+	require.Empty(t, v1.GetAnnotation(w, v1.WorkloadRuntimeExtendedByAnnotation))
+}
+
+// Parallel sizes as large as a request may send are refused with diagnostics on preview and submission alike, and
+// no run is recorded.
+func TestHugeParallelSizesAreDiagnosed(t *testing.T) {
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	h, _ := submitHandler(t, db, nil)
+	db.EXPECT().ListPostTrainingRecipeRecords(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+	req := submittable()
+	req.Choices.TP, req.Choices.PP = 4294967296, 4294967296
+	const want = "TP × PP × CP and EP × PP must each be between 1 and the training GPUs (8)"
+	code, body := postAs(h.PreviewRecipe, req)
+	require.Equal(t, http.StatusOK, code, body)
+	require.Contains(t, body, want)
+	code, body = postAs(h.SubmitRun, req)
+	require.Equal(t, http.StatusBadRequest, code, body)
+	require.Contains(t, body, want)
+}
+
+// A run cannot take a model that is being deleted as its base: the model controller removes its weights.
+func TestARunCannotTrainAModelBeingDeleted(t *testing.T) {
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	h, cli := submitHandler(t, db, nil)
+	ctx := context.Background()
+	m := &v1.Model{}
+	require.NoError(t, cli.Get(ctx, ctrlclient.ObjectKey{Name: "m1"}, m))
+	m.Finalizers = []string{"amd.com/model"}
+	require.NoError(t, cli.Update(ctx, m))
+	require.NoError(t, cli.Delete(ctx, m))
+	code, body := postAs(h.SubmitRun, submittable())
+	require.Equal(t, http.StatusBadRequest, code, body)
+	require.Contains(t, body, "model m1 is being deleted")
+}
+
+// A workspace without a volume has nowhere to write the run.
+func TestAWorkspaceWithoutAVolumeIsRefused(t *testing.T) {
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	h, cli := submitHandler(t, db, nil)
+	ctx := context.Background()
+	ws := &v1.Workspace{}
+	require.NoError(t, cli.Get(ctx, ctrlclient.ObjectKey{Name: "ws1"}, ws))
+	ws.Spec.Volumes = nil
+	require.NoError(t, cli.Update(ctx, ws))
+	for _, handle := range []gin.HandlerFunc{h.PreviewRecipe, h.SubmitRun} {
+		code, body := postAs(handle, submittable())
+		require.Equal(t, http.StatusBadRequest, code, body)
+		require.Contains(t, body, "workspace ws1 has no volume")
+	}
+}
+
+// The body and its ext are bounded before anything is recorded.
+func TestTheRequestBodyIsBounded(t *testing.T) {
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	h, _ := submitHandler(t, db, nil)
+	req := submittable()
+	req.Ext = map[string]interface{}{"note": strings.Repeat("x", maxRequestBytes)}
+	for _, handle := range []gin.HandlerFunc{h.PreviewRecipe, h.SubmitRun} {
+		code, body := postAs(handle, req)
+		require.Equal(t, http.StatusRequestEntityTooLarge, code, body)
+	}
+	req.Ext = map[string]interface{}{"note": strings.Repeat("x", maxExtBytes)}
+	code, body := postAs(h.SubmitRun, req)
+	require.Equal(t, http.StatusBadRequest, code, body)
+	require.Contains(t, body, "ext must be JSON of at most 16384 bytes")
+}
+
+// A timeout above the QoS runtime ceiling needs the long-runtime grant, as for POST /workloads: without it the
+// submission is refused before the run is recorded, and with it the workload carries who extended it.
+func TestATimeoutAboveTheRuntimeCeilingNeedsTheGrant(t *testing.T) {
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	h, cli := submitHandler(t, db, nil)
+	require.NoError(t, cli.Create(context.Background(), &v1.Qos{ObjectMeta: metav1.ObjectMeta{Name: "ws1"},
+		Spec: v1.QosSpec{MaxRuntime: map[string]int{string(v1.RayScope): 3600}}}))
+	req := submittable()
+	req.Resources.TimeoutSeconds = 7200
+	code, body := postAs(h.SubmitRun, req)
+	require.Equal(t, http.StatusForbidden, code, body)
+	require.Contains(t, body, "workload/long-runtime")
+
+	extendedBy := func(user string, timeout int) string {
+		var runID string
+		db.EXPECT().CreatePostTrainingRun(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ context.Context, r *dbclient.PostTrainingRun) error {
+				runID = r.RunID
+				return nil
+			})
+		req.Resources.TimeoutSeconds = timeout
+		code, body := call(h.SubmitRun, http.MethodPost, "/", user, "", req)
+		require.Equal(t, http.StatusOK, code, body)
+		w := &v1.Workload{}
+		require.NoError(t, cli.Get(context.Background(), ctrlclient.ObjectKey{Name: runID}, w))
+		require.Equal(t, timeout, *w.Spec.Timeout)
+		return v1.GetAnnotation(w, v1.WorkloadRuntimeExtendedByAnnotation)
+	}
+	require.Equal(t, "admin", extendedBy("admin", 7200), "the webhook keeps an authorized timeout")
+	require.Empty(t, extendedBy("u1", 1800), "a timeout within the ceiling needs no grant")
+}

@@ -52,6 +52,7 @@ specs:
     frameworks:
       slime:
         modelScript: scripts/models/qwen3-4B.sh
+        convertNodes: 1
         methods: {sft: [full], rl: [full]}
         minNodes: {sft-full: 1, rl: 1, rl-separate: 2}
 images:
@@ -418,6 +419,32 @@ func TestTheFirstRegistryAfterARestartIsTaken(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, reg.ImageByName("img:2"), "the version that drops the image a run uses is not taken")
 	require.Nil(t, reg.ImageByName("img:3"))
+}
+
+// The runs whose images a new registry version may drop are read without the registry lock, which every Post
+// Training request takes.
+func TestTheRunsInUseAreReadOutsideTheRegistryLock(t *testing.T) {
+	ctx := context.Background()
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+	cli := fake.NewClientBuilder().WithScheme(scheme).Build()
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	var h *Handler
+	db.EXPECT().ListPostTrainingRuns(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(context.Context, dbclient.PostTrainingRunFilter) ([]*dbclient.PostTrainingRun, int64, error) {
+			require.True(t, h.mu.TryLock(), "the lock is free while the runs are read")
+			h.mu.Unlock()
+			return nil, 0, nil
+		}).Times(1)
+	h = NewHandler(cli, db)
+	cm := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Namespace: common.PrimusSafeNamespace,
+		Name: registry.ConfigMapName}, Data: map[string]string{registry.DataKey: testRegistry}}
+	require.NoError(t, cli.Create(ctx, cm))
+	reg, err := h.registry(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, reg)
+	_, err = h.registry(ctx)
+	require.NoError(t, err, "a version already loaded is not checked again")
 }
 
 // A pause of new runs is refused with its reason.

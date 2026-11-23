@@ -3,8 +3,9 @@
  * See LICENSE for license information.
  */
 
-// Package posttraininghandlers serves the Post Training API. Post Training is on when the post-training-registry
-// ConfigMap exists; otherwise every route answers 404.
+// Package posttraininghandlers serves the Post Training API. Its routes are registered when Post Training is enabled
+// in the apiserver config and the database is; they then answer 404 until the post-training-registry ConfigMap
+// exists.
 package posttraininghandlers
 
 import (
@@ -36,8 +37,6 @@ import (
 )
 
 const (
-	// defaultStorageRoot is used when a workspace has no volume.
-	defaultStorageRoot = "/wekafs"
 	// runDirParent is where runs write their directory under the workspace storage.
 	runDirParent = "custom/models"
 	// registryRetryInterval is how often a version rejected for images in use, or for not knowing them, is checked
@@ -86,18 +85,32 @@ func (h *Handler) registry(ctx context.Context) (*registry.Registry, error) {
 		}
 		return nil, commonerrors.NewInternalError(fmt.Sprintf("failed to read the Post Training registry: %v", err))
 	}
+	// stale tells, under h.mu, whether the ConfigMap holds a version to load.
+	stale := func() bool {
+		return cm.ResourceVersion != h.loadedRV || (!h.retryAt.IsZero() && time.Now().After(h.retryAt))
+	}
 	h.mu.Lock()
-	if cm.ResourceVersion != h.loadedRV || (!h.retryAt.IsZero() && time.Now().After(h.retryAt)) {
+	reload := stale()
+	h.mu.Unlock()
+	if !reload {
+		return h.store.Get()
+	}
+	// The unfinished runs are read before the lock is taken, as the query may take up to imagesInUseTimeout and
+	// every Post Training request reads the registry.
+	runs, runsErr := h.unfinishedRuns()
+	h.mu.Lock()
+	// Another request may have loaded this version meanwhile.
+	if stale() {
 		prev, _ := h.store.Get()
 		check := func(next *registry.Registry) error {
 			if err := recipe.CheckRegistry(next); err != nil {
 				return err
 			}
-			inUse, err := h.imagesInUse(prev != nil)
-			if err != nil {
-				err = fmt.Errorf("%w: %v", errImagesInUseUnknown, err)
+			var err error
+			if runsErr != nil {
+				err = fmt.Errorf("%w: %v", errImagesInUseUnknown, runsErr)
 			} else {
-				err = registry.CheckRemovedImages(prev, next, inUse)
+				err = registry.CheckRemovedImages(prev, next, imagesInUse(runs, prev != nil))
 			}
 			if err != nil && prev == nil {
 				// After a restart there is no earlier version to keep serving, so the first one is taken as it is.
@@ -119,11 +132,9 @@ func (h *Handler) registry(ctx context.Context) (*registry.Registry, error) {
 	return h.store.Get()
 }
 
-// imagesInUse lists the images of the runs that have not finished. Unless all is set, only the runs whose recipe
-// records an image from the image table count, as a custom image or an older recipe cannot be told apart from a
-// removed image without the previous registry version. The query has its own deadline, as the registry lock is
-// held meanwhile and the request that loads the registry may end first.
-func (h *Handler) imagesInUse(all bool) ([]string, error) {
+// unfinishedRuns lists the runs that have not finished. The query has its own deadline, as the request that loads
+// the registry may end first and its result decides the registry every request then uses.
+func (h *Handler) unfinishedRuns() ([]*dbclient.PostTrainingRun, error) {
 	if h.db == nil {
 		return nil, nil
 	}
@@ -131,9 +142,13 @@ func (h *Handler) imagesInUse(all bool) ([]string, error) {
 	defer cancel()
 	runs, _, err := h.db.ListPostTrainingRuns(ctx, dbclient.PostTrainingRunFilter{
 		Statuses: []string{string(v1.WorkloadPending), string(v1.WorkloadRunning)}})
-	if err != nil {
-		return nil, err
-	}
+	return runs, err
+}
+
+// imagesInUse lists the images of unfinished runs. Unless all is set, only the runs whose recipe records an image
+// from the image table count, as a custom image or an older recipe cannot be told apart from a removed image without
+// the previous registry version.
+func imagesInUse(runs []*dbclient.PostTrainingRun, all bool) []string {
 	images := make([]string, 0, len(runs))
 	for _, r := range runs {
 		var rec recipe.Recipe
@@ -141,7 +156,7 @@ func (h *Handler) imagesInUse(all bool) ([]string, error) {
 			images = append(images, r.Image)
 		}
 	}
-	return images, nil
+	return images
 }
 
 // requireEnabled answers 404 when Post Training is off, and returns the registry or its load error otherwise.
@@ -157,16 +172,22 @@ func (h *Handler) requireEnabled(c *gin.Context) (*registry.Registry, error, boo
 // authorize checks a workload action in a workspace the way direct workload creation does; owner is empty for
 // create.
 func (h *Handler) authorize(c *gin.Context, verb v1.RoleVerb, workspace, owner, name string, priority int) error {
+	kinds := []string{v1.WorkloadKind}
+	if verb == v1.CreateVerb {
+		kinds = append(kinds, fmt.Sprintf("workload/%s", commonworkload.GeneratePriority(priority)))
+	}
+	return h.authorizeKinds(c, verb, workspace, owner, name, kinds...)
+}
+
+// authorizeKinds checks that the requesting user may act with verb on each resource kind in a workspace.
+func (h *Handler) authorizeKinds(c *gin.Context, verb v1.RoleVerb, workspace, owner, name string,
+	kinds ...string) error {
 	ctx := c.Request.Context()
 	user, err := h.access.GetRequestUser(ctx, c.GetString(common.UserId))
 	if err != nil {
 		return err
 	}
 	roles := h.access.GetRoles(ctx, user)
-	kinds := []string{v1.WorkloadKind}
-	if verb == v1.CreateVerb {
-		kinds = append(kinds, fmt.Sprintf("workload/%s", commonworkload.GeneratePriority(priority)))
-	}
 	for _, kind := range kinds {
 		if err := h.access.Authorize(authority.AccessInput{
 			Context:       ctx,
@@ -193,7 +214,8 @@ type workspaceInfo struct {
 	storageRoot string
 }
 
-// getWorkspace reads a workspace and its node flavor.
+// getWorkspace reads a workspace and its node flavor. storageRoot is empty for a workspace without a volume, which
+// runs cannot write to.
 func (h *Handler) getWorkspace(ctx context.Context, name string) (*workspaceInfo, error) {
 	if name == "" {
 		return nil, commonerrors.NewBadRequest("workspace is required")
@@ -208,9 +230,6 @@ func (h *Handler) getWorkspace(ctx context.Context, name string) (*workspaceInfo
 	info := &workspaceInfo{
 		WorkspaceInfo: recipe.WorkspaceInfo{ID: ws.Name, Cluster: ws.Spec.Cluster, Nodes: ws.Status.AvailableReplica},
 		storageRoot:   commonworkspace.GetNfsPathFromWorkspace(ws),
-	}
-	if info.storageRoot == "" {
-		info.storageRoot = defaultStorageRoot
 	}
 	if ws.Spec.NodeFlavor != "" {
 		nf := &v1.NodeFlavor{}
@@ -246,6 +265,10 @@ func (h *Handler) getModel(ctx context.Context, id, workspace string) (*v1.Model
 			return nil, recipe.ModelInfo{}, commonerrors.NewNotFoundWithMessage(fmt.Sprintf("model %s not found", id))
 		}
 		return nil, recipe.ModelInfo{}, err
+	}
+	// The model controller removes the weights of a deleted model, which a run would then lose midway.
+	if !m.DeletionTimestamp.IsZero() {
+		return nil, recipe.ModelInfo{}, commonerrors.NewBadRequest(fmt.Sprintf("model %s is being deleted", id))
 	}
 	return m, modelInfo(m, workspace), nil
 }

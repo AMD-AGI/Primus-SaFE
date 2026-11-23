@@ -168,9 +168,9 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 		}
 	}
 
-	// Post Training needs the database for its runs; it answers 404 until the post-training-registry
-	// ConfigMap exists.
-	if commonconfig.IsDBEnable() {
+	// Post Training is served when it is enabled and the database, which holds its runs, is; it answers 404
+	// until the post-training-registry ConfigMap exists.
+	if commonconfig.IsPostTrainingEnable() && commonconfig.IsDBEnable() {
 		if ptDBClient := dbclient.NewClient(); ptDBClient != nil {
 			routes.postTraining = posttraininghandlers.NewHandler(mgr.GetClient(), ptDBClient)
 		}

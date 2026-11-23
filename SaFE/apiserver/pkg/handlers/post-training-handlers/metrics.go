@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"k8s.io/klog/v2"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
@@ -120,7 +121,9 @@ func frameworkOf(reg *registry.Registry, name string) *registry.Framework {
 	return reg.FrameworkByName(name)
 }
 
-// ExportMetrics writes a run's points as CSV (name, step, value, time) without downsampling.
+// ExportMetrics writes a run's points as CSV (name, step, value, time) without downsampling. It reads and writes
+// one metric at a time, of which it exports the newest maxMetricRows points, so a long run is streamed with at most
+// one capped series in memory.
 func (h *Handler) ExportMetrics(c *gin.Context) {
 	if _, _, ok := h.requireEnabled(c); !ok {
 		return
@@ -130,55 +133,72 @@ func (h *Handler) ExportMetrics(c *gin.Context) {
 		apiutils.AbortWithApiError(c, err)
 		return
 	}
-	points, err := h.selectPoints(c, run, c.Query("names"), 0)
+	names, err := h.metricNames(c, run, c.Query("names"))
 	if err != nil {
 		apiutils.AbortWithApiError(c, err)
 		return
 	}
+	ctx := c.Request.Context()
 	c.Header("Content-Type", "text/csv")
 	c.Header("Content-Disposition", `attachment; filename="`+run.RunID+`-metrics.csv"`)
 	w := csv.NewWriter(c.Writer)
 	_ = w.Write([]string{"name", "step", "value", "time"})
-	for _, name := range sortedNames(points) {
-		for _, p := range points[name] {
+	for _, name := range names {
+		rows, err := h.db.ListLatestPostTrainingRunMetrics(ctx, run.RunID, []string{name}, maxMetricRows)
+		if err != nil {
+			// The status is sent already, so the file ends here.
+			klog.ErrorS(err, "failed to export the metric points of a run", "run", run.RunID, "name", name)
+			break
+		}
+		for _, p := range rows {
 			_ = w.Write([]string{name, strconv.Itoa(p.Step), strconv.FormatFloat(p.Value, 'g', -1, 64),
 				p.WallTime.UTC().Format(time.RFC3339)})
 		}
+		w.Flush()
 	}
 	w.Flush()
 }
 
-// selectPoints loads the points of the requested names, the newest limit of them when limit is positive; names is
-// comma separated and may hold patterns where * matches anything but "/". An empty names selects every metric.
+// metricNames returns, sorted, the names of a run's metrics that names selects; names is comma separated and may
+// hold patterns where * matches anything but "/". An empty names selects every metric.
+func (h *Handler) metricNames(c *gin.Context, run *dbclient.PostTrainingRun, names string) ([]string, error) {
+	all, err := h.db.ListPostTrainingRunMetricNames(c.Request.Context(), run.RunID)
+	if err != nil {
+		return nil, commonerrors.NewInternalError("failed to read metric names: " + err.Error())
+	}
+	if strings.TrimSpace(names) == "" {
+		sort.Strings(all)
+		return all, nil
+	}
+	patterns := strings.Split(names, ",")
+	selected := []string{}
+	for _, n := range all {
+		for _, p := range patterns {
+			if MatchName(strings.TrimSpace(p), n) {
+				selected = append(selected, n)
+				break
+			}
+		}
+	}
+	sort.Strings(selected)
+	return selected, nil
+}
+
+// selectPoints loads the points of the requested names, the newest limit of them; names is as metricNames takes
+// it.
 func (h *Handler) selectPoints(c *gin.Context, run *dbclient.PostTrainingRun, names string,
 	limit int) (map[string][]*dbclient.PostTrainingRunMetric, error) {
-	ctx := c.Request.Context()
 	var selected []string
 	if strings.TrimSpace(names) != "" {
-		all, err := h.db.ListPostTrainingRunMetricNames(ctx, run.RunID)
-		if err != nil {
-			return nil, commonerrors.NewInternalError("failed to read metric names: " + err.Error())
-		}
-		patterns := strings.Split(names, ",")
-		for _, n := range all {
-			for _, p := range patterns {
-				if MatchName(strings.TrimSpace(p), n) {
-					selected = append(selected, n)
-					break
-				}
-			}
+		var err error
+		if selected, err = h.metricNames(c, run, names); err != nil {
+			return nil, err
 		}
 		if len(selected) == 0 {
 			return map[string][]*dbclient.PostTrainingRunMetric{}, nil
 		}
 	}
-	var rows []*dbclient.PostTrainingRunMetric
-	var err error
-	if limit > 0 {
-		rows, err = h.db.ListLatestPostTrainingRunMetrics(ctx, run.RunID, selected, limit)
-	} else {
-		rows, err = h.db.ListPostTrainingRunMetrics(ctx, run.RunID, selected)
-	}
+	rows, err := h.db.ListLatestPostTrainingRunMetrics(c.Request.Context(), run.RunID, selected, limit)
 	if err != nil {
 		return nil, commonerrors.NewInternalError("failed to read metrics: " + err.Error())
 	}

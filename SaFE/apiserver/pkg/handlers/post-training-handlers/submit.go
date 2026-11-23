@@ -35,8 +35,10 @@ import (
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/posttraining/registry"
+	commonqos "github.com/AMD-AIG-AIMA/SAFE/common/pkg/qos"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 )
 
 const (
@@ -51,6 +53,9 @@ const (
 	maxRetryLimit   = 3
 	maxRunSlugLen   = 30
 	maxExtBytes     = 16 * 1024
+	// maxRequestBytes bounds the body of a preview or submission: ext and frameworkOptions take 16 KiB each, and
+	// the other free-form fields far less.
+	maxRequestBytes = 256 << 10
 	// maxDisplayNameLen is what the display name column of a run holds.
 	maxDisplayNameLen = 128
 	rdmaResource      = "1k"
@@ -88,8 +93,8 @@ func (h *Handler) SubmitRun(c *gin.Context) {
 		return
 	}
 	var req recipe.SubmitRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		apiutils.AbortWithApiError(c, commonerrors.NewBadRequest("invalid request body: "+err.Error()))
+	if err := bindRequest(c, &req); err != nil {
+		apiutils.AbortWithApiError(c, err)
 		return
 	}
 	if regErr != nil {
@@ -111,6 +116,20 @@ func (h *Handler) SubmitRun(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, resp)
+}
+
+// bindRequest reads the body of a preview or submission, which may be at most maxRequestBytes.
+func bindRequest(c *gin.Context, req *recipe.SubmitRequest) error {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxRequestBytes)
+	if err := c.ShouldBindJSON(req); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			return commonerrors.NewRequestEntityTooLargeError(fmt.Sprintf("the request body is larger than %d bytes",
+				maxRequestBytes))
+		}
+		return commonerrors.NewBadRequest("invalid request body: " + err.Error())
+	}
+	return nil
 }
 
 // preparedRun is a run whose request passed every check, with its row and workload built but not yet created.
@@ -145,9 +164,6 @@ func (h *Handler) prepareRun(c *gin.Context, reg *registry.Registry,
 	if r := req.Resources.MaxRetry; r != nil && (*r < 0 || *r > maxRetryLimit) {
 		return nil, nil, commonerrors.NewBadRequest(fmt.Sprintf("maxRetry must be between 0 and %d", maxRetryLimit))
 	}
-	if b, _ := json.Marshal(req.Ext); len(req.Ext) > 0 && len(b) > maxExtBytes {
-		return nil, nil, commonerrors.NewBadRequest(fmt.Sprintf("ext must not exceed %d bytes", maxExtBytes))
-	}
 	if b, err := json.Marshal(req.Ext); err != nil || len(b) > maxExtBytes {
 		return nil, nil, commonerrors.NewBadRequest(fmt.Sprintf("ext must be JSON of at most %d bytes", maxExtBytes))
 	}
@@ -170,6 +186,9 @@ func (h *Handler) prepareRun(c *gin.Context, reg *registry.Registry,
 	}
 	workload, err := buildWorkload(c, reg, req, res, ws, runID, recipeJSON)
 	if err != nil {
+		return nil, nil, err
+	}
+	if err := h.authorizeRuntime(c, workload); err != nil {
 		return nil, nil, err
 	}
 	row := runRow(c, req, res, ws, model, runID, string(recipeJSON))
@@ -236,6 +255,10 @@ func (h *Handler) buildInput(c *gin.Context, reg *registry.Registry, req *recipe
 	ws, err := h.getWorkspace(ctx, req.Workspace)
 	if err != nil {
 		return nil, nil, nil, err
+	}
+	if ws.storageRoot == "" {
+		return nil, nil, nil, commonerrors.NewBadRequest(fmt.Sprintf("workspace %s has no volume for the run to "+
+			"write to", ws.ID))
 	}
 	model, mi, err := h.getModel(ctx, req.ModelID, req.Workspace)
 	if err != nil {
@@ -416,6 +439,39 @@ func buildWorkload(c *gin.Context, reg *registry.Registry, req *recipe.SubmitReq
 		w.Spec.Secrets = append(w.Spec.Secrets, v1.SecretEntity{Id: id, Type: v1.SecretGeneral, AsEnv: true})
 	}
 	return w, nil
+}
+
+// authorizeRuntime applies to a run's workload what POST /workloads applies to a new workload: a timeout above the
+// runtime ceiling of the user's QoS needs the workload/long-runtime grant in the workspace, and the workload is then
+// marked with WorkloadRuntimeExtendedByAnnotation, which the workload webhook takes as that authorization. A timeout
+// that is unset is filled from the ceiling by the webhook. It runs before the run is recorded, so a timeout the user
+// may not set is refused without leaving a failed run behind.
+func (h *Handler) authorizeRuntime(c *gin.Context, w *v1.Workload) error {
+	v1.RemoveAnnotation(w, v1.WorkloadRuntimeExtendedByAnnotation)
+	if w.Spec.Timeout == nil || *w.Spec.Timeout <= 0 {
+		return nil
+	}
+	ctx := c.Request.Context()
+	userID := c.GetString(common.UserId)
+	limits, err := commonqos.Ceiling(ctx, h.client, userID, commonqos.WorkspaceID(w),
+		string(commonworkload.GetScope(w)))
+	if err != nil {
+		return commonerrors.NewInternalError("failed to read the runtime limit: " + err.Error())
+	}
+	if ceiling := limits.RuntimeSeconds; ceiling <= 0 || *w.Spec.Timeout <= ceiling {
+		return nil
+	}
+	if err := h.authorizeKinds(c, v1.CreateVerb, w.Spec.Workspace, "", w.Name,
+		authority.WorkloadLongRuntimeKind); err != nil {
+		if apierrors.IsForbidden(err) {
+			return commonerrors.NewForbidden(fmt.Sprintf("resources.timeoutSeconds %d is above the limit of %d "+
+				"seconds in workspace %s; a longer timeout requires the %s grant in the workspace",
+				*w.Spec.Timeout, limits.RuntimeSeconds, w.Spec.Workspace, authority.WorkloadLongRuntimeKind))
+		}
+		return err
+	}
+	v1.SetAnnotation(w, v1.WorkloadRuntimeExtendedByAnnotation, userID)
+	return nil
 }
 
 // rewardSecret returns the secret of an RL request's remote reward service, or an empty string.

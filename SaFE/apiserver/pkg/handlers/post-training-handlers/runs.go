@@ -197,7 +197,7 @@ func (h *Handler) StopRun(c *gin.Context) {
 		return
 	}
 	message := fmt.Sprintf("Stopped by %s", c.GetString(common.UserName))
-	if _, err := h.stopRun(c.Request.Context(), run, message); err != nil {
+	if err := h.stopWorkload(c.Request.Context(), run.WorkloadID, message); err != nil {
 		apiutils.AbortWithApiError(c, err)
 		return
 	}
@@ -271,27 +271,8 @@ func (h *Handler) checkModelDelete(c *gin.Context, run *dbclient.PostTrainingRun
 	return h.checkModelUnused(c.Request.Context(), run)
 }
 
-// stopRun stops the run's training workload; the controller then records the run. It reports whether anything
-// was still running.
-func (h *Handler) stopRun(ctx context.Context, run *dbclient.PostTrainingRun, message string) (bool, error) {
-	workloads := &v1.WorkloadList{}
-	if err := h.client.List(ctx, workloads, ctrlclient.MatchingLabels{v1.PostTrainingRunIdLabel: run.RunID}); err != nil {
-		return false, err
-	}
-	stopped := false
-	for i := range workloads.Items {
-		if w := &workloads.Items[i]; !w.IsEnd() && w.Name == run.WorkloadID {
-			stopped = true
-		}
-	}
-	if err := h.stopWorkload(ctx, run.WorkloadID, message); err != nil {
-		return stopped, err
-	}
-	return stopped, nil
-}
-
-// stopWorkload marks a workload Stopped and deletes it, the way the workload stop API does; a missing or finished
-// workload is left alone.
+// stopWorkload marks a run's training workload Stopped and deletes it, the way the workload stop API does; the
+// controller then records the run. A missing or finished workload is left alone.
 func (h *Handler) stopWorkload(ctx context.Context, name, message string) error {
 	w := &v1.Workload{}
 	if err := h.client.Get(ctx, ctrlclient.ObjectKey{Name: name}, w); err != nil {
@@ -349,7 +330,8 @@ func (h *Handler) deleteRun(c *gin.Context, run *dbclient.PostTrainingRun, delet
 			return err
 		}
 	}
-	if _, err := h.stopRun(ctx, run, fmt.Sprintf("Deleted by %s", c.GetString(common.UserName))); err != nil {
+	message := fmt.Sprintf("Deleted by %s", c.GetString(common.UserName))
+	if err := h.stopWorkload(ctx, run.WorkloadID, message); err != nil {
 		return err
 	}
 	if deleteModel && run.OutputModelID != "" {
