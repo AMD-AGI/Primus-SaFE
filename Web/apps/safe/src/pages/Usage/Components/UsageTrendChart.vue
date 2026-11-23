@@ -36,7 +36,7 @@ useUsageChart(chartRef, (dark) => {
   return {
     animation: false,
     tooltip: { trigger: 'axis', confine: true },
-    legend: { data: ['Quota', 'Allocated', 'Busy'], top: 0, textStyle: { color: theme.text } },
+    legend: { data: ['Allocated', 'Busy'], top: 0, textStyle: { color: theme.text } },
     grid: { left: '2%', right: '2%', top: 32, bottom: 8, containLabel: true },
     xAxis: timeAxis(
       props.series.map((p) => fmtAxisTime(p.time, span)),
@@ -62,12 +62,6 @@ useUsageChart(chartRef, (dark) => {
         'Busy',
         USAGE_COLORS.busy,
         props.series.map((p) => p.busy),
-      ),
-      line(
-        'Quota',
-        theme.subtext,
-        props.series.map((p) => p.quota),
-        { lineStyle: { width: 1.2, color: theme.subtext, type: 'dashed' } },
       ),
     ],
   }
