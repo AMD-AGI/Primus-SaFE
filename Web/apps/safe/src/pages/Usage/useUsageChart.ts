@@ -5,10 +5,10 @@ import * as echarts from 'echarts'
 export const USAGE_COLORS = {
   allocated: '#409eff',
   busy: '#47b881',
-  queuedQuota: '#e6a23c',
-  queuedUserQos: '#8e6bd8',
-  queuedExternal: '#0d9488',
-  queuedOther: '#909399',
+  queuedQuota: '#22b8cf',
+  queuedUserQos: '#9b7bea',
+  queuedExternal: '#5ad8a6',
+  queuedOther: '#8b9dc3',
 } as const
 
 const isDarkMode = () => document.documentElement.classList.contains('dark')
