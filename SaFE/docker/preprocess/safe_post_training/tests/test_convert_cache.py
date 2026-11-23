@@ -29,9 +29,12 @@ class CountingAdapter:
 def setup(tmp_path, run):
     """Return a runner of run over a shared cache, with the emitter output."""
     model = tmp_path / "model"
-    model.mkdir(exist_ok=True)
-    (model / "config.json").write_text("{}")
-    (model / "model.safetensors").write_text("weights")
+    # The model is written once: rewriting it for each run could move its modification time to the next second,
+    # which changes the weights' fingerprint and makes the shared conversion stale.
+    if not model.exists():
+        model.mkdir()
+        (model / "config.json").write_text("{}")
+        (model / "model.safetensors").write_text("weights")
     cache = tmp_path / "custom" / "models" / "post-training-cache" / "slime-qwen3-4B-m1-abc"
     recipe = {"model": {"path": str(model)},
               "convert": {"cacheKey": "slime-qwen3-4B-m1-abc", "dir": str(cache / "torch_dist")}}
