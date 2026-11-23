@@ -388,7 +388,7 @@ const (
 	// ModelInspectAnnotation records that the model's config.json was read once: "done" or "failed".
 	ModelInspectAnnotation = ModelPrefix + "inspect"
 	// ModelInspectErrorAnnotation records why reading the model's config.json failed.
-	ModelInspectErrorAnnotation = PrimusSafePrefix + "model.inspect-error"
+	ModelInspectErrorAnnotation = ModelPrefix + "inspect-error"
 	// PostTrainingRegistryConfigMap is the ConfigMap of the Post Training registry; it exists only when Post
 	// Training is enabled.
 	PostTrainingRegistryConfigMap = "post-training-registry"
