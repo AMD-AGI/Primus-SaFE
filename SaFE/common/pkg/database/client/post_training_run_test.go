@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -44,11 +45,24 @@ func TestARunIsFoundByItsIDToo(t *testing.T) {
 		WithArgs(false, "%pt-sft-ab12%", "pt-sft-ab12").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(int64(0)))
 	mock.ExpectQuery(`SELECT \* FROM "post_training_run" WHERE is_deleted = \$1 AND ` +
-		`\(display_name ILIKE \$2 OR run_id = \$3\)`).
+		`\(display_name ILIKE \$2 OR run_id = \$3\) ORDER BY created_at DESC, id DESC`).
 		WillReturnRows(sqlmock.NewRows([]string{"run_id"}))
 	_, _, err := c.ListPostTrainingRuns(context.Background(), PostTrainingRunFilter{Search: " pt-sft-ab12 "})
 	require.NoError(t, err)
 	require.NoError(t, mock.ExpectationsWereMet(), "a pasted run ID finds its run")
+}
+
+// The run search takes the LIKE wildcards of the text literally.
+func TestARunSearchEscapesWildcards(t *testing.T) {
+	c, mock := newMockClient(t)
+	mock.ExpectQuery(`SELECT count\(\*\) FROM "post_training_run" WHERE is_deleted = \$1 AND `+
+		`\(display_name ILIKE \$2 OR run_id = \$3\)`).
+		WithArgs(false, `%100\%\_sft\\a%`, `100%_sft\a`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(int64(0)))
+	mock.ExpectQuery(`SELECT \* FROM "post_training_run"`).WillReturnRows(sqlmock.NewRows([]string{"run_id"}))
+	_, _, err := c.ListPostTrainingRuns(context.Background(), PostTrainingRunFilter{Search: `100%_sft\a`})
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 // A curve read of a run within the limit is not cut; past it each series keeps its newest points, the short ones
@@ -181,8 +195,10 @@ func TestDedupePostTrainingRunMetrics(t *testing.T) {
 	other := &PostTrainingRunMetric{Name: "train/loss", Step: 2, Value: 2}
 	last := &PostTrainingRunMetric{Name: "train/loss", Step: 1, Value: 3}
 
-	out := dedupePostTrainingRunMetrics("r1", []*PostTrainingRunMetric{first, nil, other, last})
-	require.Equal(t, []*PostTrainingRunMetric{last, other}, out)
+	long := &PostTrainingRunMetric{Name: "eval/" + strings.Repeat("x", maxPostTrainingMetricNameBytes), Step: 1}
+
+	out := dedupePostTrainingRunMetrics("r1", []*PostTrainingRunMetric{first, nil, other, long, last, long})
+	require.Equal(t, []*PostTrainingRunMetric{last, other}, out, "a name too long to index is dropped")
 	for _, p := range out {
 		require.Equal(t, "r1", p.RunID)
 	}

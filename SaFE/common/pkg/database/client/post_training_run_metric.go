@@ -12,12 +12,16 @@ import (
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+	"k8s.io/klog/v2"
 )
 
 const (
 	TPostTrainingRunMetric = "post_training_run_metric"
 
 	postTrainingMetricBatchSize = 1000
+	// maxPostTrainingMetricNameBytes bounds a metric name well below the ~2.7 KB a btree index entry may take,
+	// as the name is part of the unique (run_id, name, step) index and one over-long entry fails the whole insert.
+	maxPostTrainingMetricNameBytes = 1024
 )
 
 // PostTrainingRunMetric is one point of a run's metric series; (run_id, name, step) is unique.
@@ -195,12 +199,26 @@ func (c *Client) DeletePostTrainingRunMetrics(ctx context.Context, runID string)
 }
 
 // dedupePostTrainingRunMetrics assigns runID to every point and keeps the last point for each (name, step),
-// since a single upsert statement cannot update the same row twice.
+// since a single upsert statement cannot update the same row twice. It drops the points of names too long to
+// index, logging each such name once, so that one of them cannot fail the batch, and with it the cursor saved in
+// the same transaction, on every retry.
 func dedupePostTrainingRunMetrics(runID string, points []*PostTrainingRunMetric) []*PostTrainingRunMetric {
 	index := make(map[postTrainingMetricKey]int, len(points))
 	out := make([]*PostTrainingRunMetric, 0, len(points))
+	var dropped map[string]bool
 	for _, p := range points {
 		if p == nil {
+			continue
+		}
+		if len(p.Name) > maxPostTrainingMetricNameBytes {
+			if !dropped[p.Name] {
+				if dropped == nil {
+					dropped = map[string]bool{}
+				}
+				dropped[p.Name] = true
+				klog.Warningf("post training run %s: dropping the points of metric %.80q..., whose name is %d "+
+					"bytes long, over the limit of %d", runID, p.Name, len(p.Name), maxPostTrainingMetricNameBytes)
+			}
 			continue
 		}
 		p.RunID = runID

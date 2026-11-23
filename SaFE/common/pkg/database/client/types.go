@@ -315,7 +315,9 @@ type Model struct {
 	DeletionTime pq.NullTime `gorm:"column:deletion_time" json:"deletionTime" db:"deletion_time"`
 	IsDeleted    bool        `gorm:"column:is_deleted" json:"isDeleted" db:"is_deleted"`
 
-	// PostTrainingRunID is the Post Training run that produced the model; empty for other models.
+	// PostTrainingRunID is the Post Training run that produced the model; empty for other models. UpsertModel
+	// writes '' for those while rows from before the column stay NULL; GORM reads both as "" and no query
+	// filters on the column, so the two mean the same.
 	PostTrainingRunID string `gorm:"column:post_training_run_id" json:"postTrainingRunId,omitempty" db:"post_training_run_id"`
 	// ModelConfig is the JSON structure summary read from config.json; nil until it has been read.
 	ModelConfig *string `gorm:"column:model_config" json:"modelConfig,omitempty" db:"model_config"`

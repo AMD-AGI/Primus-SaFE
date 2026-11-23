@@ -1077,9 +1077,6 @@ data:
         deletion_time TIMESTAMPTZ,
         is_deleted BOOLEAN DEFAULT FALSE
     );
-    -- Columns added after the table was first created, for a table an earlier build made
-    ALTER TABLE post_training_run ADD COLUMN IF NOT EXISTS stalled_since TIMESTAMPTZ;
-    ALTER TABLE post_training_run ADD COLUMN IF NOT EXISTS disk_usage TEXT;
     create index if not exists T_POST_TRAINING_RUN_CREATED_AT_INDEX on post_training_run (created_at DESC);
     create index if not exists T_POST_TRAINING_RUN_FRAMEWORK_INDEX on post_training_run (framework, created_at DESC);
     create index if not exists T_POST_TRAINING_RUN_WORKSPACE_STATUS_INDEX on post_training_run (workspace, status, is_deleted);
@@ -1089,11 +1086,13 @@ data:
     create index if not exists T_POST_TRAINING_RUN_RECIPE_HASH_INDEX on post_training_run (recipe_hash, status);
     alter table post_training_run owner to "primus-safe";
 
+    -- name is TEXT because wildcard includes such as eval/*/* take user-chosen eval keys of any length; the
+    -- client drops names too long for the unique index instead of failing the whole batch.
     create table if not exists post_training_run_metric
     (
         id BIGSERIAL PRIMARY KEY,
         run_id VARCHAR(64) NOT NULL,
-        name VARCHAR(160) NOT NULL,
+        name TEXT NOT NULL,
         step INTEGER NOT NULL,
         value DOUBLE PRECISION NOT NULL,
         wall_time TIMESTAMPTZ NOT NULL

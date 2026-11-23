@@ -102,10 +102,14 @@ type PostTrainingRunFilter struct {
 	Stage       string
 	BaseModelID string
 	UserID      string
-	Search      string // matches display_name ILIKE %search%, or the run_id
+	Search      string // matches display_name ILIKE %search%, with search taken literally, or the run_id
 	Limit       int
 	Offset      int
 }
+
+// likeEscaper escapes the LIKE wildcards in a search text, so that "_" and "%" match themselves; backslash is the
+// default LIKE escape character of PostgreSQL.
+var likeEscaper = strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`)
 
 // CreatePostTrainingRun inserts a new run; run_id and workload_id must be unique.
 func (c *Client) CreatePostTrainingRun(ctx context.Context, run *PostTrainingRun) error {
@@ -169,7 +173,7 @@ func (c *Client) ListPostTrainingRuns(
 		query = query.Where("user_id = ?", filter.UserID)
 	}
 	if search := strings.TrimSpace(filter.Search); search != "" {
-		query = query.Where("display_name ILIKE ? OR run_id = ?", "%"+search+"%", search)
+		query = query.Where("display_name ILIKE ? OR run_id = ?", "%"+likeEscaper.Replace(search)+"%", search)
 	}
 
 	var total int64
@@ -183,7 +187,8 @@ func (c *Client) ListPostTrainingRuns(
 		query = query.Offset(filter.Offset)
 	}
 	var runs []*PostTrainingRun
-	if err := query.Order("created_at DESC").Find(&runs).Error; err != nil {
+	// id breaks ties between runs created at the same time, so that offset pages neither repeat nor skip a run.
+	if err := query.Order("created_at DESC, id DESC").Find(&runs).Error; err != nil {
 		return nil, 0, err
 	}
 	return runs, total, nil
