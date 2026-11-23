@@ -322,6 +322,36 @@ func TestExternalJITCreatesAndRefreshesUser(t *testing.T) {
 	require.Len(t, list.Items, 1)
 }
 
+// TestExternalJITSetsPreferredName checks that the preferred name the identity states is recorded for
+// a new SSO user, and filled for an existing one that has none, so the workload account can be stamped.
+func TestExternalJITSetsPreferredName(t *testing.T) {
+	e := newExtEnv(t, nil, false)
+	_, err := extParse(t, http.MethodGet, "/api/v1/workloads", e.jwt(map[string]any{"preferred_username": "jihong.he@amd.com"}))
+	require.NoError(t, err)
+	require.Equal(t, "jihong.he@amd.com", v1.GetAnnotation(e.user(extUser), v1.UserPreferredNameAnnotation))
+
+	// A record created before this change has no preferred name; the next request fills it.
+	u := e.user(extUser)
+	patch := client.MergeFrom(u.DeepCopy())
+	v1.RemoveAnnotation(u, v1.UserPreferredNameAnnotation)
+	require.NoError(t, e.cli.Patch(context.Background(), u, patch))
+	require.Empty(t, v1.GetAnnotation(e.user(extUser), v1.UserPreferredNameAnnotation))
+
+	_, err = extParse(t, http.MethodGet, "/api/v1/workloads", e.jwt(map[string]any{"preferred_username": "jihong.he@amd.com"}))
+	require.NoError(t, err)
+	require.Equal(t, "jihong.he@amd.com", v1.GetAnnotation(e.user(extUser), v1.UserPreferredNameAnnotation))
+}
+
+// TestExternalIntrospectionSetsPreferredName checks that an introspected username, which names the
+// account of an opaque credential, is recorded as the preferred name of the user.
+func TestExternalIntrospectionSetsPreferredName(t *testing.T) {
+	e := newExtEnvWith(t, nil, false, nil)
+	e.revUsers["ak-ours"] = map[string]any{"sub": extUser, "username": "jihong.he@amd.com", "name": "Jihong He", "aud": extAudience}
+	_, err := extParse(t, http.MethodGet, "/api/v1/workloads", "ak-ours")
+	require.NoError(t, err)
+	require.Equal(t, "jihong.he@amd.com", v1.GetAnnotation(e.user(extUser), v1.UserPreferredNameAnnotation))
+}
+
 // TestExternalLocalAccountIsDefault records a new username/password account as default.
 // An existing sso record is not rewritten. A default record is never rewritten as sso.
 func TestExternalLocalAccountIsDefault(t *testing.T) {
@@ -372,6 +402,7 @@ func TestExternalExistingUsersAreNeverLockedOut(t *testing.T) {
 	sso := func(name, email string) *v1.User {
 		u := local(name, email)
 		u.Spec.Type, u.Spec.Password = v1.SSOUserType, ""
+		v1.SetAnnotation(u, v1.UserPreferredNameAnnotation, "alice")
 		return u
 	}
 	for _, tt := range []struct {

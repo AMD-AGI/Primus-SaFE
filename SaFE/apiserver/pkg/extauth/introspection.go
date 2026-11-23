@@ -469,8 +469,8 @@ func (a *IntrospectionAuthenticator) identity(r *introspectionAnswer) (*Identity
 		return nil, nil
 	}
 	id := &Identity{
-		ID: r.Sub, Name: r.Name, Email: r.Email, AccountType: r.UserType, Jti: r.Jti, Restricted: r.Restricted,
-		Groups: unionOf(r.Groups, r.Roles), Scopes: strings.Fields(r.Scope),
+		ID: r.Sub, Name: r.Name, PreferredName: r.Username, Email: r.Email, AccountType: r.UserType,
+		Jti: r.Jti, Restricted: r.Restricted, Groups: unionOf(r.Groups, r.Roles), Scopes: strings.Fields(r.Scope),
 	}
 	if id.Name == "" {
 		id.Name = r.Username
