@@ -23,7 +23,7 @@ type NodeSpecApplyConfiguration struct {
 	Workspace *string `json:"workspace,omitempty"`
 	// Node flavor reference, required
 	NodeFlavor *corev1.ObjectReference `json:"nodeFlavor,omitempty"`
-	// Node template reference, required
+	// Node template reference, optional for nodes of an adopted cluster
 	NodeTemplate *corev1.ObjectReference `json:"nodeTemplate,omitempty"`
 	// Node hostname
 	Hostname *string `json:"hostname,omitempty"`

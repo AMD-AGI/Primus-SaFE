@@ -125,7 +125,8 @@ spec:
                 type: object
                 x-kubernetes-map-type: atomic
               nodeTemplate:
-                description: Node template reference, required
+                description: Node template reference, optional for nodes of an adopted
+                  cluster
                 properties:
                   apiVersion:
                     description: API version of the referent.
