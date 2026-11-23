@@ -175,7 +175,6 @@ func (a *OIDCAuthenticator) identity(std jwt.Claims, claims map[string]any) (*Id
 		Jti:           std.ID,
 		Expiry:        std.Expiry.Time(),
 	}
-	id.PreferredName = preferredNameFrom(id.PreferredName, id.Email)
 	if id.ID == "" {
 		return nil, fmt.Errorf("%w: no %q claim", ErrUnauthenticated, a.cfg.IDClaim)
 	}
