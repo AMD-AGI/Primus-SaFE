@@ -1,6 +1,6 @@
 <template>
   <div class="usage-range-picker">
-    <el-segmented v-model="model.key" :options="options" @change="onKeyChange" />
+    <el-segmented v-model="model.key" class="form-seg" :options="options" @change="onKeyChange" />
     <el-date-picker
       v-if="model.key === 'custom'"
       v-model="model.custom"

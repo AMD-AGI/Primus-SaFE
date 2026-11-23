@@ -1,29 +1,20 @@
 <template>
   <div class="usage-page__header">
-    <div class="usage-page__title">
-      <el-text class="textx-18 font-500" tag="b">Usage</el-text>
-      <span class="usage-page__dot">·</span>
-      <el-breadcrumb separator="/">
-        <el-breadcrumb-item>
-          <el-link v-if="cluster" :underline="false" type="primary" @click="goClusters">
-            All Clusters
-          </el-link>
-          <span v-else>All Clusters</span>
-        </el-breadcrumb-item>
-        <el-breadcrumb-item v-if="cluster">
-          <el-link v-if="workspace" :underline="false" type="primary" @click="goCluster(cluster)">
-            {{ cluster }}
-          </el-link>
-          <span v-else>{{ cluster }}</span>
-        </el-breadcrumb-item>
-        <el-breadcrumb-item v-if="workspace">{{ workspace }}</el-breadcrumb-item>
-      </el-breadcrumb>
-    </div>
+    <el-breadcrumb separator="/" class="usage-page__crumbs">
+      <el-breadcrumb-item :to="cluster ? { path: '/usage' } : undefined">Usage</el-breadcrumb-item>
+      <el-breadcrumb-item
+        v-if="cluster"
+        :to="workspace ? { path: '/usage', query: { cluster } } : undefined"
+      >
+        {{ cluster }}
+      </el-breadcrumb-item>
+      <el-breadcrumb-item v-if="workspace">{{ workspace }}</el-breadcrumb-item>
+    </el-breadcrumb>
     <UsageRangePicker v-model="range" @change="reload" />
   </div>
 
   <div class="usage-page__body">
-    <ClusterUsageCards
+    <ClusterUsageTable
       v-if="!cluster"
       :items="clustersData?.items ?? []"
       :loading="clustersLoading"
@@ -55,7 +46,7 @@ import type {
   ListUsageWorkspacesResp,
   UsageQuery,
 } from '@/services/usage/type'
-import ClusterUsageCards from './Components/ClusterUsageCards.vue'
+import ClusterUsageTable from './Components/ClusterUsageTable.vue'
 import ClusterUsageDetail from './Components/ClusterUsageDetail.vue'
 import UsageRangePicker from './Components/UsageRangePicker.vue'
 import WorkspaceUsagePanel from './Components/WorkspaceUsagePanel.vue'
@@ -144,7 +135,6 @@ function reload() {
   load()
 }
 
-const goClusters = () => router.push({ path: '/usage' })
 const goCluster = (name: string) => router.push({ path: '/usage', query: { cluster: name } })
 const goWorkspace = (name: string) =>
   router.push({ path: '/usage', query: { cluster: cluster.value, workspace: name } })
@@ -164,14 +154,20 @@ onMounted(reload)
   flex-wrap: wrap;
   gap: 12px;
 }
-.usage-page__title {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
+.usage-page__crumbs {
+  font-size: var(--fs-title);
+  line-height: 1.4;
 }
-.usage-page__dot {
+.usage-page__crumbs :deep(.el-breadcrumb__item .el-breadcrumb__inner.is-link) {
   color: var(--safe-muted);
+  font-weight: 500;
+}
+.usage-page__crumbs :deep(.el-breadcrumb__item .el-breadcrumb__inner.is-link:hover) {
+  color: var(--safe-primary);
+}
+.usage-page__crumbs :deep(.el-breadcrumb__item:last-child .el-breadcrumb__inner) {
+  color: var(--safe-text);
+  font-weight: 500;
 }
 .usage-page__body {
   margin-top: 16px;
