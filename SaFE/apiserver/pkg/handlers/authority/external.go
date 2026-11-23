@@ -353,7 +353,7 @@ func (st *externalAuth) ensureUser(ctx context.Context, id *extauth.Identity) (*
 			Annotations: map[string]string{
 				v1.UserNameAnnotation:          id.Name,
 				v1.UserEmailAnnotation:         id.Email,
-				v1.UserPreferredNameAnnotation: id.PreferredName,
+				v1.UserPreferredNameAnnotation: preferredNameOf(id),
 			},
 		},
 		Spec: v1.UserSpec{Type: accountType(id)},
@@ -362,6 +362,15 @@ func (st *externalAuth) ensureUser(ctx context.Context, id *extauth.Identity) (*
 		return nil, err
 	}
 	return user, nil
+}
+
+// preferredNameOf is the preferred name to record for an identity. Only an SSO account has one: the
+// name becomes the run-as NTID of its workloads, so a username/password account never gets it.
+func preferredNameOf(id *extauth.Identity) string {
+	if accountType(id) != v1.SSOUserType {
+		return ""
+	}
+	return id.PreferredName
 }
 
 // accountType is the user type to store. A username/password account is default. An answer
@@ -425,7 +434,7 @@ func (st *externalAuth) refreshUser(ctx context.Context, user *v1.User, id *exta
 	for k, val := range map[string]string{
 		v1.UserNameAnnotation:          id.Name,
 		v1.UserEmailAnnotation:         id.Email,
-		v1.UserPreferredNameAnnotation: id.PreferredName,
+		v1.UserPreferredNameAnnotation: preferredNameOf(id),
 	} {
 		if val != "" && v1.GetAnnotation(user, k) != val {
 			v1.SetAnnotation(user, k, val)

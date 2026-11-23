@@ -386,6 +386,31 @@ func TestExternalLocalAccountIsDefault(t *testing.T) {
 	require.Equal(t, "Kept", v1.GetUserName(e.user("kept-id")))
 }
 
+// TestExternalDefaultAccountGetsNoPreferredName checks that the preferred name, which becomes the
+// run-as NTID of workloads, is recorded only for SSO accounts: a new username/password account gets
+// none, and an existing SSO record keeps its preferred name when an answer names a default account.
+func TestExternalDefaultAccountGetsNoPreferredName(t *testing.T) {
+	e := newExtEnv(t, nil, false)
+	e.revUsers["local"] = map[string]any{
+		"sub": "local-id", "username": "local", "name": "Local", "email": "local@example.test", "user_type": "default",
+	}
+	_, err := extParse(t, http.MethodGet, "/apis/v1/users", "local")
+	require.NoError(t, err)
+	require.Equal(t, v1.DefaultUserType, e.user("local-id").Spec.Type)
+	require.Empty(t, v1.GetAnnotation(e.user("local-id"), v1.UserPreferredNameAnnotation))
+
+	sso := &v1.User{}
+	sso.Name = "old-id"
+	sso.Spec.Type = v1.SSOUserType
+	v1.SetAnnotation(sso, v1.UserNameAnnotation, "Old")
+	v1.SetAnnotation(sso, v1.UserPreferredNameAnnotation, "old-ntid@amd.com")
+	require.NoError(t, e.cli.Create(context.Background(), sso))
+	e.revUsers["old"] = map[string]any{"sub": "old-id", "username": "old", "name": "Old", "user_type": "default"}
+	_, err = extParse(t, http.MethodGet, "/apis/v1/users", "old")
+	require.NoError(t, err)
+	require.Equal(t, "old-ntid@amd.com", v1.GetAnnotation(e.user("old-id"), v1.UserPreferredNameAnnotation))
+}
+
 // The identity provider names existing users by their SaFE user id, so a login can land
 // on a local account (type default) whose stored name is not the provider's. The user
 // webhook refuses a rename of a local account, and that used to turn into 401 on every
