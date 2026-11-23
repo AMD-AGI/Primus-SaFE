@@ -187,6 +187,6 @@ func (r *Reporter) probeCluster(ctx context.Context, c *v1.Cluster) bool {
 	probeCtx, cancel := context.WithTimeout(ctx, clusterProbeTimeout)
 	defer cancel()
 	_, _, _, err = k8sclient.NewClientSetWithProbe(probeCtx, endpoint, fallbacks,
-		cps.CertData, cps.KeyData, cps.CAData, true)
+		cps.CertData, cps.KeyData, cps.CAData, true, k8sclient.WithServerName(v1.GetApiserverServerName(c)))
 	return err == nil
 }

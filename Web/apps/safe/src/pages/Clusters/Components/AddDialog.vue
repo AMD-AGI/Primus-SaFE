@@ -88,6 +88,28 @@
         />
       </el-form-item>
 
+      <el-form-item v-if="isAdopt" label="Apiserver Port" prop="apiserverPort">
+        <el-input-number
+          v-model="form.apiserverPort"
+          :min="1"
+          :max="65535"
+          :step="1"
+          step-strictly
+          controls-position="right"
+        />
+      </el-form-item>
+
+      <el-form-item v-if="isAdopt" label="Apiserver Server Name" prop="apiserverServerName">
+        <el-input
+          v-model="form.apiserverServerName"
+          placeholder="Optional, e.g. lb-apiserver.kubernetes.local"
+        />
+        <el-text size="small" type="info">
+          TLS server name (SNI) sent to the apiserver. Set it when the apiserver is reached through
+          a gateway with TLS passthrough.
+        </el-text>
+      </el-form-item>
+
       <el-form-item v-if="!isAdopt" label="Nodes" prop="nodes">
         <el-select
           v-model="form.nodes"
@@ -239,6 +261,8 @@ const initialForm = () => ({
   kubeNetworkPlugin: 'cilium',
   nodes: [] as string[],
   controlPlaneIps: [] as string[],
+  apiserverPort: 6443,
+  apiserverServerName: '',
   kubeSprayImage: '',
   kubePodsSubnet: '',
   kubeServiceAddress: '',
@@ -294,6 +318,11 @@ const isValidIPv4 = (ip: string) => {
   return m[1].split('.').every((n) => Number(n) <= 255)
 }
 
+// Matches a lowercase DNS-1123 subdomain, the format accepted by the backend.
+const isValidDNSName = (name: string) =>
+  name.length <= 253 &&
+  /^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$/.test(name)
+
 const adoptRules: FormRules = {
   controlPlaneIps: [
     {
@@ -306,6 +335,29 @@ const adoptRules: FormRules = {
       validator: (_r, v: string[], cb) =>
         cb(v.every(isValidIPv4) ? undefined : new Error('Invalid IPv4 address')),
       trigger: 'change',
+    },
+  ],
+  apiserverPort: [
+    { required: true, message: 'Please input apiserver port', trigger: 'change' },
+    {
+      validator: (_r, v, cb) =>
+        cb(
+          Number.isInteger(Number(v)) && Number(v) >= 1 && Number(v) <= 65535
+            ? undefined
+            : new Error('Port must be between 1 and 65535'),
+        ),
+      trigger: 'change',
+    },
+  ],
+  apiserverServerName: [
+    {
+      validator: (_r, v: string, cb) =>
+        cb(
+          !v?.trim() || isValidDNSName(v.trim())
+            ? undefined
+            : new Error('Invalid DNS name, e.g. lb-apiserver.kubernetes.local'),
+        ),
+      trigger: 'blur',
     },
   ],
 }
@@ -474,6 +526,8 @@ const onSubmit = async (el?: FormInstance) => {
           sshSecretId: form.sshSecretId,
           isProtected: form.isProtected,
           controlPlaneIps: form.controlPlaneIps,
+          apiserverPort: form.apiserverPort,
+          apiserverServerName: form.apiserverServerName.trim() || undefined,
           adopt: true,
         }
       : {

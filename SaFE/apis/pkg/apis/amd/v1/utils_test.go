@@ -135,3 +135,25 @@ func TestNodeMigrationPredicates(t *testing.T) {
 		t.Fatal("a node with no migration is reported as migrating")
 	}
 }
+
+func TestGetApiserverAccess(t *testing.T) {
+	cluster := &Cluster{}
+	if got := GetApiserverPort(cluster); got != DefaultApiserverPort {
+		t.Fatalf("default port = %d", got)
+	}
+	if got := GetApiserverServerName(cluster); got != "" {
+		t.Fatalf("default server name = %q", got)
+	}
+	SetAnnotation(cluster, ClusterApiserverPortAnnotation, "443")
+	SetAnnotation(cluster, ClusterApiserverServerNameAnnotation, " lb-apiserver.kubernetes.local ")
+	if got := GetApiserverPort(cluster); got != 443 {
+		t.Fatalf("port = %d", got)
+	}
+	if got := GetApiserverServerName(cluster); got != "lb-apiserver.kubernetes.local" {
+		t.Fatalf("server name = %q", got)
+	}
+	SetAnnotation(cluster, ClusterApiserverPortAnnotation, "70000")
+	if got := GetApiserverPort(cluster); got != DefaultApiserverPort {
+		t.Fatalf("invalid port fallback = %d", got)
+	}
+}

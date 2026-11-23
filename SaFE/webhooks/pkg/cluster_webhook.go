@@ -10,8 +10,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"strconv"
+	"strings"
 
 	admissionv1 "k8s.io/api/admission/v1"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/pointer"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
@@ -133,6 +136,22 @@ func (v *ClusterValidator) validateOnCreation(ctx context.Context, cluster *v1.C
 	}
 	if err := validateLabels(cluster.GetLabels()); err != nil {
 		return err
+	}
+	return validateApiserverAccess(cluster)
+}
+
+// validateApiserverAccess checks the apiserver port and TLS server name annotations when they are set.
+func validateApiserverAccess(cluster *v1.Cluster) error {
+	if raw, ok := cluster.GetAnnotations()[v1.ClusterApiserverPortAnnotation]; ok {
+		port, err := strconv.Atoi(strings.TrimSpace(raw))
+		if err != nil || port <= 0 || port > 65535 {
+			return fmt.Errorf("invalid apiserver port %q, it must be between 1 and 65535", raw)
+		}
+	}
+	if raw, ok := cluster.GetAnnotations()[v1.ClusterApiserverServerNameAnnotation]; ok {
+		if errs := validation.IsDNS1123Subdomain(strings.TrimSpace(raw)); len(errs) > 0 {
+			return fmt.Errorf("invalid apiserver server name %q: %s", raw, strings.Join(errs, "; "))
+		}
 	}
 	return nil
 }
@@ -325,12 +344,17 @@ func uint32PointerValue(value *uint32) string {
 	return fmt.Sprintf("%d", *value)
 }
 
-// validateImmutableFields ensures the adopt annotation and control plane nodes cannot be modified.
+// validateImmutableFields ensures the adopt and apiserver access annotations and control plane nodes cannot be modified.
 // An adopted cluster records those nodes after it can list the data plane.
 func (v *ClusterValidator) validateImmutableFields(newCluster, oldCluster *v1.Cluster) error {
 	if v1.GetAnnotation(newCluster, v1.ClusterAdoptAnnotation) != v1.GetAnnotation(oldCluster, v1.ClusterAdoptAnnotation) {
 		return field.Forbidden(field.NewPath("metadata").Key("annotations").
 			Key(v1.ClusterAdoptAnnotation), "immutable")
+	}
+	for _, key := range []string{v1.ClusterApiserverPortAnnotation, v1.ClusterApiserverServerNameAnnotation} {
+		if v1.GetAnnotation(newCluster, key) != v1.GetAnnotation(oldCluster, key) {
+			return field.Forbidden(field.NewPath("metadata").Key("annotations").Key(key), "immutable")
+		}
 	}
 	if adoptedCluster(oldCluster) {
 		return nil

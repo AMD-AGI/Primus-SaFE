@@ -27,6 +27,10 @@ type CreateClusterRequest struct {
 	Adopt bool `json:"adopt,omitempty"`
 	// Control plane IPs of an adopted cluster, used to read its kubeconfig before nodes are registered.
 	ControlPlaneIPs []string `json:"controlPlaneIps,omitempty"`
+	// Port used to reach the apiserver of an adopted cluster on each control plane IP. Default 6443.
+	ApiserverPort int `json:"apiserverPort,omitempty"`
+	// TLS server name (SNI) sent to the apiserver of an adopted cluster, e.g. for gateway passthrough.
+	ApiserverServerName string `json:"apiserverServerName,omitempty"`
 }
 
 type CreateClusterResponse struct {
@@ -87,6 +91,10 @@ type GetClusterResponse struct {
 	KubeApiServerArgs map[string]string `json:"kubeApiServerArgs,omitempty"`
 	// User-defined labels
 	Labels map[string]string `json:"labels,omitempty"`
+	// Port used to reach the data plane apiserver on each control plane IP
+	ApiserverPort int `json:"apiserverPort"`
+	// TLS server name (SNI) sent to the data plane apiserver; empty when not set
+	ApiserverServerName string `json:"apiserverServerName,omitempty"`
 }
 
 type ProcessNodesRequest struct {

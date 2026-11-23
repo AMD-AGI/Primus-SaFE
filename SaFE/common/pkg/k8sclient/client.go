@@ -34,12 +34,27 @@ func NewClientSetInCluster() (kubernetes.Interface, *rest.Config, error) {
 	return cli, restConfig, err
 }
 
+// ClientOption customizes the REST configuration of a data plane client.
+type ClientOption func(*rest.Config)
+
+// WithServerName sets the TLS server name (SNI) sent to the apiserver. An empty name is ignored.
+func WithServerName(name string) ClientOption {
+	return func(cfg *rest.Config) {
+		if name != "" {
+			cfg.TLSClientConfig.ServerName = name
+		}
+	}
+}
+
 // NewClientSet creates and returns a new ClientSet instance.
 func NewClientSet(endpoint, certData, keyData, caData string,
-	insecure bool) (kubernetes.Interface, *rest.Config, error) {
+	insecure bool, opts ...ClientOption) (kubernetes.Interface, *rest.Config, error) {
 	restConfig, err := createRestConfig(endpoint, certData, keyData, caData, insecure)
 	if err != nil {
 		return nil, nil, err
+	}
+	for _, opt := range opts {
+		opt(restConfig)
 	}
 	cli, err := NewClientSetWithRestConfig(restConfig)
 	return cli, restConfig, err
@@ -49,7 +64,7 @@ func NewClientSet(endpoint, certData, keyData, caData string,
 // It tries primary first, then each fallback endpoint until one succeeds. The caller's deadline is
 // honoured, so probing a run of unreachable endpoints cannot outlast it.
 func NewClientSetWithProbe(ctx context.Context, primary string, fallbackEndpoints []string,
-	certData, keyData, caData string, insecure bool,
+	certData, keyData, caData string, insecure bool, opts ...ClientOption,
 ) (kubernetes.Interface, *rest.Config, string, error) {
 	candidates := uniqueEndpoints(append([]string{primary}, fallbackEndpoints...))
 	if len(candidates) == 0 {
@@ -62,7 +77,7 @@ func NewClientSetWithProbe(ctx context.Context, primary string, fallbackEndpoint
 			lastErr = err
 			break
 		}
-		clientSet, restCfg, err := NewClientSet(endpoint, certData, keyData, caData, insecure)
+		clientSet, restCfg, err := NewClientSet(endpoint, certData, keyData, caData, insecure, opts...)
 		if err != nil {
 			lastErr = err
 			continue

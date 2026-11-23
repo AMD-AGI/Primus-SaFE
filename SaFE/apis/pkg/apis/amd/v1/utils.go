@@ -324,6 +324,21 @@ func GetAdoptControlPlaneIPs(obj metav1.Object) []string {
 	return ips
 }
 
+// GetApiserverPort returns the data plane apiserver port of a cluster, or DefaultApiserverPort
+// when the annotation is absent or not a valid port.
+func GetApiserverPort(obj metav1.Object) int {
+	port, err := strconv.Atoi(strings.TrimSpace(GetAnnotation(obj, ClusterApiserverPortAnnotation)))
+	if err != nil || port <= 0 || port > 65535 {
+		return DefaultApiserverPort
+	}
+	return port
+}
+
+// GetApiserverServerName returns the TLS server name sent to the data plane apiserver; empty means none.
+func GetApiserverServerName(obj metav1.Object) string {
+	return strings.TrimSpace(GetAnnotation(obj, ClusterApiserverServerNameAnnotation))
+}
+
 // IsExternalWorkspace reports whether the workspace draws capacity from an external
 // execution provider. The label must be set to "true"; any other value is native.
 func IsExternalWorkspace(obj metav1.Object) bool {

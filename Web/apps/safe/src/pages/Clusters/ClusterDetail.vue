@@ -113,6 +113,14 @@
 
       <el-descriptions-item label="sshSecretId">{{ detailData.sshSecretId }}</el-descriptions-item>
 
+      <el-descriptions-item label="apiserverPort">{{
+        detailData.apiserverPort ?? 6443
+      }}</el-descriptions-item>
+
+      <el-descriptions-item label="apiserverServerName">{{
+        detailData.apiserverServerName || '-'
+      }}</el-descriptions-item>
+
       <el-descriptions-item label="nodes">{{ detailData.nodes?.join(', ') }}</el-descriptions-item>
       <el-descriptions-item label="storage" v-if="detailData.storage?.length">{{
         detailData.storage

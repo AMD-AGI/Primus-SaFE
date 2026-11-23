@@ -204,6 +204,22 @@ func TestGenerateCluster(t *testing.T) {
 	testifyassert.NoError(t, err)
 	testifyassert.Contains(t, string(raw), `"nodes":[]`)
 	testifyassert.NotContains(t, string(raw), `"nodes":null`)
+	assert.Empty(t, v1.GetAnnotation(withIPs, v1.ClusterApiserverPortAnnotation))
+	assert.Equal(t, v1.DefaultApiserverPort, v1.GetApiserverPort(withIPs))
+
+	req.ApiserverPort = 443
+	req.ApiserverServerName = "lb-apiserver.kubernetes.local"
+	gateway, err := h.generateCluster(context.Background(), user, req, []byte(`{}`))
+	testifyassert.NoError(t, err)
+	assert.Equal(t, 443, v1.GetApiserverPort(gateway))
+	assert.Equal(t, "lb-apiserver.kubernetes.local", v1.GetApiserverServerName(gateway))
+	detail := cvtToGetClusterResponse(context.Background(), h.Client, gateway)
+	assert.Equal(t, 443, detail.ApiserverPort)
+	assert.Equal(t, "lb-apiserver.kubernetes.local", detail.ApiserverServerName)
+
+	req.Adopt = false
+	_, err = h.generateCluster(context.Background(), user, req, []byte(`{}`))
+	testifyassert.Error(t, err)
 }
 
 func TestCreateClusterHandler(t *testing.T) {

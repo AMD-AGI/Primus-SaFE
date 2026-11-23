@@ -867,7 +867,7 @@ func (r *ClusterReconciler) updateClusterKubeConfig(ctx context.Context, cluster
 
 	cluster.Status.ControlPlaneStatus.Endpoints = make([]string, 0, len(nodes))
 	for _, n := range nodes {
-		endpoint := fmt.Sprintf("https://%s:%d", n.Spec.PrivateIP, DefaultApiserverPort)
+		endpoint := fmt.Sprintf("https://%s:%d", n.Spec.PrivateIP, v1.GetApiserverPort(cluster))
 		cluster.Status.ControlPlaneStatus.Endpoints = append(cluster.Status.ControlPlaneStatus.Endpoints, endpoint)
 	}
 
@@ -1061,8 +1061,9 @@ func (r *ClusterReconciler) filterHealthyControlPlaneAddresses(ctx context.Conte
 			if probeCtx.Err() != nil {
 				return
 			}
-			endpoint := fmt.Sprintf("https://%s:%d", node.Spec.PrivateIP, DefaultApiserverPort)
-			_, restCfg, err := commonclient.NewClientSet(endpoint, cps.CertData, cps.KeyData, cps.CAData, true)
+			endpoint := fmt.Sprintf("https://%s:%d", node.Spec.PrivateIP, v1.GetApiserverPort(cluster))
+			_, restCfg, err := commonclient.NewClientSet(endpoint, cps.CertData, cps.KeyData, cps.CAData, true,
+				commonclient.WithServerName(v1.GetApiserverServerName(cluster)))
 			if err != nil {
 				return
 			}
@@ -1113,7 +1114,7 @@ func (r *ClusterReconciler) guaranteeEndpoints(ctx context.Context, cluster *v1.
 	addresses := r.filterHealthyControlPlaneAddresses(ctx, cluster, nodes)
 	desiredPorts := []corev1.EndpointPort{{
 		Name:     "https",
-		Port:     DefaultApiserverPort,
+		Port:     int32(v1.GetApiserverPort(cluster)),
 		Protocol: corev1.ProtocolTCP,
 	}}
 	desiredSubset := corev1.EndpointSubset{Addresses: addresses, Ports: desiredPorts}
@@ -1191,7 +1192,7 @@ func (r *ClusterReconciler) guaranteeServiceResource(ctx context.Context, cluste
 				Name:       "https",
 				Protocol:   "TCP",
 				Port:       DefaultHttpServiePort,
-				TargetPort: intstr.IntOrString{IntVal: DefaultApiserverPort},
+				TargetPort: intstr.IntOrString{IntVal: int32(v1.GetApiserverPort(cluster))},
 			}},
 			Type:            corev1.ServiceTypeClusterIP,
 			SessionAffinity: corev1.ServiceAffinityNone,

@@ -472,7 +472,7 @@ func (r *AddonController) getCluster(ctx context.Context, cluster *corev1.Object
 	}
 	cert := c.Status.ControlPlaneStatus
 	_, restCfg, err := commonclient.NewClientSet(fmt.Sprintf("https://%s", c.Name),
-		cert.CertData, cert.KeyData, cert.CAData, true)
+		cert.CertData, cert.KeyData, cert.CAData, true, commonclient.WithServerName(v1.GetApiserverServerName(c)))
 	if err != nil {
 		return nil, err
 	}

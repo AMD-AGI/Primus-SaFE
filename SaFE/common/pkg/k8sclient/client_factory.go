@@ -63,14 +63,14 @@ type ClientFactory struct {
 
 // NewClientFactory creates a new client factory for a single reachable endpoint (service mode).
 func NewClientFactory(ctx context.Context, name, endpoint, certData,
-	keyData, caData string, informerType InformerType,
+	keyData, caData string, informerType InformerType, opts ...ClientOption,
 ) (*ClientFactory, error) {
-	return NewClientFactoryWithFallbacks(ctx, name, endpoint, nil, certData, keyData, caData, informerType)
+	return NewClientFactoryWithFallbacks(ctx, name, endpoint, nil, certData, keyData, caData, informerType, opts...)
 }
 
 // NewClientFactoryWithFallbacks creates a client factory, probing fallback endpoints when provided.
 func NewClientFactoryWithFallbacks(ctx context.Context, name, endpoint string, fallbackEndpoints []string,
-	certData, keyData, caData string, informerType InformerType,
+	certData, keyData, caData string, informerType InformerType, opts ...ClientOption,
 ) (*ClientFactory, error) {
 	var (
 		clientSet        kubernetes.Interface
@@ -80,9 +80,9 @@ func NewClientFactoryWithFallbacks(ctx context.Context, name, endpoint string, f
 	)
 	if len(fallbackEndpoints) > 0 {
 		clientSet, restCfg, selectedEndpoint, err = NewClientSetWithProbe(
-			ctx, endpoint, fallbackEndpoints, certData, keyData, caData, true)
+			ctx, endpoint, fallbackEndpoints, certData, keyData, caData, true, opts...)
 	} else {
-		clientSet, restCfg, err = NewClientSet(endpoint, certData, keyData, caData, true)
+		clientSet, restCfg, err = NewClientSet(endpoint, certData, keyData, caData, true, opts...)
 		selectedEndpoint = NormalizeEndpointHost(endpoint)
 	}
 	if err != nil {

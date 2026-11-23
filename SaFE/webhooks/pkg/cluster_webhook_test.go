@@ -276,6 +276,32 @@ func TestAdoptAnnotationIsImmutable(t *testing.T) {
 	assert.Assert(t, v.validateImmutableFields(added, installed) != nil)
 }
 
+// TestApiserverAccessAnnotations verifies apiserver port and server name validation and immutability.
+func TestApiserverAccessAnnotations(t *testing.T) {
+	newCluster := func(port, name string) *v1.Cluster {
+		cluster := &v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "ccs300"}}
+		if port != "" {
+			v1.SetAnnotation(cluster, v1.ClusterApiserverPortAnnotation, port)
+		}
+		if name != "" {
+			v1.SetAnnotation(cluster, v1.ClusterApiserverServerNameAnnotation, name)
+		}
+		return cluster
+	}
+	assert.NilError(t, validateApiserverAccess(newCluster("", "")))
+	assert.NilError(t, validateApiserverAccess(newCluster("443", "lb-apiserver.kubernetes.local")))
+	assert.Assert(t, validateApiserverAccess(newCluster("0", "")) != nil)
+	assert.Assert(t, validateApiserverAccess(newCluster("70000", "")) != nil)
+	assert.Assert(t, validateApiserverAccess(newCluster("https", "")) != nil)
+	assert.Assert(t, validateApiserverAccess(newCluster("", "Bad_Name")) != nil)
+
+	v := &ClusterValidator{}
+	old := newCluster("443", "lb-apiserver.kubernetes.local")
+	assert.NilError(t, v.validateImmutableFields(old.DeepCopy(), old))
+	assert.Assert(t, v.validateImmutableFields(newCluster("6443", "lb-apiserver.kubernetes.local"), old) != nil)
+	assert.Assert(t, v.validateImmutableFields(newCluster("443", ""), old) != nil)
+}
+
 // TestClusterValidateOnUpdate verifies update-time validation.
 func TestClusterValidateOnUpdate(t *testing.T) {
 	v := &ClusterValidator{}

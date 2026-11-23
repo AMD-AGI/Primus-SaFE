@@ -276,6 +276,18 @@ func TestGuaranteeEndpoints(t *testing.T) {
 	testifyassert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "c1", Namespace: common.PrimusSafeNamespace}, ep))
 	// Already exists -> no-op.
 	testifyassert.NoError(t, r.guaranteeEndpoints(context.Background(), cluster, nodes))
+	testifyassert.Equal(t, int32(v1.DefaultApiserverPort), ep.Subsets[0].Ports[0].Port)
+}
+
+func TestGuaranteeEndpointsUsesApiserverPort(t *testing.T) {
+	cluster := testCluster("c1")
+	v1.SetAnnotation(cluster, v1.ClusterApiserverPortAnnotation, "443")
+	r := newPlaneReconciler(t, cluster)
+	nodes := []*v1.Node{{ObjectMeta: metav1.ObjectMeta{Name: "n1"}, Spec: v1.NodeSpec{PrivateIP: "10.0.0.1"}}}
+	testifyassert.NoError(t, r.guaranteeEndpoints(context.Background(), cluster, nodes))
+	ep := &corev1.Endpoints{}
+	testifyassert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "c1", Namespace: common.PrimusSafeNamespace}, ep))
+	testifyassert.Equal(t, int32(443), ep.Subsets[0].Ports[0].Port)
 }
 
 func TestGuaranteeServiceResource(t *testing.T) {

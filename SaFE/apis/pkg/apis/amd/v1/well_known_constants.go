@@ -107,6 +107,12 @@ const (
 	ClusterAdoptNodeFlavorAnnotation = ClusterPrefix + "adopt.node-flavor"
 	// ClusterAdoptControlPlaneIPsAnnotation lists comma-separated control plane IPs used to read an adopted kubeconfig.
 	ClusterAdoptControlPlaneIPsAnnotation = ClusterPrefix + "adopt.control-plane-ips"
+	// ClusterApiserverPortAnnotation sets the port used to reach the data plane apiserver on each control plane IP.
+	ClusterApiserverPortAnnotation = ClusterPrefix + "apiserver.port"
+	// ClusterApiserverServerNameAnnotation sets the TLS server name (SNI) sent to the data plane apiserver.
+	ClusterApiserverServerNameAnnotation = ClusterPrefix + "apiserver.server-name"
+	// DefaultApiserverPort is the data plane apiserver port used when no port annotation is set.
+	DefaultApiserverPort = 6443
 
 	// storage
 	StoragePrefix              = PrimusSafePrefix + "storage."

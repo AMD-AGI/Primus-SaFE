@@ -160,12 +160,23 @@ func (h *Handler) generateCluster(ctx context.Context,
 		if len(req.ControlPlaneIPs) > 0 {
 			v1.SetAnnotation(cluster, v1.ClusterAdoptControlPlaneIPsAnnotation, strings.Join(req.ControlPlaneIPs, ","))
 		}
+		if req.ApiserverPort != 0 && req.ApiserverPort != v1.DefaultApiserverPort {
+			v1.SetAnnotation(cluster, v1.ClusterApiserverPortAnnotation, strconv.Itoa(req.ApiserverPort))
+		}
+		if name := strings.TrimSpace(req.ApiserverServerName); name != "" {
+			v1.SetAnnotation(cluster, v1.ClusterApiserverServerNameAnnotation, name)
+		}
 		// Nodes are discovered after the kubeconfig is read. A nil slice encodes as null and the CRD rejects it.
 		if cluster.Spec.ControlPlane.Nodes == nil {
 			cluster.Spec.ControlPlane.Nodes = []string{}
 		}
-	} else if req.IsControlPlane {
-		v1.SetLabel(cluster, v1.ClusterControlPlaneLabel, "")
+	} else {
+		if req.ApiserverPort != 0 || req.ApiserverServerName != "" {
+			return nil, commonerrors.NewBadRequest("apiserverPort and apiserverServerName are only supported when adopting a cluster")
+		}
+		if req.IsControlPlane {
+			v1.SetLabel(cluster, v1.ClusterControlPlaneLabel, "")
+		}
 	}
 
 	if cluster.Spec.ControlPlane.ImageSecret == nil && commonconfig.GetImageSecret() != "" {
@@ -859,6 +870,8 @@ func cvtToGetClusterResponse(ctx context.Context, client client.Client, cluster 
 		KubeVersion:           cluster.Spec.ControlPlane.KubeVersion,
 		KubeletMaxPods:        cluster.Spec.ControlPlane.KubeletMaxPods,
 		KubeApiServerArgs:     cluster.Spec.ControlPlane.KubeApiServerArgs,
+		ApiserverPort:         v1.GetApiserverPort(cluster),
+		ApiserverServerName:   v1.GetApiserverServerName(cluster),
 	}
 	if cluster.Spec.ControlPlane.ImageSecret != nil {
 		result.ImageSecretId = cluster.Spec.ControlPlane.ImageSecret.Name
