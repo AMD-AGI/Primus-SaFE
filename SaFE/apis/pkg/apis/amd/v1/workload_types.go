@@ -146,6 +146,9 @@ type SecretEntity struct {
 	Id string `json:"id"`
 	// Secret type, optional. e.g. ssh/image/general
 	Type SecretType `json:"type,omitempty"`
+	// AsEnv also exposes the keys of a general secret to every container as environment variables, optional.
+	// Only keys that are valid environment variable names (e.g. WANDB_API_KEY) are exposed; the kubelet skips others such as config.json.
+	AsEnv bool `json:"asEnv,omitempty"`
 }
 
 type WorkloadSpec struct {
