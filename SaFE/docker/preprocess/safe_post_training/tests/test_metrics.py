@@ -6,6 +6,8 @@ import io
 import json
 import math
 
+import pytest
+
 from safe_post_training import metrics
 
 ACTOR = "\x1b[36m(MegatronTrainRayActor pid=2414, ip=10.245.153.145)\x1b[0m "
@@ -20,6 +22,42 @@ def test_forward_escapes_lines_that_look_like_markers():
     assert metrics.forward_text(ACTOR + '[ERROR] {"run":"pt-x"}').startswith("  \x1b[36m(")
     assert metrics.forward_text("  [METRIC] {}").startswith("    ")
     assert metrics.forward_text("step 3: {'train/loss': 1.0}") == "step 3: {'train/loss': 1.0}"
+
+
+# MARKER_PREFIX_VECTORS pairs child lines with what the controller's StripMarkerPrefix (common/pkg/ops_job/log.go)
+# makes of them; strip_prefixes must agree, so that every line the controller would take as a marker is escaped.
+GREEN, RESET = "\x1b[32m", "\x1b[0m"
+MARKER_PREFIX_VECTORS = [
+    ('(pid=4242) [SUCCESS] {"run":"pt-x"}', '[SUCCESS] {"run":"pt-x"}'),
+    ("(my actor pid=1) [SUCCESS] {}", "[SUCCESS] {}"),
+    ("(A pid=1, ip=10.0.0.1, node=x) [ERROR] {}", "[ERROR] {}"),
+    ("(TrainActor pid=692)[ERROR] {}", "[ERROR] {}"),
+    ("(TrainActor pid=692) \t [SUCCESS] {}\r", "[SUCCESS] {}"),
+    (GREEN + "(pid=4242)" + RESET + ' [SUCCESS] {"run":"pt-x"}', '[SUCCESS] {"run":"pt-x"}'),
+    (GREEN + "(my actor pid=1) " + RESET + GREEN + "[SUCCESS]" + RESET + " {}", "[SUCCESS] {}"),
+    ("\x1b[1;36m(A pid=1, ip=10.0.0.1, node=x)\x1b[0m \x1b[31m[ERROR]\x1b[0m {}", "[ERROR] {}"),
+    ("[SUCC" + GREEN + "ESS] {}", "[SUCCESS] {}"),
+    ("(pid=1) (pid=2) [SUCCESS] {}", "(pid=2) [SUCCESS] {}"),
+    ("(no pid here) [SUCCESS] {}", "(no pid here) [SUCCESS] {}"),
+    ("(pid=x) [SUCCESS] {}", "(pid=x) [SUCCESS] {}"),
+    ("(a (nested) pid=1) [SUCCESS] {}", "(a (nested) pid=1) [SUCCESS] {}"),
+    ("text (pid=1) [SUCCESS] {}", "text (pid=1) [SUCCESS] {}"),
+]
+
+
+@pytest.mark.parametrize("line, stripped", MARKER_PREFIX_VECTORS)
+def test_prefixes_are_stripped_as_the_controller_strips_them(line, stripped):
+    assert metrics.strip_prefixes(line) == stripped
+
+
+@pytest.mark.parametrize("line, stripped", MARKER_PREFIX_VECTORS)
+def test_no_forwarded_line_reads_as_a_marker_to_the_controller(line, stripped):
+    forwarded = metrics.forward_text(line)
+    assert not metrics.strip_prefixes(forwarded).startswith(metrics.MARKERS)
+    if stripped.startswith(metrics.MARKERS):
+        assert forwarded == "  " + line.rstrip("\n"), "a line the controller would take as a marker is escaped"
+    else:
+        assert forwarded == line, "other lines are forwarded as they are"
 
 
 def test_forward_truncates_long_lines():

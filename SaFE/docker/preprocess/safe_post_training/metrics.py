@@ -5,8 +5,10 @@
 """Marker protocol between the launcher and the Post Training controller.
 
 A marker is one line: the marker, a space and single-line JSON that carries run, attempt and pv; [METRIC] also
-carries seq. Child output that starts like a marker is forwarded with two leading spaces, so the controller,
-which matches markers at the start of the line, ignores it. Forwarded lines over 32 KB are truncated.
+carries seq. The controller reads a line as a marker when it starts with one after its color codes and a leading Ray
+prefix are removed (StripMarkerPrefix in common/pkg/ops_job/log.go). Child output that would read so is forwarded
+with two leading spaces, which no prefix pattern removes, so the controller ignores it. Forwarded lines over 32 KB
+are truncated.
 """
 
 import collections
@@ -25,18 +27,23 @@ REPLAY_INTERVAL = 60
 REPLAY_WINDOW = 120
 LAST_METRIC_GRACE = 60
 
-_ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
-_RAY_PREFIX = re.compile(r"^\([^()\s]+ pid=\d+(?:, ip=[0-9A-Fa-f.:]+)?\)\s?")
+# _ANSI and _RAY_PREFIX are ansiPattern and rayPrefixPattern of the controller (common/pkg/ops_job/log.go); re.ASCII
+# gives \d and \s Go's meaning. They must stay the same, or a child line the launcher forwards unescaped could read as
+# a marker to the controller.
+_ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]", re.ASCII)
+_RAY_PREFIX = re.compile(r"^\([^()]*pid=\d+[^()]*\)\s*", re.ASCII)
 
 
 def strip_prefixes(line):
-    """Remove ANSI color codes and a leading Ray forwarding prefix such as "(Actor pid=12) "."""
-    return _RAY_PREFIX.sub("", _ANSI.sub("", line), count=1)
+    """Remove ANSI color codes, a trailing carriage return and a leading Ray forwarding prefix such as
+    "(Actor pid=12, ip=10.0.0.1) ", as the controller's StripMarkerPrefix does."""
+    return _RAY_PREFIX.sub("", _ANSI.sub("", line).rstrip("\r"), count=1)
 
 
 def looks_like_marker(line):
-    """Tell whether a child line would read as a marker once its prefixes are removed."""
-    return strip_prefixes(line).lstrip().startswith(MARKERS)
+    """Tell whether a child line would read as a marker once its prefixes are removed. Leading white space is
+    skipped too, which the controller does not do, so that the check errs on the side of escaping."""
+    return strip_prefixes(line.rstrip("\n")).lstrip().startswith(MARKERS)
 
 
 def forward_text(line):
