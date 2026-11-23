@@ -19,14 +19,17 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
 )
 
 const (
@@ -34,6 +37,8 @@ const (
 	pendingEvidencePodListLimit = 50
 	pendingEvidencePodListPages = 10
 	pendingEvidenceEventLimit   = 5
+	pendingEvidenceObjectLimit  = 20
+	pendingDispatchSlack        = 5 * time.Second
 	pendingEvidenceLogPods      = 3
 	pendingEvidenceLogTail      = 400
 	pendingEvidenceLogLines     = 30
@@ -216,6 +221,9 @@ func (h *Handler) collectPendingEvidence(ctx context.Context, w *v1.Workload) (s
 	podLines, podFallback := h.pendingPodEvidence(ctx, w)
 	lines = append(lines, podLines...)
 	fallback = preferFallback(fallback, podFallback)
+	objectLines, objectFallback := h.workloadObjectEvidence(ctx, w)
+	lines = append(lines, objectLines...)
+	fallback = preferFallback(fallback, objectFallback)
 	logLines := h.jobManagerLogLines(ctx, w.Name)
 	for _, line := range logLines {
 		lines = append(lines, "job-manager "+line)
@@ -244,19 +252,250 @@ func provisioningLine(w *v1.Workload) string {
 	return clipText("provisioning "+msg, pendingEvidenceLineLimit)
 }
 
-// pendingPodEvidence reads the pods that hold a workload back and their scheduling events from the
-// data-plane cluster. A Pending workload reads Pending pods; a NotReady one also reads Running pods that are not ready.
-func (h *Handler) pendingPodEvidence(ctx context.Context, w *v1.Workload) ([]string, string) {
+// dataPlaneFactory returns the client factory of the data-plane cluster that runs the workload, or nil.
+func (h *Handler) dataPlaneFactory(w *v1.Workload) *k8sclient.ClientFactory {
 	clusterID := v1.GetClusterId(w)
 	if h.clientManager == nil || clusterID == "" || w.Name == "" {
-		return nil, ""
+		return nil
 	}
 	factory, err := commonutils.GetK8sClientFactory(h.clientManager, clusterID)
 	if err != nil {
 		klog.ErrorS(err, "failed to get data plane client", "cluster", clusterID, "workload", w.Name)
+		return nil
+	}
+	return factory
+}
+
+// dataPlaneClientSet returns the clientset of the data-plane cluster that runs the workload, or nil.
+func (h *Handler) dataPlaneClientSet(w *v1.Workload) kubernetes.Interface {
+	factory := h.dataPlaneFactory(w)
+	if factory == nil {
+		return nil
+	}
+	return factory.ClientSet()
+}
+
+// workloadObjectEvidence reads the warnings on the controller objects of the workload. The second result is
+// the strongest warning, used as the fallback.
+func (h *Handler) workloadObjectEvidence(ctx context.Context, w *v1.Workload) ([]string, string) {
+	factory := h.dataPlaneFactory(w)
+	if factory == nil || w.Spec.Workspace == "" {
 		return nil, ""
 	}
+	since := dispatchedSince(w)
+	var events []*corev1.Event
+	for _, target := range workloadObjectTargets(ctx, factory, w) {
+		events = append(events, objectWarnings(ctx, factory.ClientSet(), w.Spec.Workspace, target, since)...)
+	}
+	sort.Slice(events, func(i, j int) bool {
+		return eventLastTime(events[i]).After(eventLastTime(events[j]))
+	})
+	if len(events) > pendingEvidenceEventLimit {
+		events = events[:pendingEvidenceEventLimit]
+	}
+	var lines []string
+	seen := map[string]bool{}
+	var fallback string
+	for _, ev := range events {
+		line := joinReason(fmt.Sprintf("event %s/%s", ev.InvolvedObject.Kind, ev.InvolvedObject.Name),
+			strings.TrimSpace(ev.Reason), strings.TrimSpace(ev.Message))
+		if seen[line] {
+			continue
+		}
+		seen[line] = true
+		lines = append(lines, line)
+		if fallback == "" {
+			fallback = line
+		}
+	}
+	return lines, fallback
+}
+
+// workloadObjectTarget is one controller object whose warnings count as evidence, identified by name and UID.
+type workloadObjectTarget struct {
+	name string
+	uid  types.UID
+}
+
+// workloadObjectTargets lists the controller objects of the workload with their current UIDs. The owners of its
+// pods come first; the object named after the workload is looked up by kind only when no pod owner has that name.
+// Terminating objects are left out.
+func workloadObjectTargets(ctx context.Context, factory *k8sclient.ClientFactory, w *v1.Workload) []workloadObjectTarget {
 	clientSet := factory.ClientSet()
+	namespace := w.Spec.Workspace
+	rootID := v1.GetRootWorkloadId(w)
+	if rootID == "" {
+		rootID = w.Name
+	}
+	var targets []workloadObjectTarget
+	seen := map[types.UID]bool{}
+	add := func(target workloadObjectTarget) {
+		if target.uid == "" || seen[target.uid] {
+			return
+		}
+		seen[target.uid] = true
+		targets = append(targets, target)
+	}
+	for _, target := range podOwnerTargets(ctx, clientSet, namespace, rootID) {
+		add(target)
+	}
+	if !hasTargetNamed(targets, w.Name) {
+		for _, target := range kindObjectTargets(ctx, factory, w) {
+			add(target)
+		}
+	}
+	for _, target := range replicaSetTargets(ctx, clientSet, namespace, rootID) {
+		add(target)
+	}
+	if len(targets) > pendingEvidenceObjectLimit {
+		targets = targets[:pendingEvidenceObjectLimit]
+	}
+	return targets
+}
+
+// podOwnerTargets returns the controllers of the workload's pods that are not terminating.
+func podOwnerTargets(ctx context.Context, clientSet kubernetes.Interface, namespace, rootID string) []workloadObjectTarget {
+	listOpts := metav1.ListOptions{
+		LabelSelector: labels.Set{v1.WorkloadIdLabel: rootID}.String(),
+		Limit:         pendingEvidencePodListLimit,
+	}
+	var targets []workloadObjectTarget
+	for page := 0; page < pendingEvidencePodListPages; page++ {
+		list, err := clientSet.CoreV1().Pods(namespace).List(ctx, listOpts)
+		if err != nil {
+			klog.ErrorS(err, "failed to list workload pods for owners", "workload", rootID)
+			break
+		}
+		for i := range list.Items {
+			pod := &list.Items[i]
+			if owner := metav1.GetControllerOf(pod); owner != nil && pod.DeletionTimestamp == nil {
+				targets = append(targets, workloadObjectTarget{name: owner.Name, uid: owner.UID})
+			}
+		}
+		if list.Continue == "" {
+			break
+		}
+		listOpts.Continue = list.Continue
+	}
+	return targets
+}
+
+// kindObjectTargets gets the object named after the workload for each of its kinds, and keeps it when it exists
+// and is not terminating.
+func kindObjectTargets(ctx context.Context, factory *k8sclient.ClientFactory, w *v1.Workload) []workloadObjectTarget {
+	dynamicClient := factory.DynamicClient()
+	mapper := factory.Mapper()
+	if dynamicClient == nil || mapper == nil {
+		return nil
+	}
+	var targets []workloadObjectTarget
+	for _, gvk := range commonworkload.GetWorkloadGVK(w) {
+		mapping, err := mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+		if err != nil {
+			klog.ErrorS(err, "failed to map workload kind", "kind", gvk.String(), "workload", w.Name)
+			continue
+		}
+		obj, err := dynamicClient.Resource(mapping.Resource).Namespace(w.Spec.Workspace).Get(ctx, w.Name, metav1.GetOptions{})
+		if err != nil {
+			if !apierrors.IsNotFound(err) {
+				klog.ErrorS(err, "failed to get workload object", "kind", gvk.String(), "workload", w.Name)
+			}
+			continue
+		}
+		if obj.GetDeletionTimestamp() == nil {
+			targets = append(targets, workloadObjectTarget{name: obj.GetName(), uid: obj.GetUID()})
+		}
+	}
+	return targets
+}
+
+// replicaSetTargets returns the ReplicaSets labelled with the workload that are controlled by one of its current
+// Deployments and are not terminating.
+func replicaSetTargets(ctx context.Context, clientSet kubernetes.Interface, namespace, rootID string) []workloadObjectTarget {
+	selector := labels.Set{v1.WorkloadIdLabel: rootID}.String()
+	deployments, err := clientSet.AppsV1().Deployments(namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
+	if err != nil {
+		klog.ErrorS(err, "failed to list workload deployments", "workload", rootID)
+		return nil
+	}
+	current := map[types.UID]bool{}
+	for i := range deployments.Items {
+		current[deployments.Items[i].UID] = true
+	}
+	replicaSets, err := clientSet.AppsV1().ReplicaSets(namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
+	if err != nil {
+		klog.ErrorS(err, "failed to list workload replica sets", "workload", rootID)
+		return nil
+	}
+	var targets []workloadObjectTarget
+	for i := range replicaSets.Items {
+		rs := &replicaSets.Items[i]
+		owner := metav1.GetControllerOf(rs)
+		if owner == nil || owner.Kind != "Deployment" || !current[owner.UID] || rs.DeletionTimestamp != nil {
+			continue
+		}
+		targets = append(targets, workloadObjectTarget{name: rs.Name, uid: rs.UID})
+	}
+	return targets
+}
+
+// hasTargetNamed reports whether one of the targets has the given name.
+func hasTargetNamed(targets []workloadObjectTarget, name string) bool {
+	for _, target := range targets {
+		if target.name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// objectWarnings returns the warnings recorded on one target object, matched by UID and, when the dispatch time
+// is known, not earlier than the dispatch less a small slack. Pods are excluded: their events are read by the pod path.
+func objectWarnings(ctx context.Context, clientSet kubernetes.Interface, namespace string,
+	target workloadObjectTarget, dispatched time.Time) []*corev1.Event {
+	list, err := clientSet.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{
+		FieldSelector: fields.OneTermEqualSelector("involvedObject.name", target.name).String(),
+	})
+	if err != nil || list == nil {
+		if err != nil {
+			klog.ErrorS(err, "failed to list object events", "object", target.name, "namespace", namespace)
+		}
+		return nil
+	}
+	var since time.Time
+	if !dispatched.IsZero() {
+		since = dispatched.Add(-pendingDispatchSlack)
+	}
+	var result []*corev1.Event
+	for i := range list.Items {
+		ev := &list.Items[i]
+		if ev.Type != corev1.EventTypeWarning || ev.InvolvedObject.Name != target.name || ev.InvolvedObject.Kind == "Pod" {
+			continue
+		}
+		if ev.InvolvedObject.UID != target.uid {
+			continue
+		}
+		if !since.IsZero() && eventLastTime(ev).Before(since) {
+			continue
+		}
+		result = append(result, ev)
+	}
+	return result
+}
+
+// dispatchedSince returns the time of the workload's latest dispatch, or the zero time when unknown.
+func dispatchedSince(w *v1.Workload) time.Time {
+	at, err := timeutil.CvtStrToRFC3339Milli(v1.GetAnnotation(w, v1.WorkloadDispatchedAnnotation))
+	if err != nil {
+		return time.Time{}
+	}
+	return at
+}
+
+// pendingPodEvidence reads the pods that hold a workload back and their scheduling events from the
+// data-plane cluster. A Pending workload reads Pending pods; a NotReady one also reads Running pods that are not ready.
+func (h *Handler) pendingPodEvidence(ctx context.Context, w *v1.Workload) ([]string, string) {
+	clientSet := h.dataPlaneClientSet(w)
 	if clientSet == nil {
 		return nil, ""
 	}

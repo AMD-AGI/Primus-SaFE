@@ -7,6 +7,7 @@ package resources
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -21,13 +22,19 @@ import (
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/rest"
 	k8stesting "k8s.io/client-go/testing"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"strconv"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
@@ -748,4 +755,259 @@ func TestJobManagerLogLinesSkipsUnusableSources(t *testing.T) {
 	}
 	h := &Handler{clientSet: k8sfake.NewSimpleClientset(noSelector, withSelector, jmPod)}
 	assert.Empty(t, h.jobManagerLogLines(ctx, "wl-1"))
+}
+
+func workloadObjectEvent(namespace, name, kind, reason, message, typ string, at time.Time, uid types.UID) *corev1.Event {
+	return &corev1.Event{
+		ObjectMeta:     metav1.ObjectMeta{Name: name + "." + reason + "." + strconv.FormatInt(at.UnixNano(), 10), Namespace: namespace},
+		InvolvedObject: corev1.ObjectReference{Kind: kind, Name: name, Namespace: namespace, UID: uid},
+		Type:           typ,
+		Reason:         reason,
+		Message:        message,
+		LastTimestamp:  metav1.NewTime(at),
+	}
+}
+
+// deploymentOf builds a Deployment labelled with the workload, as the dispatcher labels its objects.
+func deploymentOf(name string, uid types.UID) *appsv1.Deployment {
+	return &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "ws-a", UID: uid, Labels: map[string]string{v1.WorkloadIdLabel: "wl-app"}},
+	}
+}
+
+// replicaSetOwnedBy builds a ReplicaSet labelled with the workload and controlled by the given Deployment.
+func replicaSetOwnedBy(name string, uid types.UID, owner string, ownerUID types.UID) *appsv1.ReplicaSet {
+	return &appsv1.ReplicaSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name, Namespace: "ws-a", UID: uid,
+			Labels:          map[string]string{v1.WorkloadIdLabel: "wl-app"},
+			OwnerReferences: []metav1.OwnerReference{{APIVersion: "apps/v1", Kind: "Deployment", Name: owner, UID: ownerUID, Controller: ptr.To(true)}},
+		},
+	}
+}
+
+// podOwnedBy builds a Pod of the workload controlled by the given object.
+func podOwnedBy(name, namespace, kind, owner string, ownerUID types.UID) *corev1.Pod {
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name, Namespace: namespace, Labels: map[string]string{v1.WorkloadIdLabel: "wl-app"},
+			OwnerReferences: []metav1.OwnerReference{{APIVersion: "v1", Kind: kind, Name: owner, UID: ownerUID, Controller: ptr.To(true)}},
+		},
+	}
+}
+
+// dataPlaneObject builds a controller object of the workload as the data plane serves it.
+func dataPlaneObject(apiVersion, kind, name string, uid types.UID, deleting bool) *unstructured.Unstructured {
+	obj := &unstructured.Unstructured{}
+	obj.SetAPIVersion(apiVersion)
+	obj.SetKind(kind)
+	obj.SetName(name)
+	obj.SetNamespace("ws-a")
+	obj.SetUID(uid)
+	if deleting {
+		obj.SetDeletionTimestamp(ptr.To(metav1.Now()))
+	}
+	return obj
+}
+
+// attachDynamicObjects serves the given objects through the dynamic client of the handler's data plane.
+func attachDynamicObjects(t *testing.T, h *Handler, objs ...*unstructured.Unstructured) {
+	t.Helper()
+	mapper := meta.NewDefaultRESTMapper(nil)
+	served := map[string]*unstructured.Unstructured{}
+	for _, obj := range objs {
+		gvk := obj.GroupVersionKind()
+		mapper.Add(gvk, meta.RESTScopeNamespace)
+		served[obj.GetNamespace()+"/"+strings.ToLower(gvk.Kind)+"s/"+obj.GetName()] = obj
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		if len(parts) < 3 {
+			rw.WriteHeader(http.StatusNotFound)
+			return
+		}
+		key := parts[len(parts)-3] + "/" + parts[len(parts)-2] + "/" + parts[len(parts)-1]
+		rw.Header().Set("Content-Type", "application/json")
+		obj, ok := served[key]
+		if !ok {
+			rw.WriteHeader(http.StatusNotFound)
+			_, _ = rw.Write([]byte(`{"kind":"Status","apiVersion":"v1","status":"Failure","reason":"NotFound","code":404}`))
+			return
+		}
+		_ = json.NewEncoder(rw).Encode(obj)
+	}))
+	t.Cleanup(server.Close)
+	dynamicClient, err := dynamic.NewForConfig(&rest.Config{Host: server.URL})
+	require.NoError(t, err)
+	factory, err := commonutils.GetK8sClientFactory(h.clientManager, "c1")
+	require.NoError(t, err)
+	factory.AttachDynamicClientForTest(dynamicClient)
+	factory.AttachMapperForTest(mapper)
+}
+
+// Warnings on a workload's controller objects are evidence when no Pod exists, for example when an admission
+// webhook denies it. Objects are matched by name and UID, through pod owners, the object named after the
+// workload, and the ReplicaSets of its Deployments. Name prefixes are never used.
+func TestCollectPendingEvidenceWorkloadObjectEvents(t *testing.T) {
+	const denial = "admission webhook denied the request: SiteAccountRefused: primus-safe.user.account: \"Zhen.Huang\" is not a site account name"
+	at := time.Date(2026, 11, 23, 7, 0, 0, 0, time.UTC)
+	const newUID, oldUID types.UID = "rs-new", "rs-old"
+	workload := pendingEvidenceWorkload()
+	workload.Spec.GroupVersionKind = v1.GroupVersionKind{Group: "kubeflow.org", Version: "v1", Kind: "PyTorchJob"}
+	tests := []struct {
+		name     string
+		objects  []runtime.Object
+		dynamics []*unstructured.Unstructured
+		want     []string
+		notWant  []string
+		fallback string
+	}{
+		{
+			name:     "warning on the job is the fallback when no pod exists",
+			objects:  []runtime.Object{workloadObjectEvent("ws-a", "wl-app", "PyTorchJob", "FailedCreate", "Error creating: "+denial, corev1.EventTypeWarning, at, "job-uid")},
+			dynamics: []*unstructured.Unstructured{dataPlaneObject("kubeflow.org/v1", "PyTorchJob", "wl-app", "job-uid", false)},
+			want:     []string{"event PyTorchJob/wl-app FailedCreate: Error creating: " + denial[:60]},
+			fallback: "SiteAccountRefused",
+		},
+		{
+			name:     "a warning on a job replaced under the same name is not read",
+			objects:  []runtime.Object{workloadObjectEvent("ws-a", "wl-app", "PyTorchJob", "FailedCreate", "replaced-job-denial", corev1.EventTypeWarning, at, "job-old")},
+			dynamics: []*unstructured.Unstructured{dataPlaneObject("kubeflow.org/v1", "PyTorchJob", "wl-app", "job-new", false)},
+			notWant:  []string{"replaced-job-denial"},
+		},
+		{
+			name:     "a warning on a job being deleted is not read",
+			objects:  []runtime.Object{workloadObjectEvent("ws-a", "wl-app", "PyTorchJob", "FailedCreate", "deleting-job-denial", corev1.EventTypeWarning, at, "job-uid")},
+			dynamics: []*unstructured.Unstructured{dataPlaneObject("kubeflow.org/v1", "PyTorchJob", "wl-app", "job-uid", true)},
+			notWant:  []string{"deleting-job-denial"},
+		},
+		{
+			name: "warning on the deployment's replica set is included",
+			objects: []runtime.Object{
+				deploymentOf("wl-app", "dep"),
+				replicaSetOwnedBy("wl-app-7d9f8", newUID, "wl-app", "dep"),
+				workloadObjectEvent("ws-a", "wl-app-7d9f8", "ReplicaSet", "FailedCreate", "Error creating: "+denial, corev1.EventTypeWarning, at, newUID),
+			},
+			want:     []string{"event ReplicaSet/wl-app-7d9f8 FailedCreate:"},
+			fallback: "SiteAccountRefused",
+		},
+		{
+			name: "a replica set event with another uid is not read",
+			objects: []runtime.Object{
+				deploymentOf("wl-app", "dep"),
+				replicaSetOwnedBy("wl-app-7d9f8", newUID, "wl-app", "dep"),
+				workloadObjectEvent("ws-a", "wl-app-7d9f8", "ReplicaSet", "FailedCreate", "old-uid-denial", corev1.EventTypeWarning, at, oldUID),
+			},
+			notWant: []string{"old-uid-denial"},
+		},
+		{
+			name: "a replica set of a deleted deployment is not read",
+			objects: []runtime.Object{
+				deploymentOf("wl-app", "dep"),
+				replicaSetOwnedBy("wl-app-old", newUID, "wl-app", "dep-old"),
+				workloadObjectEvent("ws-a", "wl-app-old", "ReplicaSet", "FailedCreate", "deleted-deployment-denial", corev1.EventTypeWarning, at, newUID),
+			},
+			notWant: []string{"deleted-deployment-denial"},
+		},
+		{
+			name: "a replica set of a deployment without pods is read through the workload label",
+			objects: []runtime.Object{
+				deploymentOf("wl-app-0", "dep0"),
+				replicaSetOwnedBy("wl-app-0-5c8f", "rs0", "wl-app-0", "dep0"),
+				workloadObjectEvent("ws-a", "wl-app-0-5c8f", "ReplicaSet", "FailedCreate", "lighthouse-quota", corev1.EventTypeWarning, at, "rs0"),
+			},
+			want: []string{"event ReplicaSet/wl-app-0-5c8f FailedCreate: lighthouse-quota"},
+		},
+		{
+			name: "a mesh child's controller is read through its pod's owner",
+			objects: []runtime.Object{
+				podOwnedBy("wl-app-mesh-0", "ws-a", "MonarchMesh", "wlappmesh1", "m-uid"),
+				workloadObjectEvent("ws-a", "wlappmesh1", "MonarchMesh", "FailedCreate", "mesh-child-denial", corev1.EventTypeWarning, at, "m-uid"),
+			},
+			want: []string{"event MonarchMesh/wlappmesh1 FailedCreate: mesh-child-denial"},
+		},
+		{
+			name: "a workload whose name only starts with this one is not read",
+			objects: []runtime.Object{
+				workloadObjectEvent("ws-a", "wl-app-private", "PyTorchJob", "FailedCreate", "prefix-collision-denial", corev1.EventTypeWarning, at, "x"),
+			},
+			notWant: []string{"prefix-collision-denial"},
+		},
+		{
+			name: "normal events and other namespaces are skipped",
+			objects: []runtime.Object{
+				workloadObjectEvent("ws-a", "wl-app", "PyTorchJob", "Created", "Created pod", corev1.EventTypeNormal, at, "job-uid"),
+				workloadObjectEvent("other-ns", "wl-app", "PyTorchJob", "FailedCreate", "other namespace", corev1.EventTypeWarning, at, "job-uid"),
+			},
+			dynamics: []*unstructured.Unstructured{dataPlaneObject("kubeflow.org/v1", "PyTorchJob", "wl-app", "job-uid", false)},
+			notWant:  []string{"Created pod", "other namespace"},
+		},
+		{
+			name: "pod warnings are left to the pod path",
+			objects: []runtime.Object{
+				workloadObjectEvent("ws-a", "wl-app-0", "Pod", "FailedScheduling", "pod-only-denial", corev1.EventTypeWarning, at, "p"),
+			},
+			notWant: []string{"pod-only-denial"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data := k8sfake.NewSimpleClientset(tt.objects...)
+			h := notReadyEvidenceHandler(t, data)
+			if len(tt.dynamics) > 0 {
+				attachDynamicObjects(t, h, tt.dynamics...)
+			}
+			text, fallback := h.collectPendingEvidence(context.Background(), workload)
+			for _, w := range tt.want {
+				assert.Contains(t, text, w)
+			}
+			for _, nw := range tt.notWant {
+				assert.NotContains(t, text, nw)
+			}
+			if tt.fallback != "" {
+				assert.Contains(t, fallback, tt.fallback)
+			}
+		})
+	}
+}
+
+// Warnings recorded before the latest dispatch belong to an earlier run of the same object; a few seconds of slack
+// covers the dispatch annotation being written after the object.
+func TestCollectPendingEvidenceIgnoresEventsBeforeDispatch(t *testing.T) {
+	dispatched := time.Date(2026, 11, 23, 7, 0, 0, 0, time.UTC)
+	workload := pendingEvidenceWorkload()
+	workload.Spec.GroupVersionKind = v1.GroupVersionKind{Group: "kubeflow.org", Version: "v1", Kind: "PyTorchJob"}
+	workload.Annotations = map[string]string{v1.WorkloadDispatchedAnnotation: dispatched.Format(time.RFC3339)}
+	data := k8sfake.NewSimpleClientset(
+		workloadObjectEvent("ws-a", "wl-app", "PyTorchJob", "FailedCreate", "earlier-run-denial", corev1.EventTypeWarning, dispatched.Add(-time.Hour), "job-uid"),
+		workloadObjectEvent("ws-a", "wl-app", "PyTorchJob", "FailedCreate", "just-before-annotation-denial", corev1.EventTypeWarning, dispatched.Add(-2*time.Second), "job-uid"),
+		workloadObjectEvent("ws-a", "wl-app", "PyTorchJob", "FailedCreate", "current-run-denial", corev1.EventTypeWarning, dispatched.Add(time.Minute), "job-uid"),
+	)
+	h := notReadyEvidenceHandler(t, data)
+	attachDynamicObjects(t, h, dataPlaneObject("kubeflow.org/v1", "PyTorchJob", "wl-app", "job-uid", false))
+	text, _ := h.collectPendingEvidence(context.Background(), workload)
+	assert.NotContains(t, text, "earlier-run-denial")
+	assert.Contains(t, text, "just-before-annotation-denial")
+	assert.Contains(t, text, "current-run-denial")
+}
+
+// A pod's own warning is listed once, through the pod path.
+func TestCollectPendingEvidencePodEventNotRepeated(t *testing.T) {
+	at := time.Date(2026, 11, 23, 7, 0, 0, 0, time.UTC)
+	pod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "wl-app-0", Namespace: "ws-a", Labels: map[string]string{v1.WorkloadIdLabel: "wl-app"}},
+		Status:     corev1.PodStatus{Phase: corev1.PodPending},
+	}
+	ev := workloadObjectEvent("ws-a", "wl-app-0", "Pod", "FailedScheduling", "0/8 nodes are available: pod-only-marker", corev1.EventTypeWarning, at, "p")
+	data := k8sfake.NewSimpleClientset(pod, ev)
+	text, _ := notReadyEvidenceHandler(t, data).collectPendingEvidence(context.Background(), pendingEvidenceWorkload())
+	assert.Equal(t, 1, strings.Count(text, "pod-only-marker"))
+}
+
+func pendingEvidenceWorkload() *v1.Workload {
+	return &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "wl-app", Labels: map[string]string{v1.ClusterIdLabel: "c1"}},
+		Spec:       v1.WorkloadSpec{Workspace: "ws-a"},
+		Status:     v1.WorkloadStatus{Phase: v1.WorkloadPending},
+	}
 }
