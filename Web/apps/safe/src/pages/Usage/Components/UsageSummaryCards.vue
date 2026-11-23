@@ -1,28 +1,28 @@
 <template>
   <div class="usage-summary">
-    <StatCard label="Occupancy">
-      {{ fmtRatio(summary?.occupancy) }}
-    </StatCard>
-    <StatCard label="Utilization">
-      <span :class="`usage-tone--${utilizationTone(summary?.utilization)}`">
-        {{ fmtRatio(summary?.utilization) }}
-      </span>
-    </StatCard>
-    <StatCard label="Effective Utilization">
-      {{ fmtRatio(summary?.effectiveUtilization) }}
-    </StatCard>
-    <StatCard label="Allocated GPU Hours">
-      {{ fmtNum(summary?.allocatedHours) }}
-    </StatCard>
-    <StatCard label="Queued Avg / Max" suffix="GPUs">
-      {{ fmtNum(summary?.queuedAvg) }} / {{ fmtNum(summary?.queuedMax) }}
-    </StatCard>
-    <StatCard label="Now Allocated / Quota" suffix="GPUs">
-      <template v-if="current"
-        >{{ fmtNum(current.allocated) }} / {{ fmtNum(current.quota) }}</template
-      >
-      <template v-else>-</template>
-    </StatCard>
+    <div class="usage-summary__grid">
+      <StatCard flat label="Occupancy" caption="allocated / quota">
+        {{ fmtRatio(summary?.occupancy) }}
+      </StatCard>
+      <StatCard flat label="Utilization" caption="busy / allocated">
+        <span :class="`usage-tone--${utilizationTone(summary?.utilization)}`">
+          {{ fmtRatio(summary?.utilization) }}
+        </span>
+      </StatCard>
+      <StatCard flat label="Effective Utilization" caption="busy / quota">
+        {{ fmtRatio(summary?.effectiveUtilization) }}
+      </StatCard>
+      <StatCard flat label="Allocated GPU Hours" :value="fmtNum(summary?.allocatedHours)" />
+      <StatCard flat label="Queued Avg / Max" caption="GPUs">
+        {{ fmtNum(summary?.queuedAvg) }} / {{ fmtNum(summary?.queuedMax) }}
+      </StatCard>
+      <StatCard flat label="Now Allocated / Quota" caption="GPUs">
+        <template v-if="current">
+          {{ fmtNum(current.allocated) }} / {{ fmtNum(current.quota) }}
+        </template>
+        <template v-else>-</template>
+      </StatCard>
+    </div>
   </div>
 </template>
 
@@ -39,10 +39,19 @@ defineProps<{
 </script>
 
 <style scoped>
+/* Sized by its own width so it also fits the narrower Homepage column. */
 .usage-summary {
+  container-type: inline-size;
+}
+.usage-summary__grid {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 12px;
+}
+@container (max-width: 1100px) {
+  .usage-summary__grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 .usage-tone--danger {
   color: var(--el-color-danger);
@@ -52,10 +61,5 @@ defineProps<{
 }
 .usage-tone--success {
   color: var(--el-color-success);
-}
-@media (max-width: 1400px) {
-  .usage-summary {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
 }
 </style>

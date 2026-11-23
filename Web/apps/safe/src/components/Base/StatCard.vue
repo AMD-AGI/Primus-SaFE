@@ -1,11 +1,12 @@
 <template>
-  <div class="safe-kpi">
+  <div class="safe-kpi" :class="{ 'safe-kpi--flat': flat }">
     <div class="min-w-0">
       <div class="safe-kpi__label">{{ label }}</div>
       <div class="safe-kpi__value">
         <slot>{{ value }}</slot>
         <span v-if="suffix" class="safe-kpi__suffix">{{ suffix }}</span>
       </div>
+      <div v-if="caption" class="safe-kpi__caption">{{ caption }}</div>
     </div>
     <div class="safe-kpi__icon" v-if="icon">
       <el-icon><component :is="icon" /></el-icon>
@@ -20,6 +21,10 @@ defineProps<{
   value?: string | number
   suffix?: string
   icon?: Component
+  /** Small secondary line under the value */
+  caption?: string
+  /** No shadow, for cards placed inside another card */
+  flat?: boolean
 }>()
 </script>
 
@@ -42,6 +47,10 @@ defineProps<{
     0 0 0 1px rgba(236, 232, 232, 0.03) inset,
     0 8px 32px rgba(56, 56, 56, 0.6);
 }
+.safe-kpi.safe-kpi--flat,
+.dark .safe-kpi.safe-kpi--flat {
+  box-shadow: none;
+}
 .safe-kpi__label {
   color: var(--safe-primary);
   font-size: 12px;
@@ -57,6 +66,11 @@ defineProps<{
   font-size: 14px;
   font-weight: 500;
   margin-left: 4px;
+  color: var(--safe-muted);
+}
+.safe-kpi__caption {
+  margin-top: 2px;
+  font-size: var(--fs-caption);
   color: var(--safe-muted);
 }
 .safe-kpi__icon {

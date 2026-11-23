@@ -1,8 +1,9 @@
 <template>
   <div class="usage-page__header">
-    <div>
-      <el-text class="block textx-18 font-500" tag="b">Usage</el-text>
-      <el-breadcrumb separator="/" class="usage-page__crumbs">
+    <div class="usage-page__title">
+      <el-text class="textx-18 font-500" tag="b">Usage</el-text>
+      <span class="usage-page__dot">·</span>
+      <el-breadcrumb separator="/">
         <el-breadcrumb-item>
           <el-link v-if="cluster" :underline="false" type="primary" @click="goClusters">
             All Clusters
@@ -41,14 +42,6 @@
     />
 
     <WorkspaceUsagePanel v-else :data="workspaceData" :loading="workspaceLoading" />
-
-    <div class="usage-page__defs">
-      <el-text type="info" size="small">
-        Occupancy = allocated GPUs / quota · Utilization = busy GPUs / allocated GPUs (only the part
-        with metrics) · Effective Utilization = busy GPUs / quota · Queued = GPUs requested but not
-        scheduled, grouped by the reason the pod waits.
-      </el-text>
-    </div>
   </div>
 </template>
 
@@ -166,21 +159,21 @@ onMounted(reload)
 <style scoped>
 .usage-page__header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 12px;
 }
-.usage-page__crumbs {
-  margin-top: 8px;
+.usage-page__title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.usage-page__dot {
+  color: var(--safe-muted);
 }
 .usage-page__body {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
   margin-top: 16px;
-}
-.usage-page__defs {
-  margin-top: 4px;
 }
 </style>

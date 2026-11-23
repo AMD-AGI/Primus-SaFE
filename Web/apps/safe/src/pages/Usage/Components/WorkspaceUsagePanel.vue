@@ -11,30 +11,22 @@
     />
 
     <el-card shadow="never" class="safe-card">
-      <template #header>
-        <span class="workspace-usage__title">Allocated vs Busy GPUs</span>
-      </template>
+      <SectionHeader title="Allocated vs Busy GPUs" />
       <UsageTrendChart :series="series" :height="chartHeight" />
     </el-card>
 
     <el-card shadow="never" class="safe-card">
-      <template #header>
-        <span class="workspace-usage__title">Queued GPUs by Reason</span>
-      </template>
+      <SectionHeader title="Queued GPUs by Reason" />
       <UsageQueuedChart :series="series" />
     </el-card>
 
     <div class="workspace-usage__tables">
       <el-card shadow="never" class="safe-card">
-        <template #header>
-          <span class="workspace-usage__title">Top Allocated Workloads</span>
-        </template>
+        <SectionHeader title="Top Allocated Workloads" />
         <UsageWorkloadTable :rows="data?.topAllocated ?? []" />
       </el-card>
       <el-card shadow="never" class="safe-card">
-        <template #header>
-          <span class="workspace-usage__title">Lowest Utilization Workloads</span>
-        </template>
+        <SectionHeader title="Lowest Utilization Workloads" />
         <UsageWorkloadTable :rows="data?.lowestUtilization ?? []" />
       </el-card>
     </div>
@@ -43,6 +35,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import SectionHeader from '@/components/Base/SectionHeader.vue'
 import type { GetUsageWorkspaceResp } from '@/services/usage/type'
 import { COVERAGE_WARN_THRESHOLD } from '../usageUtils'
 import UsageQueuedChart from './UsageQueuedChart.vue'
@@ -56,7 +49,7 @@ const props = withDefaults(
     loading?: boolean
     chartHeight?: number
   }>(),
-  { loading: false, chartHeight: 260 },
+  { loading: false, chartHeight: 300 },
 )
 
 const series = computed(() => props.data?.series ?? [])
@@ -69,19 +62,12 @@ const lowCoverage = computed(() =>
 .workspace-usage {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-}
-.workspace-usage :deep(.safe-card) {
-  margin-bottom: 0;
-}
-.workspace-usage__title {
-  font-weight: 600;
-  font-size: var(--fs-subtitle);
+  gap: 16px;
 }
 .workspace-usage__tables {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: 16px;
 }
 @media (max-width: 1100px) {
   .workspace-usage__tables {
