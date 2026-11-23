@@ -1,0 +1,69 @@
+#
+# Copyright (C) 2025-2025, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.2
+  name: qos.amd.com
+spec:
+  group: amd.com
+  names:
+    kind: Qos
+    listKind: QosList
+    plural: qos
+    singular: qos
+  scope: Cluster
+  versions:
+  - name: v1
+    schema:
+      openAPIV3Schema:
+        description: Qos is the ceiling for one workspace. It does not carry per-user
+          values.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: QosSpec is the ceiling for one workspace. The object name
+              is the workspace id.
+            properties:
+              maxResources:
+                description: ResourceCap is a GPU, CPU and memory ceiling. An empty
+                  field is unset.
+                properties:
+                  cpu:
+                    type: string
+                  gpu:
+                    type: string
+                  memory:
+                    type: string
+                type: object
+              maxRuntime:
+                additionalProperties:
+                  type: integer
+                description: Timeout ceiling in seconds, keyed by workspace scope
+                  (Train, Infer, Authoring, CICD, Ray, Sandbox).
+                type: object
+            type: object
+        type: object
+    served: true
+    storage: true

@@ -26,6 +26,10 @@ func TestMetricsRegisteredAndUsable(t *testing.T) {
 	DispatchDuration.Observe(0.2)
 	WorkloadPhaseTotal.WithLabelValues("Running").Inc()
 	WorkloadRescheduleTotal.Inc()
+	LowUtilDetectedTotal.WithLabelValues("c1").Inc()
+	LowUtilStoppedTotal.WithLabelValues("c1").Inc()
+	LowUtilSkippedNoDataTotal.WithLabelValues("c1").Inc()
+	LowUtilClusterSkippedTotal.WithLabelValues("c1", "unsupported").Inc()
 
 	names := map[string]bool{
 		"safe_scheduler_schedule_cycle_duration_seconds": false,
@@ -37,6 +41,10 @@ func TestMetricsRegisteredAndUsable(t *testing.T) {
 		"safe_dispatch_duration_seconds":                 false,
 		"safe_workload_phase_total":                      false,
 		"safe_workload_reschedule_total":                 false,
+		"safe_low_util_detected_total":                   false,
+		"safe_low_util_stopped_total":                    false,
+		"safe_low_util_skipped_no_data_total":            false,
+		"safe_low_util_cluster_skipped_total":            false,
 	}
 	mfs, err := ctrlmetrics.Registry.Gather()
 	if err != nil {

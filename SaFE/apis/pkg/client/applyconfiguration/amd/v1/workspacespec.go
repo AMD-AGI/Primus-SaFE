@@ -41,11 +41,11 @@ type WorkspaceSpecApplyConfiguration struct {
 	IsDefault *bool `json:"isDefault,omitempty"`
 	// Workspace image secret ID, used for downloading images
 	ImageSecrets []corev1.ObjectReference `json:"imageSecrets,omitempty"`
-	// The maximum workload runtime of each scope, Unit: hours
-	MaxRuntime map[amdv1.WorkspaceScope]int `json:"maxRuntime,omitempty"`
 	// Trigger workload processing after a period of workspace inactivity. The idletime of each scope, Unit: "12h0m0s"
 	// only for sandbox workload
 	IdleTime map[amdv1.WorkspaceScope]string `json:"idleTime,omitempty"`
+	// Stop running workloads whose GPU utilization stays low, per scope
+	LowUtilization map[amdv1.WorkspaceScope]LowUtilizationPolicyApplyConfiguration `json:"lowUtilization,omitempty"`
 }
 
 // WorkspaceSpecApplyConfiguration constructs a declarative configuration of the WorkspaceSpec type for use with
@@ -145,20 +145,6 @@ func (b *WorkspaceSpecApplyConfiguration) WithImageSecrets(values ...corev1.Obje
 	return b
 }
 
-// WithMaxRuntime puts the entries into the MaxRuntime field in the declarative configuration
-// and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, the entries provided by each call will be put on the MaxRuntime field,
-// overwriting an existing map entries in MaxRuntime field with the same key.
-func (b *WorkspaceSpecApplyConfiguration) WithMaxRuntime(entries map[amdv1.WorkspaceScope]int) *WorkspaceSpecApplyConfiguration {
-	if b.MaxRuntime == nil && len(entries) > 0 {
-		b.MaxRuntime = make(map[amdv1.WorkspaceScope]int, len(entries))
-	}
-	for k, v := range entries {
-		b.MaxRuntime[k] = v
-	}
-	return b
-}
-
 // WithIdleTime puts the entries into the IdleTime field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, the entries provided by each call will be put on the IdleTime field,
@@ -169,6 +155,20 @@ func (b *WorkspaceSpecApplyConfiguration) WithIdleTime(entries map[amdv1.Workspa
 	}
 	for k, v := range entries {
 		b.IdleTime[k] = v
+	}
+	return b
+}
+
+// WithLowUtilization puts the entries into the LowUtilization field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, the entries provided by each call will be put on the LowUtilization field,
+// overwriting an existing map entries in LowUtilization field with the same key.
+func (b *WorkspaceSpecApplyConfiguration) WithLowUtilization(entries map[amdv1.WorkspaceScope]LowUtilizationPolicyApplyConfiguration) *WorkspaceSpecApplyConfiguration {
+	if b.LowUtilization == nil && len(entries) > 0 {
+		b.LowUtilization = make(map[amdv1.WorkspaceScope]LowUtilizationPolicyApplyConfiguration, len(entries))
+	}
+	for k, v := range entries {
+		b.LowUtilization[k] = v
 	}
 	return b
 }

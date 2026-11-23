@@ -37,7 +37,20 @@ export async function ssoLoginRaw(code: string, state?: string, codeVerifier?: s
   return resp
 }
 
-export const logout = (): Promise<void> => request.post(`/logout`)
+/**
+ * Signs out at the apiserver. `quiet` sends it past the global error handler, so that a failure (a 401 once
+ * the session is already gone included) is the caller's to judge instead of a redirect to the sign-in page.
+ */
+export const logout = (quiet = false): Promise<void> =>
+  request.post(`/logout`, null, quiet ? { skipErrorHandler: true } : undefined)
+
+/**
+ * Ends the identity provider's session at its logout path on this origin (envs.logoutUrl), which revokes
+ * the session on the server and clears its cookies. Called outside the API's base URL and error handler:
+ * a failure is the caller's to judge.
+ */
+export const endProviderSession = (url: string): Promise<unknown> =>
+  axios.post(url, null, { withCredentials: true, timeout: 10000 })
 
 export const register = (data: RegisterReq): Promise<void> => request.post(`/users`, data)
 

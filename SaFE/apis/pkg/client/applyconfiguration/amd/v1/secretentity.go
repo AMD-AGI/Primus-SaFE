@@ -17,6 +17,9 @@ type SecretEntityApplyConfiguration struct {
 	Id *string `json:"id,omitempty"`
 	// Secret type, optional. e.g. ssh/image/general
 	Type *amdv1.SecretType `json:"type,omitempty"`
+	// AsEnv also exposes the keys of a general secret to every container as environment variables, optional.
+	// Only keys that are valid environment variable names (e.g. WANDB_API_KEY) are exposed; the kubelet skips others such as config.json.
+	AsEnv *bool `json:"asEnv,omitempty"`
 }
 
 // SecretEntityApplyConfiguration constructs a declarative configuration of the SecretEntity type for use with
@@ -38,5 +41,13 @@ func (b *SecretEntityApplyConfiguration) WithId(value string) *SecretEntityApply
 // If called multiple times, the Type field is set to the value of the last call.
 func (b *SecretEntityApplyConfiguration) WithType(value amdv1.SecretType) *SecretEntityApplyConfiguration {
 	b.Type = &value
+	return b
+}
+
+// WithAsEnv sets the AsEnv field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the AsEnv field is set to the value of the last call.
+func (b *SecretEntityApplyConfiguration) WithAsEnv(value bool) *SecretEntityApplyConfiguration {
+	b.AsEnv = &value
 	return b
 }

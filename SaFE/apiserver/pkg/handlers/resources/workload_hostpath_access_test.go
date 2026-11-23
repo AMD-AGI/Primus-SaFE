@@ -15,7 +15,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -138,11 +137,10 @@ func (f *hostPathFixture) workloadCount(t *testing.T) int {
 	return len(list.Items)
 }
 
-// A member of the workspace, or a manager of another workspace, cannot create a workload that
-// mounts a node path the workspace does not declare for the workload's kind: the request is
-// refused with 403 naming the grant and nothing is created. A primus-safe annotation in the request
-// cannot stand in for the grant.
-func TestMembersCannotMountUndeclaredHostPaths(t *testing.T) {
+// A member of the workspace holds workload/privileged through the default role, so they may mount a
+// node path the workspace does not declare. The workload is marked for the webhook. A mark sent in
+// the request is not what admits it: the check removes it and sets it again.
+func TestMembersMountUndeclaredHostPaths(t *testing.T) {
 	for _, tt := range []struct {
 		name        string
 		user        string
@@ -167,10 +165,9 @@ func TestMembersCannotMountUndeclaredHostPaths(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newHostPathFixture(t)
-			_, err := f.create(t, tt.user, tt.kind, tt.hostpath, tt.annotations)
-			require.True(t, apierrors.IsForbidden(err), "want 403, got %v", err)
-			require.Contains(t, err.Error(), "requires the workload/privileged grant")
-			require.Equal(t, 0, f.workloadCount(t), "a refused workload was created")
+			stored, err := f.create(t, tt.user, tt.kind, tt.hostpath, tt.annotations)
+			require.NoError(t, err)
+			require.Equal(t, v1.TrueStr, v1.GetAnnotation(stored, v1.WorkloadHostPathAuthzAnnotation))
 		})
 	}
 }
@@ -243,6 +240,7 @@ func TestHostPathGrantMarkIsSetOnlyByTheCheck(t *testing.T) {
 	w.Name = "preset-undeclared"
 	w.Spec.Hostpath = []string{"/etc"}
 	_, err = f.h.createWorkloadImpl(c, w.DeepCopy(), member, nil)
-	require.True(t, apierrors.IsForbidden(err), "want 403, got %v", err)
-	require.True(t, apierrors.IsNotFound(f.cli.Get(t.Context(), client.ObjectKey{Name: "preset-undeclared"}, &v1.Workload{})))
+	require.NoError(t, err)
+	require.NoError(t, f.cli.Get(t.Context(), client.ObjectKey{Name: "preset-undeclared"}, stored))
+	require.Equal(t, v1.TrueStr, v1.GetAnnotation(stored, v1.WorkloadHostPathAuthzAnnotation))
 }

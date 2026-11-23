@@ -1,3 +1,5 @@
+import type { UserQos } from '../qos/type'
+
 export interface RegisterReq {
   name: string
   type: string
@@ -26,8 +28,11 @@ export interface EditUserResp {
   email?: string
   roles?: string[]
   workspaces?: string[]
+  addWorkspaces?: string[]
+  removeWorkspaces?: string[]
   managedWorkspaces?: string[]
   restrictedType?: number
+  qos?: UserQos
 }
 
 export interface LoginResp extends BaseUserResp {
@@ -44,6 +49,7 @@ export interface UserSelfData extends BaseUserResp {
   managedWorkspaces?: Workspace[]
   creationTime: string
   restrictedType: number
+  qos?: UserQos
 }
 
 // GET /users/self/workspaces: the workspaces the user can access and the ones the user manages
@@ -72,14 +78,25 @@ export interface EnvsResp {
   // With 'external': the path on this console's own origin where the deployment routes API key
   // creation, listing and revocation to the identity provider. Absent when nothing is routed there.
   apiKeysUrl?: string
-  // sso
+  // Present only when authMode is external: where the browser signs in (auth.login_url). Not an SSO URL.
+  loginUrl?: string
+  // Present only when authMode is external: the path on this console's own origin where sign-out ends the
+  // identity provider's session (auth.logout_url). The browser's session is the provider's, not the apiserver's.
+  logoutUrl?: string
+  // Present only when authMode is external: the connection named on the authorize request.
+  // Empty omits the parameter.
+  connection?: string
+  // Page to open for accounts when authMode is external. Absent when the deployment sets none.
+  accountsUrl?: string
+  // Page to open for API keys when authMode is external. Absent when the deployment sets none.
+  keysUrl?: string
+  // sso.enable. When set, the console signs in with SSO, including when it opens the identity
+  // console. When unset, that console asks for a username and password.
   ssoEnable?: boolean
-  ssoAuthUrl?: string
-  // The console's sign-in when the server has one with PKCE (sso.login): used instead of ssoAuthUrl,
-  // with an S256 code challenge, and the verifier is sent with the code
+  // The console's sign-in when authMode is not external and the server has one with PKCE (sso.login).
   ssoLoginUrl?: string
   // The console signs in only with PKCE (sso.login is on), even while ssoLoginUrl is empty because
-  // the provider cannot be reached: it then does not fall back to ssoAuthUrl
+  // the provider cannot be reached.
   ssoPkce?: boolean
   // origins (optionally with a path prefix) other than this console allowed to receive the SSO code
   ssoBridgeAllowlist?: string[]

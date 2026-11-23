@@ -7,6 +7,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -233,6 +234,46 @@ func GetWorkloadHangCheckInterval() int {
 // GetWorkloadTTLSecond returns the TTL in seconds for completed workloads.
 func GetWorkloadTTLSecond() int {
 	return getInt(workloadTTLSecond, 60)
+}
+
+// GetWorkloadRobustSyncIntervalSecond returns how often, in seconds, each cluster's
+// workloads are reconciled against Robust.
+func GetWorkloadRobustSyncIntervalSecond() int {
+	return getInt(workloadRobustSyncInterval, 60)
+}
+
+// GetWorkloadRobustSyncRetentionDay returns for how many days after its end a
+// workload kept only in the database is still synced to Robust.
+func GetWorkloadRobustSyncRetentionDay() int {
+	return getInt(workloadRobustSyncRetention, 7)
+}
+
+// IsWorkloadRobustNodeSyncEnable reports whether resource-manager syncs the
+// nodes SaFE manages to Robust, on the workload sync's reconcile interval.
+func IsWorkloadRobustNodeSyncEnable() bool {
+	return getBool(workloadRobustNodeSync, true)
+}
+
+// IsWorkloadLowUtilizationEnable reports whether job-manager stops running
+// workloads under their workspace's low GPU utilization policy.
+func IsWorkloadLowUtilizationEnable() bool {
+	return getBool(workloadLowUtilEnable, false)
+}
+
+// GetWorkloadUsageSampleIntervalSecond returns how often, in seconds,
+// resource-manager samples each workspace's resource usage.
+func GetWorkloadUsageSampleIntervalSecond() int {
+	return getInt(workloadUsageSampleInterval, 300)
+}
+
+// GetWorkloadUsageSampleRetentionDay returns for how many days the workspace usage samples are kept.
+func GetWorkloadUsageSampleRetentionDay() int {
+	return getInt(workloadUsageSampleRetention, 14)
+}
+
+// GetWorkloadUsageHourlyRetentionDay returns for how many days the hourly workspace usage rollups are kept.
+func GetWorkloadUsageHourlyRetentionDay() int {
+	return getInt(workloadUsageHourlyRetention, 400)
 }
 
 // IsOpenSearchEnable returns whether OpenSearch is enabled.
@@ -485,7 +526,7 @@ func GetConsoleAccessContact() string {
 
 // DefaultConsoleReturnPrefixes are the web apps on the console's host that a sign-in returns to
 // when console.return_prefixes is not set.
-var DefaultConsoleReturnPrefixes = []string{"/dispatron", "/autopilot", "/binding", "/blog-drafts"}
+var DefaultConsoleReturnPrefixes = []string{"/dispatron", "/autopilot", "/binding", "/blog-drafts", "/identity"}
 
 // consoleReturnPrefixRE is one or more plain path segments, none starting with a dot (so no "."
 // or ".." segment) and no trailing slash: "/dispatron", "/apps/blog".
@@ -773,6 +814,20 @@ func GetRobustServiceToken() string {
 	return strings.TrimSpace(getFromFile(robustSecretPath, RobustServiceTokenKey))
 }
 
+// GetRobustServiceTokenSecret returns the name of the Secret, in the SaFE
+// namespace, that holds the shared service token under RobustServiceTokenKey,
+// for consumers that reference it instead of reading the mount. "" when not configured.
+func GetRobustServiceTokenSecret() string {
+	return strings.TrimSpace(getString(robustServiceTokenSecret, ""))
+}
+
+// GetRobustManagementCluster returns the name of the Cluster CR that SaFE itself
+// runs in, the only cluster allowed to reach Robust through the in-cluster
+// services when its CR has no endpoint annotation. "" when not configured.
+func GetRobustManagementCluster() string {
+	return getString(robustManagementCluster, "")
+}
+
 // GetLangfuseProxyPublicKey returns the shared Langfuse project public key from secret.
 func GetLangfuseProxyPublicKey() string {
 	return getFromFile(langfuseProxySecretPath, "public_key")
@@ -823,6 +878,12 @@ func GetLLMGatewaySharedApimUser() string {
 	return strings.TrimSpace(getFromFile(llmGatewaySecretPath, "shared_apim_user"))
 }
 
+// GetLLMGatewaySummaryModel returns the LiteLLM model used to summarize a pending workload.
+// An empty value disables the summary and leaves the raw evidence.
+func GetLLMGatewaySummaryModel() string {
+	return strings.TrimSpace(getFromFile(llmGatewaySecretPath, "summary_model"))
+}
+
 func IsMonarchEnable() bool {
 	return getBool(monarchEnable, false)
 }
@@ -842,6 +903,81 @@ func GetSandboxSecret() string {
 // GetSandboxEnvdInjectorImage returns the image that installs the envd binary.
 func GetSandboxEnvdInjectorImage() string {
 	return getString(sandboxEnvdInjectorImage, "")
+}
+
+// SandboxAdmissionConfig is the identity assertion check the Workload webhook applies to Workloads
+// created by the sandbox control plane.
+type SandboxAdmissionConfig struct {
+	// Creator is the username of the sandbox control plane account.
+	Creator string
+	// JWKS is the identity provider key set, JSON text. It is used when set; otherwise the key set is read from JWKSURL.
+	JWKS string
+	// JWKSURL is where the key set is read from. Empty uses https://<sub_domain>.<domain>/.well-known/jwks.json.
+	JWKSURL string
+	// Issuer is the expected iss of the assertion. Empty uses https://<sub_domain>.<domain>.
+	Issuer string
+	// Audience is the expected aud of the assertion.
+	Audience string
+	// TokenType is the expected typ header of the assertion.
+	TokenType string
+	// Algorithm is the only signature algorithm accepted.
+	Algorithm string
+	// Actor is the expected act.sub of the assertion, the control plane client id.
+	Actor string
+	// DetailType is the authorization_details type that names the Workload.
+	DetailType string
+	// Annotation is the Workload annotation that carries the assertion.
+	Annotation string
+	// Kind is the workload kind an authorization detail must name. Empty matches the Workload's own kind.
+	Kind string
+	// CAFile is a PEM bundle added to the key-set client's trust store. Empty uses the system pool.
+	CAFile string
+}
+
+// IsSandboxAdmissionEnable reports whether sandbox Workloads are checked against the identity assertion
+// and workspace membership. Disabled by default.
+func IsSandboxAdmissionEnable() bool {
+	return getBool(sandboxAdmissionEnabled, false)
+}
+
+// clusterOrigin is the identity provider of this cluster, https://<sub_domain>.<domain>.
+// It is empty when either part is unset.
+func clusterOrigin() string {
+	d := strings.TrimSpace(getString(domain, ""))
+	sub := strings.TrimSpace(getString(subDomain, ""))
+	if d == "" || sub == "" {
+		return ""
+	}
+	return "https://" + sub + "." + d
+}
+
+// GetSandboxAdmissionConfig returns the sandbox.admission settings with their defaults applied.
+func GetSandboxAdmissionConfig() SandboxAdmissionConfig {
+	origin := clusterOrigin()
+	jwksURL := strings.TrimSpace(getString(sandboxAdmissionJWKSURL, ""))
+	if jwksURL == "" {
+		if origin != "" {
+			jwksURL = origin + "/.well-known/jwks.json"
+		}
+	}
+	issuer := strings.TrimSpace(getString(sandboxAdmissionIssuer, ""))
+	if issuer == "" {
+		issuer = origin
+	}
+	return SandboxAdmissionConfig{
+		Creator:    strings.TrimSpace(getString(sandboxAdmissionCreator, "")),
+		JWKS:       getString(sandboxAdmissionJWKS, ""),
+		JWKSURL:    jwksURL,
+		Issuer:     issuer,
+		Audience:   strings.TrimSpace(getString(sandboxAdmissionAudience, "")),
+		TokenType:  strings.TrimSpace(getString(sandboxAdmissionTokenType, "")),
+		Algorithm:  strings.TrimSpace(getString(sandboxAdmissionAlgorithm, "")),
+		Actor:      strings.TrimSpace(getString(sandboxAdmissionActor, "")),
+		DetailType: strings.TrimSpace(getString(sandboxAdmissionDetailType, "")),
+		Annotation: strings.TrimSpace(getString(sandboxAdmissionAnnotation, "")),
+		Kind:       strings.TrimSpace(getString(sandboxAdmissionKind, "")),
+		CAFile:     strings.TrimSpace(getString(sandboxAdmissionCAFile, "")),
+	}
 }
 
 // ── External execution capacity ─────────────────────────────────────────
@@ -965,11 +1101,12 @@ func GetModelOptimizationClawPluginID() int {
 	return getInt(modelOptimizationClawPluginID, 4)
 }
 
-// Authentication modes (auth.mode).
+// Authentication. auth.mode selects the path. External, the default, authenticates with the
+// configured chain and takes platform roles from group mappings. Builtin uses local accounts.
 const (
-	// AuthModeBuiltin is the default: local accounts, built-in sessions, SSO login and API keys.
+	// AuthModeBuiltin is local accounts, sign-in and the platform roles stored on user objects.
 	AuthModeBuiltin = "builtin"
-	// AuthModeExternal authenticates requests with the configured authenticator chain.
+	// AuthModeExternal authenticates with the configured authenticator chain.
 	AuthModeExternal = "external"
 )
 
@@ -997,6 +1134,7 @@ type AuthenticatorConfig struct {
 	URL              string `json:"url" yaml:"url" mapstructure:"url"`
 	CABundle         string `json:"ca_bundle" yaml:"ca_bundle" mapstructure:"ca_bundle"` // PEM text or a file path
 	ClientID         string `json:"client_id" yaml:"client_id" mapstructure:"client_id"`
+	ClientIDFile     string `json:"client_id_file" yaml:"client_id_file" mapstructure:"client_id_file"` // used when client_id is empty
 	ClientSecretFile string `json:"client_secret_file" yaml:"client_secret_file" mapstructure:"client_secret_file"`
 	Timeout          string `json:"timeout" yaml:"timeout" mapstructure:"timeout"`
 	CacheTTL         string `json:"cache_ttl" yaml:"cache_ttl" mapstructure:"cache_ttl"`
@@ -1018,13 +1156,40 @@ type AuthGroupMapping struct {
 	Workspaces []string `json:"workspaces" yaml:"workspaces" mapstructure:"workspaces"`
 }
 
-// GetAuthMode returns auth.mode: "builtin" (default) or "external". Any other value
-// is treated as builtin, so a typo never switches authentication off.
+// GetAuthMode returns auth.mode. builtin selects local accounts and is the value of an empty
+// setting. Call CheckAuthMode at start-up: any other value is refused there.
 func GetAuthMode() string {
-	if getString(authMode, AuthModeBuiltin) == AuthModeExternal {
-		return AuthModeExternal
+	mode, err := parseAuthMode()
+	if err != nil {
+		return ""
 	}
-	return AuthModeBuiltin
+	return mode
+}
+
+// PlatformKeyCreationAllowed reports whether this process may mint a new platform API key.
+// External mode looks up existing keys only.
+func PlatformKeyCreationAllowed() bool {
+	return GetAuthMode() != AuthModeExternal
+}
+
+// CheckAuthMode rejects an auth.mode that is set and is neither builtin nor external.
+// An empty value is builtin.
+func CheckAuthMode() error {
+	_, err := parseAuthMode()
+	return err
+}
+
+// parseAuthMode reads auth.mode. An empty value is builtin.
+func parseAuthMode() (string, error) {
+	raw := strings.TrimSpace(getString(authMode, ""))
+	switch {
+	case raw == "" || strings.EqualFold(raw, AuthModeBuiltin):
+		return AuthModeBuiltin, nil
+	case strings.EqualFold(raw, AuthModeExternal):
+		return AuthModeExternal, nil
+	default:
+		return "", fmt.Errorf("auth.mode %q must be builtin or external", raw)
+	}
 }
 
 // GetAuthenticators returns the authenticator chain, in order. A chain that cannot be
@@ -1066,5 +1231,106 @@ func GetAuthAPIKeysURL() string {
 }
 
 // GetAuthLoginURL returns auth.login_url, where the console sends users to sign in when
-// authentication is external.
+// authentication is external. External mode requires it.
 func GetAuthLoginURL() string { return getString(authLoginURL, "") }
+
+// DefaultAuthLogoutURL is the identity service's logout on the console host, used when auth.logout_url is
+// unset or blank.
+const DefaultAuthLogoutURL = "/identity/api/v1/logout"
+
+// GetAuthLogoutURL returns auth.logout_url, or DefaultAuthLogoutURL when blank: where the console ends the
+// identity provider's session when authentication is external. Only a path on the console's own origin is
+// returned, since the browser sends its session there; any other value gives "".
+func GetAuthLogoutURL() string {
+	url := stringOr(authLogoutURL, DefaultAuthLogoutURL)
+	if !strings.HasPrefix(url, "/") || strings.HasPrefix(url, "//") || strings.ContainsAny(url, "\\ \t\r\n?#") {
+		return ""
+	}
+	return url
+}
+
+// AllowOIDCOnly reports auth.allow_oidc_only. Off by default: an external chain then needs
+// an introspection or builtin authenticator.
+func AllowOIDCOnly() bool { return getBool(authAllowOIDCOnly, false) }
+
+// ProviderClientEnabled reports auth.provider_client. Off by default: the apiserver does not
+// call the identity service to register a SCIM target or to forward a status change.
+func ProviderClientEnabled() bool { return getBool(authProviderClient, false) }
+
+// DefaultAuthConnection is the identity connection of the SSO sign-in, used when auth.connection is unset or blank.
+const DefaultAuthConnection = "okta-amd"
+
+// GetAuthConnection returns auth.connection, or DefaultAuthConnection when blank.
+func GetAuthConnection() string { return stringOr(authConnection, DefaultAuthConnection) }
+
+// DefaultAccountsURL and DefaultKeysConsoleURL are the identity console's pages for accounts and
+// API keys, used when auth.accounts_url or auth.keys_console_url is unset or blank.
+const (
+	DefaultAccountsURL    = "/identity/#accounts"
+	DefaultKeysConsoleURL = "/identity/#keys"
+)
+
+// GetAuthAccountsURL returns auth.accounts_url, or DefaultAccountsURL when blank, when it is a path or an http(s) URL.
+func GetAuthAccountsURL() string { return consoleURL(stringOr(authAccountsURL, DefaultAccountsURL)) }
+
+// GetAuthKeysConsoleURL returns auth.keys_console_url, or DefaultKeysConsoleURL when blank, when it is a path or an http(s) URL.
+func GetAuthKeysConsoleURL() string {
+	return consoleURL(stringOr(authKeysConsoleURL, DefaultKeysConsoleURL))
+}
+
+// stringOr returns the trimmed value of key, or def when it is unset or blank.
+func stringOr(key, def string) string {
+	if v := strings.TrimSpace(getString(key, "")); v != "" {
+		return v
+	}
+	return def
+}
+
+// consoleURL keeps a path or an absolute http(s) URL and drops anything else.
+func consoleURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if strings.HasPrefix(raw, "/") && !strings.HasPrefix(raw, "//") && !strings.ContainsAny(raw, "\\ \t\r\n") {
+		return raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
+		return ""
+	}
+	return raw
+}
+
+// DefaultSCIMTokenSecret is the Secret the apiserver creates for the SCIM bearer token
+// when auth.scim.token_secret is unset.
+const DefaultSCIMTokenSecret = "primus-safe-scim-token"
+
+// IsSCIMEnabled reports auth.scim.enabled. A missing value is enabled.
+func IsSCIMEnabled() bool { return getBool(authSCIMEnabled, true) }
+
+// GetSCIMIdentityURL returns auth.scim.identity_url with no trailing slash.
+// Empty means the identity base is derived from the introspection authenticator.
+func GetSCIMIdentityURL() string { return trimURL(getString(authSCIMIdentityURL, "")) }
+
+// GetSCIMPublicURL returns auth.scim.public_url with no trailing slash: the base
+// the identity service calls, appending /Users/{id}.
+func GetSCIMPublicURL() string { return trimURL(getString(authSCIMPublicURL, "")) }
+
+// GetSCIMTokenSecret returns the name of the Secret that holds the SCIM bearer token.
+func GetSCIMTokenSecret() string {
+	name := strings.TrimSpace(getString(authSCIMTokenSecret, DefaultSCIMTokenSecret))
+	if name == "" {
+		return DefaultSCIMTokenSecret
+	}
+	return name
+}
+
+// trimURL drops surrounding space and a trailing slash.
+func trimURL(raw string) string {
+	return strings.TrimRight(strings.TrimSpace(raw), "/")
+}
+
+// GetRBACSubjectPrefix returns rbac.subject_prefix, prepended to user ids and group names in the
+// Kubernetes RBAC subjects that project workspace membership. Default "primus:".
+func GetRBACSubjectPrefix() string { return getString(rbacSubjectPrefix, "primus:") }

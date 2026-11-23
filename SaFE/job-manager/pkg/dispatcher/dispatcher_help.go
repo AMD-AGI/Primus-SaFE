@@ -19,19 +19,23 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/apikey"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	safecrypto "github.com/AMD-AIG-AIMA/SAFE/common/pkg/crypto"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonfaults "github.com/AMD-AIG-AIMA/SAFE/common/pkg/faults"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
@@ -341,12 +345,18 @@ const platformKeyReadTimeout = 5 * time.Second
 var (
 	platformDBEnabled = commonconfig.IsDBEnable
 	platformDBClient  = dbclient.NewClient
-	platformKeyLookup = apikey.GetOrCreatePlatformKey
+	platformKeyLookup = lookupPlatformKey
 )
+
+// lookupPlatformKey returns an existing platform key, and creates one only when
+// config.PlatformKeyCreationAllowed reports that minting is allowed.
+func lookupPlatformKey(ctx context.Context, db dbclient.Interface, userId, userName string) (string, error) {
+	return apikey.GetOrCreatePlatformKey(ctx, db, userId, userName, commonconfig.PlatformKeyCreationAllowed())
+}
 
 // platformKeyForUser returns the plaintext platform API key for the workload owner.
 // Best-effort: returns empty string when DB is disabled, the client is unavailable,
-// or lookup/creation fails.
+// or lookup/creation fails. In external mode a missing key is not created.
 func platformKeyForUser(workload *v1.Workload) string {
 	if !platformDBEnabled() {
 		return ""
@@ -375,6 +385,72 @@ func platformKeyForUser(workload *v1.Workload) string {
 // chain across many tests in a single package run, which made env-injection
 // tests flaky; a package var override is deterministic.
 var platformKeyForUserFn = platformKeyForUser
+
+// cicdAPIKey decrypts the API key of a CICD scale set or github runner from the encrypted
+// annotation written at CreateWorkload. A missing or undecryptable annotation fails the workload.
+func cicdAPIKey(workload *v1.Workload) (string, error) {
+	enc := v1.GetAnnotation(workload, v1.UserEncryptedAPIKeyAnnotation)
+	if enc == "" {
+		return "", commonerrors.NewBadRequest("CICD workload is missing the encrypted API key annotation")
+	}
+	cryptoClient := safecrypto.NewCrypto()
+	if cryptoClient == nil {
+		return "", commonerrors.NewInternalError("crypto is not available")
+	}
+	plain, err := cryptoClient.Decrypt(enc)
+	if err != nil {
+		klog.ErrorS(err, "failed to decrypt CICD API key annotation", "workload", workload.Name)
+		return "", commonerrors.NewBadRequest("failed to decrypt the CICD API key annotation")
+	}
+	if strings.TrimSpace(plain) == "" {
+		return "", commonerrors.NewBadRequest("CICD encrypted API key annotation is empty")
+	}
+	return plain, nil
+}
+
+// cicdWorkloadWithParentAPIKey returns a copy of an EphemeralRunner or UnifiedJob workload carrying the
+// encrypted API key annotation of its scale set (source), so its pod gets the same USER_APIKEY.
+// The key is copied only when both workloads have the same user id. Other workloads, a workload of
+// another user, or a scale set without the annotation are returned unchanged.
+func cicdWorkloadWithParentAPIKey(workload, source *v1.Workload) *v1.Workload {
+	if source == nil || (!commonworkload.IsCICDEphemeralRunner(workload) && workload.SpecKind() != common.UnifiedJobKind) {
+		return workload
+	}
+	if userId := v1.GetUserId(workload); userId == "" || userId != v1.GetUserId(source) {
+		return workload
+	}
+	enc := v1.GetAnnotation(source, v1.UserEncryptedAPIKeyAnnotation)
+	if enc == "" {
+		return workload
+	}
+	derived := workload.DeepCopy()
+	v1.SetAnnotation(derived, v1.UserEncryptedAPIKeyAnnotation, enc)
+	return derived
+}
+
+// unifiedJobScaleSet returns the scale set named in a UnifiedJob's SCALE_RUNNER_SET_ID when it is a
+// scale set of the same workspace and cluster, else nil. Read errors other than NotFound are returned.
+func unifiedJobScaleSet(ctx context.Context, reader client.Reader, workload *v1.Workload) (*v1.Workload, error) {
+	if workload.SpecKind() != common.UnifiedJobKind {
+		return nil, nil
+	}
+	name := workload.GetEnv(common.ScaleRunnerSetID)
+	if name == "" {
+		return nil, nil
+	}
+	parent := &v1.Workload{}
+	if err := reader.Get(ctx, client.ObjectKey{Name: name}, parent); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if !commonworkload.IsCICDScalingRunnerSet(parent) || parent.Spec.Workspace != workload.Spec.Workspace ||
+		v1.GetClusterId(parent) != v1.GetClusterId(workload) {
+		return nil, nil
+	}
+	return parent, nil
+}
 
 // dispatchNodesAt returns the admin nodes assigned at the given dispatch index,
 // preferring the DB workload_dispatch_node table and falling back to the etcd
@@ -481,11 +557,15 @@ func modifyContainers(obj *unstructured.Unstructured,
 		return fmt.Errorf("failed to find container with path: %v", path)
 	}
 
-	env := buildEnvironment(workload, workspace, resourceId)
+	env, err := buildEnvironment(workload, workspace, resourceId)
+	if err != nil {
+		return err
+	}
 	mainContainerName := commonworkload.GetMainContainer(workload, workload.Spec.Kind, resourceId)
 	for i := range containers {
 		container := containers[i].(map[string]interface{})
 		modifyEnv(container, env, commonworkload.IsEnabledHostNetwork(workload, resourceId))
+		modifyEnvFrom(container, workload)
 		modifyVolumeMounts(container, workload, workspace, resourceId)
 		modifyPrivilegedSecurity(container, workload)
 		name := jobutils.NestedStringSilently(container, []string{"name"})
@@ -580,6 +660,25 @@ func modifyVolumeMounts(container map[string]interface{}, workload *v1.Workload,
 		volumeMounts = append(volumeMounts, volumeMount)
 	}
 	container["volumeMounts"] = volumeMounts
+}
+
+// modifyEnvFrom exposes the general secrets marked asEnv to the container as environment variables.
+// The sandbox signing key is skipped for the same reason modifyVolumeMounts skips it: it must never
+// reach the main containers, even if its entry is marked asEnv.
+func modifyEnvFrom(container map[string]interface{}, workload *v1.Workload) {
+	var sources []interface{}
+	for _, secret := range workload.Spec.Secrets {
+		if secret.AsEnv && secret.Type == v1.SecretGeneral && !isSandboxSigningSecret(workload, secret) {
+			sources = append(sources, map[string]interface{}{
+				"secretRef": map[string]interface{}{"name": secret.Id},
+			})
+		}
+	}
+	if len(sources) == 0 {
+		return
+	}
+	existing, _ := container["envFrom"].([]interface{})
+	container["envFrom"] = append(existing, sources...)
 }
 
 // isSandboxSigningSecret reports the private key whose secret name is the workload name.
@@ -1338,7 +1437,9 @@ func buildPodAnnotations(workload *v1.Workload, resourceId int) map[string]inter
 }
 
 // buildEnvironment creates environment variables for the workload container.
-func buildEnvironment(workload *v1.Workload, workspace *v1.Workspace, resourceId int) []interface{} {
+// CICD scale sets, github runners and ephemeral runners require the encrypted API key annotation;
+// an ephemeral runner carries its scale set's annotation (cicdWorkloadWithParentAPIKey).
+func buildEnvironment(workload *v1.Workload, workspace *v1.Workspace, resourceId int) ([]interface{}, error) {
 	var result []interface{}
 	if resourceId >= 0 && resourceId < len(workload.Spec.Resources) && workload.Spec.Resources[resourceId].HasGpu() {
 		if workload.GetEnv("AINIC_DRIVER_VERSION") != "" {
@@ -1374,13 +1475,24 @@ func buildEnvironment(workload *v1.Workload, workspace *v1.Workspace, resourceId
 	result = addEnvVar(result, workload, "SAFE_WORKSPACE", workload.Spec.Workspace)
 	result = addEnvVar(result, workload, "DISPLAY_NAME", v1.GetDisplayName(workload))
 	result = addEnvVar(result, workload, "DISPATCH_COUNT", strconv.Itoa(v1.GetWorkloadDispatchCnt(workload)+1))
-	// Inject the workload owner's identity + platform API key so non-CICD
-	// workloads (e.g. multi-node jobs) can authenticate downstream, mirroring
-	// updateCICDScaleSetEnvs. USER_ID is skipped if already set via Spec.Env;
-	// USER_APIKEY is best-effort (empty when DB/lookup is unavailable).
+	// USER_ID is skipped if already set via Spec.Env. CICD scale sets, github runners and
+	// ephemeral runners require the encrypted API key annotation; a UnifiedJob takes its scale set's
+	// annotation and falls back to the DB lookup without one.
 	result = addEnvVar(result, workload, jobutils.UserIdEnv, v1.GetUserId(workload))
-	if commonworkload.IsCICD(workload) || workload.SpecKind() == common.UnifiedJobKind {
-		if platformKey := platformKeyForUserFn(workload); platformKey != "" {
+	if commonworkload.IsCICDProxyRoot(workload) || commonworkload.IsCICDEphemeralRunner(workload) {
+		apiKey, err := cicdAPIKey(workload)
+		if err != nil {
+			return nil, err
+		}
+		result = addEnvVar(result, workload, jobutils.UserApiKeyEnv, apiKey)
+	} else if workload.SpecKind() == common.UnifiedJobKind {
+		if v1.GetAnnotation(workload, v1.UserEncryptedAPIKeyAnnotation) != "" {
+			apiKey, err := cicdAPIKey(workload)
+			if err != nil {
+				return nil, err
+			}
+			result = addEnvVar(result, workload, jobutils.UserApiKeyEnv, apiKey)
+		} else if platformKey := platformKeyForUserFn(workload); platformKey != "" {
 			result = addEnvVar(result, workload, jobutils.UserApiKeyEnv, platformKey)
 		}
 	}
@@ -1396,7 +1508,7 @@ func buildEnvironment(workload *v1.Workload, workspace *v1.Workspace, resourceId
 			}
 		}
 	}
-	return result
+	return result, nil
 }
 
 func addEnvVar(result []interface{}, workload *v1.Workload, name, value string) []interface{} {
@@ -2327,11 +2439,13 @@ func updateCICDScaleSetEnvs(obj *unstructured.Unstructured,
 	}
 	envs := maps.Copy(adminWorkload.Spec.Env)
 	envs[jobutils.UserIdEnv] = v1.GetUserId(adminWorkload)
-	// CICD scale sets have their own env path (not buildEnvironment), so inject
-	// the platform API key here too; best-effort (empty when DB/lookup fails).
-	if platformKey := platformKeyForUserFn(adminWorkload); platformKey != "" {
-		envs[jobutils.UserApiKeyEnv] = platformKey
+	// CICD scale sets have their own env path (not buildEnvironment). The API key
+	// comes from the encrypted annotation written at CreateWorkload.
+	apiKey, err := cicdAPIKey(adminWorkload)
+	if err != nil {
+		return err
 	}
+	envs[jobutils.UserApiKeyEnv] = apiKey
 	envs[jobutils.PriorityEnv] = strconv.Itoa(adminWorkload.Spec.Priority)
 	envs[jobutils.WorkspaceIdEnv] = adminWorkload.Spec.Workspace
 	envs[jobutils.AdminControlPlaneEnv] = v1.GetAdminControlPlane(adminWorkload)

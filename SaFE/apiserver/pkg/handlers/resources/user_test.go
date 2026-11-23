@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/spf13/viper"
 	testifyassert "github.com/stretchr/testify/assert"
 
 	"gotest.tools/assert"
@@ -23,9 +24,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/extauth"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
 
@@ -204,9 +208,22 @@ func TestDeleteUserHandler(t *testing.T) {
 	}}
 	h, user := newAdminHandlerWithObjects(target)
 
+	// Deletion is forwarded to the identity service, which accepts the call.
+	idp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete && r.Header.Get("Authorization") == "Bearer caller-token" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(idp.Close)
+	viper.Set("auth.scim.identity_url", idp.URL)
+	t.Cleanup(func() { viper.Set("auth.scim.identity_url", nil) })
+
 	rsp := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rsp)
 	c.Request = httptest.NewRequest(http.MethodDelete, "/", nil)
+	c.Request.Header.Set("Authorization", "Bearer caller-token")
 	c.Set(common.UserId, user.Name)
 	c.Set(common.Name, "to-delete")
 	h.DeleteUser(c)
@@ -471,7 +488,186 @@ func TestCreateUserHandler(t *testing.T) {
 	c, _ := gin.CreateTestContext(rsp)
 	c.Request = httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
 	c.Request.Header.Set("Content-Type", "application/json")
+	viper.Set("auth.mode", nil)
 	h.CreateUser(c)
-	// SSO disabled in test env -> user created successfully.
-	assert.Equal(t, http.StatusOK, rsp.Code)
+	// Builtin mode with SSO disabled: the account is created and stored.
+	assert.Equal(t, http.StatusOK, rsp.Code, rsp.Body.String())
+	err := h.Get(context.Background(), client.ObjectKey{Name: commonuser.GenerateUserIdByName("newbie")}, &v1.User{})
+	testifyassert.NoError(t, err)
+}
+
+// genWorkspaceUser returns a user that is a member of the joined workspaces and manages the managed ones.
+func genWorkspaceUser(name string, joined, managed []string) *v1.User {
+	u := &v1.User{ObjectMeta: metav1.ObjectMeta{
+		Name:        name,
+		Labels:      map[string]string{v1.UserIdLabel: name},
+		Annotations: map[string]string{v1.UserNameAnnotation: name},
+	}}
+	commonuser.AssignWorkspace(u, joined...)
+	commonuser.AssignManagedWorkspace(u, managed...)
+	return u
+}
+
+// genWorkspaceAdminRole returns the workspace-admin role: update on user/workspace for the managers.
+func genWorkspaceAdminRole() *v1.Role {
+	return &v1.Role{
+		ObjectMeta: metav1.ObjectMeta{Name: string(v1.WorkspaceAdminRole)},
+		Rules: []v1.PolicyRule{{
+			Resources:    []string{authority.UserWorkspaceResource},
+			Verbs:        []v1.RoleVerb{v1.UpdateVerb},
+			GrantedUsers: []string{"workspace-user"},
+		}},
+	}
+}
+
+// newWorkspaceDeltaHandler returns a handler whose store holds the given objects, and a request
+// context for requester. The requester does not hold a system-admin role.
+func newWorkspaceDeltaHandler(ctx context.Context, requester string, objs ...client.Object) (*Handler, *gin.Context) {
+	gin.SetMode(gin.TestMode)
+	scheme := runtime.NewScheme()
+	_ = v1.AddToScheme(scheme)
+	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		append([]client.Object{genWorkspaceAdminRole()}, objs...)...).Build()
+	// Built directly: authority.NewAccessController keeps the first client it is given.
+	h := &Handler{
+		Client:           fakeClient,
+		accessController: &authority.AccessController{Client: fakeClient},
+	}
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(http.MethodPatch, "/", nil).WithContext(ctx)
+	c.Set(common.UserId, requester)
+	return h, c
+}
+
+func TestValidateWorkspaceDelta(t *testing.T) {
+	ws := func(ids ...string) *[]string { return &ids }
+	tests := []struct {
+		name    string
+		req     *view.PatchUserRequest
+		wantErr bool
+	}{
+		{"no delta fields", &view.PatchUserRequest{}, false},
+		{"add only", &view.PatchUserRequest{AddWorkspaces: ws("a")}, false},
+		{"remove only", &view.PatchUserRequest{RemoveWorkspaces: ws("a")}, false},
+		{"add with full list", &view.PatchUserRequest{AddWorkspaces: ws("a"), Workspaces: ws("a")}, true},
+		{"remove with full list", &view.PatchUserRequest{RemoveWorkspaces: ws("a"), Workspaces: ws("a")}, true},
+		{"empty id in add", &view.PatchUserRequest{AddWorkspaces: ws("")}, true},
+		{"empty id in remove", &view.PatchUserRequest{RemoveWorkspaces: ws("a", "")}, true},
+		{"same id in both lists", &view.PatchUserRequest{AddWorkspaces: ws("a"), RemoveWorkspaces: ws("a")}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateWorkspaceDelta(tt.req)
+			if tt.wantErr {
+				testifyassert.True(t, commonerrors.IsBadRequest(err), "err: %v", err)
+			} else {
+				testifyassert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestPatchUserWorkspaceDeltaBadRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	target := genWorkspaceUser("to-patch", []string{"a"}, nil)
+	h, user := newAdminHandlerWithObjects(target)
+
+	for _, body := range []string{
+		`{"addWorkspaces":["a"],"workspaces":["a"]}`,
+		`{"removeWorkspaces":["a"],"workspaces":["a"]}`,
+		`{"addWorkspaces":[""]}`,
+		`{"addWorkspaces":["a"],"removeWorkspaces":["a"]}`,
+	} {
+		rsp := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rsp)
+		c.Request = httptest.NewRequest(http.MethodPatch, "/", bytes.NewReader([]byte(body)))
+		c.Request.Header.Set("Content-Type", "application/json")
+		c.Set(common.UserId, user.Name)
+		c.Set(common.Name, "to-patch")
+		h.PatchUser(c)
+		testifyassert.Equal(t, http.StatusBadRequest, rsp.Code, body)
+	}
+}
+
+func TestAuthUserUpdateWorkspaceDeltaScope(t *testing.T) {
+	// The manager manages A and is a member of A. The target is a member of A and B, and B is not managed by the manager.
+	manager := genWorkspaceUser("manager", []string{"a"}, []string{"a"})
+	h, c := newWorkspaceDeltaHandler(context.Background(), manager.Name, manager)
+	ws := func(ids ...string) *[]string { return &ids }
+
+	// Adding a workspace the manager manages, to a target that is not in it: changed.
+	target := genWorkspaceUser("target", []string{"b"}, nil)
+	changed, err := h.authUserUpdate(c, target, &view.PatchUserRequest{AddWorkspaces: ws("a")})
+	testifyassert.NoError(t, err)
+	testifyassert.True(t, changed)
+
+	// Adding a workspace the target is already in: authorized, not changed.
+	target = genWorkspaceUser("target", []string{"a", "b"}, nil)
+	changed, err = h.authUserUpdate(c, target, &view.PatchUserRequest{AddWorkspaces: ws("a")})
+	testifyassert.NoError(t, err)
+	testifyassert.False(t, changed)
+
+	// Removing a workspace the target is not in: authorized, not changed.
+	target = genWorkspaceUser("target", []string{"b"}, nil)
+	changed, err = h.authUserUpdate(c, target, &view.PatchUserRequest{RemoveWorkspaces: ws("a")})
+	testifyassert.NoError(t, err)
+	testifyassert.False(t, changed)
+
+	// Naming a workspace the manager does not manage is refused, even with a managed one in the same request.
+	target = genWorkspaceUser("target", []string{"a", "b"}, nil)
+	for _, req := range []*view.PatchUserRequest{
+		{RemoveWorkspaces: ws("b")},
+		{AddWorkspaces: ws("c")},
+		{AddWorkspaces: ws("a", "c")},
+		{RemoveWorkspaces: ws("a", "b")},
+	} {
+		changed, err = h.authUserUpdate(c, target, req)
+		testifyassert.True(t, commonerrors.IsForbidden(err), "err: %v", err)
+		testifyassert.False(t, changed)
+	}
+	// The refused requests left the target alone, and the unrelated membership is kept.
+	testifyassert.ElementsMatch(t, []string{"a", "b"}, commonuser.GetWorkspace(target))
+}
+
+func TestAuthUserUpdateWorkspaceDeltaExternalGranted(t *testing.T) {
+	// The manager's identity grants workspaces A and B through a group. The record stores neither,
+	// so an incremental add of a granted workspace must not be persisted: the group's removal would
+	// otherwise leave the access behind.
+	manager := genWorkspaceUser("manager", nil, nil)
+	ctx := extauth.WithOverlay(context.Background(), &extauth.Overlay{
+		UserId:     manager.Name,
+		Workspaces: []string{"a"},
+		Managed:    []string{"a", "b"},
+	})
+	h, c := newWorkspaceDeltaHandler(ctx, manager.Name, manager)
+	ws := func(ids ...string) *[]string { return &ids }
+
+	// Only granted workspaces: no change is stored.
+	req := &view.PatchUserRequest{AddWorkspaces: ws("a")}
+	changed, err := h.authUserUpdate(c, genWorkspaceUser("manager", nil, nil), req)
+	testifyassert.NoError(t, err)
+	testifyassert.False(t, changed)
+	testifyassert.Empty(t, *req.AddWorkspaces)
+
+	// A granted workspace next to a managed one that is not granted only by the record: the
+	// managed one is persisted, the granted one is not.
+	req = &view.PatchUserRequest{AddWorkspaces: ws("a", "b")}
+	target := genWorkspaceUser("manager", nil, nil)
+	changed, err = h.authUserUpdate(c, target, req)
+	testifyassert.NoError(t, err)
+	testifyassert.True(t, changed)
+	testifyassert.Equal(t, []string{"b"}, *req.AddWorkspaces)
+}
+
+func TestApplyUserPatchWorkspaceDelta(t *testing.T) {
+	user := genWorkspaceUser("target", []string{"a", "b", "c"}, nil)
+	req := &view.PatchUserRequest{AddWorkspaces: &[]string{"d"}, RemoveWorkspaces: &[]string{"a"}}
+	applyUserPatch(user, req)
+	testifyassert.ElementsMatch(t, []string{"b", "c", "d"}, commonuser.GetWorkspace(user))
+
+	// Adding a workspace already present, and removing one absent, change nothing else.
+	req = &view.PatchUserRequest{AddWorkspaces: &[]string{"b"}, RemoveWorkspaces: &[]string{"z"}}
+	applyUserPatch(user, req)
+	testifyassert.ElementsMatch(t, []string{"b", "c", "d"}, commonuser.GetWorkspace(user))
 }

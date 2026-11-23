@@ -1,0 +1,848 @@
+/*
+ * Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+ * See LICENSE for license information.
+ */
+
+package resources
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/klog/v2"
+
+	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
+	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/timeutil"
+)
+
+const (
+	pendingEvidencePodLimit     = 5
+	pendingEvidencePodListLimit = 50
+	pendingEvidencePodListPages = 10
+	pendingEvidenceEventLimit   = 5
+	pendingEvidenceObjectLimit  = 20
+	pendingDispatchSlack        = 5 * time.Second
+	pendingEvidenceLogPods      = 3
+	pendingEvidenceLogTail      = 400
+	pendingEvidenceLogLines     = 30
+	pendingEvidenceLineLimit    = 300
+	pendingEvidenceLimit        = 6000
+	pendingReasonSentenceLimit  = 400
+
+	jobManagerAppLabelKey   = "primus-safe-app-name"
+	jobManagerAppLabelValue = "job-manager"
+)
+
+// pendingReasonSummarizer turns pending evidence into one sentence billed to the caller.
+type pendingReasonSummarizer interface {
+	SummarizePendingReason(ctx context.Context, email, ntid, evidence string) (string, error)
+}
+
+// errPendingSummaryUnavailable is returned when no summarizer or caller identity is available.
+var errPendingSummaryUnavailable = errors.New("pending reason summarizer is unavailable")
+
+// fetchPodLogs reads the tail of one pod log. Tests replace it.
+var fetchPodLogs = func(ctx context.Context, clientSet kubernetes.Interface, namespace, name string, tail int64) ([]byte, error) {
+	opts := &corev1.PodLogOptions{TailLines: &tail}
+	return clientSet.CoreV1().Pods(namespace).GetLogs(name, opts).DoRaw(ctx)
+}
+
+type pendingReasonAction int
+
+const (
+	pendingReasonNone pendingReasonAction = iota
+	pendingReasonMessage
+	pendingReasonCollect
+)
+
+// SetPendingReasonSummarizer installs the LiteLLM summarizer used by the pending-reason API.
+// A nil summarizer leaves the scheduler message or the strongest collected fact.
+func (h *Handler) SetPendingReasonSummarizer(s pendingReasonSummarizer) {
+	if h == nil {
+		return
+	}
+	h.pendingSummarizer = s
+}
+
+// GetWorkloadPendingReason explains why a workload is Pending, or why an application is NotReady.
+// The reason is empty for any other phase.
+func (h *Handler) GetWorkloadPendingReason(c *gin.Context) {
+	handle(c, h.getWorkloadPendingReason)
+}
+
+// getWorkloadPendingReason authorizes the caller, reads the live workload, and explains Pending.
+func (h *Handler) getWorkloadPendingReason(c *gin.Context) (interface{}, error) {
+	workload, err := h.getAndAuthWorkload(c)
+	if err != nil {
+		return nil, err
+	}
+	// Queue position and message are written on the control-plane object.
+	// The auth lookup may be a database projection without that status.
+	live, err := h.getAdminWorkload(c.Request.Context(), workload.Name)
+	if apierrors.IsNotFound(err) {
+		// The object is gone (for example removed by its TTL), so it is no longer Pending.
+		return &view.WorkloadPendingReasonResponse{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	email, ntid := h.pendingReasonCaller(c)
+	return &view.WorkloadPendingReasonResponse{
+		Reason: h.resolvePendingReason(c.Request.Context(), live, email, ntid),
+	}, nil
+}
+
+// pendingReasonCaller returns the email and NTID used to bill a summary.
+// A lookup failure still returns the identity already on the request.
+func (h *Handler) pendingReasonCaller(c *gin.Context) (string, string) {
+	user, err := h.getAndSetUsername(c)
+	if err != nil {
+		klog.ErrorS(err, "failed to resolve caller for pending reason")
+	}
+	if user != nil {
+		email := strings.TrimSpace(v1.GetUserEmail(user))
+		ntid := v1.NtidFromPreferredName(v1.GetAnnotation(user, v1.UserPreferredNameAnnotation))
+		if email == "" {
+			email = strings.TrimSpace(v1.GetUserName(user))
+		}
+		if email == "" {
+			email = user.Name
+		}
+		return email, ntid
+	}
+	if name := strings.TrimSpace(c.GetString(common.UserName)); name != "" {
+		return name, ""
+	}
+	return strings.TrimSpace(c.GetString(common.UserId)), ""
+}
+
+// resolvePendingReason selects the message, a summary, or collected evidence for one workload.
+func (h *Handler) resolvePendingReason(ctx context.Context, w *v1.Workload, email, ntid string) string {
+	if w == nil {
+		return ""
+	}
+	action := pendingReasonActionFor(w.Status.Phase, commonworkload.IsApplication(w), w.Status.QueuePosition, w.Status.Message)
+	return applyPendingReason(action, w.Status.Message,
+		func() (string, string) { return h.collectPendingEvidence(ctx, w) },
+		func(text string) (string, error) {
+			if h.pendingSummarizer == nil || strings.TrimSpace(email) == "" {
+				return "", errPendingSummaryUnavailable
+			}
+			summary, err := h.pendingSummarizer.SummarizePendingReason(ctx, email, ntid, text)
+			if err != nil {
+				klog.ErrorS(err, "failed to summarize pending reason", "workload", w.Name)
+			}
+			return summary, err
+		},
+	)
+}
+
+// pendingReasonActionFor chooses how a Pending workload, or a NotReady application, is explained.
+// A queue position of 1 or more keeps a non-empty scheduler message as written, since no pod exists yet.
+// Otherwise the pods are collected, and a non-empty message is included as one piece of evidence.
+func pendingReasonActionFor(phase v1.WorkloadPhase, application bool, queuePosition int, message string) pendingReasonAction {
+	if phase != v1.WorkloadPending && !(phase == v1.WorkloadNotReady && application) {
+		return pendingReasonNone
+	}
+	if queuePosition >= 1 && strings.TrimSpace(message) != "" {
+		return pendingReasonMessage
+	}
+	return pendingReasonCollect
+}
+
+// applyPendingReason runs one decision. collect returns the model prompt and the raw fallback sentence.
+// summarize may be nil. A summary failure returns the fallback.
+func applyPendingReason(action pendingReasonAction, message string, collect func() (string, string), summarize func(string) (string, error)) string {
+	message = strings.TrimSpace(message)
+	switch action {
+	case pendingReasonMessage:
+		return message
+	case pendingReasonCollect:
+		if collect == nil {
+			return ""
+		}
+		evidence, fallback := collect()
+		if message != "" {
+			evidence = "scheduler message: " + message + "\n" + evidence
+			fallback = message
+		}
+		if strings.TrimSpace(evidence) == "" {
+			return ""
+		}
+		return summaryOr(evidence, fallback, summarize)
+	default:
+		return ""
+	}
+}
+
+// summaryOr asks summarize for one sentence and returns fallback when that fails.
+func summaryOr(text, fallback string, summarize func(string) (string, error)) string {
+	fallback = firstSentence(fallback)
+	if summarize == nil {
+		return fallback
+	}
+	summary, err := summarize(text)
+	summary = firstSentence(summary)
+	if err != nil || summary == "" {
+		return fallback
+	}
+	return summary
+}
+
+// collectPendingEvidence gathers provisioning status, data-plane pod facts, and job-manager lines.
+// The second result is the strongest single fact, used when the summary is unavailable.
+func (h *Handler) collectPendingEvidence(ctx context.Context, w *v1.Workload) (string, string) {
+	if w == nil {
+		return "", ""
+	}
+	var lines []string
+	var fallback string
+	if line := provisioningLine(w); line != "" {
+		lines = append(lines, line)
+		fallback = line
+	}
+	podLines, podFallback := h.pendingPodEvidence(ctx, w)
+	lines = append(lines, podLines...)
+	fallback = preferFallback(fallback, podFallback)
+	objectLines, objectFallback := h.workloadObjectEvidence(ctx, w)
+	lines = append(lines, objectLines...)
+	fallback = preferFallback(fallback, objectFallback)
+	logLines := h.jobManagerLogLines(ctx, w.Name)
+	for _, line := range logLines {
+		lines = append(lines, "job-manager "+line)
+	}
+	if len(lines) == 0 {
+		return "", ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Workload %s is %s, queuePosition %d.\n", w.Name, w.Status.Phase, w.Status.QueuePosition)
+	for _, line := range lines {
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	return clipText(b.String(), pendingEvidenceLimit), firstSentence(fallback)
+}
+
+// provisioningLine returns the external placement condition, if the workload has one.
+func provisioningLine(w *v1.Workload) string {
+	if w == nil || w.Status.ExternalExecution == nil {
+		return ""
+	}
+	msg := strings.TrimSpace(w.Status.ExternalExecution.ProvisioningCondition)
+	if msg == "" {
+		return ""
+	}
+	return clipText("provisioning "+msg, pendingEvidenceLineLimit)
+}
+
+// dataPlaneFactory returns the client factory of the data-plane cluster that runs the workload, or nil.
+func (h *Handler) dataPlaneFactory(w *v1.Workload) *k8sclient.ClientFactory {
+	clusterID := v1.GetClusterId(w)
+	if h.clientManager == nil || clusterID == "" || w.Name == "" {
+		return nil
+	}
+	factory, err := commonutils.GetK8sClientFactory(h.clientManager, clusterID)
+	if err != nil {
+		klog.ErrorS(err, "failed to get data plane client", "cluster", clusterID, "workload", w.Name)
+		return nil
+	}
+	return factory
+}
+
+// dataPlaneClientSet returns the clientset of the data-plane cluster that runs the workload, or nil.
+func (h *Handler) dataPlaneClientSet(w *v1.Workload) kubernetes.Interface {
+	factory := h.dataPlaneFactory(w)
+	if factory == nil {
+		return nil
+	}
+	return factory.ClientSet()
+}
+
+// workloadObjectEvidence reads the warnings on the controller objects of the workload. The second result is
+// the strongest warning, used as the fallback.
+func (h *Handler) workloadObjectEvidence(ctx context.Context, w *v1.Workload) ([]string, string) {
+	factory := h.dataPlaneFactory(w)
+	if factory == nil || w.Spec.Workspace == "" {
+		return nil, ""
+	}
+	since := dispatchedSince(w)
+	var events []*corev1.Event
+	for _, target := range workloadObjectTargets(ctx, factory, w) {
+		events = append(events, objectWarnings(ctx, factory.ClientSet(), w.Spec.Workspace, target, since)...)
+	}
+	sort.Slice(events, func(i, j int) bool {
+		return eventLastTime(events[i]).After(eventLastTime(events[j]))
+	})
+	if len(events) > pendingEvidenceEventLimit {
+		events = events[:pendingEvidenceEventLimit]
+	}
+	var lines []string
+	seen := map[string]bool{}
+	var fallback string
+	for _, ev := range events {
+		line := joinReason(fmt.Sprintf("event %s/%s", ev.InvolvedObject.Kind, ev.InvolvedObject.Name),
+			strings.TrimSpace(ev.Reason), strings.TrimSpace(ev.Message))
+		if seen[line] {
+			continue
+		}
+		seen[line] = true
+		lines = append(lines, line)
+		if fallback == "" {
+			fallback = line
+		}
+	}
+	return lines, fallback
+}
+
+// workloadObjectTarget is one controller object whose warnings count as evidence, identified by name and UID.
+type workloadObjectTarget struct {
+	name string
+	uid  types.UID
+}
+
+// workloadObjectTargets lists the controller objects of the workload with their current UIDs. The owners of its
+// pods come first; the object named after the workload is looked up by kind only when no pod owner has that name.
+// Terminating objects are left out.
+func workloadObjectTargets(ctx context.Context, factory *k8sclient.ClientFactory, w *v1.Workload) []workloadObjectTarget {
+	clientSet := factory.ClientSet()
+	namespace := w.Spec.Workspace
+	rootID := v1.GetRootWorkloadId(w)
+	if rootID == "" {
+		rootID = w.Name
+	}
+	var targets []workloadObjectTarget
+	seen := map[types.UID]bool{}
+	add := func(target workloadObjectTarget) {
+		if target.uid == "" || seen[target.uid] {
+			return
+		}
+		seen[target.uid] = true
+		targets = append(targets, target)
+	}
+	for _, target := range podOwnerTargets(ctx, clientSet, namespace, rootID) {
+		add(target)
+	}
+	if !hasTargetNamed(targets, w.Name) {
+		for _, target := range kindObjectTargets(ctx, factory, w) {
+			add(target)
+		}
+	}
+	for _, target := range replicaSetTargets(ctx, clientSet, namespace, rootID) {
+		add(target)
+	}
+	if len(targets) > pendingEvidenceObjectLimit {
+		targets = targets[:pendingEvidenceObjectLimit]
+	}
+	return targets
+}
+
+// podOwnerTargets returns the controllers of the workload's pods that are not terminating.
+func podOwnerTargets(ctx context.Context, clientSet kubernetes.Interface, namespace, rootID string) []workloadObjectTarget {
+	listOpts := metav1.ListOptions{
+		LabelSelector: labels.Set{v1.WorkloadIdLabel: rootID}.String(),
+		Limit:         pendingEvidencePodListLimit,
+	}
+	var targets []workloadObjectTarget
+	for page := 0; page < pendingEvidencePodListPages; page++ {
+		list, err := clientSet.CoreV1().Pods(namespace).List(ctx, listOpts)
+		if err != nil {
+			klog.ErrorS(err, "failed to list workload pods for owners", "workload", rootID)
+			break
+		}
+		for i := range list.Items {
+			pod := &list.Items[i]
+			if owner := metav1.GetControllerOf(pod); owner != nil && pod.DeletionTimestamp == nil {
+				targets = append(targets, workloadObjectTarget{name: owner.Name, uid: owner.UID})
+			}
+		}
+		if list.Continue == "" {
+			break
+		}
+		listOpts.Continue = list.Continue
+	}
+	return targets
+}
+
+// kindObjectTargets gets the object named after the workload for each of its kinds, and keeps it when it exists
+// and is not terminating.
+func kindObjectTargets(ctx context.Context, factory *k8sclient.ClientFactory, w *v1.Workload) []workloadObjectTarget {
+	dynamicClient := factory.DynamicClient()
+	mapper := factory.Mapper()
+	if dynamicClient == nil || mapper == nil {
+		return nil
+	}
+	var targets []workloadObjectTarget
+	for _, gvk := range commonworkload.GetWorkloadGVK(w) {
+		mapping, err := mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+		if err != nil {
+			klog.ErrorS(err, "failed to map workload kind", "kind", gvk.String(), "workload", w.Name)
+			continue
+		}
+		obj, err := dynamicClient.Resource(mapping.Resource).Namespace(w.Spec.Workspace).Get(ctx, w.Name, metav1.GetOptions{})
+		if err != nil {
+			if !apierrors.IsNotFound(err) {
+				klog.ErrorS(err, "failed to get workload object", "kind", gvk.String(), "workload", w.Name)
+			}
+			continue
+		}
+		if obj.GetDeletionTimestamp() == nil {
+			targets = append(targets, workloadObjectTarget{name: obj.GetName(), uid: obj.GetUID()})
+		}
+	}
+	return targets
+}
+
+// replicaSetTargets returns the ReplicaSets labelled with the workload that are controlled by one of its current
+// Deployments and are not terminating.
+func replicaSetTargets(ctx context.Context, clientSet kubernetes.Interface, namespace, rootID string) []workloadObjectTarget {
+	selector := labels.Set{v1.WorkloadIdLabel: rootID}.String()
+	deployments, err := clientSet.AppsV1().Deployments(namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
+	if err != nil {
+		klog.ErrorS(err, "failed to list workload deployments", "workload", rootID)
+		return nil
+	}
+	current := map[types.UID]bool{}
+	for i := range deployments.Items {
+		current[deployments.Items[i].UID] = true
+	}
+	replicaSets, err := clientSet.AppsV1().ReplicaSets(namespace).List(ctx, metav1.ListOptions{LabelSelector: selector})
+	if err != nil {
+		klog.ErrorS(err, "failed to list workload replica sets", "workload", rootID)
+		return nil
+	}
+	var targets []workloadObjectTarget
+	for i := range replicaSets.Items {
+		rs := &replicaSets.Items[i]
+		owner := metav1.GetControllerOf(rs)
+		if owner == nil || owner.Kind != "Deployment" || !current[owner.UID] || rs.DeletionTimestamp != nil {
+			continue
+		}
+		targets = append(targets, workloadObjectTarget{name: rs.Name, uid: rs.UID})
+	}
+	return targets
+}
+
+// hasTargetNamed reports whether one of the targets has the given name.
+func hasTargetNamed(targets []workloadObjectTarget, name string) bool {
+	for _, target := range targets {
+		if target.name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// objectWarnings returns the warnings recorded on one target object, matched by UID and, when the dispatch time
+// is known, not earlier than the dispatch less a small slack. Pods are excluded: their events are read by the pod path.
+func objectWarnings(ctx context.Context, clientSet kubernetes.Interface, namespace string,
+	target workloadObjectTarget, dispatched time.Time) []*corev1.Event {
+	list, err := clientSet.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{
+		FieldSelector: fields.OneTermEqualSelector("involvedObject.name", target.name).String(),
+	})
+	if err != nil || list == nil {
+		if err != nil {
+			klog.ErrorS(err, "failed to list object events", "object", target.name, "namespace", namespace)
+		}
+		return nil
+	}
+	var since time.Time
+	if !dispatched.IsZero() {
+		since = dispatched.Add(-pendingDispatchSlack)
+	}
+	var result []*corev1.Event
+	for i := range list.Items {
+		ev := &list.Items[i]
+		if ev.Type != corev1.EventTypeWarning || ev.InvolvedObject.Name != target.name || ev.InvolvedObject.Kind == "Pod" {
+			continue
+		}
+		if ev.InvolvedObject.UID != target.uid {
+			continue
+		}
+		if !since.IsZero() && eventLastTime(ev).Before(since) {
+			continue
+		}
+		result = append(result, ev)
+	}
+	return result
+}
+
+// dispatchedSince returns the time of the workload's latest dispatch, or the zero time when unknown.
+func dispatchedSince(w *v1.Workload) time.Time {
+	at, err := timeutil.CvtStrToRFC3339Milli(v1.GetAnnotation(w, v1.WorkloadDispatchedAnnotation))
+	if err != nil {
+		return time.Time{}
+	}
+	return at
+}
+
+// pendingPodEvidence reads the pods that hold a workload back and their scheduling events from the
+// data-plane cluster. A Pending workload reads Pending pods; a NotReady one also reads Running pods that are not ready.
+func (h *Handler) pendingPodEvidence(ctx context.Context, w *v1.Workload) ([]string, string) {
+	clientSet := h.dataPlaneClientSet(w)
+	if clientSet == nil {
+		return nil, ""
+	}
+	listOpts := metav1.ListOptions{
+		LabelSelector: labels.Set{v1.WorkloadIdLabel: w.Name}.String(),
+		Limit:         pendingEvidencePodListLimit,
+	}
+	if w.Status.Phase != v1.WorkloadNotReady {
+		listOpts.FieldSelector = fields.OneTermEqualSelector("status.phase", string(corev1.PodPending)).String()
+	}
+	var pending []corev1.Pod
+	// The readiness filter runs client side, so follow the continuation until enough
+	// held-back pods are found or the pages are exhausted.
+	for page := 0; page < pendingEvidencePodListPages; page++ {
+		list, err := clientSet.CoreV1().Pods(metav1.NamespaceAll).List(ctx, listOpts)
+		if err != nil {
+			klog.ErrorS(err, "failed to list workload pods", "workload", w.Name)
+			break
+		}
+		for i := range list.Items {
+			if isHeldBackPod(&list.Items[i], w.Status.Phase == v1.WorkloadNotReady) {
+				pending = append(pending, list.Items[i])
+			}
+		}
+		if len(pending) >= pendingEvidencePodLimit || list.Continue == "" {
+			break
+		}
+		listOpts.Continue = list.Continue
+	}
+	sort.Slice(pending, func(i, j int) bool { return pending[i].Name < pending[j].Name })
+	if len(pending) > pendingEvidencePodLimit {
+		pending = pending[:pendingEvidencePodLimit]
+	}
+	var lines []string
+	var fallback string
+	for i := range pending {
+		podLines, podFallback := describePendingPod(&pending[i])
+		lines = append(lines, podLines...)
+		fallback = preferFallback(fallback, podFallback)
+		evLines, evFallback := podSchedulingEvents(ctx, clientSet, &pending[i])
+		lines = append(lines, evLines...)
+		fallback = preferFallback(fallback, evFallback)
+	}
+	return lines, fallback
+}
+
+// isHeldBackPod reports whether a pod is Pending, or, when includeNotReady is set, Running without being ready.
+func isHeldBackPod(pod *corev1.Pod, includeNotReady bool) bool {
+	if pod.Status.Phase == corev1.PodPending {
+		return true
+	}
+	if !includeNotReady || pod.Status.Phase != corev1.PodRunning {
+		return false
+	}
+	for i := range pod.Status.Conditions {
+		if pod.Status.Conditions[i].Type == corev1.PodReady {
+			return pod.Status.Conditions[i].Status != corev1.ConditionTrue
+		}
+	}
+	return true
+}
+
+// describePendingPod formats container waiting reasons, an unschedulable condition, and, for a
+// Running pod, the readiness conditions that are not true.
+// The fallback prefers a container waiting reason over the scheduling condition, then a readiness condition.
+func describePendingPod(pod *corev1.Pod) ([]string, string) {
+	if pod == nil {
+		return nil, ""
+	}
+	var lines []string
+	var fallback string
+	statuses := make([]corev1.ContainerStatus, 0, len(pod.Status.InitContainerStatuses)+len(pod.Status.ContainerStatuses))
+	statuses = append(statuses, pod.Status.InitContainerStatuses...)
+	statuses = append(statuses, pod.Status.ContainerStatuses...)
+	for i := range statuses {
+		waiting := statuses[i].State.Waiting
+		if waiting == nil {
+			continue
+		}
+		line := joinReason(fmt.Sprintf("pod/%s container %s waiting", pod.Name, statuses[i].Name),
+			strings.TrimSpace(waiting.Reason), strings.TrimSpace(waiting.Message))
+		lines = append(lines, line)
+		if fallback == "" {
+			fallback = line
+		}
+	}
+	for i := range pod.Status.Conditions {
+		cond := &pod.Status.Conditions[i]
+		if cond.Type != corev1.PodScheduled || cond.Status == corev1.ConditionTrue {
+			continue
+		}
+		line := joinReason(fmt.Sprintf("pod/%s unschedulable", pod.Name),
+			strings.TrimSpace(cond.Reason), strings.TrimSpace(cond.Message))
+		lines = append(lines, line)
+		if fallback == "" {
+			fallback = line
+		}
+	}
+	readyLines := notReadyConditionLines(pod)
+	lines = append(lines, readyLines...)
+	if fallback == "" && len(readyLines) > 0 {
+		fallback = readyLines[0]
+	}
+	return lines, fallback
+}
+
+// notReadyConditionLines formats the readiness conditions of a Running pod that are not true:
+// Ready, ContainersReady, and the pod's readiness gates. Conditions that repeat a reason and message are listed once.
+func notReadyConditionLines(pod *corev1.Pod) []string {
+	if pod == nil || pod.Status.Phase != corev1.PodRunning {
+		return nil
+	}
+	relevant := map[corev1.PodConditionType]bool{corev1.PodReady: true, corev1.ContainersReady: true}
+	for _, gate := range pod.Spec.ReadinessGates {
+		relevant[gate.ConditionType] = true
+	}
+	var lines []string
+	seen := map[string]bool{}
+	for i := range pod.Status.Conditions {
+		cond := &pod.Status.Conditions[i]
+		if !relevant[cond.Type] || cond.Status == corev1.ConditionTrue {
+			continue
+		}
+		reason, message := strings.TrimSpace(cond.Reason), strings.TrimSpace(cond.Message)
+		key := reason + "|" + message
+		if (reason != "" || message != "") && seen[key] {
+			continue
+		}
+		seen[key] = true
+		lines = append(lines, joinReason(fmt.Sprintf("pod/%s condition %s is %s", pod.Name, cond.Type, cond.Status), reason, message))
+	}
+	return lines
+}
+
+// podSchedulingEvents returns the newest warning or scheduling events for one pod.
+func podSchedulingEvents(ctx context.Context, clientSet kubernetes.Interface, pod *corev1.Pod) ([]string, string) {
+	if clientSet == nil || pod == nil || pod.Name == "" {
+		return nil, ""
+	}
+	selector := fields.AndSelectors(
+		fields.OneTermEqualSelector("involvedObject.name", pod.Name),
+		fields.OneTermEqualSelector("involvedObject.kind", "Pod"),
+	).String()
+	list, err := clientSet.CoreV1().Events(pod.Namespace).List(ctx, metav1.ListOptions{
+		FieldSelector: selector,
+	})
+	if err != nil || list == nil {
+		if err != nil {
+			klog.ErrorS(err, "failed to list pod events", "pod", pod.Name)
+		}
+		return nil, ""
+	}
+	events := make([]*corev1.Event, 0, len(list.Items))
+	for i := range list.Items {
+		ev := &list.Items[i]
+		if ev.InvolvedObject.Name != pod.Name || ev.InvolvedObject.Kind != "Pod" {
+			continue
+		}
+		if ev.InvolvedObject.UID != "" && pod.UID != "" && ev.InvolvedObject.UID != pod.UID {
+			continue
+		}
+		if !isPendingSignalEvent(ev) {
+			continue
+		}
+		events = append(events, ev)
+	}
+	sort.Slice(events, func(i, j int) bool {
+		return eventLastTime(events[i]).After(eventLastTime(events[j]))
+	})
+	if len(events) > pendingEvidenceEventLimit {
+		events = events[:pendingEvidenceEventLimit]
+	}
+	var lines []string
+	var fallback string
+	for _, ev := range events {
+		line := joinReason("event", strings.TrimSpace(ev.Reason), strings.TrimSpace(ev.Message))
+		lines = append(lines, line)
+		if fallback == "" {
+			fallback = line
+		}
+	}
+	return lines, fallback
+}
+
+// isPendingSignalEvent reports whether an event can explain why a pod is still pending.
+func isPendingSignalEvent(ev *corev1.Event) bool {
+	if ev == nil {
+		return false
+	}
+	if ev.Type == corev1.EventTypeWarning {
+		return true
+	}
+	blob := strings.ToLower(ev.Reason + " " + ev.Message)
+	for _, needle := range []string{
+		"scale", "schedul", "quota", "unschedul", "image", "pull", "backoff", "preempt", "lease", "pool",
+	} {
+		if strings.Contains(blob, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+// eventLastTime is the newest timestamp recorded on an event.
+func eventLastTime(ev *corev1.Event) time.Time {
+	if ev == nil {
+		return time.Time{}
+	}
+	if !ev.LastTimestamp.IsZero() {
+		return ev.LastTimestamp.Time
+	}
+	if !ev.EventTime.IsZero() {
+		return ev.EventTime.Time
+	}
+	if !ev.FirstTimestamp.IsZero() {
+		return ev.FirstTimestamp.Time
+	}
+	return ev.CreationTimestamp.Time
+}
+
+// jobManagerLogLines returns recent job-manager log lines that mention the workload.
+func (h *Handler) jobManagerLogLines(ctx context.Context, workloadID string) []string {
+	if h.clientSet == nil || workloadID == "" {
+		return nil
+	}
+	deps, err := h.clientSet.AppsV1().Deployments(common.PrimusSafeNamespace).List(ctx, metav1.ListOptions{
+		LabelSelector: labels.Set{jobManagerAppLabelKey: jobManagerAppLabelValue}.String(),
+	})
+	if err != nil {
+		klog.ErrorS(err, "failed to list job-manager deployments", "workload", workloadID)
+		return nil
+	}
+	var pods []corev1.Pod
+	for i := range deps.Items {
+		sel := deps.Items[i].Spec.Selector
+		if sel == nil || len(sel.MatchLabels) == 0 {
+			continue
+		}
+		list, err := h.clientSet.CoreV1().Pods(common.PrimusSafeNamespace).List(ctx, metav1.ListOptions{
+			LabelSelector: labels.Set(sel.MatchLabels).String(),
+		})
+		if err != nil {
+			klog.ErrorS(err, "failed to list job-manager pods", "workload", workloadID)
+			continue
+		}
+		pods = append(pods, list.Items...)
+	}
+	sort.Slice(pods, func(i, j int) bool {
+		return pods[i].CreationTimestamp.Time.After(pods[j].CreationTimestamp.Time)
+	})
+	if len(pods) > pendingEvidenceLogPods {
+		pods = pods[:pendingEvidenceLogPods]
+	}
+	var lines []string
+	for i := range pods {
+		if len(lines) >= pendingEvidenceLogLines {
+			break
+		}
+		raw, err := fetchPodLogs(ctx, h.clientSet, pods[i].Namespace, pods[i].Name, pendingEvidenceLogTail)
+		if err != nil {
+			klog.ErrorS(err, "failed to read job-manager log", "pod", pods[i].Name, "workload", workloadID)
+			continue
+		}
+		lines = append(lines, filterWorkloadLogLines(string(raw), workloadID, pendingEvidenceLogLines-len(lines))...)
+	}
+	return lines
+}
+
+// filterWorkloadLogLines keeps lines that mention the workload, up to limit.
+func filterWorkloadLogLines(raw, workloadID string, limit int) []string {
+	if limit <= 0 || workloadID == "" {
+		return nil
+	}
+	var out []string
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || !strings.Contains(line, workloadID) {
+			continue
+		}
+		out = append(out, clipText(line, pendingEvidenceLineLimit))
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+// preferFallback keeps the more specific fact. A container wait outranks an
+// unschedulable condition, which outranks an event, which outranks provisioning.
+func preferFallback(current, next string) string {
+	if next == "" {
+		return current
+	}
+	if current == "" || evidenceRank(next) > evidenceRank(current) {
+		return next
+	}
+	return current
+}
+
+// evidenceRank scores one collected fact. Higher is more specific.
+func evidenceRank(line string) int {
+	switch {
+	case strings.Contains(line, " waiting "):
+		return 4
+	case strings.Contains(line, "unschedulable"):
+		return 3
+	case strings.HasPrefix(line, "event "):
+		return 2
+	case strings.HasPrefix(line, "provisioning "):
+		return 1
+	default:
+		return 0
+	}
+}
+
+// joinReason formats a prefix with an optional reason and message.
+func joinReason(prefix, reason, message string) string {
+	var line string
+	switch {
+	case reason != "" && message != "":
+		line = prefix + " " + reason + ": " + message
+	case reason != "":
+		line = prefix + " " + reason
+	case message != "":
+		line = prefix + ": " + message
+	default:
+		line = prefix
+	}
+	return clipText(line, pendingEvidenceLineLimit)
+}
+
+// firstSentence collapses a model reply or a fact into one clipped line.
+func firstSentence(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.Join(strings.Fields(s), " ")
+	return clipText(s, pendingReasonSentenceLimit)
+}
+
+// clipText shortens s to at most n runes.
+func clipText(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	runes := []rune(s)
+	if len(runes) <= n {
+		return s
+	}
+	return strings.TrimSpace(string(runes[:n]))
+}

@@ -42,9 +42,10 @@ func newPrivilegedVolumeFixture(t *testing.T) *hostPathFixture {
 	return f
 }
 
-// A member's workload is created without the mark, so the dispatcher leaves the volumes that
-// require the grant out of it; a primus-safe annotation in the request cannot set the mark.
-func TestMembersDoNotGetPrivilegedVolumes(t *testing.T) {
+// A member holds workload/privileged through the default role, so the workload is marked and the
+// dispatcher mounts the volumes that require the grant. A mark sent in the request is not what
+// admits it: the check removes it and sets it again. There is no hostpath, so that mark stays off.
+func TestMembersGetPrivilegedVolumes(t *testing.T) {
 	for _, annotations := range []map[string]string{
 		nil,
 		{v1.WorkloadPrivilegedVolumesAuthzAnnotation: v1.TrueStr},
@@ -54,17 +55,17 @@ func TestMembersDoNotGetPrivilegedVolumes(t *testing.T) {
 			f := newPrivilegedVolumeFixture(t)
 			stored, err := f.create(t, who, common.PytorchJobKind, nil, annotations)
 			require.NoError(t, err, "%s %v", who, annotations)
-			require.False(t, v1.HasAnnotation(stored, v1.WorkloadPrivilegedVolumesAuthzAnnotation),
-				"%s got the mark with request annotations %v", who, annotations)
+			require.Equal(t, v1.TrueStr, v1.GetAnnotation(stored, v1.WorkloadPrivilegedVolumesAuthzAnnotation),
+				"%s %v", who, annotations)
 			require.False(t, v1.HasAnnotation(stored, v1.WorkloadHostPathAuthzAnnotation))
 		}
 	}
 }
 
 // A member who asks for a volume that requires the grant, by naming its hostPath, a path under it
-// or a path containing it in spec.hostpath, is refused with 403 naming the volume and the grant,
-// and nothing is created; a forged mark does not help.
-func TestMembersAskingForPrivilegedVolumesAreRefused(t *testing.T) {
+// or a path containing it in spec.hostpath, is admitted: the default role grants
+// workload/privileged. The workload carries both marks.
+func TestMembersAskingForPrivilegedVolumesAreAdmitted(t *testing.T) {
 	for _, tt := range []struct {
 		name        string
 		hostpath    []string
@@ -78,12 +79,10 @@ func TestMembersAskingForPrivilegedVolumesAreRefused(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newPrivilegedVolumeFixture(t)
-			_, err := f.create(t, hpMember, common.PytorchJobKind, tt.hostpath, tt.annotations)
-			require.True(t, apierrors.IsForbidden(err), "want 403, got %v", err)
-			require.Contains(t, err.Error(), "requiresPrivilegedGrant")
-			require.Contains(t, err.Error(), "volume 6")
-			require.Contains(t, err.Error(), "requires the workload/privileged grant")
-			require.Equal(t, 0, f.workloadCount(t), "a refused workload was created")
+			stored, err := f.create(t, hpMember, common.PytorchJobKind, tt.hostpath, tt.annotations)
+			require.NoError(t, err)
+			require.Equal(t, v1.TrueStr, v1.GetAnnotation(stored, v1.WorkloadPrivilegedVolumesAuthzAnnotation))
+			require.Equal(t, v1.TrueStr, v1.GetAnnotation(stored, v1.WorkloadHostPathAuthzAnnotation))
 		})
 	}
 }
@@ -116,8 +115,8 @@ func TestPrivilegedVolumeMarkOnlyWhenItDecides(t *testing.T) {
 	require.False(t, v1.HasAnnotation(stored, v1.WorkloadPrivilegedVolumesAuthzAnnotation))
 }
 
-// The mark is set only by the check: a workload that reaches the create path already carrying it
-// (resume and preheat build the workload themselves) loses it when its creator lacks the grant.
+// The mark is set only by the check. A member holds the grant, so a workload that arrives already
+// carrying the mark keeps it because the check sets it, not because the request annotation is kept.
 func TestPrivilegedVolumeMarkIsSetOnlyByTheCheck(t *testing.T) {
 	f := newPrivilegedVolumeFixture(t)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
@@ -138,7 +137,7 @@ func TestPrivilegedVolumeMarkIsSetOnlyByTheCheck(t *testing.T) {
 	require.NoError(t, err)
 	stored := &v1.Workload{}
 	require.NoError(t, f.cli.Get(t.Context(), client.ObjectKey{Name: "preset"}, stored))
-	require.False(t, v1.HasAnnotation(stored, v1.WorkloadPrivilegedVolumesAuthzAnnotation))
+	require.Equal(t, v1.TrueStr, v1.GetAnnotation(stored, v1.WorkloadPrivilegedVolumesAuthzAnnotation))
 }
 
 // A system administrator who creates a workload on behalf of another user (userEntity, as the
@@ -149,8 +148,8 @@ func TestPrivilegedVolumesOnBehalfOfAnotherUser(t *testing.T) {
 		owner string
 		want  bool
 	}{
-		{hpMember, false},
-		{hpOtherManager, false},
+		{hpMember, true},
+		{hpOtherManager, true},
 		{"no-such-user", false},
 		{hpManager, true},
 	} {

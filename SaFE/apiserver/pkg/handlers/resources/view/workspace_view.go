@@ -43,11 +43,11 @@ type CreateWorkspaceRequest struct {
 	IsDefault bool `json:"isDefault,omitempty"`
 	// Workspace image secret ID, used for downloading images
 	ImageSecretIds []string `json:"imageSecretIds,omitempty"`
-	// The maximum workload runtime of each scope, Unit: hours
-	MaxRuntime map[v1.WorkspaceScope]int `json:"maxRuntime,omitempty"`
 	// Trigger workload processing after a period of workspace inactivity. The idletime of each scope, Unit: "12h0m0s"
 	// only for sandbox workload
 	IdleTime map[v1.WorkspaceScope]string `json:"idleTime,omitempty"`
+	// Stop running workloads whose GPU utilization stays low, per scope
+	LowUtilization map[v1.WorkspaceScope]v1.LowUtilizationPolicy `json:"lowUtilization,omitempty"`
 	// User-defined labels. Keys starting with "primus-safe." are ignored unless the
 	// caller is a system admin (used for reserved labels such as external).
 	Labels map[string]string `json:"labels,omitempty"`
@@ -105,11 +105,11 @@ type WorkspaceResponseItem struct {
 	Managers []UserEntity `json:"managers"`
 	// Set the workspace as the default workspace (i.e., all users can access it).
 	IsDefault bool `json:"isDefault"`
-	// The maximum workload runtime of each scope, Unit: hours
-	MaxRuntime map[v1.WorkspaceScope]int `json:"maxRuntime,omitempty"`
 	// Trigger workload processing after a period of workspace inactivity. The idletime of each scope, Unit: "12h0m0s"
 	// only for sandbox workload
 	IdleTime map[v1.WorkspaceScope]string `json:"idleTime,omitempty"`
+	// Stop running workloads whose GPU utilization stays low, per scope
+	LowUtilization map[v1.WorkspaceScope]v1.LowUtilizationPolicy `json:"lowUtilization,omitempty"`
 	// GPU product for this workspace (e.g. "MI300X", "MI325X"). The default is empty.
 	GpuProduct string `json:"gpuProduct,omitempty"`
 	// External is true when the workspace is labeled primus-safe.workspace.external=true.
@@ -154,11 +154,11 @@ type PatchWorkspaceRequest struct {
 	IsDefault *bool `json:"isDefault,omitempty"`
 	// Workspace image secret ID, used for downloading images
 	ImageSecretIds *[]string `json:"imageSecretIds,omitempty"`
-	// The maximum workload runtime of each scope, Unit: hours
-	MaxRuntime *map[v1.WorkspaceScope]int `json:"maxRuntime,omitempty"`
 	// Trigger workload processing after a period of workspace inactivity. The idletime of each scope, Unit: "0h0m0s"
 	// only for sandbox workload
 	IdleTime *map[v1.WorkspaceScope]string `json:"idleTime,omitempty"`
+	// Stop running workloads whose GPU utilization stays low, per scope. An empty map removes every policy
+	LowUtilization *map[v1.WorkspaceScope]v1.LowUtilizationPolicy `json:"lowUtilization,omitempty"`
 }
 
 type WorkspaceEntry struct {

@@ -481,14 +481,14 @@ func (r *AddonController) getCluster(ctx context.Context, cluster *corev1.Object
 }
 
 const (
-	robustAddonPrefix        = "primus-robust"
-	annotationRobustEndpoint = "primus-safe.amd.com/robust-api-endpoint"
-	// The primus-robust chart deploys a single Deployment called
-	// "robust-analyzer" that embeds the robust-api module on port 8085.
-	// There is no standalone "robust-api" Service — the previous default
-	// pointed at a DNS name that did not exist, which surfaced as
-	// "connection refused" on every cross-cluster call.
-	defaultRobustAPIService = "robust-analyzer"
+	robustAddonPrefix           = "primus-robust"
+	annotationRobustEndpoint    = "primus-safe.amd.com/robust-api-endpoint"
+	annotationRobustTokenSecret = "primus-safe.amd.com/robust-service-token-secret"
+	// The primus-robust chart serves the Robust API from the "robust-api"
+	// Service on port 8085: a standalone robust-api Deployment, or
+	// robust-manager's compatibility Service when that is enabled. Its
+	// robust-analyzer runs as a worker and answers every API route with 404.
+	defaultRobustAPIService = "robust-api"
 	defaultRobustAPIPort    = "8085"
 )
 
@@ -542,7 +542,7 @@ func (r *AddonController) registerRobustEndpointIfApplicable(ctx context.Context
 	// across cluster boundaries. We only fill in a first-install default.
 	if existing, ok := cluster.Annotations[annotationRobustEndpoint]; ok && existing != "" {
 		if r.grafanaSyncer != nil {
-			r.grafanaSyncer.SyncClusterDatasources(ctx, clusterRef.Name, existing)
+			r.grafanaSyncer.SyncClusterDatasources(ctx, clusterRef.Name, existing, cluster.Annotations[annotationRobustTokenSecret])
 		}
 		return
 	}
@@ -556,7 +556,7 @@ func (r *AddonController) registerRobustEndpointIfApplicable(ctx context.Context
 	klog.Infof("[addon] registered robust-api endpoint for cluster %s: %s", clusterRef.Name, endpoint)
 
 	if r.grafanaSyncer != nil {
-		r.grafanaSyncer.SyncClusterDatasources(ctx, clusterRef.Name, endpoint)
+		r.grafanaSyncer.SyncClusterDatasources(ctx, clusterRef.Name, endpoint, cluster.Annotations[annotationRobustTokenSecret])
 	}
 }
 

@@ -187,6 +187,11 @@ jobs:
       - name: Test upgrade.sh authentication settings
         run: bash SaFE/bootstrap/tests/upgrade_auth_test.sh
 
+      # Runs upgrade.sh with a stand-in helm and kubectl and checks the cluster-scoped objects of the
+      # chart in a console deployment and an administrator upgrade.
+      - name: Test upgrade.sh cluster objects
+        run: bash SaFE/bootstrap/tests/upgrade_cd_rbac_test.sh
+
       # Renders the primus-safe chart and checks its RBAC and that of bootstrap/cd-installer-rbac.yaml
       # (helm, yq and jq are on the runner image).
       - name: Test chart RBAC

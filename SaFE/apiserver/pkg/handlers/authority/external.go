@@ -22,6 +22,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/extauth"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/identity"
 	apimetrics "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/metrics"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
@@ -47,10 +48,13 @@ type externalAuth struct {
 
 var externalState atomic.Pointer[externalAuth]
 
-// InitExternalAuth builds the authenticator chain when auth.mode is external; in
-// builtin mode (the default) it does nothing and ParseToken is unchanged. An
-// external mode that cannot be built is an error: it must not start as builtin.
+// InitExternalAuth builds the authenticator chain when auth.mode is external. Builtin mode,
+// the default, leaves the chain unset and ParseToken stays the local one. An external mode
+// that cannot be built is an error: it must not start as builtin.
 func InitExternalAuth(cli client.Client) error {
+	if err := commonconfig.CheckAuthMode(); err != nil {
+		return err
+	}
 	if commonconfig.GetAuthMode() != commonconfig.AuthModeExternal {
 		externalState.Store(nil)
 		// The one thing builtin mode takes from the external configuration: POST /auth/verify answering the
@@ -69,6 +73,9 @@ func InitExternalAuth(cli client.Client) error {
 	}
 	chain, err := buildChain(cfgs)
 	if err != nil {
+		return err
+	}
+	if err = refuseLoginAudience(cfgs); err != nil {
 		return err
 	}
 	keyActors := map[string]struct{}{}
@@ -108,9 +115,44 @@ func warnStoredPlatformRoles(cfgs []commonconfig.AuthenticatorConfig) {
 	klog.Warning(msg)
 }
 
+// refuseLoginAudience refuses an external chain that would take the console's ID token as a credential.
+// That token (audience sso.login.client_id) only proves to this apiserver, once, at sign-in, that the
+// browser was given the code; the browser's credential is the identity provider's own session, which
+// the identity provider and every service asking it accept. A chain that also accepted the ID token
+// would let the console count as signed in where nothing else does.
+func refuseLoginAudience(cfgs []commonconfig.AuthenticatorConfig) error {
+	if !commonconfig.IsSSOLoginEnable() {
+		return nil
+	}
+	login := commonconfig.GetSSOLoginClientId()
+	if login == "" {
+		return errors.New("sso.login.enable is set but sso.login.client_id is empty")
+	}
+	for i, c := range cfgs {
+		if strings.EqualFold(c.Type, "oidc") && c.Audience == login {
+			return fmt.Errorf("auth.authenticators[%d] is an oidc entry for audience %q, which is sso.login.client_id: "+
+				"the console's ID token must not be a credential; remove that entry", i, login)
+		}
+	}
+	return nil
+}
+
 func buildChain(cfgs []commonconfig.AuthenticatorConfig) (*extauth.Chain, error) {
 	if len(cfgs) == 0 {
 		return nil, errors.New("auth.mode is external but auth.authenticators is empty")
+	}
+	if !commonconfig.AllowOIDCOnly() {
+		fallback := false
+		for _, c := range cfgs {
+			t := strings.ToLower(c.Type)
+			if t == "introspection" || t == "builtin" {
+				fallback = true
+				break
+			}
+		}
+		if !fallback {
+			return nil, errors.New("auth.mode is external but auth.authenticators has no introspection or builtin entry; set auth.allow_oidc_only to accept an oidc-only chain")
+		}
 	}
 	var list []extauth.Authenticator
 	for i, c := range cfgs {
@@ -156,7 +198,7 @@ func buildChain(cfgs []commonconfig.AuthenticatorConfig) (*extauth.Chain, error)
 			a, err := extauth.NewIntrospectionAuthenticator(extauth.IntrospectionConfig{
 				Name: c.Name, URL: c.URL, Issuer: c.Issuer, CABundle: c.CABundle,
 				Audience: c.Audience, AllowMissingAudience: c.AllowMissingAudience,
-				ClientID: c.ClientID, ClientSecretFile: c.ClientSecretFile,
+				ClientID: c.ClientID, ClientIDFile: c.ClientIDFile, ClientSecretFile: c.ClientSecretFile,
 				Timeout: d[0], CacheTTL: d[1], CacheNegativeTTL: d[2], StaleIfError: d[3],
 			})
 			if err != nil {
@@ -176,7 +218,7 @@ func buildChain(cfgs []commonconfig.AuthenticatorConfig) (*extauth.Chain, error)
 // when the chain reached the built-in mode and the caller must run it.
 func parseExternal(c *gin.Context, st *externalAuth) (handled bool, err error) {
 	cred := extauth.Credentials{ClientIP: c.ClientIP()}
-	cred.Bearer = getBearerToken(c)
+	cred.Bearer = GetBearerToken(c)
 	if cookie, cerr := c.Cookie(CookieToken); cerr == nil {
 		cred.Cookie = cookie
 		cred.UserType, _ = c.Cookie(common.UserType)
@@ -288,7 +330,7 @@ func (st *externalAuth) overlay(id *extauth.Identity) *extauth.Overlay {
 var errInvalidUserId = errors.New("the authenticated user id is not a valid resource name")
 
 // ensureUser creates the user record the first time an identity is seen. For a record
-// that already exists it refreshes the name and email annotations, best effort: roles
+// that already exists it refreshes the name, email and preferred name annotations, best effort: roles
 // are not touched (the admission webhook gives a new user the default role, and group
 // roles are computed per request), and a refresh that fails never fails the request.
 // It returns the record as it is after that.
@@ -309,11 +351,12 @@ func (st *externalAuth) ensureUser(ctx context.Context, id *extauth.Identity) (*
 		ObjectMeta: metav1.ObjectMeta{
 			Name: id.ID,
 			Annotations: map[string]string{
-				v1.UserNameAnnotation:  id.Name,
-				v1.UserEmailAnnotation: id.Email,
+				v1.UserNameAnnotation:          id.Name,
+				v1.UserEmailAnnotation:         id.Email,
+				v1.UserPreferredNameAnnotation: id.PreferredName,
 			},
 		},
-		Spec: v1.UserSpec{Type: v1.SSOUserType},
+		Spec: v1.UserSpec{Type: accountType(id)},
 	}
 	if err = client.IgnoreAlreadyExists(st.client.Create(ctx, user)); err != nil {
 		return nil, err
@@ -321,20 +364,75 @@ func (st *externalAuth) ensureUser(ctx context.Context, id *extauth.Identity) (*
 	return user, nil
 }
 
-// refreshUser makes the name and email annotations of an existing record follow the
-// identity's claims. It is for the display only, so it is best effort: an error is
-// logged and the request goes on. The account itself is never changed, and a record
-// that is not an SSO user is left alone: the identity provider names an existing local
-// account (Spec.Type default) by its user id, but the account stays what it is. Its
-// user name is immutable, the user webhook refuses a patch that changes it, and a login
-// through the provider is no reason to rewrite a record that SaFE manages.
+// accountType is the user type to store. A username/password account is default. An answer
+// that names anything else, or names nothing, is sso.
+func accountType(id *extauth.Identity) v1.UserType {
+	if id != nil && id.AccountType == string(v1.DefaultUserType) {
+		return v1.DefaultUserType
+	}
+	return v1.SSOUserType
+}
+
+// CheckExternalDeployment rejects an external configuration that cannot sign in, grant an
+// administrator, or resolve the identity service URL while SCIM and auth.provider_client are
+// enabled. Builtin mode returns nil.
+func CheckExternalDeployment() error {
+	if commonconfig.GetAuthMode() != commonconfig.AuthModeExternal {
+		return nil
+	}
+	if strings.TrimSpace(commonconfig.GetAuthLoginURL()) == "" {
+		return errors.New("auth.mode is external but auth.login_url is empty")
+	}
+	mappings, err := commonconfig.GetAuthGroupMappings()
+	if err != nil {
+		return err
+	}
+	admin := false
+	for _, m := range mappings {
+		for _, role := range m.Roles {
+			if role == string(v1.SystemAdminRole) {
+				admin = true
+			}
+		}
+	}
+	if !admin {
+		return errors.New("auth.mode is external but auth.group_mappings grants system-admin to no group")
+	}
+	if commonconfig.IsSCIMEnabled() && commonconfig.ProviderClientEnabled() {
+		if _, err = identity.ResolveBase(); err != nil {
+			return fmt.Errorf("auth.scim and auth.provider_client are enabled but auth.scim.identity_url cannot be resolved: %w", err)
+		}
+	}
+	return nil
+}
+
+// refreshUser makes the name, email and preferred name annotations of an existing record follow the
+// identity's claims. The name and email annotations are display metadata. The preferred name
+// annotation is execution metadata: new workloads take their run-as account from it, while
+// workloads that already exist keep the account stamped at submission. The refresh is best
+// effort: an error is logged and the request goes on, and the next request tries again.
+// The account type and its other fields are never changed, and a record that is not an SSO
+// user is left alone: the identity provider names an existing local account (Spec.Type
+// default) by its user id, but the account stays what it is. Its user name is immutable,
+// the user webhook refuses a patch that changes it, and a login through the provider is no
+// reason to rewrite a record that SaFE manages.
 func (st *externalAuth) refreshUser(ctx context.Context, user *v1.User, id *extauth.Identity) {
 	if user.Spec.Type != v1.SSOUserType {
 		return
 	}
 	patch := client.MergeFrom(user.DeepCopy())
 	changed := false
-	for k, val := range map[string]string{v1.UserNameAnnotation: id.Name, v1.UserEmailAnnotation: id.Email} {
+	// The preferred name is refreshed only from an SSO answer: an answer that names a default account
+	// for an SSO record is not the same account, so the record keeps the preferred name it has.
+	preferred := id.PreferredName
+	if accountType(id) != v1.SSOUserType {
+		preferred = ""
+	}
+	for k, val := range map[string]string{
+		v1.UserNameAnnotation:          id.Name,
+		v1.UserEmailAnnotation:         id.Email,
+		v1.UserPreferredNameAnnotation: preferred,
+	} {
 		if val != "" && v1.GetAnnotation(user, k) != val {
 			v1.SetAnnotation(user, k, val)
 			changed = true

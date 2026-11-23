@@ -118,10 +118,14 @@ func NewOIDCAuthenticator(cfg OIDCConfig) (*OIDCAuthenticator, error) {
 // Name implements Authenticator.
 func (a *OIDCAuthenticator) Name() string { return a.cfg.Name }
 
-// Authenticate implements Authenticator. A bearer JWT whose issuer is not ours is
-// not ours to judge (ErrNotApplicable), so several issuers can share a chain.
+// Authenticate implements Authenticator. A JWT whose issuer is not ours is not ours to
+// judge (ErrNotApplicable), so several issuers can share a chain. The console presents
+// its sign-in token in the session cookie, so the cookie is judged when there is no bearer.
 func (a *OIDCAuthenticator) Authenticate(ctx context.Context, cred Credentials) (*Identity, error) {
 	raw := cred.Bearer
+	if raw == "" {
+		raw = cred.Cookie
+	}
 	if strings.Count(raw, ".") != 2 {
 		return nil, ErrNotApplicable
 	}
@@ -163,12 +167,13 @@ func (a *OIDCAuthenticator) Authenticate(ctx context.Context, cred Credentials) 
 
 func (a *OIDCAuthenticator) identity(std jwt.Claims, claims map[string]any) (*Identity, error) {
 	id := &Identity{
-		ID:     claimString(claims, a.cfg.IDClaim),
-		Name:   claimString(claims, a.cfg.UsernameClaim),
-		Email:  claimString(claims, a.cfg.EmailClaim),
-		Groups: claimStrings(claims, a.cfg.GroupsClaim),
-		Jti:    std.ID,
-		Expiry: std.Expiry.Time(),
+		ID:            claimString(claims, a.cfg.IDClaim),
+		Name:          claimString(claims, a.cfg.UsernameClaim),
+		PreferredName: claimString(claims, "preferred_username"),
+		Email:         claimString(claims, a.cfg.EmailClaim),
+		Groups:        claimStrings(claims, a.cfg.GroupsClaim),
+		Jti:           std.ID,
+		Expiry:        std.Expiry.Time(),
 	}
 	if id.ID == "" {
 		return nil, fmt.Errorf("%w: no %q claim", ErrUnauthenticated, a.cfg.IDClaim)

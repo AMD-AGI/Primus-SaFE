@@ -58,8 +58,9 @@ func delegatedChain(t *testing.T) (*gin.Engine, chan *dbclient.AuditLog) {
 	old := auditBuffer
 	auditBuffer = &auditLogBuffer{ch: ch}
 	t.Cleanup(func() {
-		viper.Set("auth.mode", nil)
-		viper.Set("auth.authenticators", nil)
+		// Local accounts authenticate through the builtin entry.
+		viper.Set("auth.mode", "external")
+		viper.Set("auth.authenticators", []map[string]any{{"type": "builtin"}})
 		require.NoError(t, authority.InitExternalAuth(nil))
 		auditBuffer = old
 	})

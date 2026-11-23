@@ -92,7 +92,7 @@ func PrivilegedVolumeRefusal(workspace *v1.Workspace, hostpaths []string, grant 
 		if vol := PrivilegedVolumeOverlapping(workspace, hostpath); vol != nil {
 			return fmt.Sprintf("the hostpath %q reaches volume %d (hostPath %s) of workspace %s, which "+
 				"requiresPrivilegedGrant: it is mounted only into workloads whose creator holds the %s "+
-				"grant in the workspace (workspace-admin, system-admin), and mounting it requires the %s grant "+
+				"grant in the workspace (default, workspace-admin, system-admin), and mounting it requires the %s grant "+
 				"in the workspace", hostpath, vol.Id, vol.HostPath, workspace.Name, grant, grant)
 		}
 	}

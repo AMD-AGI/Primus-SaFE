@@ -929,7 +929,7 @@ func TestGetOrCreatePlatformKey(t *testing.T) {
 
 	t.Run("nil db client returns error", func(t *testing.T) {
 		nilToken := &ApiKeyToken{dbClient: nil}
-		_, err := nilToken.GetOrCreatePlatformKey(context.Background(), "user-1", "testuser")
+		_, err := nilToken.GetOrCreatePlatformKey(context.Background(), "user-1", "testuser", true)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "database client not initialized")
 	})
@@ -945,7 +945,7 @@ func TestGetOrCreatePlatformKey(t *testing.T) {
 			EncryptedKey: &encryptedKey,
 		}, nil)
 
-		result, err := apiKeyToken.GetOrCreatePlatformKey(context.Background(), "user-existing", "testuser")
+		result, err := apiKeyToken.GetOrCreatePlatformKey(context.Background(), "user-existing", "testuser", true)
 		assert.NoError(t, err)
 		assert.Equal(t, plainKey, result)
 	})
@@ -965,7 +965,7 @@ func TestGetOrCreatePlatformKey(t *testing.T) {
 			},
 		)
 
-		result, err := apiKeyToken.GetOrCreatePlatformKey(context.Background(), "user-new", "newuser")
+		result, err := apiKeyToken.GetOrCreatePlatformKey(context.Background(), "user-new", "newuser", true)
 		assert.NoError(t, err)
 		assert.True(t, IsApiKey(result))
 	})
@@ -973,7 +973,7 @@ func TestGetOrCreatePlatformKey(t *testing.T) {
 	t.Run("db query error returns error", func(t *testing.T) {
 		mockDB.EXPECT().GetPlatformKeyByUserId(gomock.Any(), "user-err").Return(nil, fmt.Errorf("db connection failed"))
 
-		_, err := apiKeyToken.GetOrCreatePlatformKey(context.Background(), "user-err", "erruser")
+		_, err := apiKeyToken.GetOrCreatePlatformKey(context.Background(), "user-err", "erruser", true)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to query platform key")
 	})
@@ -986,7 +986,7 @@ func TestGetOrCreatePlatformKey(t *testing.T) {
 			EncryptedKey: nil,
 		}, nil)
 
-		_, err := apiKeyToken.GetOrCreatePlatformKey(context.Background(), "user-nil-enc", "testuser")
+		_, err := apiKeyToken.GetOrCreatePlatformKey(context.Background(), "user-nil-enc", "testuser", true)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "platform key has no encrypted value")
 	})
@@ -995,7 +995,7 @@ func TestGetOrCreatePlatformKey(t *testing.T) {
 		mockDB.EXPECT().GetPlatformKeyByUserId(gomock.Any(), "user-insert-fail").Return(nil, sql.ErrNoRows)
 		mockDB.EXPECT().InsertApiKey(gomock.Any(), gomock.Any()).Return(fmt.Errorf("unique constraint violation"))
 
-		_, err := apiKeyToken.GetOrCreatePlatformKey(context.Background(), "user-insert-fail", "failuser")
+		_, err := apiKeyToken.GetOrCreatePlatformKey(context.Background(), "user-insert-fail", "failuser", true)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to create platform key")
 	})

@@ -67,6 +67,17 @@ const (
 	maxEphemeralStorePercent  = workloadPrefix + "max_ephemeral_store_percent"
 	workloadHangCheckInterval = workloadPrefix + "hang_check_interval"
 	workloadTTLSecond         = workloadPrefix + "ttl_second"
+	// How often each cluster's workloads are reconciled against Robust's sync digest,
+	// and for how long an ended workload kept only in the database is still synced.
+	workloadRobustSyncInterval  = workloadPrefix + "robust_sync_interval_second"
+	workloadRobustSyncRetention = workloadPrefix + "robust_sync_retention_day"
+	workloadRobustNodeSync      = workloadPrefix + "robust_node_sync_enable"
+	workloadLowUtilEnable       = workloadPrefix + "low_utilization_enable"
+	// How often workspace usage is sampled, and for how many days the samples
+	// and their hourly rollups are kept.
+	workloadUsageSampleInterval  = workloadPrefix + "usage_sample_interval_second"
+	workloadUsageSampleRetention = workloadPrefix + "usage_sample_retention_day"
+	workloadUsageHourlyRetention = workloadPrefix + "usage_hourly_retention_day"
 
 	// opensearch
 	openSearchPrefix      = "opensearch."
@@ -195,21 +206,37 @@ const (
 
 	// robust: credentials SaFE presents to the Robust API (robust-api module of
 	// robust-manager / robust-analyzer) on the data clusters.
-	robustPrefix     = "robust."
-	robustSecretPath = robustPrefix + "secret_path"
+	robustPrefix             = "robust."
+	robustSecretPath         = robustPrefix + "secret_path"
+	robustServiceTokenSecret = robustPrefix + "service_token_secret"
+	robustManagementCluster  = robustPrefix + "management_cluster"
 
 	// langfuse_proxy
 	langfuseProxyPrefix     = "langfuse_proxy."
 	langfuseProxySecretPath = langfuseProxyPrefix + "secret_path"
 
 	// pluggable authentication
-	authPrefix         = "auth."
-	authMode           = authPrefix + "mode"
-	authAuthenticators = authPrefix + "authenticators"
-	authGroupMappings  = authPrefix + "group_mappings"
-	authLoginURL       = authPrefix + "login_url"
-	authKeyActors      = authPrefix + "key_actors"
-	authAPIKeysURL     = authPrefix + "api_keys_url"
+	authPrefix          = "auth."
+	authMode            = authPrefix + "mode"
+	authAuthenticators  = authPrefix + "authenticators"
+	authGroupMappings   = authPrefix + "group_mappings"
+	authLoginURL        = authPrefix + "login_url"
+	authLogoutURL       = authPrefix + "logout_url"
+	authKeyActors       = authPrefix + "key_actors"
+	authAPIKeysURL      = authPrefix + "api_keys_url"
+	authSCIMEnabled     = authPrefix + "scim.enabled"
+	authSCIMIdentityURL = authPrefix + "scim.identity_url"
+	authSCIMPublicURL   = authPrefix + "scim.public_url"
+	authSCIMTokenSecret = authPrefix + "scim.token_secret"
+	authAllowOIDCOnly   = authPrefix + "allow_oidc_only"
+	authProviderClient  = authPrefix + "provider_client"
+	authConnection      = authPrefix + "connection"
+	authAccountsURL     = authPrefix + "accounts_url"
+	authKeysConsoleURL  = authPrefix + "keys_console_url"
+
+	// rbac projection of workspace membership
+	rbacPrefix        = "rbac."
+	rbacSubjectPrefix = rbacPrefix + "subject_prefix"
 
 	// llm_gateway
 	llmGatewayPrefix     = "llm_gateway."
@@ -227,6 +254,22 @@ const (
 	sandboxNamespace         = sandboxPrefix + "namespace"
 	sandboxSecret            = sandboxPrefix + "secret"
 	sandboxEnvdInjectorImage = sandboxPrefix + "envd_injector_image"
+
+	// sandbox identity admission (webhooks)
+	sandboxAdmissionPrefix     = sandboxPrefix + "admission."
+	sandboxAdmissionEnabled    = sandboxAdmissionPrefix + "enabled"
+	sandboxAdmissionCreator    = sandboxAdmissionPrefix + "creator"
+	sandboxAdmissionJWKS       = sandboxAdmissionPrefix + "jwks"
+	sandboxAdmissionJWKSURL    = sandboxAdmissionPrefix + "jwks_url"
+	sandboxAdmissionIssuer     = sandboxAdmissionPrefix + "issuer"
+	sandboxAdmissionAudience   = sandboxAdmissionPrefix + "audience"
+	sandboxAdmissionTokenType  = sandboxAdmissionPrefix + "token_type"
+	sandboxAdmissionAlgorithm  = sandboxAdmissionPrefix + "algorithm"
+	sandboxAdmissionActor      = sandboxAdmissionPrefix + "actor"
+	sandboxAdmissionDetailType = sandboxAdmissionPrefix + "detail_type"
+	sandboxAdmissionAnnotation = sandboxAdmissionPrefix + "annotation"
+	sandboxAdmissionKind       = sandboxAdmissionPrefix + "kind"
+	sandboxAdmissionCAFile     = sandboxAdmissionPrefix + "ca_file"
 
 	// mcp
 	mcpPrefix         = "mcp."

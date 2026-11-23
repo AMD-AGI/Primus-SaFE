@@ -60,12 +60,13 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { Plus, Search } from '@element-plus/icons-vue'
 import { debounce } from 'lodash'
 import AddDialog from './Components/AddDialog.vue'
 import KeyList from './Components/KeyList.vue'
 import { useUserStore } from '@/stores/user'
+import { openIdentityConsole } from '@/utils/identityConsole'
 
 const userStore = useUserStore()
 // With an external identity provider the apiserver refuses to issue keys: a key is created at the
@@ -73,6 +74,14 @@ const userStore = useUserStore()
 // with otherwise. Without a route the list is the apiserver's, as before. See apiKeyRouting.
 const providerUrl = computed(() => userStore.apiKeyRouting.providerUrl)
 const creatable = computed(() => userStore.apiKeyRouting.creatable)
+// Builtin keeps this page. External mode opens auth.keys_console_url when /envs provides it.
+watch(
+  () => (userStore.isExternalAuth ? userStore.envs?.keysUrl : ''),
+  (url) => {
+    if (url) void openIdentityConsole(userStore.envs, url)
+  },
+  { immediate: true },
+)
 const legacy = computed(() => userStore.apiKeyRouting.legacy)
 const addVisible = ref(false)
 const primary = ref<InstanceType<typeof KeyList> | null>(null)

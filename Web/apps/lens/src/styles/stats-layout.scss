@@ -1,5 +1,5 @@
-// 通用统计页面布局样式
-// 用于 WorkloadStats 和 GithubWorkflow 等页面
+// Shared layout for statistics pages
+// Used by WorkloadStats, GithubWorkflow and similar pages
 
 .workload-stats {
   width: 100%;
@@ -7,7 +7,7 @@
   overflow: hidden;
   box-sizing: border-box;
   
-  // 筛选栏样式
+  // Filter bar
   .filter-section {
     margin-bottom: 20px;
     
@@ -81,7 +81,7 @@
     }
   }
   
-  // 统计卡片样式
+  // Stat cards
   .stats-cards {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -276,7 +276,7 @@
     }
   }
   
-  // 表格卡片样式
+  // Table card
   .table-card {
     border-radius: 15px;
     overflow: hidden;
@@ -335,7 +335,7 @@
       }
     }
     
-    // 链接样式
+    // Links
     .workload-link {
       font-weight: 500;
       font-size: 14px;
@@ -349,7 +349,7 @@
       }
     }
     
-    // Tag组件大屏适配
+    // Tags on large screens
     :deep(.el-tag) {
       font-size: 12px;
       height: 24px;
@@ -378,7 +378,7 @@
       }
     }
     
-    // 通用文本样式
+    // Shared text styles
     .text-muted {
       color: var(--el-text-color-placeholder);
     }
@@ -393,14 +393,14 @@
     }
   }
   
-  // 确保所有卡片容器不溢出
+  // Keep every card container from overflowing
   .filter-card, .stats-cards, .chart-card, .table-card {
     width: 100%;
     max-width: 100%;
     box-sizing: border-box;
   }
   
-  // 确保el-card不溢出
+  // Keep el-card from overflowing
   :deep(.el-card) {
     width: 100%;
     max-width: 100%;
@@ -408,7 +408,7 @@
   }
 }
 
-// Tool类
+// Utility classes
 .mt-4 {
   margin-top: 16px;
 }

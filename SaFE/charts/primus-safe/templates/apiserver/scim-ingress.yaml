@@ -1,0 +1,48 @@
+#
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+# External mode with SCIM enabled sends the console host's /scim/v2 to the apiserver.
+# The console Ingress sends every other path on that host to the web Pod.
+# Builtin mode, or SCIM turned off, does not render this Ingress, so an upgrade removes it.
+{{- $scim := default dict .Values.auth.scim }}
+{{- $scimOn := true }}
+{{- if kindIs "bool" $scim.enabled }}
+{{- $scimOn = $scim.enabled }}
+{{- end }}
+{{- if and (eq .Values.net.ingress "higress") (eq (default "builtin" .Values.auth.mode) "external") $scimOn .Values.global.sub_domain .Values.global.domain }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Release.Name }}-scim
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/managed-by: Helm
+    higress.io/resource-definer: higress
+    higress.io/domain_{{ .Values.global.sub_domain }}.{{ .Values.global.domain }}: "true"
+  annotations:
+    higress.io/ignore-path-case: "false"
+    higress.io/proxy-body-size: "0"
+    higress.io/proxy-read-timeout: "3600"
+    higress.io/proxy-send-timeout: "3600"
+    higress.io/route-priority: "200"
+    meta.helm.sh/release-name: {{ .Release.Name }}
+    meta.helm.sh/release-namespace: {{ .Release.Namespace }}
+spec:
+  ingressClassName: higress
+  tls:
+    - hosts:
+        - {{ .Values.global.sub_domain }}.{{ .Values.global.domain }}
+      secretName: {{ .Values.global.tls_secret }}
+  rules:
+    - host: {{ .Values.global.sub_domain }}.{{ .Values.global.domain }}
+      http:
+        paths:
+          - path: /scim/v2
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Release.Name }}-apiserver
+                port:
+                  number: {{ default 8088 (default .Values.apiserver).port }}
+{{- end }}

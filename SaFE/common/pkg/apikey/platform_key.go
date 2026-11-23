@@ -37,8 +37,10 @@ const (
 )
 
 // GetOrCreatePlatformKey returns the plaintext platform key for a user.
-// If no platform key exists, it creates one automatically.
-func GetOrCreatePlatformKey(ctx context.Context, db dbclient.Interface, userId, userName string) (string, error) {
+// When createIfMissing is true and the user has none, it creates one. Callers choose createIfMissing
+// (for example via config.PlatformKeyCreationAllowed); this helper does not read auth.mode.
+// Pass false for lookup-only.
+func GetOrCreatePlatformKey(ctx context.Context, db dbclient.Interface, userId, userName string, createIfMissing bool) (string, error) {
 	if db == nil {
 		return "", commonerrors.NewInternalError("database client not initialized")
 	}
@@ -51,6 +53,9 @@ func GetOrCreatePlatformKey(ctx context.Context, db dbclient.Interface, userId, 
 
 	if record != nil {
 		return decryptPlatformRecord(record, userId)
+	}
+	if !createIfMissing {
+		return "", nil
 	}
 
 	plainToken, err := generatePlainToken()

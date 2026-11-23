@@ -44,7 +44,7 @@ type CreateWorkloadRequest struct {
 	Annotations map[string]string `json:"annotations,omitempty"`
 	// Preheat indicates whether to preheat the workload to prepare image in advance
 	Preheat bool `json:"preheat,omitempty"`
-	// Whether to run the workload in privileged mode, only accessible to administrators
+	// Whether to run the workload in privileged mode. Creating one requires the workload/privileged grant.
 	Privileged bool `json:"privileged,omitempty"`
 	// The workload will be created using that specific user ID and name. This field is only accessible to administrators.
 	UserEntity *UserEntity `json:"userEntity,omitempty"`
@@ -66,6 +66,9 @@ type CreateWorkloadRequest struct {
 	// role / kv-backend / multinode knobs) and is converted into
 	// primus-safe.infera.* annotations on the resulting Workload CR.
 	InferaOptions *DynamoOptions `json:"inferaOptions,omitempty"`
+	// Keep the workload out of its workspace's low utilization policy. Setting it requires the
+	// workload/low-util-exempt grant in the workspace.
+	LowUtilizationExempt *bool `json:"lowUtilizationExempt,omitempty"`
 }
 
 // DynamoOptions describes the dynamo-specific knobs that the API server
@@ -291,7 +294,7 @@ type GetWorkloadResponse struct {
 	CronJobs []v1.CronJob `json:"cronJobs,omitempty"`
 	// The secrets used by the workload. Only the user themselves or an administrator can get this info.
 	Secrets []v1.SecretEntity `json:"secrets,omitempty"`
-	// Whether to run the workload in privileged mode, only accessible to administrators
+	// Whether to run the workload in privileged mode. Creating one requires the workload/privileged grant.
 	Privileged bool `json:"privileged"`
 	// Whether to use the workspace storage
 	UseWorkspaceStorage bool `json:"useWorkspaceStorage"`
@@ -299,6 +302,8 @@ type GetWorkloadResponse struct {
 	ForceHostNetwork bool `json:"forceHostNetwork"`
 	// Extra host paths mounted into the workload (spec.hostpath)
 	Hostpath []string `json:"hostpath,omitempty"`
+	// Whether the workload is kept out of its workspace's low utilization policy
+	LowUtilizationExempt bool `json:"lowUtilizationExempt"`
 }
 
 // WorkloadNodesHistoryItem describes one earlier run of the same workload id.
@@ -348,6 +353,9 @@ type PatchWorkloadRequest struct {
 	CronJobs *[]v1.CronJob `json:"cronJobs,omitempty"`
 	// Service configuration
 	Service *v1.Service `json:"service,omitempty"`
+	// Set or clear the exemption of the workload from its workspace's low utilization policy.
+	// A change requires the workload/low-util-exempt grant in the workspace.
+	LowUtilizationExempt *bool `json:"lowUtilizationExempt,omitempty"`
 }
 
 type GetPodLogRequest struct {
@@ -420,4 +428,10 @@ type GetWorkloadPodContainersResponse struct {
 // GetWorkloadPodContainersItem represents a single container item in the response.
 type GetWorkloadPodContainersItem struct {
 	Name string `json:"name"` // Name of the container.
+}
+
+// WorkloadPendingReasonResponse is the one-sentence explanation of a Pending workload.
+// Reason is empty when the workload is not Pending.
+type WorkloadPendingReasonResponse struct {
+	Reason string `json:"reason"`
 }

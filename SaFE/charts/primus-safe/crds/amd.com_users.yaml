@@ -45,6 +45,52 @@ spec:
               password:
                 description: User password, base64 encoded, optional
                 type: string
+              qos:
+                description: Per-user resource and runtime ceilings per workspace.
+                  Unset fields use the workspace Qos.
+                properties:
+                  workspaces:
+                    additionalProperties:
+                      description: UserQosScope is one user's ceiling in one
+                        workspace.
+                      properties:
+                        maxResources:
+                          description: ResourceCap is a GPU, CPU and memory ceiling.
+                            An empty field is unset.
+                          properties:
+                            cpu:
+                              type: string
+                            gpu:
+                              type: string
+                            memory:
+                              type: string
+                          type: object
+                        maxRuntime:
+                          additionalProperties:
+                            type: integer
+                          description: Timeout ceiling in seconds, keyed by workspace
+                            scope (Train, Infer, Authoring, CICD, Ray, Sandbox).
+                          type: object
+                      type: object
+                    type: object
+                  maxResources:
+                    description: ResourceCap is a GPU, CPU and memory ceiling. An
+                      empty field is unset.
+                    properties:
+                      cpu:
+                        type: string
+                      gpu:
+                        type: string
+                      memory:
+                        type: string
+                    type: object
+                  maxRuntime:
+                    additionalProperties:
+                      type: integer
+                    description: Timeout ceiling in seconds, keyed by workspace scope
+                      (Train, Infer, Authoring, CICD, Ray, Sandbox).
+                    type: object
+                type: object
               resources:
                 additionalProperties:
                   items:

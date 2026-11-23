@@ -48,6 +48,9 @@ type UserSpec struct {
 	// values are its corresponding values(e.g. workspace-id)"
 	// +optional
 	Resources map[string][]string `json:"resources,omitempty"`
+	// Per-user resource and runtime ceilings per workspace. Unset fields use the workspace Qos.
+	// +optional
+	Qos *UserQos `json:"qos,omitempty"`
 }
 
 // +genclient

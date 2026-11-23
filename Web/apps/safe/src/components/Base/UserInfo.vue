@@ -113,7 +113,13 @@ async function onLogout() {
     cancelButtonText: 'Cancel',
     type: 'warning',
   }).then(async () => {
-    await store.logout()
+    try {
+      await store.logout()
+    } catch {
+      // The browser may still hold a working session: say so instead of reporting a sign-out.
+      ElMessage({ type: 'error', message: 'Sign-out failed. Please try again.' })
+      return
+    }
     router.replace('/login')
     ElMessage({ type: 'success', message: 'Logout completed' })
   })

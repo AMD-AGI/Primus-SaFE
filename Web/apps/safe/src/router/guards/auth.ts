@@ -98,6 +98,18 @@ async function sessionConfirmed(user: ReturnType<typeof useUserStore>): Promise<
   return !!(user.isLogin && user.userId)
 }
 
+/** The NTID in the directory lookup's answer ("NTID: jdoe"), or '' when it has another form. */
+function parseNTID(result: unknown): string {
+  const match = typeof result === 'string' ? /^NTID:\s*(\S+)/.exec(result) : null
+  return match?.[1] ?? ''
+}
+
+/** The group service refuses an add with text starting "Error"; a member already in it has joined. */
+function joinedGroup(result: unknown): boolean {
+  if (typeof result !== 'string' || !result.startsWith('Error')) return true
+  return result.includes('entryAlreadyExists')
+}
+
 export default function setupAuthGuard(router: Router) {
   router.beforeEach(async (to, _from, next) => {
     const user = useUserStore()
@@ -290,14 +302,17 @@ export default function setupAuthGuard(router: Router) {
               // Don't redirect; let the catch block below handle the sso-error page
               throw new Error(ntidResult)
             }
+            // The service matches an identifier loosely; the NTID names the account it found.
+            const ntid = parseNTID(ntidResult) || userIdentifier
             ElMessage.info('Adding you to the user group...')
-            await addUserToGroup(userIdentifier, SSO_GROUP)
+            const addResult = await addUserToGroup(ntid, SSO_GROUP)
+            if (!joinedGroup(addResult)) throw new Error(String(addResult))
             // Redirect to a friendly waiting page
             return next({
               path: '/sso-error',
               query: {
                 error: 'joined',
-                error_description: userIdentifier,
+                error_description: ntid,
               },
             })
           }

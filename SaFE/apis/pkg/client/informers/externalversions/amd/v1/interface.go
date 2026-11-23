@@ -30,6 +30,8 @@ type Interface interface {
 	NodeTemplates() NodeTemplateInformer
 	// OpsJobs returns a OpsJobInformer.
 	OpsJobs() OpsJobInformer
+	// Qoses returns a QosInformer.
+	Qoses() QosInformer
 	// ResourceTemplates returns a ResourceTemplateInformer.
 	ResourceTemplates() ResourceTemplateInformer
 	// Roles returns a RoleInformer.
@@ -96,6 +98,11 @@ func (v *version) NodeTemplates() NodeTemplateInformer {
 // OpsJobs returns a OpsJobInformer.
 func (v *version) OpsJobs() OpsJobInformer {
 	return &opsJobInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// Qoses returns a QosInformer.
+func (v *version) Qoses() QosInformer {
+	return &qosInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
 // ResourceTemplates returns a ResourceTemplateInformer.

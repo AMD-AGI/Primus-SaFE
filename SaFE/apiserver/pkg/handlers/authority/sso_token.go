@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/extauth"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/metrics"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
@@ -142,6 +143,16 @@ func NewSSOToken(cli client.Client) *ssoToken {
 	return ssoInstance
 }
 
+// NewSSOTokenFromConfig builds an SSO token handler from the current configuration, as NewSSOToken does
+// for the process, without touching the process-wide instance.
+func NewSSOTokenFromConfig(cli client.Client) (TokenInterface, error) {
+	inst, err := initializeSSOToken(cli)
+	if err != nil {
+		return nil, err
+	}
+	return inst, nil
+}
+
 // SSOInstance returns the singleton instance of ssoToken
 func SSOInstance() *ssoToken {
 	return ssoInstance
@@ -244,7 +255,7 @@ func (c *ssoToken) Login(ctx context.Context, input TokenInput) (*v1.User, *Toke
 		metrics.ObserveLoginFailure(metrics.StageBadRequest)
 		return nil, nil, commonerrors.NewBadRequest("no code in request")
 	}
-	if c.httpClient == nil {
+	if c == nil || c.httpClient == nil {
 		metrics.ObserveLoginFailure(metrics.StageBadRequest)
 		return nil, nil, commonerrors.NewInternalError("http client is nil")
 	}
@@ -262,27 +273,79 @@ func (c *ssoToken) Login(ctx context.Context, input TokenInput) (*v1.User, *Toke
 		return nil, nil, err
 	}
 
-	// Synchronize user with system
-	user, err := c.synchronizeUser(ctx, userInfo)
+	// External mode keeps the session the identity provider put in the browser: the ID token only proves
+	// that the code was this browser's, and is dropped. Builtin mode stores the ID token and gives the
+	// browser a session id.
+	var user *v1.User
+	if commonconfig.GetAuthMode() == commonconfig.AuthModeExternal {
+		var id *extauth.Identity
+		user, id, err = resolveExternalLogin(ctx, input, userInfo.Sub)
+		if err != nil {
+			metrics.ObserveLoginFailure(metrics.StageUserSync)
+			return nil, nil, err
+		}
+		metrics.ObserveLoginSuccess()
+		var expire int64
+		if !id.Expiry.IsZero() {
+			expire = id.Expiry.Unix()
+		}
+		return user, &TokenResponse{Expire: expire}, nil
+	}
+	user, err = c.synchronizeUser(ctx, userInfo)
 	if err != nil {
 		metrics.ObserveLoginFailure(metrics.StageUserSync)
 		return nil, nil, err
 	}
-	userToken := ""
+	userToken := rawIDToken
+	expire := userInfo.Exp
 	if commonconfig.IsDBEnable() {
 		if userToken, err = c.updateUserInfoInDB(ctx, rawIDToken, userInfo); err != nil {
 			metrics.ObserveLoginFailure(metrics.StageDBSession)
 			return nil, nil, err
 		}
-	} else {
-		userToken = rawIDToken
 	}
 	metrics.ObserveLoginSuccess()
 	response := &TokenResponse{
-		Expire: userInfo.Exp,
+		Expire: expire,
 		Token:  userToken,
 	}
 	return user, response, nil
+}
+
+// resolveExternalLogin completes a console sign-in in external mode. The identity provider issued the
+// code only to a browser that holds a session of its own (it signed the user in first and wrote its
+// session cookie), so the browser sends that session with this request. The session is authenticated
+// with the chain, like any request, and must belong to the user the ID token names (signedInSub); the
+// user the chain names is returned with the identity. No credential is made here: the session stays
+// the identity provider's, which every service that asks the identity provider accepts.
+func resolveExternalLogin(ctx context.Context, input TokenInput, signedInSub string) (*v1.User, *extauth.Identity, error) {
+	st := externalState.Load()
+	if st == nil {
+		return nil, nil, commonerrors.NewInternalError("external authentication is not configured")
+	}
+	if input.SessionCookie == "" {
+		return nil, nil, commonerrors.NewUnauthorized("the browser did not keep the sign-in session")
+	}
+	id, builtin, err := st.authenticate(ctx, extauth.Credentials{
+		Cookie: input.SessionCookie, UserType: input.SessionUserType, ClientIP: input.ClientIP}, "/login")
+	if err != nil {
+		return nil, nil, err
+	}
+	if builtin || id == nil || id.Delegated() {
+		// Only a session the identity provider vouches for is a sign-in: not one of this apiserver's own,
+		// and not a token that acts for someone.
+		metrics.AuthFailuresTotal.WithLabelValues("invalid").Inc()
+		return nil, nil, commonerrors.NewUnauthorized("the browser does not hold a session of the identity provider")
+	}
+	if signedInSub == "" || id.ID != signedInSub {
+		metrics.AuthFailuresTotal.WithLabelValues("invalid").Inc()
+		return nil, nil, commonerrors.NewUnauthorized("the sign-in does not match this browser's session")
+	}
+	user, err := st.provision(ctx, id)
+	if err != nil {
+		return nil, nil, err
+	}
+	return user, id, nil
 }
 
 // exchangeAtSecretProvider redeems a code of the sso.secret_path provider with the client secret.

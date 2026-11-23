@@ -19,11 +19,14 @@ const getUserData = vi.fn()
 const getEnvs = vi.fn()
 const getSelfData = vi.fn()
 const getSelfWorkspaces = vi.fn()
+const logout = vi.fn()
+const endProviderSession = vi.fn()
 
 vi.mock('element-plus', () => ({ ElMessage: () => {}, ElMessageBox: {} }))
 vi.mock('@/services/login', () => ({
   login: vi.fn(),
-  logout: vi.fn(),
+  logout: (...a: unknown[]) => logout(...a),
+  endProviderSession: (...a: unknown[]) => endProviderSession(...a),
   getEnvs: (...a: unknown[]) => getEnvs(...a),
   getUserData: (...a: unknown[]) => getUserData(...a),
   getSelfData: (...a: unknown[]) => getSelfData(...a),
@@ -261,5 +264,107 @@ describe('ensureSessionOnce with a saved userId in external mode', () => {
     await store.ensureSessionOnce()
     expect(store.session).toBe('authenticated')
     expect(getSelfData).not.toHaveBeenCalled()
+  })
+})
+
+describe('logout', () => {
+  // A model of the deployment, not a blind success. The browser holds one session cookie, the identity
+  // provider's (Token, path /, host-only). The provider's logout revokes the session it is sent and clears the
+  // cookie; sent none, it has nothing to end. The apiserver authenticates its /logout with that cookie (401
+  // without it, and then the global error handler sends the browser to the sign-in page unless the call is
+  // quiet), and an apiserver that clears its own cookies on logout overwrites this one, which is the same cookie.
+  const calls: string[] = []
+  const revoked: string[] = []
+  let cookie = ''
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    calls.length = 0
+    revoked.length = 0
+    cookie = 'session-1'
+    getEnvs.mockReset()
+    logout.mockReset().mockImplementation(async (quiet?: boolean) => {
+      if (!cookie) {
+        calls.push(quiet ? 'apiserver 401' : 'apiserver 401, redirect to /login')
+        throw Object.assign(new Error('401'), { response: { status: 401 } })
+      }
+      cookie = ''
+      calls.push('apiserver')
+    })
+    endProviderSession.mockReset().mockImplementation(async (url: string) => {
+      calls.push(`provider ${url} with ${cookie ? 'Token=' + cookie : 'no Token'}`)
+      if (cookie) revoked.push(cookie)
+      cookie = ''
+    })
+  })
+
+  const signedInWith = (envs: Record<string, unknown> | null) => {
+    const store = useUserStore()
+    store.session = 'authenticated'
+    store.userId = 'u1'
+    store.profile = profile as any
+    store.envs = envs as any
+    return store
+  }
+
+  it('ends the session at the provider with the session cookie, then quietly at the apiserver', async () => {
+    const store = signedInWith({ authMode: 'external', logoutUrl: '/identity/api/v1/logout' })
+    await expect(store.logout()).resolves.toBeUndefined()
+    expect(calls).toEqual(['provider /identity/api/v1/logout with Token=session-1', 'apiserver 401'])
+    expect(revoked).toEqual(['session-1'])
+    expect(store.session).toBe('anonymous')
+    expect(store.userId).toBe('')
+  })
+
+  it('reads the mode first when it is not known yet', async () => {
+    getEnvs.mockResolvedValue({ authMode: 'external', logoutUrl: '/identity/api/v1/logout' })
+    const store = signedInWith(null)
+    await expect(store.logout()).resolves.toBeUndefined()
+    expect(calls).toEqual(['provider /identity/api/v1/logout with Token=session-1', 'apiserver 401'])
+    expect(revoked).toEqual(['session-1'])
+  })
+
+  it('signs this browser out at the apiserver when the provider cannot be reached', async () => {
+    endProviderSession.mockRejectedValue(new Error('503'))
+    const store = signedInWith({ authMode: 'external', logoutUrl: '/identity/api/v1/logout' })
+    await expect(store.logout()).resolves.toBeUndefined()
+    // The session was not revoked, so only the apiserver clearing the cookie signs this browser out.
+    expect(calls).toEqual(['apiserver'])
+    expect(cookie).toBe('')
+    expect(store.session).toBe('anonymous')
+  })
+
+  it('fails, instead of reporting a sign-out, when neither the provider nor the apiserver signed out', async () => {
+    endProviderSession.mockRejectedValue(new Error('503'))
+    logout.mockRejectedValue(new Error('500'))
+    const store = signedInWith({ authMode: 'external', logoutUrl: '/identity/api/v1/logout' })
+    await expect(store.logout()).rejects.toThrow('500')
+    expect(cookie).toBe('session-1')
+  })
+
+  it('still signs out when the apiserver fails after the provider ended the session', async () => {
+    logout.mockRejectedValue(new Error('500'))
+    const store = signedInWith({ authMode: 'external', logoutUrl: '/identity/api/v1/logout' })
+    await expect(store.logout()).resolves.toBeUndefined()
+    expect(revoked).toEqual(['session-1'])
+    expect(cookie).toBe('')
+    expect(store.session).toBe('anonymous')
+  })
+
+  it('fails when /envs and the apiserver both fail, so the session is never reported as ended', async () => {
+    getEnvs.mockRejectedValue(new Error('503'))
+    logout.mockRejectedValue(new Error('500'))
+    const store = signedInWith(null)
+    await expect(store.logout()).rejects.toThrow('500')
+    expect(cookie).toBe('session-1')
+  })
+
+  it.each([
+    ['builtin mode', { authMode: 'builtin', logoutUrl: '/identity/api/v1/logout' }],
+    ['external mode with no usable path', { authMode: 'external', logoutUrl: 'https://idp.example.com/logout' }],
+  ])('only signs out at the apiserver in %s', async (_name, envs) => {
+    const store = signedInWith(envs)
+    await store.logout()
+    expect(endProviderSession).not.toHaveBeenCalled()
+    expect(calls).toEqual(['apiserver'])
   })
 })

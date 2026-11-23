@@ -37,6 +37,43 @@ const baseForm = (overrides: Partial<GithubRunnerForm> = {}): GithubRunnerForm =
 })
 
 describe('GithubRunner env', () => {
+  it('adds extra env and ignores keys the form already owns', () => {
+    expect(
+      buildGithubRunnerEnv(
+        baseForm({
+          extraEnv: {
+            RUNNER_ALLOW_RUNASROOT: '1',
+            GITHUB_CONFIG_URL: 'https://github.com/other/repo',
+            '  CUSTOM ': 'kept',
+          },
+        }),
+      ),
+    ).toEqual({
+      GITHUB_CONFIG_URL: 'https://github.com/AMD-BRAIN-Internal/autopilot',
+      RUNNER_LABELS: 'autopilot-hosted',
+      RUNNER_ALLOW_RUNASROOT: '1',
+      CUSTOM: 'kept',
+    })
+  })
+
+  it('replaces custom env on edit when extraEnv is set', () => {
+    expect(
+      mergeGithubRunnerEnv(
+        { UNRELATED: 'drop-me', PROXY_URL: PROXY, PROXY_CREDENTIAL_SECRET: 'stored-secret' },
+        baseForm({ proxyUrl: PROXY, extraEnv: { RUNNER_ALLOW_RUNASROOT: '1' } }),
+      ).UNRELATED,
+    ).toBeUndefined()
+    expect(
+      mergeGithubRunnerEnv(
+        { UNRELATED: 'drop-me', PROXY_URL: PROXY, PROXY_CREDENTIAL_SECRET: 'stored-secret' },
+        baseForm({ proxyUrl: PROXY, extraEnv: { RUNNER_ALLOW_RUNASROOT: '1' } }),
+      ),
+    ).toMatchObject({
+      RUNNER_ALLOW_RUNASROOT: '1',
+      PROXY_CREDENTIAL_SECRET: 'stored-secret',
+    })
+  })
+
   it('derives the runner label from the workload name', () => {
     expect(buildGithubRunnerEnv(baseForm())).toEqual({
       GITHUB_CONFIG_URL: 'https://github.com/AMD-BRAIN-Internal/autopilot',

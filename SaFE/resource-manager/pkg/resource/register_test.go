@@ -66,6 +66,7 @@ func TestSetupResourceControllersProbe(t *testing.T) {
 
 	rc := robustclient.NewClient(robustclient.DefaultClientConfig())
 	run("workloadRobust", func() error { return SetupWorkloadRobustSyncer(mgr, rc) })
+	run("nodeRobust", func() error { return SetupNodeRobustSyncer(mgr, rc) })
 	run("statsRobustNil", func() error { return SetupStatsRobustSyncer(mgr, nil, nil) })
 	run("statsRobust", func() error { return SetupStatsRobustSyncer(mgr, rc, &stubStatsDBWriter{}) })
 }

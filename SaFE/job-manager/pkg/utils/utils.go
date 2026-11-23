@@ -132,10 +132,11 @@ func SetWorkloadFailed(ctx context.Context, cli client.Client, workload *v1.Work
 type StopReason string
 
 const (
-	StopReasonTimeout      StopReason = "timeout"
-	StopReasonOwnerCascade StopReason = "owner_cascade"
-	StopReasonManual       StopReason = "manual"
-	StopReasonUnspecified  StopReason = "unspecified"
+	StopReasonTimeout        StopReason = "timeout"
+	StopReasonOwnerCascade   StopReason = "owner_cascade"
+	StopReasonManual         StopReason = "manual"
+	StopReasonLowUtilization StopReason = "low_utilization"
+	StopReasonUnspecified    StopReason = "unspecified"
 )
 
 // MarkWorkloadStopped transitions a workload to the Stopped phase and

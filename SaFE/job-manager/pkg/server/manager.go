@@ -126,6 +126,9 @@ func (jm *JobManager) SetupControllers() error {
 	if err := scheduler.SetupWorkloadTTLController(jm.CtrlManager); err != nil {
 		return fmt.Errorf("workload ttl controller: %v", err)
 	}
+	if err := scheduler.SetupLowUtilizationController(jm.CtrlManager); err != nil {
+		return fmt.Errorf("workload low utilization controller: %v", err)
+	}
 	return nil
 }
 

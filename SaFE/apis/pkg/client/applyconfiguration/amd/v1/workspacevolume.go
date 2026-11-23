@@ -40,6 +40,13 @@ type WorkspaceVolumeApplyConfiguration struct {
 	// The workload scopes this volume is mounted into. Empty means every scope.
 	// A workload whose scope is not listed does not get the volume, even when it asks for workspace storage.
 	Scopes []amdv1.WorkspaceScope `json:"scopes,omitempty"`
+	// When set, the volume is mounted only into workloads whose creator held the
+	// workload/privileged grant in the workspace when the workload was created (built-in:
+	// default, workspace-admin, and system-admin). Workloads of users without the grant are still
+	// admitted and run without this volume, as if its scopes did not list theirs. A user without
+	// the grant whose spec.hostpath names the volume's hostPath, a path under it or a path
+	// containing it is refused, with the reason, even when another volume declares that path.
+	RequiresPrivilegedGrant *bool `json:"requiresPrivilegedGrant,omitempty"`
 	// The directories of a hostpath volume that the workspace's users share, such as model and
 	// cache directories. They are used only when the job-manager mounts user directories for
 	// external Pods (external_execution.user_dir_mounts): an external Pod then mounts its own user
@@ -147,6 +154,14 @@ func (b *WorkspaceVolumeApplyConfiguration) WithScopes(values ...amdv1.Workspace
 	for i := range values {
 		b.Scopes = append(b.Scopes, values[i])
 	}
+	return b
+}
+
+// WithRequiresPrivilegedGrant sets the RequiresPrivilegedGrant field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the RequiresPrivilegedGrant field is set to the value of the last call.
+func (b *WorkspaceVolumeApplyConfiguration) WithRequiresPrivilegedGrant(value bool) *WorkspaceVolumeApplyConfiguration {
+	b.RequiresPrivilegedGrant = &value
 	return b
 }
 

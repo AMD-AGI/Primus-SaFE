@@ -71,7 +71,7 @@
         </el-tab-pane>
 
         <!-- Logs Tab -->
-        <el-tab-pane label="Logs" name="logs">
+        <el-tab-pane v-if="logEnabled" label="Logs" name="logs">
           <div class="flex items-center justify-between mb-2">
             <el-space wrap>
               <el-select v-model="logOrder" style="width: 100px" size="small">
@@ -124,7 +124,7 @@
 import { ref, reactive, watch } from 'vue'
 import { getImportDetail, getImportLogs } from '@/services'
 import { Refresh } from '@element-plus/icons-vue'
-import { fmtTs } from '@/utils'
+import { fmtTs, isLogEnabledForHost } from '@/utils'
 
 const props = defineProps<{
   id: number
@@ -134,6 +134,7 @@ const props = defineProps<{
 const emit = defineEmits(['update:visible'])
 
 const activeTab = ref('progress')
+const logEnabled = isLogEnabledForHost()
 
 // ===== Progress tab =====
 const loading = ref(false)

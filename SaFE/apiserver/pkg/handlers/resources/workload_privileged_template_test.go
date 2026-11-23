@@ -15,7 +15,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -138,6 +137,10 @@ func (f *privilegedTemplateFixture) createBuilt(t *testing.T, userId, name, kind
 		},
 	}
 	c := f.ginContext(t, userId, http.MethodPost, "")
+	// ScaleSet and GithubRunner encrypt the owner's platform key at create.
+	if kind == common.CICDScaleRunnerSetKind || kind == common.CICDGithubRunnerKind {
+		stubCICDPlatformKey(t, "ak-test-key")
+	}
 	_, err := f.h.createWorkloadImpl(c, workload, user, f.h.accessController.GetRoles(t.Context(), user))
 	return err
 }
@@ -175,37 +178,15 @@ func (f *privilegedTemplateFixture) count(t *testing.T) int {
 	return len(list.Items)
 }
 
-func requirePrivilegedGrantRefusal(t *testing.T, err error, msgAndArgs ...any) {
-	t.Helper()
-	require.True(t, apierrors.IsForbidden(err), "want 403, got %v %v", err, msgAndArgs)
-	require.Contains(t, err.Error(), authority.WorkloadPrivilegedKind, msgAndArgs...)
-}
-
 // A GitHub Actions runner or a unified job does not ask for privileged mode, but its template runs
-// privileged containers, so creating one takes the workload/privileged grant a privileged workload
-// takes: a member of the workspace, and a member who manages another workspace, are refused (403
-// naming the grant, nothing created) on the create route the proxies use and for every such kind;
-// the workspace's manager and a system administrator create them; a member still creates a
-// PyTorchJob.
+// privileged containers, so creating one takes the workload/privileged grant. The default role
+// grants that to workspace members, so a member, a member who manages another workspace, the
+// workspace's manager and a system administrator create them; a member still creates a PyTorchJob.
 func TestPrivilegedTemplateKindsNeedThePrivilegedGrantToCreate(t *testing.T) {
 	f := newPrivilegedTemplateFixture(t)
 
 	for _, kind := range []string{common.CICDEphemeralRunnerKind, common.UnifiedJobKind} {
-		for _, who := range []string{ptMember, ptOtherManager} {
-			_, err := f.post(t, who, kind)
-			requirePrivilegedGrantRefusal(t, err, kind, who)
-			require.Contains(t, err.Error(), kind+" workloads run privileged containers")
-		}
-	}
-	for _, kind := range ptPrivilegedTemplateKinds {
-		for _, who := range []string{ptMember, ptOtherManager} {
-			requirePrivilegedGrantRefusal(t, f.createBuilt(t, who, strings.ToLower("built-"+who+"-"+kind), kind), kind, who)
-		}
-	}
-	require.Equal(t, 0, f.count(t), "a refused workload was created")
-
-	for _, kind := range []string{common.CICDEphemeralRunnerKind, common.UnifiedJobKind} {
-		for _, who := range []string{ptManager, ptAdmin} {
+		for _, who := range []string{ptMember, ptOtherManager, ptManager, ptAdmin} {
 			stored, err := f.post(t, who, kind)
 			require.NoError(t, err, "%s %s", kind, who)
 			require.Equal(t, kind, stored.SpecKind())
@@ -213,7 +194,7 @@ func TestPrivilegedTemplateKindsNeedThePrivilegedGrantToCreate(t *testing.T) {
 		}
 	}
 	for _, kind := range ptPrivilegedTemplateKinds {
-		for _, who := range []string{ptManager, ptAdmin} {
+		for _, who := range []string{ptMember, ptOtherManager, ptManager, ptAdmin} {
 			require.NoError(t, f.createBuilt(t, who, strings.ToLower("built-"+who+"-"+kind), kind), "%s %s", kind, who)
 		}
 	}
@@ -223,9 +204,10 @@ func TestPrivilegedTemplateKindsNeedThePrivilegedGrantToCreate(t *testing.T) {
 	require.Equal(t, common.PytorchJobKind, stored.SpecKind())
 }
 
-// A change to a workload that runs privileged containers takes the same grant: the owner of a
-// runner, a unified job or a privileged workload created before the rule, who holds no grant, can
-// no longer change it; the workspace's manager can. A member still changes their own PyTorchJob.
+// A change to a workload that runs privileged containers takes the same grant. The owner holds
+// update on workload/privileged through the default role, so the owner can change a runner, a
+// unified job or a privileged workload, and the workspace's manager can too. A member still
+// changes their own PyTorchJob.
 func TestWorkloadsThatRunPrivilegedNeedThePrivilegedGrantToChange(t *testing.T) {
 	f := newPrivilegedTemplateFixture(t)
 	privileged := map[string]string{v1.WorkloadPrivilegedAnnotation: v1.TrueStr}
@@ -244,17 +226,13 @@ func TestWorkloadsThatRunPrivilegedNeedThePrivilegedGrantToChange(t *testing.T) 
 	}
 	f.stored(t, "member-job", common.PytorchJobKind, ptMember, nil)
 
-	for name := range cases {
-		requirePrivilegedGrantRefusal(t, f.patch(t, ptMember, name), name)
-		changed := &v1.Workload{}
-		require.NoError(t, f.cli.Get(t.Context(), client.ObjectKey{Name: name}, changed))
-		require.NotEqual(t, "changed", v1.GetDescription(changed), name)
-	}
-	for name := range cases {
-		require.NoError(t, f.patch(t, ptManager, name), name)
-		changed := &v1.Workload{}
-		require.NoError(t, f.cli.Get(t.Context(), client.ObjectKey{Name: name}, changed))
-		require.Equal(t, "changed", v1.GetDescription(changed), name)
+	for _, who := range []string{ptMember, ptManager} {
+		for name := range cases {
+			require.NoError(t, f.patch(t, who, name), "%s %s", who, name)
+			changed := &v1.Workload{}
+			require.NoError(t, f.cli.Get(t.Context(), client.ObjectKey{Name: name}, changed))
+			require.Equal(t, "changed", v1.GetDescription(changed), "%s %s", who, name)
+		}
 	}
 	require.NoError(t, f.patch(t, ptMember, "member-job"))
 }

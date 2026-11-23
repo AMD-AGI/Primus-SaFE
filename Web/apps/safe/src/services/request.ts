@@ -8,6 +8,8 @@ declare module 'axios' {
     rawResponse?: boolean
     /** When true the global interceptor will NOT show ElMessage and will reject with the raw error object */
     skipErrorHandler?: boolean
+    /** HTTP statuses the global interceptor rejects silently; 401 session handling still runs first */
+    silentStatuses?: number[]
   }
 }
 
@@ -108,6 +110,10 @@ function attachInterceptors(
         const from = encodeURIComponent(pathname + location.search)
         location.href = `/login?redirect=${from}`
 
+        return Promise.reject(error)
+      }
+
+      if (status !== undefined && error?.config?.silentStatuses?.includes(status)) {
         return Promise.reject(error)
       }
 

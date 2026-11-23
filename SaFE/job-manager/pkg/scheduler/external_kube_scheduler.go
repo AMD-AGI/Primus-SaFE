@@ -30,18 +30,12 @@ import (
 )
 
 const (
-	// ExternalWaitingScaleUpReason is shown while a single Pod waits for B to provision.
-	ExternalWaitingScaleUpReason = "In queue - waiting for scale-up"
-	// ExternalWaitingPRAcceptReason is shown when the PR has no conditions yet.
-	ExternalWaitingPRAcceptReason = "In queue - waiting for capacity service to accept"
-	// ExternalWaitingPRReason is shown while a gang waits for Provisioned=True.
-	ExternalWaitingPRReason = "In queue - waiting for capacity service"
-	// ExternalCapacityUnavailableReason is shown for Provisioned=False/CapacityUnavailable.
-	ExternalCapacityUnavailableReason = "In queue - external capacity unavailable"
-	// ExternalPRFailedReason prefixes a terminal PR Failed condition.
-	ExternalPRFailedReason = "Rejected - provisioning request failed"
-	// ExternalPRExpiredReason is shown briefly while a booking is rebuilt.
-	ExternalPRExpiredReason = "In queue - capacity reservation expired, retrying"
+	ExternalWaitingScaleUpReason      = commonworkload.ExternalWaitingScaleUpReason
+	ExternalWaitingPRAcceptReason     = commonworkload.ExternalWaitingPRAcceptReason
+	ExternalWaitingPRReason           = commonworkload.ExternalWaitingPRReason
+	ExternalCapacityUnavailableReason = commonworkload.ExternalCapacityUnavailableReason
+	ExternalPRFailedReason            = commonworkload.ExternalPRFailedReason
+	ExternalPRExpiredReason           = commonworkload.ExternalPRExpiredReason
 )
 
 var (

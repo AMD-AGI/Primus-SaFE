@@ -33,6 +33,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/controller"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	commonqos "github.com/AMD-AIG-AIMA/SAFE/common/pkg/qos"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
@@ -47,6 +48,7 @@ import (
 const (
 	defaultRetryCount = 3
 	defaultRetryDelay = 100 * time.Millisecond
+	userQuotaRetry    = 30 * time.Second
 
 	dependentIndex = "spec.dependencies"
 )
@@ -368,6 +370,7 @@ func (r *SchedulerReconciler) scheduleWorkloads(ctx context.Context, message *Sc
 	}
 
 	scheduledCount := 0
+	userQuotaHeld := false
 	unScheduledReasons := make(map[string]string)
 	for i, w := range schedulingWorkloads {
 		requestResources, _ := commonworkload.GetTotalResourceList(w)
@@ -414,8 +417,12 @@ func (r *SchedulerReconciler) scheduleWorkloads(ctx context.Context, message *Sc
 			// Process scheduling workloads based on priority and policy
 			// If the scheduling policy is FIFO, or the priority is higher than subsequent queued workloads
 			// (excluding the workload which specified node), then break out of the queue directly and continue waiting.
-			if reason == CronjobReason || reason == DependencyReason || reason == SourceWorkloadReason {
-				// CronJob or a job with dependencies that are not yet ready to start should be skipped
+			if commonqos.IsUserQuotaReason(reason) {
+				userQuotaHeld = true
+			}
+			if isSkippableReason(reason) {
+				// A CronJob, a job with unready dependencies, or a job held by its user's
+				// ceiling waits on its own and does not hold the queue for other users.
 				continue
 			} else if workspace.IsEnableFifo() {
 				// In FIFO mode, if current workload cannot be scheduled, subsequent ones won't be either
@@ -443,13 +450,131 @@ func (r *SchedulerReconciler) scheduleWorkloads(ctx context.Context, message *Sc
 	if scheduledCount != len(schedulingWorkloads) {
 		r.updateUnScheduled(ctx, schedulingWorkloads, unScheduledReasons, workspace)
 	}
+	if userQuotaHeld {
+		// A raised ceiling does not reach this workspace, so a held workload is checked again later.
+		r.AddAfter(&SchedulerMessage{
+			WorkspaceId: workspace.Name,
+			ClusterId:   workspace.Spec.Cluster,
+		}, userQuotaRetry)
+	}
 	return nil
+}
+
+// isSkippableReason reports whether a pending workload waits on its own condition and lets
+// later workloads in the queue be scheduled.
+func isSkippableReason(reason string) bool {
+	return reason == CronjobReason || reason == DependencyReason || reason == SourceWorkloadReason ||
+		commonqos.IsUserQuotaReason(reason)
+}
+
+// userQuotaHold returns the pending reason from the user's ceiling, or empty when the workload fits.
+// admitted holds workloads already scheduled, including those admitted earlier in this pass.
+// A failed check holds only this workload.
+func (r *SchedulerReconciler) userQuotaHold(ctx context.Context, workload *v1.Workload, admitted []*v1.Workload) string {
+	reason, err := r.userQuotaReason(ctx, workload, admitted)
+	if err != nil {
+		klog.ErrorS(err, "failed to check the user quota", "workload", workload.Name)
+		return fmt.Sprintf("%s: %v", commonqos.UserQuotaCheckFailedPrefix, err)
+	}
+	return reason
+}
+
+// quotaBefore reports whether a is admitted ahead of b.
+func quotaBefore(a, b *v1.Workload) bool {
+	return commonqos.AdmissionBefore(a, b)
+}
+
+// userQuotaReason reports when this user's work in the workspace cannot take the request.
+// Scheduled work counts. Queued work counts when it is admitted ahead of this workload.
+// admitted is added by name, so a workload admitted in this pass counts before the cache
+// sees its scheduled flag. A request that is already larger than the ceiling stays pending.
+func (r *SchedulerReconciler) userQuotaReason(ctx context.Context, workload *v1.Workload, admitted []*v1.Workload) (string, error) {
+	userID := v1.GetUserId(workload)
+	workspaceID := commonqos.WorkspaceID(workload)
+	if userID == "" || workspaceID == "" {
+		return "", nil
+	}
+	limits, err := commonqos.Ceiling(ctx, r.Client, userID, workspaceID, string(commonworkload.GetScope(workload)))
+	if err != nil {
+		return "", err
+	}
+	if limits.CPU == "" && limits.Memory == "" && limits.GPU == "" {
+		return "", nil
+	}
+	held := &v1.WorkloadList{}
+	if err = r.List(ctx, held, client.MatchingLabels{
+		v1.WorkspaceIdLabel: workspaceID,
+		v1.UserIdLabel:      userID,
+	}); err != nil {
+		return "", err
+	}
+	used := corev1.ResourceList{}
+	counted := make(map[string]bool)
+	add := func(item *v1.Workload) error {
+		part, partErr := commonworkload.GetTotalResourceList(item)
+		if partErr != nil {
+			return partErr
+		}
+		used = quantity.AddResource(used, part)
+		counted[item.Name] = true
+		return nil
+	}
+	for i := range held.Items {
+		item := &held.Items[i]
+		if item.Name == workload.Name || item.IsEnd() {
+			continue
+		}
+		if !v1.IsWorkloadScheduled(item) {
+			if !quotaBefore(item, workload) {
+				continue
+			}
+			if above, aboveErr := aboveCeiling(userID, workspaceID, item, limits); aboveErr != nil || above {
+				if aboveErr != nil {
+					return "", aboveErr
+				}
+				continue
+			}
+		}
+		if err = add(item); err != nil {
+			return "", err
+		}
+	}
+	for _, item := range admitted {
+		if item == nil || item.Name == workload.Name || counted[item.Name] || item.IsEnd() ||
+			v1.GetUserId(item) != userID || commonqos.WorkspaceID(item) != workspaceID {
+			continue
+		}
+		if err = add(item); err != nil {
+			return "", err
+		}
+	}
+	request, err := commonworkload.GetTotalResourceList(workload)
+	if err != nil {
+		return "", err
+	}
+	return commonqos.QuotaReason(userID, workspaceID, used, request, limits)
+}
+
+// aboveCeiling reports whether a workload's own request already exceeds the ceiling.
+// Such a queued workload can never start and does not count toward later work.
+func aboveCeiling(userID, workspaceID string, workload *v1.Workload, limits commonqos.Limits) (bool, error) {
+	request, err := commonworkload.GetTotalResourceList(workload)
+	if err != nil {
+		return false, err
+	}
+	reason, err := commonqos.QuotaReason(userID, workspaceID, corev1.ResourceList{}, request, limits)
+	return reason != "", err
 }
 
 // canScheduleWorkload checks if a workload can be scheduled based on resource availability.
 func (r *SchedulerReconciler) canScheduleWorkload(ctx context.Context, requestWorkload *v1.Workload,
 	workspace *v1.Workspace, scheduledWorkloads []*v1.Workload, requestResources, leftResources corev1.ResourceList) (bool, string, error) {
-	var reason string
+	reason := r.userQuotaHold(ctx, requestWorkload, scheduledWorkloads)
+	if reason != "" {
+		klog.Infof("the workload(%s) is not scheduled, reason: %s", requestWorkload.Name, reason)
+		jmmetrics.SchedulerUnschedulableTotal.WithLabelValues(jmmetrics.ReasonInsufficient).Inc()
+		return false, reason, nil
+	}
 	if sourceWorkloadId := v1.GetSourceWorkloadId(workspace); sourceWorkloadId != "" {
 		sourceWorkload := &v1.Workload{}
 		err := r.Get(ctx, client.ObjectKey{Name: sourceWorkloadId}, sourceWorkload)

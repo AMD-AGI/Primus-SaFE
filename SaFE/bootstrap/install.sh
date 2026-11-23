@@ -21,6 +21,7 @@ fi
 # See docs/installation/upgrade.md for each.
 sandbox_extra_ca_secret="${sandbox_extra_ca_secret:-}"
 sandbox_env_secret="${sandbox_env_secret:-}"
+sandbox_admission_actor="${sandbox_admission_actor:-}"
 # The only accepted name is the one the apiserver and resource-manager always reserve (the chart
 # refuses any other); checked here, before anything is installed.
 if [[ -n "$sandbox_env_secret" && "$sandbox_env_secret" != "sandbox-env" ]]; then
@@ -28,6 +29,17 @@ if [[ -n "$sandbox_env_secret" && "$sandbox_env_secret" != "sandbox-env" ]]; the
   exit 1
 fi
 web_root_redirect="${web_root_redirect:-}"
+workload_low_utilization_enable="${workload_low_utilization_enable:-}"
+if [[ -n "$workload_low_utilization_enable" && "$workload_low_utilization_enable" != "true" && "$workload_low_utilization_enable" != "false" ]]; then
+  echo "Error: workload_low_utilization_enable is '$workload_low_utilization_enable'; set it to true or false" >&2
+  exit 1
+fi
+# Name of the Cluster CR SaFE runs in (robust.management_cluster); empty lets SaFE work it out.
+robust_management_cluster="${robust_management_cluster:-}"
+if [[ -n "$robust_management_cluster" && ! "$robust_management_cluster" =~ ^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$ ]]; then
+  echo "Error: robust_management_cluster is '$robust_management_cluster'; set it to the name of a Cluster CR" >&2
+  exit 1
+fi
 
 # Do not modify the value of namespace
 NAMESPACE="primus-safe"
@@ -68,6 +80,16 @@ convert_to_boolean() {
       echo "true"
   else
       echo "false"
+  fi
+}
+
+# Record an introspection client Secret that already exists in this namespace.
+# The chart mounts auth.client_secret from this namespace.
+ensure_identity_auth_secret() {
+  local target="primus-safe-auth-client"
+  if kubectl get secret "$target" -n "$NAMESPACE" >/dev/null 2>&1; then
+    echo "Auth client secret $target is present in namespace \"$NAMESPACE\"."
+    auth_client_secret_installed="$target"
   fi
 }
 
@@ -149,6 +171,17 @@ EOF
     --dry-run=client -o yaml | kubectl apply -f -
   rm -rf "$tmpdir"
   echo "✅ TLS secret($tls_secret) created for ${console_host} and ${apiserver_host}"
+}
+
+# replace_or_create_each replaces every manifest in a directory, and creates a manifest
+# whose object is not in the cluster yet. One kubectl call on the whole directory
+# stops when the directory contains both.
+replace_or_create_each() {
+  local dir="$1" f
+  for f in "$dir"/*; do
+    [[ -f "$f" ]] || continue
+    kubectl replace -f "$f" -n "$NAMESPACE" || kubectl create -f "$f" -n "$NAMESPACE"
+  done
 }
 
 install_or_upgrade_helm_chart() {
@@ -283,6 +316,9 @@ echo "✅ Image Registry: \"$proxy_image_registry\""
 echo "✅ Sandbox Extra CA Secret: \"$sandbox_extra_ca_secret\""
 echo "✅ Sandbox Env Secret: \"$sandbox_env_secret\""
 echo "✅ Web Root Redirect: \"$web_root_redirect\""
+echo "✅ Sandbox Admission Actor: \"$sandbox_admission_actor\""
+echo "✅ Low Utilization Enable: \"${workload_low_utilization_enable:-false}\""
+echo "✅ Robust Management Cluster: \"$robust_management_cluster\""
 
 replicas=1
 cpu=2000m
@@ -360,6 +396,8 @@ else
 fi
 
 ensure_opensearch_secret "$opensearch_secret" "$opensearch_username" "$opensearch_password"
+auth_client_secret_installed=""
+ensure_identity_auth_secret
 ensure_higress_tls_secret
 
 echo
@@ -409,6 +447,9 @@ fi
 sed -i '/grafana:/,/^[a-z]/ s/enable: .*/enable: false/' "$values_yaml"
 sed -i "s/image_pull_secret: \".*\"/image_pull_secret: \"$IMAGE_PULL_SECRET\"/" "$values_yaml"
 sed -i "s/ingress: \".*\"/ingress: \"$ingress\"/" "$values_yaml"
+if kubectl get secret primus-safe-auth-client -n "$NAMESPACE" >/dev/null 2>&1; then
+  sed -i 's/^  client_secret: .*/  client_secret: "primus-safe-auth-client"/' "$values_yaml"
+fi
 sed -i '/sso:/,/^[a-z]/ s/enable: .*/enable: '"$sso_enable"'/' "$values_yaml"
 if [[ "$sso_enable" == "true" ]]; then
   sed -i '/^sso:/,/^[a-z]/ s#secret: ".*"#secret: "'"$SSO_SECRET"'"#' "$values_yaml"
@@ -423,6 +464,16 @@ fi
 if [[ -n "$web_root_redirect" ]]; then
   root_redirect=$(printf '%s\n' "$web_root_redirect" | sed 's/[&|\]/\\&/g')
   sed -i '/^web:/,/^[a-z]/ s|root_redirect: .*|root_redirect: "'"$root_redirect"'"|' "$values_yaml"
+fi
+if [[ -n "$sandbox_admission_actor" ]]; then
+  sed -i '/^sandbox:/,/^[a-z]/ s/^    enabled: .*/    enabled: true/' "$values_yaml"
+  sed -i '/^sandbox:/,/^[a-z]/ s/^    actor: .*/    actor: "'"$sandbox_admission_actor"'"/' "$values_yaml"
+fi
+if [[ -n "$workload_low_utilization_enable" ]]; then
+  sed -i '/^workload:/,/^[a-z]/ s/^  low_utilization_enable: .*/  low_utilization_enable: '"$workload_low_utilization_enable"'/' "$values_yaml"
+fi
+if [[ -n "$robust_management_cluster" ]]; then
+  sed -i '/^robust:/,/^[a-z]/ s/^  management_cluster: .*/  management_cluster: "'"$robust_management_cluster"'"/' "$values_yaml"
 fi
 
 install_or_upgrade_helm_chart "primus-pgo" "$values_yaml"
@@ -441,7 +492,7 @@ chart_name="primus-safe"
 if helm list -n "$NAMESPACE" -q | grep -qx "$chart_name"; then
   status=$(helm status "$chart_name" -n "$NAMESPACE" -o json 2>/dev/null | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
   if [ "$status" = "deployed" ]; then
-    kubectl replace -f $chart_name/crds/ -n "$NAMESPACE"
+    replace_or_create_each "$chart_name/crds"
     mkdir -p output
     helm template "$chart_name" -f "$values_yaml" -n "$NAMESPACE" "$chart_name" --output-dir ./output 1>/dev/null
     kubectl replace -f output/$chart_name/templates/rbac/role.yaml
@@ -452,6 +503,8 @@ if helm list -n "$NAMESPACE" -q | grep -qx "$chart_name"; then
 fi
 install_or_upgrade_helm_chart "$chart_name" "$values_yaml"
 rm -f "$values_yaml"
+# The console deployment account (see cd-installer-rbac.yaml) is granted with the chart.
+kubectl apply -f ../bootstrap/cd-installer-rbac.yaml
 sleep 10
 
 echo
@@ -545,4 +598,10 @@ metrics_port=8000
 sandbox_extra_ca_secret=$sandbox_extra_ca_secret
 sandbox_env_secret=$sandbox_env_secret
 web_root_redirect=$web_root_redirect
+sandbox_admission_actor=$sandbox_admission_actor
+workload_low_utilization_enable=$workload_low_utilization_enable
+robust_management_cluster=$robust_management_cluster
 EOF
+if [[ -n "$auth_client_secret_installed" ]]; then
+  printf 'auth_client_secret=%s\n' "$auth_client_secret_installed" >> .env
+fi

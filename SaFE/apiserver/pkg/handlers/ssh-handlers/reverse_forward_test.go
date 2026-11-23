@@ -1061,8 +1061,8 @@ func TestReverseForwardEchoesRequestedBindAddr(t *testing.T) {
 
 // --- the authorization a forward request actually goes through ---------------
 
-// newResolveTestHandler builds a handler whose workspace, pod and workload resolve,
-// with only adminUser permitted to reach the workload.
+// newResolveTestHandler builds a handler whose workspace, pod and workload resolve.
+// adminUser owns the workload, which is what lets that local account reach it.
 func newResolveTestHandler(t *testing.T, adminUser string) *SshHandler {
 	t.Helper()
 
@@ -1074,12 +1074,18 @@ func newResolveTestHandler(t *testing.T, adminUser string) *SshHandler {
 		Spec:       v1.WorkspaceSpec{Cluster: "c1"},
 	}
 	workload := &v1.Workload{
-		ObjectMeta: metav1.ObjectMeta{Name: "wl-1"},
-		Spec:       v1.WorkloadSpec{Workspace: "ns"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "wl-1",
+			Labels: map[string]string{v1.UserIdLabel: adminUser},
+		},
+		Spec: v1.WorkloadSpec{Workspace: "ns"},
 	}
 	admin := &v1.User{
-		ObjectMeta: metav1.ObjectMeta{Name: adminUser},
-		Spec:       v1.UserSpec{Type: v1.DefaultUserType, Roles: []v1.UserRole{v1.SystemAdminRole}},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   adminUser,
+			Labels: map[string]string{v1.UserIdLabel: adminUser},
+		},
+		Spec: v1.UserSpec{Type: v1.DefaultUserType, Roles: []v1.UserRole{v1.SystemAdminRole}},
 	}
 	adminRole := &v1.Role{
 		ObjectMeta: metav1.ObjectMeta{Name: string(v1.SystemAdminRole)},
@@ -1089,8 +1095,16 @@ func newResolveTestHandler(t *testing.T, adminUser string) *SshHandler {
 			GrantedUsers: []string{authority.GrantedAllUser},
 		}},
 	}
+	defaultRole := &v1.Role{
+		ObjectMeta: metav1.ObjectMeta{Name: string(v1.DefaultRole)},
+		Rules: []v1.PolicyRule{{
+			Resources:    []string{authority.AllResource},
+			Verbs:        []v1.RoleVerb{v1.GetVerb},
+			GrantedUsers: []string{authority.GrantedOwner, authority.GrantedWorkspaceUser},
+		}},
+	}
 	ctrlClient := ctrlfake.NewClientBuilder().WithScheme(scheme).
-		WithObjects(workspace, workload, admin, adminRole).Build()
+		WithObjects(workspace, workload, admin, adminRole, defaultRole).Build()
 
 	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
 		Name:      "pod-0",
@@ -1104,7 +1118,7 @@ func newResolveTestHandler(t *testing.T, adminUser string) *SshHandler {
 	return &SshHandler{
 		Client:           ctrlClient,
 		clientManager:    clientManager,
-		accessController: authority.NewAccessController(ctrlClient),
+		accessController: &authority.AccessController{Client: ctrlClient},
 	}
 }
 
@@ -1112,6 +1126,7 @@ func newResolveTestHandler(t *testing.T, adminUser string) *SshHandler {
 // tcpip-forward request and someone else's pod. Every other test in this file
 // replaces it, so without this the guard is only ever exercised by a stub.
 func TestResolveForwardTargetAuthorizes(t *testing.T) {
+	setAuthMode(t, "external")
 	h := newResolveTestHandler(t, "admin")
 
 	clients, err := h.resolveForwardTarget(context.Background(),

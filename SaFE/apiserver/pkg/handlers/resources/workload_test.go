@@ -2628,3 +2628,25 @@ func TestApplyInferaOptionsWritesIdleRoles(t *testing.T) {
 	applyInferaOptions(empty, &view.DynamoOptions{IdleRoles: []string{}})
 	assert.Equal(t, v1.HasAnnotation(empty, v1.InferaIdleRolesAnnotation), false)
 }
+
+// Test_createWorkloadImpl_CICDKeyFailureCreatesNothing checks that a CICD workload whose API key
+// cannot be attached is refused and never written.
+func Test_createWorkloadImpl_CICDKeyFailureCreatesNothing(t *testing.T) {
+	setAuthMode(t, "builtin")
+	stubCICDPlatformKey(t, "")
+	workload := genMockWorkload("test-cluster", "test-workspace")
+	workload.Spec.GroupVersionKind.Kind = common.CICDScaleRunnerSetKind
+	user := genMockUser()
+	role := genMockRole()
+	v1.SetLabel(workload, v1.UserIdLabel, user.Name)
+	fakeCtrlClient := ctrlruntimefake.NewClientBuilder().WithObjects(user, role).WithScheme(scheme.Scheme).Build()
+	h := Handler{Client: fakeCtrlClient, clientSet: k8sfake.NewSimpleClientset(), accessController: authority.NewAccessController(fakeCtrlClient)}
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Set(common.UserId, user.Name)
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/workloads", nil)
+
+	_, err := h.createWorkloadImpl(c, workload, user, []*v1.Role{role})
+	assert.ErrorContains(t, err, "failed to resolve an API key")
+	got := &v1.Workload{}
+	assert.Assert(t, fakeCtrlClient.Get(context.Background(), client.ObjectKeyFromObject(workload), got) != nil)
+}

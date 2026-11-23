@@ -168,16 +168,6 @@ func (r *CDOpsJobReconciler) Reconcile(ctx context.Context, req ctrlruntime.Requ
 		newStatus = StatusDeploying
 	case v1.OpsJobSucceeded:
 		newStatus = StatusDeployed
-		// Create snapshot on success
-		deployType := dbReq.DeployType
-		if deployType == "" {
-			deployType = DeployTypeSafe
-		}
-		if err := r.createSnapshot(ctx, requestId, dbReq.EnvConfig, deployType); err != nil {
-			klog.ErrorS(err, "Failed to create snapshot", "id", requestId)
-		} else {
-			klog.Infof("Snapshot created for deployment request %d", requestId)
-		}
 	case v1.OpsJobFailed:
 		newStatus = StatusFailed
 		// Extract failure reason from job conditions
@@ -189,9 +179,22 @@ func (r *CDOpsJobReconciler) Reconcile(ctx context.Context, req ctrlruntime.Requ
 		return ctrlruntime.Result{}, nil
 	}
 
-	// Skip if status unchanged
+	// A restart reconciles every existing Job. Record the snapshot only when this
+	// success is new, so an already deployed request does not replace the latest one.
 	if dbReq.Status == newStatus {
 		return ctrlruntime.Result{}, nil
+	}
+	if newStatus == StatusDeployed {
+		deployType := dbReq.DeployType
+		if deployType == "" {
+			deployType = DeployTypeSafe
+		}
+		if err := r.createSnapshot(ctx, requestId, dbReq.EnvConfig, deployType); err != nil {
+			klog.ErrorS(err, "Failed to create snapshot", "id", requestId)
+			// Leave the request status unchanged so the next reconcile records the snapshot.
+			return ctrlruntime.Result{RequeueAfter: time.Second * 5}, nil
+		}
+		klog.Infof("Snapshot created for deployment request %d", requestId)
 	}
 
 	// Update database status

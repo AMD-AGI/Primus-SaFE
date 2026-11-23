@@ -151,21 +151,7 @@
                     <WarningFilled />
                   </el-icon>
                 </el-tooltip>
-                <el-tooltip
-                  v-if="row.phase === 'Pending'"
-                  :content="row.message ? `${row.message} - Click for Pending Cause Analysis` : 'Pending Cause Analysis'"
-                  placement="top"
-                >
-                  <el-icon
-                    class="pending-cause-icon"
-                    :size="18"
-                    @click.stop="
-                      router.push({ path: '/workload/pending-cause', query: { id: row.workloadId } })
-                    "
-                  >
-                    <InfoFilled />
-                  </el-icon>
-                </el-tooltip>
+                <PendingCauseIcon v-if="row.phase === 'Pending'" :workload-id="row.workloadId" />
               </div>
               <div
                 class="text-sm"
@@ -317,6 +303,7 @@
   />
 </template>
 <script lang="ts" setup>
+import PendingCauseIcon from '@/components/Workload/PendingCauseIcon.vue'
 import { ref, reactive, watch, nextTick, onMounted, onBeforeUnmount, h, computed } from 'vue'
 import { useWorkloadWriteGuard } from '@/composables/useWorkloadWriteGuard'
 import {
@@ -338,7 +325,7 @@ import {
   phaseFilters,
   WorkloadPhaseButtonType,
 } from '@/services/workload/type'
-import { Search, Refresh, CopyDocument, Plus, InfoFilled, WarningFilled } from '@element-plus/icons-vue'
+import { Search, Refresh, CopyDocument, Plus, WarningFilled } from '@element-plus/icons-vue'
 import ResetIcon from '@/components/icons/ResetIcon.vue'
 import { copyText, formatTimeStr } from '@/utils/index'
 import dayjs from 'dayjs'
@@ -1004,15 +991,4 @@ watch(
   transform: scale(1.2);
 }
 
-/* Pending Cause Analysis Icon */
-.pending-cause-icon {
-  cursor: pointer;
-  color: var(--el-color-warning);
-  transition: all 0.2s ease;
-}
-
-.pending-cause-icon:hover {
-  color: var(--el-color-primary);
-  transform: scale(1.2);
-}
 </style>

@@ -12,20 +12,31 @@ import (
 
 type clawBearerCtxKey struct{}
 
-// WithClawBearer attaches a Bearer token for outbound PrimusClaw HTTP calls.
-// Empty bearer leaves ctx unchanged.
-func WithClawBearer(ctx context.Context, bearer string) context.Context {
-	b := strings.TrimSpace(bearer)
-	if b == "" || ctx == nil {
-		return ctx
-	}
-	return context.WithValue(ctx, clawBearerCtxKey{}, b)
+// clawBearerOverride marks that a per-request bearer was chosen, including an empty
+// one. An empty override means "send no Authorization"; ClawClient must not fall
+// back to the default service apiKey.
+type clawBearerOverride struct {
+	token string
 }
 
-func clawBearerFromContext(ctx context.Context) string {
+// WithClawBearer attaches a Bearer token for outbound PrimusClaw HTTP calls.
+// An empty bearer still records an override so the client does not use its default apiKey.
+// A nil ctx is returned unchanged.
+func WithClawBearer(ctx context.Context, bearer string) context.Context {
 	if ctx == nil {
-		return ""
+		return nil
 	}
-	v, _ := ctx.Value(clawBearerCtxKey{}).(string)
-	return v
+	return context.WithValue(ctx, clawBearerCtxKey{}, clawBearerOverride{token: strings.TrimSpace(bearer)})
+}
+
+// clawBearerFromContext returns the per-request bearer and whether WithClawBearer set one.
+func clawBearerFromContext(ctx context.Context) (bearer string, ok bool) {
+	if ctx == nil {
+		return "", false
+	}
+	v, ok := ctx.Value(clawBearerCtxKey{}).(clawBearerOverride)
+	if !ok {
+		return "", false
+	}
+	return v.token, true
 }

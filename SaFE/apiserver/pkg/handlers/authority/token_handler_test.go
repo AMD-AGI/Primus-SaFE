@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	mock_client "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
 )
@@ -37,7 +38,7 @@ func TestParseToken(t *testing.T) {
 		apiKeyTokenInstance = &ApiKeyToken{dbClient: mockDB}
 		defer func() { apiKeyTokenInstance = oldInstance }()
 
-		testApiKey := "ak-valid-test-key-for-parse"
+		testApiKey := "ak-valid-test-key"
 		mockDB.EXPECT().GetApiKeyByKey(gomock.Any(), HashApiKey(testApiKey, nil)).Return(&dbclient.ApiKey{
 			Id:             1,
 			UserId:         "user-parse-123",
@@ -276,8 +277,46 @@ func TestGetBearerToken(t *testing.T) {
 				c.Request.Header.Set("Authorization", tt.authHeader)
 			}
 
-			result := getBearerToken(c)
+			result := GetBearerToken(c)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+// sso.login sessions are SSO sessions. With sso.enable off and sso.login on, validation
+// must not answer that SSO was never initialized.
+func TestSSOLoginSessionIsNotUninitialized(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	commonconfig.SetValue("sso.enable", "false")
+	commonconfig.SetValue("sso.login.enable", "false")
+	t.Cleanup(func() {
+		commonconfig.SetValue("sso.enable", "")
+		commonconfig.SetValue("sso.login.enable", "")
+	})
+	req := func() *gin.Context {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = httptest.NewRequest(http.MethodGet, "/test", nil)
+		c.Request.AddCookie(&http.Cookie{Name: CookieToken, Value: "sess"})
+		c.Request.AddCookie(&http.Cookie{Name: common.UserType, Value: "sso"})
+		return c
+	}
+	err := parseTokenFromRequest(req())
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "SSO authentication not initialized")
+
+	commonconfig.SetValue("sso.login.enable", "true")
+	err = parseTokenFromRequest(req())
+	assert.Error(t, err)
+	assert.NotContains(t, err.Error(), "SSO authentication not initialized")
+}
+
+func TestCallerBearerPrefersBearerOverCookie(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodGet, "/test", nil)
+	c.Request.AddCookie(&http.Cookie{Name: CookieToken, Value: "cookie-token"})
+	assert.Equal(t, "cookie-token", CallerBearer(c))
+
+	c.Request.Header.Set("Authorization", "Bearer bearer-token")
+	assert.Equal(t, "bearer-token", CallerBearer(c))
 }

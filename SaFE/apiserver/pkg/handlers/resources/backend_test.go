@@ -73,7 +73,7 @@ func TestGetEnvsRobustEnable(t *testing.T) {
 	assert.True(t, get(labeled("primus-robust", robustAddonDisplayName)).EnableRobust)
 }
 
-// With external authentication the console is sent to the configured sign-in URL.
+// The console is sent to auth.login_url in external mode, as loginUrl. builtin does not use that URL.
 func TestGetEnvsExternalLoginURL(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	get := func() view.GetEnvResponse {
@@ -86,20 +86,51 @@ func TestGetEnvsExternalLoginURL(t *testing.T) {
 		assert.NoError(t, json.Unmarshal(rsp.Body.Bytes(), &resp))
 		return resp
 	}
-	t.Cleanup(func() { viper.Set("auth.mode", nil); viper.Set("auth.login_url", nil) })
-
-	viper.Set("auth.login_url", "https://sign-in.example.com/start")
-	assert.Empty(t, get().SSOAuthUrl, "builtin mode ignores login_url")
+	t.Cleanup(func() {
+		viper.Set("auth.mode", nil)
+		viper.Set("auth.login_url", nil)
+		viper.Set("auth.logout_url", nil)
+		viper.Set("auth.connection", nil)
+		viper.Set("sso.enable", nil)
+	})
 
 	viper.Set("auth.mode", "external")
+	viper.Set("auth.login_url", "https://sign-in.example.com/start")
+	viper.Set("auth.connection", "okta-test")
+	viper.Set("sso.enable", false)
 	got := get()
+	assert.Equal(t, "external", got.AuthMode)
+	assert.False(t, got.SSOEnable)
+	assert.Equal(t, "local", got.Connection)
+	assert.Equal(t, "https://sign-in.example.com/start", got.LoginURL)
+	assert.Equal(t, "/identity/api/v1/logout", got.LogoutURL, "sign-out ends the identity service's session")
+	viper.Set("auth.logout_url", "/idp/logout")
+	assert.Equal(t, "/idp/logout", get().LogoutURL)
+	viper.Set("auth.logout_url", "https://elsewhere.example.com/logout")
+	assert.Empty(t, get().LogoutURL, "the browser's session is never sent to another origin")
+	viper.Set("auth.logout_url", nil)
+	viper.Set("sso.enable", true)
+	got = get()
 	assert.True(t, got.SSOEnable)
-	assert.Equal(t, "https://sign-in.example.com/start", got.SSOAuthUrl)
+	assert.Equal(t, "okta-test", got.Connection)
+	viper.Set("sso.enable", false)
+
+	viper.Set("auth.mode", "builtin")
+	got = get()
+	assert.Equal(t, "builtin", got.AuthMode)
+	assert.False(t, got.SSOEnable)
+	assert.Empty(t, got.LoginURL)
+	assert.Empty(t, got.LogoutURL)
+	viper.Set("auth.mode", "external")
+
+	viper.Set("auth.login_url", "")
+	got = get()
+	assert.False(t, got.SSOEnable)
+	assert.Empty(t, got.LoginURL)
 }
 
 // The console creates API keys at the identity provider only where the deployment says the provider's route
-// exists (auth.api_keys_url), and only in external mode: otherwise nothing is reported and the console keeps
-// the apiserver's own keys and its note.
+// exists (auth.api_keys_url), and only in external mode. Unset auth.mode is builtin.
 func TestGetEnvsAPIKeysURL(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	get := func() view.GetEnvResponse {
@@ -120,8 +151,8 @@ func TestGetEnvsAPIKeysURL(t *testing.T) {
 		{"external, routed", "external", "/api/v1/apikeys", "/api/v1/apikeys"},
 		{"external, trailing slash", "external", "/api/v1/apikeys/", "/api/v1/apikeys"},
 		{"external, nothing routed", "external", "", ""},
-		{"builtin ignores it", "builtin", "/api/v1/apikeys", ""},
-		{"default mode ignores it", "", "/api/v1/apikeys", ""},
+		{"auth.mode builtin does not report it", "builtin", "/api/v1/apikeys", ""},
+		{"unset auth.mode does not report it", "", "/api/v1/apikeys", ""},
 		{"external, an absolute URL is not a path on the console's origin", "external", "https://other.example.com/api/v1/apikeys", ""},
 		{"external, a protocol relative URL", "external", "//other.example.com/api/v1/apikeys", ""},
 		{"external, no leading slash", "external", "api/v1/apikeys", ""},
@@ -136,8 +167,8 @@ func TestGetEnvsAPIKeysURL(t *testing.T) {
 	}
 }
 
-// The console returns after sign-in only to the path prefixes /envs names (console.return_prefixes): the four
-// it always had while the key is unset, the configured list (without entries that are not plain path
+// The console returns after sign-in only to the path prefixes /envs names (console.return_prefixes): the
+// defaults while the key is unset, the configured list (without entries that are not plain path
 // prefixes) when it is set, and an empty list, never null, when nothing is left.
 func TestGetEnvsConsoleReturnPrefixes(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -157,7 +188,7 @@ func TestGetEnvsConsoleReturnPrefixes(t *testing.T) {
 
 	viper.Set("console.return_prefixes", nil)
 	resp, _ := get()
-	assert.Equal(t, []string{"/dispatron", "/autopilot", "/binding", "/blog-drafts"}, resp.ConsoleReturnPrefixes)
+	assert.Equal(t, []string{"/dispatron", "/autopilot", "/binding", "/blog-drafts", "/identity"}, resp.ConsoleReturnPrefixes)
 
 	for _, tt := range []struct {
 		name  string

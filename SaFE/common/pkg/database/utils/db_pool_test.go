@@ -57,7 +57,10 @@ func TestPoolLimitsRetireAConnectionOnItsLifetime(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = db.Close() })
 
-		applyPoolLimits(db, &DBConfig{MaxLifetime: time.Millisecond, MaxIdleTime: time.Minute})
+		// sqlmock.New has already opened the one connection it will hand out. The
+		// lifetime has to outlast that connection so this Ping reuses it. The poll
+		// below waits for the lifetime to elapse.
+		applyPoolLimits(db, &DBConfig{MaxLifetime: 200 * time.Millisecond, MaxIdleTime: time.Minute})
 		require.NoError(t, db.Ping())
 
 		assert.True(t, retiredByLifetime(t, db),

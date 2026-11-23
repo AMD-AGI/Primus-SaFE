@@ -168,9 +168,9 @@
           </el-sub-menu>
         </el-sub-menu>
 
-        <!-- Extra menu items for workspace-admin -->
-        <template v-if="canSeeWorkspaceAndUserMenu && !hasManagerAccess">
-          <MenuItem v-for="item in workspaceAdminMenuItems" :key="item.index" :item="item" />
+        <!-- Workspaces for workspace-admin; Users for every member -->
+        <template v-if="!hasManagerAccess">
+          <MenuItem v-for="item in memberMenuItems" :key="item.index" :item="item" />
         </template>
       </el-menu>
       </div>
@@ -226,6 +226,7 @@ import MenuItem from './MenuItem.vue'
 import { useUserStore } from '@/stores/user'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useDark } from '@vueuse/core'
+import { isLogEnabledForHost } from '@/utils'
 import { menuIcons } from './menuIcons'
 import type { ScopesKeys } from '@/services/base/type'
 
@@ -235,6 +236,7 @@ const router = useRouter()
 const userStore = useUserStore()
 const wsStore = useWorkspaceStore()
 const hasManagerAccess = computed(() => userStore.hasManagerAccess)
+const isManager = computed(() => userStore.isManager)
 const menuRef = ref()
 
 // Elegant permission check function
@@ -254,12 +256,6 @@ const workloadPermissions = {
 
 // Destructure specific permission variables (maintain backward compatibility)
 const { canTrain, canAuthoring, canCICD, canInfer, canRay, canSandbox } = workloadPermissions
-
-// workspaceMenu and usersMenu:
-// Visible to system-admin, system-admin-readonly, or current workspace-admin
-const canSeeWorkspaceAndUserMenu = computed(() => {
-  return hasManagerAccess.value || wsStore.isCurrentWorkspaceAdmin()
-})
 
 // Menu config type definition
 interface MenuItem {
@@ -523,10 +519,22 @@ watchEffect(() => {
       canAccess: hasManagerAccess.value, // Admin only
     },
     {
+      index: '/usage',
+      name: 'Usage',
+      icon: menuIcons.cluster,
+      canAccess: hasManagerAccess.value, // Admin only
+    },
+    {
       index: '/usermanage',
       name: 'Users',
       icon: menuIcons.usermanage,
       canAccess: hasManagerAccess.value, // Admin only
+    },
+    {
+      index: '/qos',
+      name: 'QoS',
+      icon: menuIcons.flavors,
+      canAccess: isManager.value,
     },
     {
       index: '/user-group',
@@ -568,7 +576,7 @@ watchEffect(() => {
       index: '/auditlogs',
       name: 'Audit Logs',
       icon: menuIcons.fault,
-      canAccess: hasManagerAccess.value, // Admin only
+      canAccess: hasManagerAccess.value && isLogEnabledForHost(), // Admin only
     },
     {
       index: '/workload-manage',
@@ -582,19 +590,14 @@ watchEffect(() => {
   systemMenuItems.value = allSystemItems.filter((item) => item.canAccess !== false)
 })
 
-// Extra menu items for workspace-admin - static (Nodes already in System menu)
-const workspaceAdminMenuItems: MenuItem[] = [
-  {
-    index: '/workspace',
-    name: 'Workspaces',
-    icon: menuIcons.queue,
-  },
-  {
-    index: '/usermanage',
-    name: 'Users',
-    icon: menuIcons.usermanage,
-  },
-]
+// Menu items for users without platform access: Workspaces only for the current workspace's
+// administrator; Users for every member. Which users the page lists is decided by the server.
+const memberMenuItems = computed<MenuItem[]>(() => [
+  ...(wsStore.isCurrentWorkspaceAdmin()
+    ? [{ index: '/workspace', name: 'Workspaces', icon: menuIcons.queue }]
+    : []),
+  { index: '/usermanage', name: 'Users', icon: menuIcons.usermanage },
+])
 
 // --- Menu search (real-time filter) ---
 const searchQuery = ref('')
@@ -637,9 +640,7 @@ const searchIndex = computed<FlatNavItem[]>(() => [
   ...(hasManagerAccess.value ? flattenNav(modelLabMenuItems, 'Model Lab') : []),
   ...flattenNav(agentInfraMenuItems.value, 'Agent Infra'),
   ...flattenNav(systemMenuItems.value, 'System'),
-  ...(canSeeWorkspaceAndUserMenu.value && !hasManagerAccess.value
-    ? flattenNav(workspaceAdminMenuItems, '')
-    : []),
+  ...(!hasManagerAccess.value ? flattenNav(memberMenuItems.value, '') : []),
 ])
 
 const filteredResults = computed<FlatNavItem[]>(() => {

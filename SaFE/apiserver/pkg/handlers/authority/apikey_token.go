@@ -340,9 +340,9 @@ func deriveAESKey(secret []byte) []byte {
 }
 
 // GetOrCreatePlatformKey returns the plaintext platform key for a user.
-// If no platform key exists, it creates one automatically.
-func (a *ApiKeyToken) GetOrCreatePlatformKey(ctx context.Context, userId, userName string) (string, error) {
-	return apikey.GetOrCreatePlatformKey(ctx, a.dbClient, userId, userName)
+// createIfMissing controls whether a missing key is created.
+func (a *ApiKeyToken) GetOrCreatePlatformKey(ctx context.Context, userId, userName string, createIfMissing bool) (string, error) {
+	return apikey.GetOrCreatePlatformKey(ctx, a.dbClient, userId, userName, createIfMissing)
 }
 
 // GetVirtualKeyByEmail returns the decrypted LiteLLM virtual key for a user.

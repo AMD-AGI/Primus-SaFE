@@ -18,21 +18,20 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 )
 
 // Waiting reasons surfaced for workloads in an external workspace.
 const (
-	ExternalCapacityReason    = "In queue - waiting for external capacity"
-	ExternalProfileReason     = "In queue - execution profile is not validated"
-	ExternalConstraintReason  = "Rejected - constraints cannot be satisfied by external capacity"
-	ExternalUnsupportedReason = "Rejected - workload shape is not supported by external capacity"
-	ExternalInvalidReason     = "Rejected - request refused by external capacity"
-	// ExternalBudgetMissingReason is terminal when the request names a resource the
-	// external-budget quota does not declare (for example rdma/hca or ephemeral-storage).
-	ExternalBudgetMissingReason = "Rejected - external budget does not include required resource"
-	ExternalUnavailableReason   = "In queue - external capacity service is unavailable"
-	ExternalRateLimitedReason = "In queue - external capacity controller rate limited"
-	ExternalAuthReason        = "In queue - not authorized by external capacity"
+	ExternalCapacityReason      = commonworkload.ExternalCapacityReason
+	ExternalProfileReason       = commonworkload.ExternalProfileReason
+	ExternalConstraintReason    = commonworkload.ExternalConstraintReason
+	ExternalUnsupportedReason   = commonworkload.ExternalUnsupportedReason
+	ExternalInvalidReason       = commonworkload.ExternalInvalidReason
+	ExternalBudgetMissingReason = commonworkload.ExternalBudgetMissingReason
+	ExternalUnavailableReason   = commonworkload.ExternalUnavailableReason
+	ExternalRateLimitedReason   = commonworkload.ExternalRateLimitedReason
+	ExternalAuthReason          = commonworkload.ExternalAuthReason
 )
 
 // externalReleaseRetry paces a retry while kube-scheduler ProvisioningRequest

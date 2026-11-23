@@ -13,7 +13,7 @@ import (
 // AuthorizeWorkloadPrivilegedVolumes decides whether the volumes of the workload's workspace that
 // require the workload/privileged grant (requiresPrivilegedGrant) are mounted into the workload.
 // When the workspace has such a volume for the workload's scope and the requesting user holds
-// workload/privileged in the workload's workspace (built-in: workspace-admin and system-admin), the
+// workload/privileged in the workload's workspace (built-in: default, workspace-admin and system-admin), the
 // workload is marked with WorkloadPrivilegedVolumesAuthzAnnotation, which is what the dispatcher
 // mounts those volumes on. A user without the grant is not refused: the workload is created and
 // runs without those volumes, as it would in a scope they do not apply to. When the workload runs

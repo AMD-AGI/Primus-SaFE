@@ -71,6 +71,10 @@ export default function setupClusterGuard(router: Router) {
         return next('/')
       }
 
+      if (to.meta?.requiresSystemAdminWrite && !userStore.isManager) {
+        return next('/')
+      }
+
       // Permission check (workspace-admin)
       if (to.meta?.requiresWorkspaceAdmin) {
         if (!wsStore.isCurrentWorkspaceAdmin() && !userStore.hasManagerAccess) {

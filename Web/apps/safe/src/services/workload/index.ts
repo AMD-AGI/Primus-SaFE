@@ -10,9 +10,7 @@ import type {
   DownloadParams,
   EditWorkloadRequest,
   RootCauseAnalysisResult,
-  PendingCauseAnalysisResult,
-  CreatePendingCauseJobRequest,
-  CreatePendingCauseJobResponse,
+  WorkloadPendingReason,
 } from './type'
 
 const LONG_TIMEOUT = 30_000
@@ -30,8 +28,8 @@ export const getWorkloadsList = (params: WorkloadParams): Promise<any> => {
 export const getWorkloadDetail = (id: string): Promise<any> =>
   request.get(`/workloads/${id}`, { params: { src: 'console' }, timeout: LONG_TIMEOUT })
 
-export const getWorkloadService = (id: string): Promise<any> =>
-  request.get(`/workloads/${id}/service`, { timeout: LONG_TIMEOUT })
+export const getWorkloadService = (id: string, silentStatuses?: number[]): Promise<any> =>
+  request.get(`/workloads/${id}/service`, { timeout: LONG_TIMEOUT, silentStatuses })
 
 // Log download
 export const downloadWlLogs = (data: DownloadParams): Promise<{ jobId: string }> =>
@@ -150,32 +148,10 @@ export const getLensHourlyStats = (p: {
     .catch(emptyOnUnauthorized)
 }
 
-export const getGPUAggregation = (p: {
-  cluster: string
-  namespace?: string
-  start_time?: string
-  end_time?: string
-  page?: number
-  page_size?: number
-  order_by?: string
-  order_direction?: 'asc' | 'desc'
-}) => {
-  const qs = toQuery(p)
-  return lensRequest
-    .get(`/gpu-aggregation/namespaces/hourly-stats${qs ? `?${qs}` : ''}`, {
-      params: undefined as any,
-    })
-    .catch(emptyOnUnauthorized)
-}
-
 // Root Cause Analysis
 export const getRootCauseAnalysis = (workloadId: string): Promise<RootCauseAnalysisResult> =>
   rootCauseRequest.get(`/api/workloads/${workloadId}`)
 
-// Pending Cause Analysis
-export const createPendingCauseJob = (
-  data: CreatePendingCauseJobRequest,
-): Promise<CreatePendingCauseJobResponse> => request.post('/agent/pending-cause/api/jobs', data)
-
-export const getPendingCauseJob = (jobId: string): Promise<PendingCauseAnalysisResult> =>
-  request.get(`/agent/pending-cause/api/jobs/${jobId}`)
+// One-sentence pending reason. The call may wait on pod events and a model summary.
+export const getWorkloadPendingReason = (id: string): Promise<WorkloadPendingReason> =>
+  request.get(`/workloads/${id}/pending-reason`, { timeout: 60_000, skipErrorHandler: true })

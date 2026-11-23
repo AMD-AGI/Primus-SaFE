@@ -106,12 +106,15 @@
           :filter-method="passAll"
         >
           <template #default="{ row }">
-            <el-tag
-              :type="WorkloadPhaseButtonType[row.phase]?.type || 'info'"
-              :effect="isDark ? 'plain' : 'light'"
-            >
-              {{ row.phase }}
-            </el-tag>
+            <div class="flex items-center gap-2">
+              <el-tag
+                :type="WorkloadPhaseButtonType[row.phase]?.type || 'info'"
+                :effect="isDark ? 'plain' : 'light'"
+              >
+                {{ row.phase }}
+              </el-tag>
+              <PendingCauseIcon v-if="canAnalyzePending(row)" :workload-id="row.workloadId" />
+            </div>
           </template>
         </el-table-column>
         <el-table-column label="Roles" min-width="220">
@@ -230,6 +233,7 @@ import {
   VideoPlay,
 } from '@element-plus/icons-vue'
 import ResetIcon from '@/components/icons/ResetIcon.vue'
+import PendingCauseIcon from '@/components/Workload/PendingCauseIcon.vue'
 import { useWorkloadListQuery } from '@/composables/useWorkloadListQuery'
 import { useWorkloadWriteGuard } from '@/composables/useWorkloadWriteGuard'
 import {
@@ -253,6 +257,7 @@ import {
   type WorkloadPhase,
 } from '@/services/workload/type'
 import { copyText, formatTimeStr } from '@/utils/index'
+import { canAnalyzePending } from '@/utils/workloadPending'
 import AddDialog from './Components/AddDialog.vue'
 
 dayjs.extend(utc)

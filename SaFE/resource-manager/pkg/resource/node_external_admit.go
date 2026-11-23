@@ -132,6 +132,9 @@ func (r *NodeK8sReconciler) admitVirtualKubelet(ctx context.Context, clusterName
 			},
 		},
 	}
+	if ip := v1.GetAnnotation(k8sNode, v1.ExternalFrontEndIPv4Annotation); ip != "" {
+		v1.SetAnnotation(desired, v1.ExternalFrontEndIPv4Annotation, ip)
+	}
 
 	existing := &v1.Node{}
 	err = r.Get(ctx, apitypes.NamespacedName{Name: k8sNode.Name}, existing)
@@ -177,8 +180,8 @@ func sameAllocation(a, b *v1.NodeExternalRef) bool {
 
 // patchAdmittedExternalNode updates mutable admission fields after create. lifecycleMode and
 // the allocation identity keys stay immutable; hostKey may appear after the first observation
-// freeze. Spec cluster/workspace/flavor are not rewritten here -- the validating webhook
-// treats those as immutable once set.
+// freeze, and the front-end IPv4 follows the virtual kubelet. Spec cluster/workspace/flavor
+// are not rewritten here -- the validating webhook treats those as immutable once set.
 func (r *NodeK8sReconciler) patchAdmittedExternalNode(ctx context.Context, existing, desired *v1.Node) error {
 	patch := client.MergeFrom(existing.DeepCopy())
 	changed := false
@@ -194,6 +197,13 @@ func (r *NodeK8sReconciler) patchAdmittedExternalNode(ctx context.Context, exist
 				changed = true
 			}
 		}
+	}
+	if ip := v1.GetAnnotation(desired, v1.ExternalFrontEndIPv4Annotation); ip != "" {
+		if v1.SetAnnotation(existing, v1.ExternalFrontEndIPv4Annotation, ip) {
+			changed = true
+		}
+	} else if v1.RemoveAnnotation(existing, v1.ExternalFrontEndIPv4Annotation) {
+		changed = true
 	}
 	if !changed {
 		return nil

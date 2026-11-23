@@ -12,6 +12,26 @@ export const isExternalAuth = (envs: Pick<EnvsResp, 'authMode'> | null | undefin
   envs?.authMode === 'external'
 
 /**
+ * Where the browser signs in when an identity provider owns authentication, or '' when it does not.
+ * Only loginUrl (auth.login_url) is used, and only while authMode is external. An SSO authorize URL is
+ * not a substitute. A path on this origin is kept; any other value must be an http(s) URL.
+ */
+export const externalLoginUrl = (
+  envs: Pick<EnvsResp, 'authMode' | 'loginUrl'> | null | undefined,
+): string => {
+  if (!isExternalAuth(envs)) return ''
+  const url = (envs?.loginUrl ?? '').trim()
+  if (url.startsWith('/') && !url.startsWith('//') && !/[\\\s?#]/.test(url)) return url
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return ''
+    return url
+  } catch {
+    return ''
+  }
+}
+
+/**
  * Where the identity provider serves API keys, as a path on this console's origin, or '' when
  * there is none: the mode is not external, or the deployment routes nothing there (the server
  * reports `apiKeysUrl` only then). Only a path counts, so a value that points elsewhere is
@@ -23,6 +43,20 @@ export const apiKeysProviderUrl = (
   const url = envs?.authMode === 'external' ? (envs.apiKeysUrl ?? '').trim() : ''
   if (!url.startsWith('/') || url.startsWith('//') || /[\\\s?#]/.test(url)) return ''
   return url.replace(/\/+$/, '')
+}
+
+/**
+ * Where sign-out ends the identity provider's session, as a path on this console's origin, or '' when the
+ * mode is not external or the server reports no usable path. In external mode the browser's session is
+ * the provider's own, so clearing the apiserver's cookies alone would leave it valid everywhere else.
+ * Only a path counts, so the session is never sent to another origin.
+ */
+export const externalLogoutUrl = (
+  envs: Pick<EnvsResp, 'authMode' | 'logoutUrl'> | null | undefined,
+): string => {
+  const url = isExternalAuth(envs) ? (envs?.logoutUrl ?? '').trim() : ''
+  if (!url.startsWith('/') || url.startsWith('//') || /[\\\s?#]/.test(url)) return ''
+  return url
 }
 
 /**

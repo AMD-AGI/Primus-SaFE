@@ -107,16 +107,74 @@ spec:
                 description: Set the workspace as the default workspace (i.e., all
                   users can access it)
                 type: boolean
+              lowUtilization:
+                additionalProperties:
+                  description: LowUtilizationPolicy stops workloads whose GPU utilization
+                    stays below a threshold
+                  properties:
+                    cooldown:
+                      description: |-
+                        Time a detected workload must stay active before its detection is cleared, and the least
+                        time between two notices to its owner, e.g. 30m. Default the shortest rule window.
+                      type: string
+                    dryRun:
+                      description: Detect and notify only, never stop the workload
+                      type: boolean
+                    gracePeriod:
+                      description: Time after the workload starts before it is checked,
+                        e.g. 1h
+                      type: string
+                    mode:
+                      description: Average compares the across-node average, Min the
+                        least busy node. Required with a rule.
+                      enum:
+                      - Average
+                      - Min
+                      type: string
+                    notifyBefore:
+                      description: Time between the low utilization notice and the
+                        stop, e.g. 30m
+                      type: string
+                    rules:
+                      description: A workload counts as idle when any rule matches
+                        (at most 5, each with its own window)
+                      items:
+                        description: LowUtilizationRule counts a workload as idle
+                          when its GPU utilization stays below the threshold for the
+                          window
+                        properties:
+                          threshold:
+                            description: GPU utilization in percent (0-100) below
+                              which a workload counts as idle
+                            type: integer
+                          window:
+                            description: How long the utilization must stay below
+                              the threshold, e.g. 30m (5m to 24h)
+                            type: string
+                        required:
+                        - threshold
+                        - window
+                        type: object
+                      type: array
+                    threshold:
+                      description: |-
+                        Legacy single rule: GPU utilization in percent (0-100) below which a workload counts as idle.
+                        Only used when rules is empty.
+                      type: integer
+                    window:
+                      description: |-
+                        Legacy single rule: how long the utilization must stay below the threshold, e.g. 30m (5m to 24h).
+                        Only used when rules is empty.
+                      type: string
+                  type: object
+                description: Stop running workloads whose GPU utilization stays low,
+                  per scope
+                type: object
               managers:
                 description: User id of the workspace administrator
                 items:
                   type: string
                 type: array
-              maxRuntime:
-                additionalProperties:
-                  type: integer
-                description: 'The maximum workload runtime of each scope, Unit: hours'
-                type: object
               nodeFlavor:
                 description: The node flavor id of workspace, A workspace supports
                   only one node flavor
@@ -180,10 +238,10 @@ spec:
                       description: |-
                         When set, the volume is mounted only into workloads whose creator held the
                         workload/privileged grant in the workspace when the workload was created (built-in:
-                        workspace-admin and system-admin). Workloads of other members are still admitted and run
-                        without this volume, as if its scopes did not list theirs. A member whose spec.hostpath
-                        names the volume's hostPath, a path under it or a path containing it is refused, with the
-                        reason, even when another volume declares that path.
+                        default, workspace-admin, and system-admin). Workloads of users without the grant are still
+                        admitted and run without this volume, as if its scopes did not list theirs. A user without
+                        the grant whose spec.hostpath names the volume's hostPath, a path under it or a path
+                        containing it is refused, with the reason, even when another volume declares that path.
                       type: boolean
                     scopes:
                       description: |-

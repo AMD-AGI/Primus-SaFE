@@ -65,8 +65,11 @@ type IntrospectionConfig struct {
 	CABundle string
 	// ClientID and ClientSecretFile authenticate this apiserver to the introspection endpoint
 	// (HTTP Basic). The secret is read from the file, a mounted Secret, on every call, so a
-	// rotated Secret is picked up without a restart; it is never logged.
+	// rotated Secret is picked up without a restart; it is never logged. ClientIDFile names a
+	// file holding the client id, for a client whose id is generated and kept in the same Secret.
+	// It is used only when ClientID is empty.
 	ClientID         string
+	ClientIDFile     string
 	ClientSecretFile string
 	Timeout          time.Duration
 	// CacheTTL is how long an accepted credential is used without asking again.
@@ -117,11 +120,16 @@ func NewIntrospectionAuthenticator(cfg IntrospectionConfig) (*IntrospectionAuthe
 	if cfg.URL == "" && cfg.Issuer == "" {
 		return nil, errors.New("introspection authenticator: url or issuer is required")
 	}
-	if cfg.ClientID == "" || cfg.ClientSecretFile == "" {
-		return nil, errors.New("introspection authenticator: client_id and client_secret_file are required")
+	if (cfg.ClientID == "" && cfg.ClientIDFile == "") || cfg.ClientSecretFile == "" {
+		return nil, errors.New("introspection authenticator: client_id (or client_id_file) and client_secret_file are required")
 	}
 	if cfg.Audience == "" {
 		return nil, errors.New("introspection authenticator: audience is required")
+	}
+	if cfg.ClientID == "" {
+		if _, err := readClientSecret(cfg.ClientIDFile); err != nil {
+			return nil, fmt.Errorf("introspection authenticator: client_id_file: %w", err)
+		}
 	}
 	if _, err := readClientSecret(cfg.ClientSecretFile); err != nil {
 		return nil, fmt.Errorf("introspection authenticator: client_secret_file: %w", err)
@@ -163,6 +171,11 @@ func NewIntrospectionAuthenticator(cfg IntrospectionConfig) (*IntrospectionAuthe
 	return &IntrospectionAuthenticator{cfg: cfg, cache: map[string]*cacheEntry{}}, nil
 }
 
+// CertPool parses PEM text or a PEM file into a certificate pool.
+func CertPool(bundle string) (*x509.CertPool, error) {
+	return certPool(bundle)
+}
+
 func certPool(bundle string) (*x509.CertPool, error) {
 	data := []byte(bundle)
 	if !strings.Contains(bundle, "-----BEGIN") {
@@ -176,6 +189,11 @@ func certPool(bundle string) (*x509.CertPool, error) {
 		return nil, errors.New("no certificate found")
 	}
 	return pool, nil
+}
+
+// ReadClientSecret reads the secret from its file. Trailing whitespace is not part of the secret.
+func ReadClientSecret(path string) (string, error) {
+	return readClientSecret(path)
 }
 
 // readClientSecret reads the secret from its file. Trailing whitespace (the newline an
@@ -198,6 +216,17 @@ func readClientSecret(path string) (string, error) {
 		return "", errors.New("the file is too large to be a client secret")
 	}
 	return secret, nil
+}
+
+// ResolveClientID returns id when it is set, and otherwise the client id read from file.
+func ResolveClientID(id, file string) (string, error) {
+	if id != "" {
+		return id, nil
+	}
+	if file == "" {
+		return "", errors.New("no client id is configured")
+	}
+	return readClientSecret(file)
 }
 
 // Name implements Authenticator.
@@ -293,21 +322,24 @@ func (a *IntrospectionAuthenticator) store(key string, id *Identity) {
 // introspectionAnswer is an RFC 7662 response with the extension members this
 // authenticator reads. Active is a pointer so that an answer without it is told from "false".
 type introspectionAnswer struct {
-	Active     *bool           `json:"active"`
-	Issuer     string          `json:"iss"`
-	Audience   json.RawMessage `json:"aud"` // a string or an array of strings
-	ClientID   string          `json:"client_id"`
-	Sub        string          `json:"sub"`
-	Username   string          `json:"username"`
-	Name       string          `json:"name"`
-	Email      string          `json:"email"`
-	Groups     []string        `json:"groups"`
-	Roles      []string        `json:"roles"`
-	Scope      string          `json:"scope"`
-	Jti        string          `json:"jti"`
-	Exp        json.Number     `json:"exp"`
-	Restricted bool            `json:"restricted"`
-	Act        *struct {
+	Active   *bool           `json:"active"`
+	Issuer   string          `json:"iss"`
+	Audience json.RawMessage `json:"aud"` // a string or an array of strings
+	ClientID string          `json:"client_id"`
+	Sub      string          `json:"sub"`
+	Username string          `json:"username"`
+	// PreferredUsername is the SSO login name the identity holds for the user; Username is the e-mail or display name.
+	PreferredUsername string      `json:"preferred_username"`
+	Name              string      `json:"name"`
+	Email             string      `json:"email"`
+	UserType          string      `json:"user_type"`
+	Groups            []string    `json:"groups"`
+	Roles             []string    `json:"roles"`
+	Scope             string      `json:"scope"`
+	Jti               string      `json:"jti"`
+	Exp               json.Number `json:"exp"`
+	Restricted        bool        `json:"restricted"`
+	Act               *struct {
 		ClientID string `json:"client_id"`
 		Sub      string `json:"sub"`
 	} `json:"act"`
@@ -323,6 +355,10 @@ func (a *IntrospectionAuthenticator) introspect(ctx context.Context, cred Creden
 	endpoint, err := a.introspectionURL(rctx)
 	if err != nil {
 		return nil, err
+	}
+	clientID, err := ResolveClientID(a.cfg.ClientID, a.cfg.ClientIDFile)
+	if err != nil {
+		return nil, fmt.Errorf("client id: %w", err)
 	}
 	secret, err := readClientSecret(a.cfg.ClientSecretFile)
 	if err != nil {
@@ -345,7 +381,7 @@ func (a *IntrospectionAuthenticator) introspect(ctx context.Context, cred Creden
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
-	req.SetBasicAuth(a.cfg.ClientID, secret)
+	req.SetBasicAuth(clientID, secret)
 	resp, err := a.cfg.HTTPClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -435,8 +471,8 @@ func (a *IntrospectionAuthenticator) identity(r *introspectionAnswer) (*Identity
 		return nil, nil
 	}
 	id := &Identity{
-		ID: r.Sub, Name: r.Name, Email: r.Email, Jti: r.Jti, Restricted: r.Restricted,
-		Groups: unionOf(r.Groups, r.Roles), Scopes: strings.Fields(r.Scope),
+		ID: r.Sub, Name: r.Name, PreferredName: r.PreferredUsername, Email: r.Email, AccountType: r.UserType,
+		Jti: r.Jti, Restricted: r.Restricted, Groups: unionOf(r.Groups, r.Roles), Scopes: strings.Fields(r.Scope),
 	}
 	if id.Name == "" {
 		id.Name = r.Username

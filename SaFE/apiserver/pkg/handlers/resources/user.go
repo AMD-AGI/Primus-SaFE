@@ -25,6 +25,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/extauth"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/identity"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
@@ -298,6 +299,7 @@ func (h *Handler) listUser(c *gin.Context) (interface{}, error) {
 		sort.Sort(view.UserSlice(userList.Items))
 	}
 	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
+	adminView := h.isSystemAdminRequest(c.Request.Context(), requestUser)
 	for _, item := range userList.Items {
 		if query.WorkspaceId != "" {
 			if !commonuser.HasWorkspaceRight(&item, query.WorkspaceId) {
@@ -307,7 +309,11 @@ func (h *Handler) listUser(c *gin.Context) (interface{}, error) {
 		if h.authUserGet(c, query.WorkspaceId, requestUser, &item, roles, v1.ListVerb) != nil {
 			continue
 		}
-		result.Items = append(result.Items, h.cvtToUserResponseItem(c.Request.Context(), &item))
+		resp := h.cvtToUserResponseItem(c.Request.Context(), &item)
+		if !adminView && item.Name != requestUser.Name {
+			resp.Qos = nil
+		}
+		result.Items = append(result.Items, resp)
 	}
 	result.TotalCount = len(result.Items)
 	return result, nil
@@ -369,7 +375,23 @@ func (h *Handler) getUser(c *gin.Context) (interface{}, error) {
 	if err = h.authUserGet(c, "", requestUser, targetUser, roles, v1.GetVerb); err != nil {
 		return nil, err
 	}
-	return h.cvtToUserResponseItem(c.Request.Context(), targetUser), nil
+	resp := h.cvtToUserResponseItem(c.Request.Context(), targetUser)
+	if !h.isSystemAdminRequest(c.Request.Context(), requestUser) && targetUser.Name != requestUser.Name {
+		resp.Qos = nil
+	}
+	return resp, nil
+}
+
+// isSystemAdminRequest reports whether the request user is a system administrator.
+// Only system administrators may read other users' personal qos.
+func (h *Handler) isSystemAdminRequest(ctx context.Context, requestUser *v1.User) bool {
+	if requestUser == nil {
+		return false
+	}
+	return h.accessController.AuthorizeSystemAdmin(authority.AccessInput{
+		Context: ctx,
+		User:    requestUser,
+	}, false) == nil
 }
 
 // getSelfWorkspaces implements the lookup behind GET /users/self/workspaces.
@@ -423,9 +445,15 @@ func (h *Handler) patchUser(c *gin.Context) (interface{}, error) {
 	if err = refuseExternalPasswordChange(req); err != nil {
 		return nil, err
 	}
+	if err = validateWorkspaceDelta(req); err != nil {
+		return nil, err
+	}
 	dropGrantedWorkspaces(c.Request.Context(), targetUser, req)
 	isChanged, err := h.authUserUpdate(c, targetUser, req)
 	if !isChanged || err != nil {
+		return nil, err
+	}
+	if err = forwardIdentityStatus(c, targetUser, req); err != nil {
 		return nil, err
 	}
 
@@ -451,17 +479,42 @@ func (h *Handler) patchUser(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
+// workspaceOnlyQos stores per-workspace ceilings. A qos without workspaces clears the user's ceilings.
+// Memory is stored the same way as a workspace Qos.
+func workspaceOnlyQos(qos *v1.UserQos) *v1.UserQos {
+	if qos == nil || len(qos.Workspaces) == 0 {
+		return nil
+	}
+	copied := qos.DeepCopy()
+	for id, scope := range copied.Workspaces {
+		scope.MaxResources = view.NormalizeQosResources(scope.MaxResources)
+		copied.Workspaces[id] = scope
+	}
+	return copied
+}
+
 // applyUserPatch updates the target user with values from the patch request.
 // Only modifies fields that are present in the request.
 func applyUserPatch(targetUser *v1.User, req *view.PatchUserRequest) {
 	if req.Workspaces != nil {
 		commonuser.AssignWorkspace(targetUser, *req.Workspaces...)
 	}
+	if req.AddWorkspaces != nil {
+		commonuser.AddWorkspace(targetUser, *req.AddWorkspaces...)
+	}
+	if req.RemoveWorkspaces != nil {
+		for _, id := range *req.RemoveWorkspaces {
+			commonuser.RemoveWorkspace(targetUser, id)
+		}
+	}
 	if req.Roles != nil {
 		targetUser.Spec.Roles = *req.Roles
 	}
 	if req.RestrictedType != nil {
 		targetUser.Spec.RestrictedType = *req.RestrictedType
+		if *req.RestrictedType != v1.UserFrozen {
+			v1.RemoveAnnotation(targetUser, identity.DeactivatedAnnotation)
+		}
 	}
 	if req.AvatarUrl != nil {
 		v1.SetAnnotation(targetUser, v1.UserAvatarUrlAnnotation, *req.AvatarUrl)
@@ -472,6 +525,9 @@ func applyUserPatch(targetUser *v1.User, req *view.PatchUserRequest) {
 	if req.Email != nil {
 		v1.SetLabel(targetUser, v1.UserEmailMd5Label, stringutil.MD5(*req.Email))
 		v1.SetAnnotation(targetUser, v1.UserEmailAnnotation, *req.Email)
+	}
+	if req.Qos != nil {
+		targetUser.Spec.Qos = workspaceOnlyQos(req.Qos)
 	}
 }
 
@@ -513,6 +569,25 @@ func (h *Handler) authUserUpdate(c *gin.Context, targetUser *v1.User, req *view.
 		}
 	}
 
+	if req.AddWorkspaces != nil || req.RemoveWorkspaces != nil {
+		if err = h.authWorkspaceDelta(c, requestUser, targetUser, req, roles); err != nil {
+			return false, err
+		}
+		// Authorized on every named workspace; a granted-only addition is not stored.
+		dropGrantedAdditions(c.Request.Context(), targetUser, req)
+		isChanged = isChanged || workspaceDeltaChanges(targetUser, req)
+	}
+
+	if req.Qos != nil {
+		if err = h.requireSystemAdmin(c); err != nil {
+			return false, err
+		}
+		if err = view.ValidateUserQos(req.Qos); err != nil {
+			return false, err
+		}
+		isChanged = true
+	}
+
 	if req.Email != nil && *req.Email != v1.GetUserEmail(targetUser) ||
 		req.AvatarUrl != nil && *req.AvatarUrl != v1.GetUserAvatarUrl(targetUser) ||
 		req.Password != nil && *req.Password != stringutil.Base64Decode(targetUser.Spec.Password) {
@@ -523,6 +598,74 @@ func (h *Handler) authUserUpdate(c *gin.Context, targetUser *v1.User, req *view.
 		isChanged = true
 	}
 	return isChanged, nil
+}
+
+// validateWorkspaceDelta rejects an incremental workspace patch that is combined with the full
+// workspaces list, holds an empty id, or names a workspace in both the add and remove lists.
+func validateWorkspaceDelta(req *view.PatchUserRequest) error {
+	if req.AddWorkspaces == nil && req.RemoveWorkspaces == nil {
+		return nil
+	}
+	if req.Workspaces != nil {
+		return commonerrors.NewBadRequest("addWorkspaces and removeWorkspaces cannot be combined with workspaces")
+	}
+	var added, removed []string
+	if req.AddWorkspaces != nil {
+		added = *req.AddWorkspaces
+	}
+	if req.RemoveWorkspaces != nil {
+		removed = *req.RemoveWorkspaces
+	}
+	for _, id := range append(append([]string{}, added...), removed...) {
+		if id == "" {
+			return commonerrors.NewBadRequest("the workspace id is empty")
+		}
+	}
+	for _, id := range added {
+		if slice.Contains(removed, id) {
+			return commonerrors.NewBadRequest("the workspace " + id + " is in both addWorkspaces and removeWorkspaces")
+		}
+	}
+	return nil
+}
+
+// authWorkspaceDelta authorizes an incremental workspace patch against exactly the workspaces
+// the request names, so the requester must be allowed to update user/workspace on each of them.
+func (h *Handler) authWorkspaceDelta(c *gin.Context, requestUser, targetUser *v1.User,
+	req *view.PatchUserRequest, roles []*v1.Role) error {
+	var named []string
+	if req.AddWorkspaces != nil {
+		named = append(named, *req.AddWorkspaces...)
+	}
+	if req.RemoveWorkspaces != nil {
+		named = append(named, *req.RemoveWorkspaces...)
+	}
+	if len(named) == 0 {
+		return nil
+	}
+	return h.authUserAction(c, requestUser, targetUser,
+		named, authority.UserWorkspaceResource, roles, v1.UpdateVerb)
+}
+
+// workspaceDeltaChanges reports whether an incremental workspace patch changes the stored
+// workspaces of the target: an add of a workspace it lacks, or a remove of one it has.
+func workspaceDeltaChanges(target *v1.User, req *view.PatchUserRequest) bool {
+	current := commonuser.GetWorkspace(target)
+	if req.AddWorkspaces != nil {
+		for _, id := range *req.AddWorkspaces {
+			if !slice.Contains(current, id) {
+				return true
+			}
+		}
+	}
+	if req.RemoveWorkspaces != nil {
+		for _, id := range *req.RemoveWorkspaces {
+			if slice.Contains(current, id) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // authUserAction performs authorization checks for user-related actions.
@@ -582,6 +725,34 @@ func (h *Handler) deleteUser(c *gin.Context) (interface{}, error) {
 	return nil, nil
 }
 
+// forwardIdentityStatus asks the identity service to disable or activate the user before the local
+// restricted type changes. Builtin mode does nothing. Only a credential an identity provider accepted
+// is forwarded; any other credential gets a conflict. The local user is not updated when this returns an error.
+func forwardIdentityStatus(c *gin.Context, user *v1.User, req *view.PatchUserRequest) error {
+	if commonconfig.GetAuthMode() != commonconfig.AuthModeExternal || req.RestrictedType == nil || !commonconfig.ProviderClientEnabled() {
+		return nil
+	}
+	status, ok := identityStatus(*req.RestrictedType, user.Spec.RestrictedType)
+	if !ok {
+		return nil
+	}
+	if userType := c.GetString(common.UserType); userType != authority.UserTypeExternal && userType != authority.UserTypeDelegated {
+		return commonerrors.NewConflict("changing the user status needs an identity provider sign-in; use the identity console")
+	}
+	return identity.SetStatus(c.Request.Context(), user.Name, status, authority.CallerBearer(c))
+}
+
+// identityStatus returns the identity status for a change into or out of the frozen restriction.
+func identityStatus(next, prev v1.UserRestrictedType) (string, bool) {
+	if (next == v1.UserFrozen) == (prev == v1.UserFrozen) {
+		return "", false
+	}
+	if next == v1.UserFrozen {
+		return "disabled", true
+	}
+	return "active", true
+}
+
 // getAdminUser retrieves a user resource by ID from the admin data plane.
 // Returns an error if the user doesn't exist or the ID is empty.
 func (h *Handler) getAdminUser(ctx context.Context, userId string) (*v1.User, error) {
@@ -597,6 +768,14 @@ func (h *Handler) getAdminUser(ctx context.Context, userId string) (*v1.User, er
 	return user, nil
 }
 
+// ssoTokenInstance is the SSO sign-in the login handler uses, nil when there is none.
+var ssoTokenInstance = func() authority.TokenInterface {
+	if inst := authority.SSOInstance(); inst != nil {
+		return inst
+	}
+	return nil
+}
+
 // login implements user authentication logic.
 // Handles different user types and performs authentication based on the request type.
 func (h *Handler) login(c *gin.Context) (interface{}, error) {
@@ -604,18 +783,26 @@ func (h *Handler) login(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = refuseExternal("sign-in through this endpoint"); err != nil {
-		c.Set(common.UserId, "login-failed:"+query.Name)
-		c.Set(common.UserName, query.Name)
-		c.Set(common.UserType, string(query.Type))
-		return nil, err
+	// External mode refuses a password sign-in. An authorization code is exchanged here and the
+	// identity-issued token is kept.
+	ssoOn := commonconfig.IsSSOEnable() || commonconfig.IsSSOLoginEnable()
+	externalCode := commonconfig.GetAuthMode() == commonconfig.AuthModeExternal &&
+		query.Type == v1.SSOUserType && query.Code != "" && query.CodeVerifier != "" &&
+		commonconfig.IsSSOLoginEnable()
+	if !externalCode {
+		if err = refuseExternal("sign-in through this endpoint"); err != nil {
+			c.Set(common.UserId, "login-failed:"+query.Name)
+			c.Set(common.UserName, query.Name)
+			c.Set(common.UserType, string(query.Type))
+			return nil, err
+		}
 	}
 	var tokenInstance authority.TokenInterface
 	if query.Type == v1.SSOUserType {
-		if !commonconfig.IsSSOEnable() {
+		if !ssoOn {
 			return nil, commonerrors.NewInternalError("SSO is not enabled")
 		}
-		tokenInstance = authority.SSOInstance()
+		tokenInstance = ssoTokenInstance()
 	} else {
 		tokenInstance = authority.DefaultTokenInstance()
 	}
@@ -628,7 +815,11 @@ func (h *Handler) login(c *gin.Context) (interface{}, error) {
 		CodeVerifier: query.CodeVerifier,
 		Username:     query.Name,
 		Password:     query.Password,
+		ClientIP:     c.ClientIP(),
 	}
+	// External mode: the identity provider's session in this browser is the sign-in (sso_token.go).
+	tokenInput.SessionCookie, _ = c.Cookie(authority.CookieToken)
+	tokenInput.SessionUserType, _ = c.Cookie(common.UserType)
 	user, resp, err := tokenInstance.Login(c.Request.Context(), tokenInput)
 
 	if err != nil {
@@ -652,7 +843,11 @@ func (h *Handler) login(c *gin.Context) (interface{}, error) {
 		Token:            resp.Token,
 		UserResponseItem: h.cvtToUserResponseItem(c.Request.Context(), user),
 	}
-	if query.IsFromConsole {
+	if commonconfig.GetAuthMode() == commonconfig.AuthModeExternal {
+		// The browser keeps the identity provider's session cookie, which this response must not
+		// replace, and no other credential is handed out.
+		result.Token = ""
+	} else if query.IsFromConsole {
 		setCookie(c, result, query.Type)
 	}
 	klog.Infof("user login successfully, userName: %s, userId: %s", result.Name, result.Id)
@@ -694,6 +889,7 @@ func (h *Handler) cvtToUserResponseItem(ctx context.Context, user *v1.User) view
 		CreationTime:   timeutil.FormatRFC3339(user.CreationTimestamp.Time),
 		RestrictedType: user.Spec.RestrictedType,
 		AvatarUrl:      v1.GetUserAvatarUrl(user),
+		Qos:            user.Spec.Qos,
 	}
 	result.Workspaces, result.ManagedWorkspaces = h.userWorkspaces(ctx, user)
 	return result
@@ -724,6 +920,9 @@ func (h *Handler) userWorkspaces(ctx context.Context, user *v1.User) (workspaces
 // logout handles user logout by clearing authentication cookies.
 // Only applicable for requests from the console interface.
 func (h *Handler) logout(c *gin.Context) (interface{}, error) {
+	// In external mode these are the identity provider's session cookies (same names, path and host).
+	// The console ends the session at the provider first, so by the time it gets here they are usually
+	// gone already; clearing them anyway is what signs the browser out when the provider's logout failed.
 	info := &view.UserLoginResponse{}
 	setCookie(c, info, "")
 	return nil, nil

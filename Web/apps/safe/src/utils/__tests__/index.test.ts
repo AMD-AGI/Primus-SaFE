@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import {
+  historyBack,
   fillMissingKeys,
   toSnakeCase,
   toCamelCase,
@@ -20,7 +21,33 @@ import {
   formatNodeInfo,
   calculateDefaultTime,
   isLogDownloadEnabledForHost,
+  isLogEnabledForHost,
 } from '../index'
+
+// ---------------------------------------------------------------------------
+// historyBack
+// ---------------------------------------------------------------------------
+describe('historyBack', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('uses navigation.back() so entries pushed by iframes are skipped', () => {
+    const back = vi.fn()
+    const fallback = vi.fn()
+    vi.stubGlobal('navigation', { canGoBack: true, back })
+    historyBack(fallback)
+    expect(back).toHaveBeenCalledOnce()
+    expect(fallback).not.toHaveBeenCalled()
+  })
+
+  it('falls back when the Navigation API is unavailable', () => {
+    const fallback = vi.fn()
+    vi.stubGlobal('navigation', undefined)
+    historyBack(fallback)
+    expect(fallback).toHaveBeenCalledOnce()
+  })
+})
 
 // ---------------------------------------------------------------------------
 // fillMissingKeys
@@ -323,9 +350,9 @@ describe('encodeToBase64String', () => {
   })
 
   it('encodes Unicode characters', () => {
-    const encoded = encodeToBase64String('你好世界')
+    const encoded = encodeToBase64String('café — 10 €')
     expect(encoded).toBeTruthy()
-    expect(decodeFromBase64String(encoded)).toBe('你好世界')
+    expect(decodeFromBase64String(encoded)).toBe('café — 10 €')
   })
 
   it('returns empty string for empty input', () => {
@@ -412,5 +439,15 @@ describe('isLogDownloadEnabledForHost', () => {
 
   it('keeps log download enabled for non-Core42 domains when backend config is enabled', () => {
     expect(isLogDownloadEnabledForHost(true, 'safe.example.com')).toBe(true)
+  })
+})
+
+describe('isLogEnabledForHost', () => {
+  it('disables logs on the global domain', () => {
+    expect(isLogEnabledForHost('Global.Primus-SaFE.amd.com')).toBe(false)
+  })
+
+  it('keeps logs enabled on other domains', () => {
+    expect(isLogEnabledForHost('core42.primus-safe.amd.com')).toBe(true)
   })
 })

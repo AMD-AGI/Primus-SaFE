@@ -73,6 +73,12 @@ const router = createRouter({
           meta: { requiresSystemAdmin: true },
         },
         {
+          path: '/usage',
+          name: 'Usage',
+          component: () => import('../pages/Usage/index.vue'),
+          meta: { requiresSystemAdmin: true },
+        },
+        {
           path: '/cluster/detail',
           name: 'clusterDetail',
           component: () => import('../pages/Clusters/ClusterDetail.vue'),
@@ -174,11 +180,6 @@ const router = createRouter({
           component: () => import('../pages/Training/TrainingRootCauseDetail.vue'),
         },
         {
-          path: '/workload/pending-cause',
-          name: 'WorkloadPendingCause',
-          component: () => import('../pages/Workload/PendingCauseDetail.vue'),
-        },
-        {
           path: '/authoring/detail',
           name: 'AuthoringDetail',
           component: () => import('../pages/Authoring/AuthoringDetail.vue'),
@@ -224,7 +225,30 @@ const router = createRouter({
           path: '/usermanage',
           name: 'UserManage',
           component: () => import('../pages/UserManage/index.vue'),
-          meta: { requiresWorkspaceAdmin: true },
+        },
+        {
+          path: '/qos',
+          name: 'Qos',
+          component: () => import('../pages/Qos/index.vue'),
+          meta: { requiresSystemAdminWrite: true },
+        },
+        {
+          path: '/qos/create',
+          name: 'QosCreate',
+          component: () => import('../pages/Qos/QosEdit.vue'),
+          meta: { requiresSystemAdminWrite: true },
+        },
+        {
+          path: '/qos/edit',
+          name: 'QosEdit',
+          component: () => import('../pages/Qos/QosEdit.vue'),
+          meta: { requiresSystemAdminWrite: true },
+        },
+        {
+          path: '/qos/detail',
+          name: 'QosDetail',
+          component: () => import('../pages/Qos/QosDetail.vue'),
+          meta: { requiresSystemAdminWrite: true },
         },
         {
           path: '/preflight',

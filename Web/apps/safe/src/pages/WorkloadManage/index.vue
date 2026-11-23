@@ -168,19 +168,7 @@
                     <WarningFilled />
                   </el-icon>
                 </el-tooltip>
-                <el-tooltip
-                  v-if="row.phase === 'Pending'"
-                  :content="row.message ? `${row.message} - Click for Pending Cause Analysis` : 'Pending Cause Analysis'"
-                  placement="top"
-                >
-                  <el-icon
-                    class="pending-cause-icon"
-                    :size="18"
-                    @click.stop="router.push({ path: '/workload/pending-cause', query: { id: row.workloadId } })"
-                  >
-                    <InfoFilled />
-                  </el-icon>
-                </el-tooltip>
+                <PendingCauseIcon v-if="canAnalyzePending(row)" :workload-id="row.workloadId" />
               </div>
               <div class="text-sm" v-if="row.phase === 'Pending' && !!row.queuePosition">
                 position in queue:{{ row.queuePosition }}
@@ -329,6 +317,8 @@
 </template>
 
 <script lang="ts" setup>
+import PendingCauseIcon from '@/components/Workload/PendingCauseIcon.vue'
+import { canAnalyzePending } from '@/utils/workloadPending'
 import { ref, reactive, watch, nextTick, onMounted, onBeforeUnmount, h, computed, shallowRef } from 'vue'
 import { useWorkloadWriteGuard } from '@/composables/useWorkloadWriteGuard'
 import {
@@ -352,7 +342,7 @@ import {
   KindPathMap,
 } from '@/services/workload/type'
 import {
-  Search, Refresh, CopyDocument, Timer, WarningFilled, InfoFilled,
+  Search, Refresh, CopyDocument, Timer, WarningFilled,
 } from '@element-plus/icons-vue'
 import ResetIcon from '@/components/icons/ResetIcon.vue'
 import { copyText, formatTimeStr } from '@/utils/index'
@@ -961,15 +951,6 @@ onBeforeUnmount(() => {
 }
 .root-cause-icon:hover {
   color: var(--el-color-warning);
-  transform: scale(1.2);
-}
-.pending-cause-icon {
-  cursor: pointer;
-  color: var(--el-color-warning);
-  transition: all 0.2s ease;
-}
-.pending-cause-icon:hover {
-  color: var(--el-color-primary);
   transform: scale(1.2);
 }
 </style>

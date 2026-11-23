@@ -25,6 +25,8 @@ type UserSpecApplyConfiguration struct {
 	// The key of resources is the name to be managed (e.g. workspace)
 	// values are its corresponding values(e.g. workspace-id)"
 	Resources map[string][]string `json:"resources,omitempty"`
+	// Per-user resource and runtime ceilings per workspace. Unset fields use the workspace Qos.
+	Qos *UserQosApplyConfiguration `json:"qos,omitempty"`
 }
 
 // UserSpecApplyConfiguration constructs a declarative configuration of the UserSpec type for use with
@@ -78,5 +80,13 @@ func (b *UserSpecApplyConfiguration) WithResources(entries map[string][]string) 
 	for k, v := range entries {
 		b.Resources[k] = v
 	}
+	return b
+}
+
+// WithQos sets the Qos field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Qos field is set to the value of the last call.
+func (b *UserSpecApplyConfiguration) WithQos(value *UserQosApplyConfiguration) *UserSpecApplyConfiguration {
+	b.Qos = value
 	return b
 }

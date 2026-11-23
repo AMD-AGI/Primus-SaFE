@@ -36,10 +36,10 @@ type VerifyTokenRequest struct {
 	ApiKey string `json:"apiKey,omitempty"`
 	// Original client IP, used for API key whitelist validation
 	ClientIP string `json:"clientIP,omitempty"`
-	// If true, returns the user's platform API key (GetOrCreate).
+	// If true, returns the user's platform API key. In external auth mode an existing key is
+	// returned and none is created; in builtin mode a missing key is created.
 	// NOTE: this platform key is effectively a "shadow" of the user's API key:
-	// it is a stable per-user ak-... minted/fetched via GetOrCreate and is NOT
-	// the specific ak-... presented for this verification.
+	// it is a stable per-user ak-... and is NOT the specific ak-... presented for this verification.
 	IncludePlatformKey bool `json:"includePlatformKey,omitempty"`
 	// If true, returns the user's LiteLLM virtual key (decrypted)
 	IncludeVirtualKey bool `json:"includeVirtualKey,omitempty"`
@@ -72,19 +72,26 @@ type VerifyTokenResponse struct {
 // variable so tests can substitute a stub without patching the DB layer.
 var platformKeyFetcher = fetchPlatformKey
 
-// fetchPlatformKey fetches or creates the platform API key from the database.
+// platformDBEnabled / platformDBClient are seams for fetchPlatformKey tests.
+var (
+	platformDBEnabled = commonconfig.IsDBEnable
+	platformDBClient  = func() dbclient.Interface { return dbclient.NewClient() }
+)
+
+// fetchPlatformKey fetches the platform API key from the database. In builtin mode a missing
+// key is created; in external mode only an existing key is returned.
 // Returns an empty key (no error) when the database is unavailable.
 func fetchPlatformKey(ctx context.Context, userId, userName string) (string, error) {
-	if !commonconfig.IsDBEnable() {
+	if !platformDBEnabled() {
 		klog.Warning("database not enabled, cannot provide platform key")
 		return "", nil
 	}
-	db := dbclient.NewClient()
+	db := platformDBClient()
 	if db == nil {
 		klog.Warning("database client not available, cannot provide platform key")
 		return "", nil
 	}
-	return apikey.GetOrCreatePlatformKey(ctx, db, userId, userName)
+	return apikey.GetOrCreatePlatformKey(ctx, db, userId, userName, commonconfig.PlatformKeyCreationAllowed())
 }
 
 // VerifyToken validates a user token and returns user information
@@ -197,12 +204,14 @@ func VerifyToken(c *gin.Context) {
 		}
 	}
 
-	// Optionally include platform API key (GetOrCreate)
+	// Optionally include platform API key (lookup; create only in builtin mode).
 	if req.IncludePlatformKey {
 		if platformKey, err := platformKeyFetcher(c.Request.Context(), userInfo.Id, userInfo.Name); err != nil {
 			klog.ErrorS(err, "failed to get/create platform key", "userId", userInfo.Id)
 		} else if platformKey != "" {
 			resp.PlatformKey = platformKey
+		} else if !commonconfig.PlatformKeyCreationAllowed() {
+			klog.V(1).InfoS("platform key asked for and none exists in external mode", "userId", userInfo.Id)
 		}
 	}
 
@@ -315,14 +324,16 @@ func verifyBuiltin(c *gin.Context, req *VerifyTokenRequest) (userInfo *UserInfo,
 
 		var tokenInstance TokenInterface
 		if userType == string(v1.SSOUserType) {
-			if !commonconfig.IsSSOEnable() {
+			if !commonconfig.IsSSOEnable() && !commonconfig.IsSSOLoginEnable() {
 				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
 					"code":    http.StatusBadRequest,
 					"message": "SSO is not enabled",
 				})
 				return nil, "", false
 			}
-			tokenInstance = SSOInstance()
+			if s := SSOInstance(); s != nil {
+				tokenInstance = s
+			}
 		} else {
 			tokenInstance = DefaultTokenInstance()
 		}

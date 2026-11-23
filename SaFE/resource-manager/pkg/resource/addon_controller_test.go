@@ -218,7 +218,7 @@ func TestRegisterRobustEndpointSetsAnnotation(t *testing.T) {
 	r.registerRobustEndpointIfApplicable(context.Background(), addon)
 	updated := &v1.Cluster{}
 	assert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "c1"}, updated))
-	assert.NotEmpty(t, updated.Annotations[annotationRobustEndpoint])
+	assert.Equal(t, "http://robust-api.primus-robust.svc:8085", updated.Annotations[annotationRobustEndpoint])
 }
 
 func TestCleanupRobustGrafanaDatasourcesNoSyncer(t *testing.T) {

@@ -25,6 +25,13 @@ type Identity struct {
 	ID    string
 	Name  string
 	Email string
+	// PreferredName is the SSO login name the issuer reported (the preferred_username claim, or the
+	// preferred_username of an introspection answer). Its local part is the NTID stamped on workloads. Empty when none.
+	PreferredName string
+	// AccountType is the account kind the issuer reported: "default" for a username/password
+	// account, "sso" for one that signs in through an identity provider. Empty when the
+	// issuer did not say.
+	AccountType string
 	// Groups are mapped to roles on every request; they are never stored.
 	Groups []string
 	// Actor is set when the credential is delegated: the party acting for ID

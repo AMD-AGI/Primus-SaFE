@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -360,13 +361,399 @@ func TestWorkloadMutateSecrets(t *testing.T) {
 	assert.Equal(t, len(w.Spec.Secrets), 1)
 }
 
-// TestWorkloadMutateTimeout verifies timeout assignment from workspace max runtime.
+// TestWorkloadMutateTimeout verifies an empty timeout is filled from the workspace qos.
 func TestWorkloadMutateTimeout(t *testing.T) {
-	m := &WorkloadMutator{}
+	scheme := newScheme(t)
+	qos := &v1.Qos{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.QosSpec{MaxRuntime: map[string]int{string(v1.TrainScope): 7200}}}
+	m := &WorkloadMutator{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(qos).Build()}
 	w := &v1.Workload{Spec: v1.WorkloadSpec{GroupVersionKind: v1.GroupVersionKind{Kind: common.PytorchJobKind}}}
-	ws := &v1.Workspace{Spec: v1.WorkspaceSpec{MaxRuntime: map[v1.WorkspaceScope]int{v1.TrainScope: 2}}}
-	m.mutateTimeout(w, ws)
+	assert.NilError(t, m.mutateTimeout(context.Background(), w, &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}))
 	assert.Assert(t, w.Spec.Timeout != nil)
+	assert.Equal(t, *w.Spec.Timeout, 7200)
+}
+
+// TestWorkloadTimeoutCeilingOnCreateOnly verifies the qos timeout is filled and checked on
+// create, while an update keeps the stored timeout and leaves the ceiling to the apiserver.
+func TestWorkloadTimeoutCeilingOnCreateOnly(t *testing.T) {
+	ctx := context.Background()
+	c := fullWorkloadEnvClient(t)
+	assert.NilError(t, c.Create(ctx, &v1.Qos{
+		ObjectMeta: metav1.ObjectMeta{Name: "ws1"},
+		Spec:       v1.QosSpec{MaxRuntime: map[string]int{string(v1.TrainScope): 7200}},
+	}))
+	v := &WorkloadValidator{Client: c}
+	long := 9000
+	w := fullValidWorkload()
+	w.Spec.Timeout = &long
+	assert.Assert(t, v.validateOnCreation(ctx, w) != nil)
+	assert.NilError(t, v.validateOnUpdate(ctx, w, fullValidWorkload(), false))
+
+	m := &WorkloadMutator{Client: c}
+	updated := fullValidWorkload()
+	assert.NilError(t, m.mutateOnUpdate(ctx, fullValidWorkload(), updated))
+	assert.Assert(t, updated.Spec.Timeout == nil)
+}
+
+// TestWorkloadTimeoutExtendedMark verifies that only a workload the apiserver marked as extended
+// may go past the qos ceiling or have no timeout.
+func TestWorkloadTimeoutExtendedMark(t *testing.T) {
+	ctx := context.Background()
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1"}}
+	qos := &v1.Qos{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.QosSpec{MaxRuntime: map[string]int{string(v1.TrainScope): 10800}}}
+	c := fake.NewClientBuilder().WithScheme(newScheme(t)).WithObjects(ws, qos).Build()
+	v := &WorkloadValidator{Client: c}
+	m := &WorkloadMutator{Client: c}
+	workload := func(timeout *int, extended bool) *v1.Workload {
+		w := &v1.Workload{
+			ObjectMeta: metav1.ObjectMeta{Name: "w", Labels: map[string]string{v1.ClusterIdLabel: "c1"}},
+			Spec: v1.WorkloadSpec{
+				GroupVersionKind: v1.GroupVersionKind{Kind: common.PytorchJobKind},
+				Workspace:        "ws1",
+				Timeout:          timeout,
+			},
+		}
+		if extended {
+			v1.SetAnnotation(w, v1.WorkloadRuntimeExtendedByAnnotation, "manager")
+		}
+		return w
+	}
+
+	filled := workload(nil, false)
+	assert.NilError(t, m.mutateTimeout(ctx, filled, ws))
+	assert.Equal(t, *filled.Spec.Timeout, 10800)
+	zero := workload(pointer.Int(0), false)
+	assert.NilError(t, m.mutateTimeout(ctx, zero, ws))
+	assert.Equal(t, *zero.Spec.Timeout, 10800)
+	assert.NilError(t, v.validateTimeout(ctx, zero))
+	assert.NilError(t, v.validateTimeout(ctx, workload(pointer.Int(10800), false)))
+	err := v.validateTimeout(ctx, workload(pointer.Int(20000), false))
+	assert.ErrorContains(t, err, "exceeds the qos limit of 10800 seconds")
+	assert.Assert(t, v.validateTimeout(ctx, workload(pointer.Int(0), false)) != nil)
+
+	assert.NilError(t, v.validateTimeout(ctx, workload(pointer.Int(20000), true)))
+	unlimited := workload(pointer.Int(0), true)
+	assert.NilError(t, m.mutateTimeout(ctx, unlimited, ws))
+	assert.Equal(t, *unlimited.Spec.Timeout, 0)
+	assert.NilError(t, v.validateTimeout(ctx, unlimited))
+}
+
+func scaleQuotaWorkload(name, gpu string, scheduled bool) *v1.Workload {
+	w := &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Labels: map[string]string{
+			v1.WorkspaceIdLabel: "c1",
+			v1.UserIdLabel:      "alice",
+		}},
+		Spec: v1.WorkloadSpec{
+			GroupVersionKind: v1.GroupVersionKind{Kind: common.DeploymentKind},
+			Resources:        []v1.WorkloadResource{{Replica: 1, CPU: "1", Memory: "1Gi", GPU: gpu, GPUName: common.AmdGpu}},
+		},
+	}
+	if scheduled {
+		v1.SetAnnotation(w, v1.WorkloadScheduledAnnotation, v1.TrueStr)
+	}
+	return w
+}
+
+func TestCreateRejectsARequestLargerThanTheCeiling(t *testing.T) {
+	ctx := context.Background()
+	scheme := newScheme(t)
+	flavor := gpuFlavor("flavor1")
+	flavor.Spec.Gpu.Quantity = resource.MustParse("32")
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Replica: 100, Cluster: "cluster1"}}
+	rt := &v1.ResourceTemplate{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "rt1",
+			Labels:      map[string]string{v1.WorkloadVersionLabel: "v1"},
+			Annotations: map[string]string{v1.WorkloadKindLabel: common.PytorchJobKind},
+		},
+	}
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "wt1",
+			Namespace: common.PrimusSafeNamespace,
+			Labels: map[string]string{
+				v1.WorkloadVersionLabel: "v1",
+				v1.WorkloadKindLabel:    common.PytorchJobKind,
+			},
+		},
+	}
+	qos := &v1.Qos{
+		ObjectMeta: metav1.ObjectMeta{Name: "ws1"},
+		Spec:       v1.QosSpec{MaxResources: &v1.ResourceCap{GPU: "8"}},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ws, flavor, rt, cm, qos).Build()
+	v := &WorkloadValidator{Client: c}
+
+	over := fullValidWorkload()
+	v1.SetLabel(over, v1.UserIdLabel, "alice")
+	over.Spec.Resources[0].GPU = "16"
+	over.Spec.Resources[0].GPUName = common.AmdGpu
+	if err := v.validateOnCreation(ctx, over); err == nil {
+		t.Fatal("a create larger than the ceiling is rejected")
+	}
+
+	cron := fullValidWorkload()
+	v1.SetLabel(cron, v1.UserIdLabel, "alice")
+	cron.Spec.Resources[0].GPU = "4"
+	cron.Spec.Resources[0].GPUName = common.AmdGpu
+	cron.Spec.CronJobs = []v1.CronJob{{
+		Action:   v1.CronStart,
+		Schedule: time.Now().UTC().Add(24 * time.Hour).Format(time.RFC3339),
+	}}
+	assert.NilError(t, v.validateOnCreation(ctx, cron))
+}
+
+func TestDryRunUpdateDoesNotReserve(t *testing.T) {
+	ctx := context.Background()
+	scheme := newScheme(t)
+	flavor := gpuFlavor("flavor1")
+	flavor.Spec.Gpu.Quantity = resource.MustParse("32")
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Replica: 100, Cluster: "cluster1"}}
+	rt := &v1.ResourceTemplate{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "rt1",
+			Labels:      map[string]string{v1.WorkloadVersionLabel: "v1"},
+			Annotations: map[string]string{v1.WorkloadKindLabel: common.PytorchJobKind},
+		},
+	}
+	cm := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "wt1",
+			Namespace: common.PrimusSafeNamespace,
+			Labels: map[string]string{
+				v1.WorkloadVersionLabel: "v1",
+				v1.WorkloadKindLabel:    common.PytorchJobKind,
+			},
+		},
+	}
+	qos := &v1.Qos{
+		ObjectMeta: metav1.ObjectMeta{Name: "ws1"},
+		Spec:       v1.QosSpec{MaxResources: &v1.ResourceCap{GPU: "10"}},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ws, flavor, rt, cm, qos).Build()
+	v := &WorkloadValidator{Client: c}
+	oldWorkload := fullValidWorkload()
+	v1.SetLabel(oldWorkload, v1.UserIdLabel, "alice")
+	v1.SetAnnotation(oldWorkload, v1.WorkloadScheduledAnnotation, v1.TrueStr)
+	oldWorkload.Spec.Resources[0].GPU = "1"
+	oldWorkload.Spec.Resources[0].GPUName = common.AmdGpu
+	scaled := oldWorkload.DeepCopy()
+	scaled.Spec.Resources[0].GPU = "8"
+
+	assert.NilError(t, v.validateOnUpdate(ctx, scaled, oldWorkload, true))
+	if len(v.scaleReserved) != 0 {
+		t.Fatalf("a dry-run update must not reserve, got %d", len(v.scaleReserved))
+	}
+	assert.NilError(t, v.validateOnUpdate(ctx, scaled, oldWorkload, false))
+	if len(v.scaleReserved) != 1 {
+		t.Fatalf("a real update reserves the scale, got %d", len(v.scaleReserved))
+	}
+}
+
+func TestScaleUpOverQuotaIsRejected(t *testing.T) {
+	scheme := newScheme(t)
+	qos := &v1.Qos{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+		Spec:       v1.QosSpec{MaxResources: &v1.ResourceCap{GPU: "8"}},
+	}
+	running := scaleQuotaWorkload("running", "6", true)
+	self := scaleQuotaWorkload("self", "1", true)
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(qos, running, self).Build()
+	v := &WorkloadValidator{Client: c}
+	ctx := context.Background()
+
+	err := v.validateScaleQuota(ctx, scaleQuotaWorkload("self", "4", true), self, false)
+	assert.Assert(t, err != nil)
+	assert.NilError(t, v.validateScaleQuota(ctx, scaleQuotaWorkload("self", "2", true), self, false))
+	larger := self.DeepCopy()
+	larger.Spec.Resources[0].GPU = "4"
+	assert.NilError(t, v.validateScaleQuota(ctx, self, larger, false))
+
+	open := fake.NewClientBuilder().WithScheme(scheme).WithObjects(self).Build()
+	assert.NilError(t, (&WorkloadValidator{Client: open}).validateScaleQuota(ctx, scaleQuotaWorkload("self", "16", true), self, false))
+}
+
+func TestConcurrentScaleReservesOne(t *testing.T) {
+	scheme := newScheme(t)
+	qos := &v1.Qos{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+		Spec:       v1.QosSpec{MaxResources: &v1.ResourceCap{GPU: "10"}},
+	}
+	first := scaleQuotaWorkload("first", "1", true)
+	second := scaleQuotaWorkload("second", "1", true)
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(qos, first, second).Build()
+	v := &WorkloadValidator{Client: c}
+	ctx := context.Background()
+
+	start := make(chan struct{})
+	errs := make([]error, 2)
+	var wg sync.WaitGroup
+	for i, item := range []*v1.Workload{first, second} {
+		wg.Add(1)
+		go func(i int, item *v1.Workload) {
+			defer wg.Done()
+			<-start
+			errs[i] = v.validateScaleQuota(ctx, scaleQuotaWorkload(item.Name, "8", true), item, false)
+		}(i, item)
+	}
+	close(start)
+	wg.Wait()
+
+	passed := 0
+	for _, err := range errs {
+		if err == nil {
+			passed++
+		}
+	}
+	if passed != 1 {
+		t.Fatalf("one scale must be allowed, got %d (%v)", passed, errs)
+	}
+}
+
+func TestScaleCountsQueuedWorkAheadOfIt(t *testing.T) {
+	scheme := newScheme(t)
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	qos := &v1.Qos{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+		Spec:       v1.QosSpec{MaxResources: &v1.ResourceCap{GPU: "8"}},
+	}
+	queued := scaleQuotaWorkload("queued", "6", false)
+	queued.CreationTimestamp = metav1.NewTime(base)
+	running := scaleQuotaWorkload("running", "1", true)
+	running.CreationTimestamp = metav1.NewTime(base.Add(time.Minute))
+	running.Spec.Priority = 100
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(qos, queued, running).Build()
+	v := &WorkloadValidator{Client: c}
+	ctx := context.Background()
+	err := v.validateScaleQuota(ctx, scaleQuotaWorkload("running", "4", true), running, false)
+	assert.Assert(t, err != nil)
+
+	later := scaleQuotaWorkload("later", "6", false)
+	later.CreationTimestamp = metav1.NewTime(base.Add(time.Hour))
+	older := scaleQuotaWorkload("older", "1", true)
+	older.CreationTimestamp = metav1.NewTime(base)
+	c = fake.NewClientBuilder().WithScheme(scheme).WithObjects(qos, later, older).Build()
+	v = &WorkloadValidator{Client: c}
+	assert.NilError(t, v.validateScaleQuota(ctx, scaleQuotaWorkload("older", "4", true), older, false))
+
+	high := scaleQuotaWorkload("z-high", "6", false)
+	high.CreationTimestamp = metav1.NewTime(base)
+	high.Spec.Priority = 10
+	low := scaleQuotaWorkload("a-low", "1", true)
+	low.CreationTimestamp = metav1.NewTime(base)
+	low.Spec.Priority = 1
+	c = fake.NewClientBuilder().WithScheme(scheme).WithObjects(qos, high, low).Build()
+	v = &WorkloadValidator{Client: c}
+	err = v.validateScaleQuota(ctx, scaleQuotaWorkload("a-low", "4", true), low, false)
+	assert.Assert(t, err != nil)
+
+	left := scaleQuotaWorkload("m-left", "6", false)
+	left.CreationTimestamp = metav1.NewTime(base)
+	left.Spec.Priority = 5
+	right := scaleQuotaWorkload("m-right", "1", true)
+	right.CreationTimestamp = metav1.NewTime(base)
+	right.Spec.Priority = 5
+	c = fake.NewClientBuilder().WithScheme(scheme).WithObjects(qos, left, right).Build()
+	v = &WorkloadValidator{Client: c}
+	err = v.validateScaleQuota(ctx, scaleQuotaWorkload("m-right", "4", true), right, false)
+	assert.Assert(t, err != nil)
+}
+
+func TestRememberRunningResourcesKeepsTheOriginalSize(t *testing.T) {
+	oldWorkload := scaleQuotaWorkload("running", "1", true)
+	updated := scaleQuotaWorkload("running", "8", true)
+	rememberRunningResources(oldWorkload, updated)
+	if updated.Annotations[v1.QosRunningResourcesAnnotation] == "" {
+		t.Fatal("a scale records the size that is still running")
+	}
+	again := scaleQuotaWorkload("running", "9", true)
+	v1.SetAnnotation(again, v1.QosRunningResourcesAnnotation, updated.Annotations[v1.QosRunningResourcesAnnotation])
+	grown := scaleQuotaWorkload("running", "10", true)
+	rememberRunningResources(again, grown)
+	if grown.Annotations[v1.QosRunningResourcesAnnotation] != again.Annotations[v1.QosRunningResourcesAnnotation] {
+		t.Fatal("a second scale keeps the original running size")
+	}
+	same := scaleQuotaWorkload("running", "10", true)
+	rememberRunningResources(grown, same)
+	if same.Annotations[v1.QosRunningResourcesAnnotation] != "" {
+		t.Fatal("an unchanged size does not record a running size")
+	}
+}
+
+func TestQueuedResizeAboveCeilingIsRejected(t *testing.T) {
+	scheme := newScheme(t)
+	qos := &v1.Qos{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+		Spec:       v1.QosSpec{MaxResources: &v1.ResourceCap{GPU: "8"}},
+	}
+	queued := scaleQuotaWorkload("queued", "1", false)
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(qos, queued).Build()
+	v := &WorkloadValidator{Client: c}
+	ctx := context.Background()
+
+	err := v.validateScaleQuota(ctx, scaleQuotaWorkload("queued", "16", false), queued, false)
+	assert.Assert(t, err != nil)
+	assert.NilError(t, v.validateScaleQuota(ctx, scaleQuotaWorkload("queued", "8", false), queued, false))
+}
+
+func TestUnscheduledScaleSkipsQuota(t *testing.T) {
+	scheme := newScheme(t)
+	qos := &v1.Qos{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+		Spec:       v1.QosSpec{MaxResources: &v1.ResourceCap{GPU: "8"}},
+	}
+	running := scaleQuotaWorkload("running", "4", true)
+	queued := scaleQuotaWorkload("queued", "4", false)
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(qos, running, queued).Build()
+	v := &WorkloadValidator{Client: c}
+	grown := scaleQuotaWorkload("queued", "8", false)
+	assert.NilError(t, v.validateScaleQuota(context.Background(), grown, queued, false))
+}
+
+func TestDryRunScaleDoesNotReserve(t *testing.T) {
+	scheme := newScheme(t)
+	qos := &v1.Qos{
+		ObjectMeta: metav1.ObjectMeta{Name: "c1"},
+		Spec:       v1.QosSpec{MaxResources: &v1.ResourceCap{GPU: "10"}},
+	}
+	first := scaleQuotaWorkload("first", "1", true)
+	second := scaleQuotaWorkload("second", "1", true)
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(qos, first, second).Build()
+	v := &WorkloadValidator{Client: c}
+	ctx := context.Background()
+	assert.NilError(t, v.validateScaleQuota(ctx, scaleQuotaWorkload("first", "8", true), first, true))
+	assert.NilError(t, v.validateScaleQuota(ctx, scaleQuotaWorkload("second", "8", true), second, false))
+	if len(v.scaleReserved) != 1 {
+		t.Fatalf("only the real scale is reserved, got %d", len(v.scaleReserved))
+	}
+}
+
+func TestScaleReservationDropsWhenLandedOrExpired(t *testing.T) {
+	scheme := newScheme(t)
+	landed := scaleQuotaWorkload("landed", "2", true)
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(landed).Build()
+	v := &WorkloadValidator{Client: c}
+	v.scaleReserved = map[string]scaleReservation{
+		scaleReservationKey("alice", "c1", "landed"): {at: time.Now(), resources: landed.Spec.Resources},
+		scaleReservationKey("alice", "c1", "gone"):   {at: time.Now().Add(-time.Hour), resources: landed.Spec.Resources},
+		scaleReservationKey("bob", "c2", "other"):    {at: time.Now().Add(-time.Hour), resources: landed.Spec.Resources},
+	}
+	used, err := v.scaleUsage(context.Background(), "alice", "c1", "someone", nil)
+	assert.NilError(t, err)
+	cpu := used[corev1.ResourceCPU]
+	assert.Equal(t, cpu.String(), "1")
+	if _, ok := v.scaleReserved[scaleReservationKey("alice", "c1", "landed")]; ok {
+		t.Fatal("a reservation matching the cache must be dropped")
+	}
+	if _, ok := v.scaleReserved[scaleReservationKey("alice", "c1", "gone")]; ok {
+		t.Fatal("an expired reservation must be dropped")
+	}
+	if _, ok := v.scaleReserved[scaleReservationKey("bob", "c2", "other")]; !ok {
+		t.Fatal("another user's reservation stays")
+	}
+	empty, err := v.scaleUsage(context.Background(), "", "c1", "someone", nil)
+	assert.NilError(t, err)
+	assert.Equal(t, len(empty), 0)
 }
 
 // TestWorkloadMutateMeta verifies labels and finalizer on workload.
@@ -443,6 +830,27 @@ func TestWorkloadValidateService(t *testing.T) {
 		Port: 80, TargetPort: 8080, Protocol: corev1.ProtocolTCP, ServiceType: corev1.ServiceTypeClusterIP,
 	}}}
 	assert.NilError(t, v.validateService(context.Background(), ok))
+}
+
+// TestWorkloadValidateSecretsAsEnv allows asEnv only on general secrets.
+func TestWorkloadValidateSecretsAsEnv(t *testing.T) {
+	scheme := newScheme(t)
+	secret := func(name string, typ v1.SecretType) *corev1.Secret {
+		return &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: common.PrimusSafeNamespace,
+			Labels: map[string]string{v1.SecretTypeLabel: string(typ)}}}
+	}
+	v := &WorkloadValidator{Client: fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(secret("wandb", v1.SecretGeneral), secret("pull", v1.SecretImage)).Build()}
+	with := func(entries ...v1.SecretEntity) *v1.Workload {
+		return &v1.Workload{Spec: v1.WorkloadSpec{Secrets: entries}}
+	}
+	ctx := context.Background()
+	assert.NilError(t, v.validateSecretsAsEnv(ctx, with(v1.SecretEntity{Id: "wandb", Type: v1.SecretGeneral, AsEnv: true})))
+	assert.NilError(t, v.validateSecretsAsEnv(ctx, with(v1.SecretEntity{Id: "pull", Type: v1.SecretImage})))
+	assert.Assert(t, v.validateSecretsAsEnv(ctx, with(v1.SecretEntity{Id: "pull", Type: v1.SecretImage, AsEnv: true})) != nil)
+	assert.Assert(t, v.validateSecretsAsEnv(ctx, with(v1.SecretEntity{Id: "pull", Type: v1.SecretGeneral, AsEnv: true})) != nil,
+		"the Secret's own label decides its type")
+	assert.Assert(t, v.validateSecretsAsEnv(ctx, with(v1.SecretEntity{Id: "missing", Type: v1.SecretGeneral, AsEnv: true})) != nil)
 }
 
 // TestWorkloadValidateServiceNameDuplicate rejects a Service name already used
@@ -874,7 +1282,7 @@ func TestWorkloadValidateFullChain(t *testing.T) {
 	c := fullWorkloadEnvClient(t)
 	v := &WorkloadValidator{Client: c}
 	assert.NilError(t, v.validateOnCreation(context.Background(), fullValidWorkload()))
-	assert.NilError(t, v.validateOnUpdate(context.Background(), fullValidWorkload(), fullValidWorkload()))
+	assert.NilError(t, v.validateOnUpdate(context.Background(), fullValidWorkload(), fullValidWorkload(), false))
 }
 
 // TestWorkloadValidateCreationDuplicateServiceName verifies creation is denied
@@ -2582,7 +2990,7 @@ func TestWorkloadValidateOnUpdateBranches(t *testing.T) {
 	oldW := fullValidWorkload()
 	newW := fullValidWorkload()
 	newW.Spec.Workspace = "other"
-	assert.Assert(t, v.validateOnUpdate(context.Background(), newW, oldW) != nil)
+	assert.Assert(t, v.validateOnUpdate(context.Background(), newW, oldW, false) != nil)
 
 	// spec changed on dispatched workload
 	oldD := fullValidWorkload()
@@ -2590,7 +2998,7 @@ func TestWorkloadValidateOnUpdateBranches(t *testing.T) {
 	newD := fullValidWorkload()
 	v1.SetAnnotation(newD, v1.WorkloadDispatchedAnnotation, v1.TrueStr)
 	newD.Spec.Resources = []v1.WorkloadResource{{Replica: 2, CPU: "2", Memory: "4Gi", EphemeralStorage: "5Gi"}}
-	assert.Assert(t, v.validateOnUpdate(context.Background(), newD, oldD) != nil)
+	assert.Assert(t, v.validateOnUpdate(context.Background(), newD, oldD, false) != nil)
 }
 
 // TestWorkloadValidateOnUpdateCronJobs covers cron change validation on update.
@@ -2600,7 +3008,7 @@ func TestWorkloadValidateOnUpdateCronJobs(t *testing.T) {
 	oldW := fullValidWorkload()
 	newW := fullValidWorkload()
 	newW.Spec.CronJobs = []v1.CronJob{{Schedule: "", Action: v1.CronStart}}
-	assert.Assert(t, v.validateOnUpdate(context.Background(), newW, oldW) != nil)
+	assert.Assert(t, v.validateOnUpdate(context.Background(), newW, oldW, false) != nil)
 }
 
 // TestWorkloadValidateWorkspaceQuotaOk covers the quota sub-resource success branch.

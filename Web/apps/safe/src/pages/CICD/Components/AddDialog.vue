@@ -80,12 +80,19 @@
                     placeholder="Paste the GitHub App private key PEM"
                     show-word-limit
                   />
-                  <input
-                    class="pem-file-input"
-                    type="file"
-                    accept=".pem,.key,text/plain"
-                    @change="onPrivateKeyFileChange"
-                  />
+                  <div class="pem-file-row">
+                    <el-button @click="privateKeyFileInput?.click()">Choose PEM file</el-button>
+                    <span class="pem-file-name">{{
+                      privateKeyFileName || 'No file selected'
+                    }}</span>
+                    <input
+                      ref="privateKeyFileInput"
+                      class="pem-file-input"
+                      type="file"
+                      accept=".pem,.key,text/plain"
+                      @change="onPrivateKeyFileChange"
+                    />
+                  </div>
                 </div>
               </el-form-item>
             </template>
@@ -184,6 +191,14 @@
               />
             </el-select>
           </el-form-item>
+          <el-form-item label="env">
+            <KeyValueList
+              v-model="form.envList"
+              :max="20"
+              keyMode="input"
+              info="Extra container env. Managed keys such as GITHUB_CONFIG_URL are ignored."
+            />
+          </el-form-item>
         </div>
 
         <!-- ===== Resource ===== -->
@@ -198,9 +213,10 @@
 
           <el-row :gutter="20">
             <el-col :span="24">
-              <el-form-item label="replica">
-                <!-- A GithubRunner scales by running several identical runners, so the
-                     count is a create-time choice. AutoscalingRunnerSet scales itself. -->
+              <el-form-item label="maxRunners">
+                <!-- GithubRunner sends this count as resources[].replica.
+                     AutoscalingRunnerSet only displays the chart default; its request
+                     still sends replica 1. -->
                 <el-input-number
                   v-if="isGithubRunner"
                   v-model.number="form.resource.replica"
@@ -209,7 +225,16 @@
                   :disabled="isEdit"
                   class="w-[160px]"
                 />
-                <el-input v-else placeholder="1" disabled />
+                <el-input-number
+                  v-else
+                  :model-value="SCALE_SET_MAX_RUNNERS"
+                  disabled
+                  class="w-[160px]"
+                />
+                <el-text size="small" type="info">
+                  <el-icon class="mr-1"><InfoFilled /></el-icon>
+                  {{ MAX_RUNNERS_INFO }}
+                </el-text>
               </el-form-item>
             </el-col>
             <el-col :span="24">
@@ -409,13 +434,14 @@ import { getImagesList, getNodesList } from '@/services'
 import { useSecrets, useSelectPaste } from '@/composables'
 import { type FormInstance, ElMessage, ElMessageBox } from 'element-plus'
 import { useWorkspaceStore } from '@/stores/workspace'
-import { byte2Gi, copyText } from '@/utils/index'
+import { byte2Gi, convertListToKeyValueMap, copyText } from '@/utils/index'
 import type { FormItemRule } from 'element-plus'
 import { encodeToBase64String, decodeFromBase64String } from '@/utils'
 import { debounce } from 'lodash'
 import { useUserStore } from '@/stores/user'
 import { InfoFilled, CopyDocument, ArrowRight } from '@element-plus/icons-vue'
 import ImageInput from '@/components/Base/ImageInput.vue'
+import KeyValueList from '@/components/Base/KeyValueList.vue'
 import {
   buildGitHubAuthPayload,
   isGithubRunnerAuth,
@@ -428,7 +454,11 @@ import {
   validateGithubRunnerProxy,
   DEFAULT_PROXY_USERNAME,
   GITHUB_CONFIG_URL_ENV,
+  GITHUB_RUNNER_MANAGED_ENV,
   PROXY_URL_ENV,
+  SCALE_SET_MANAGED_ENV,
+  mergeUserEnv,
+  userEnvList,
   type GithubRunnerForm,
   type GithubRunnerProxyErrors,
 } from '../githubRunnerPayload'
@@ -453,13 +483,16 @@ const TOLERATE_INFO = 'If enabled, workloads can be scheduled to nodes with tain
 const RETRY_TIMES_INFO = 'Maximum retries:50'
 const FORCE_HOST_NETWORK_INFO = 'Force host network (default: auto-based on resources)'
 const RUNNER_LABELS_INFO = 'Also used as the runner label your workflows target with runs-on'
+const MAX_RUNNERS_INFO = 'Default concurrency. Each runner takes one job at a time.'
+// Matches cicd.max_runners in the chart. Display only for AutoscalingRunnerSet.
+const SCALE_SET_MAX_RUNNERS = 1024
 
 // Rendered as the same button-group toggle as the image Select/Custom switch further
 // down the form, so the two mode pickers in one drawer look alike.
 const GITHUB_AUTH_OPTIONS: Array<{ value: GitHubAuthType; label: string }> = [
+  { value: 'registration_token', label: 'self-hosted runner' },
   { value: 'github_app', label: 'GitHub App (recommended)' },
   { value: 'pat', label: 'Personal Access Token (legacy)' },
-  { value: 'registration_token', label: 'self-hosted runner' },
 ]
 
 const imageOptions = ref([] as Array<{ id: number; tag: string }>)
@@ -499,7 +532,7 @@ const initialForm = () => ({
   priority: 1,
   unifiedJobEnable: false,
   githubConfigUrl: '',
-  githubAuthType: 'github_app' as GitHubAuthType,
+  githubAuthType: 'registration_token' as GitHubAuthType,
   githubAppId: '',
   githubAppInstallationId: '',
   githubAppPrivateKey: '',
@@ -521,6 +554,7 @@ const initialForm = () => ({
   isTolerateAll: true,
   secretIds: [] as string[],
   forceHostNetwork: false,
+  envList: [{ key: '', value: '' }] as { key: string; value: string }[],
 })
 const form = reactive({ ...initialForm() })
 
@@ -635,6 +669,7 @@ const rules: Record<string, FormItemRule[]> = reactive({
 // shares nothing with the AutoscalingRunnerSet payload beyond the workload basics.
 const submitGithubRunner = async () => {
   const runnerForm = form as unknown as GithubRunnerForm
+  runnerForm.extraEnv = convertListToKeyValueMap(form.envList)
 
   if (isEdit.value) {
     if (!props.wlid) return false
@@ -699,13 +734,17 @@ const submitScaleRunnerSet = async () => {
   }
 
   // Build environment variables with fixed keys
-  const envMap: Record<string, string> = {
-    UNIFIED_JOB_ENABLE: String(unifiedJobEnable),
-    GITHUB_CONFIG_URL: githubConfigUrl,
-    RESOURCES: JSON.stringify(userResource),
-    IMAGE: form.image,
-    ENTRYPOINT: encodeToBase64String(entryPoint),
-  }
+  const envMap: Record<string, string> = mergeUserEnv(
+    {
+      UNIFIED_JOB_ENABLE: String(unifiedJobEnable),
+      GITHUB_CONFIG_URL: githubConfigUrl,
+      RESOURCES: JSON.stringify(userResource),
+      IMAGE: form.image,
+      ENTRYPOINT: encodeToBase64String(entryPoint),
+    },
+    convertListToKeyValueMap(form.envList),
+    SCALE_SET_MANAGED_ENV,
+  )
 
   // Build secrets array
   const secrets = form.secretIds.map((id) => ({ id }))
@@ -744,6 +783,11 @@ const submitScaleRunnerSet = async () => {
   // During Edit, fetch existing env and update
   const res = await getWorkloadDetail(props.wlid)
   const editEnvMap = { ...res.env }
+  const userEnv = convertListToKeyValueMap(form.envList)
+  const scaleManaged = new Set<string>(SCALE_SET_MANAGED_ENV)
+  for (const key of Object.keys(editEnvMap)) {
+    if (!scaleManaged.has(key) && !(key in userEnv)) delete editEnvMap[key]
+  }
 
   // Update fixed keys
   editEnvMap.UNIFIED_JOB_ENABLE = String(form.unifiedJobEnable)
@@ -751,6 +795,7 @@ const submitScaleRunnerSet = async () => {
   editEnvMap.RESOURCES = JSON.stringify(userResource)
   editEnvMap.IMAGE = form.image
   editEnvMap.ENTRYPOINT = encodeToBase64String(form.entryPoint)
+  Object.assign(editEnvMap, mergeUserEnv({}, userEnv, SCALE_SET_MANAGED_ENV))
 
   await editWorkload(props.wlid, {
     description: form.description,
@@ -803,10 +848,14 @@ const cancelAdd = () => {
   })
 }
 
+const privateKeyFileInput = ref<HTMLInputElement>()
+const privateKeyFileName = ref('')
+
 const onPrivateKeyFileChange = async (event: Event) => {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file) return
+  privateKeyFileName.value = file.name
   form.githubAppPrivateKey = await file.text()
   input.value = ''
   ruleFormRef.value?.validateField('githubAppPrivateKey')
@@ -958,6 +1007,7 @@ const setInitialFormValues = async () => {
     form.resource.ephemeralStorage = firstResource?.ephemeralStorage?.replace(/Gi$/i, '') ?? ''
   }
 
+  form.envList = userEnvList(envCopy, SCALE_SET_MANAGED_ENV)
   finishInitialFormValues(res)
   await nextTick()
   ruleFormRef.value?.clearValidate()
@@ -969,6 +1019,7 @@ const setInitialGithubRunnerValues = (res: any, envCopy: Record<string, string>)
   form.unifiedJobEnable = false
   form.entryPoint = ''
   form.githubConfigUrl = envCopy[GITHUB_CONFIG_URL_ENV] ?? ''
+  form.envList = userEnvList(envCopy, GITHUB_RUNNER_MANAGED_ENV)
   form.proxyUrl = envCopy[PROXY_URL_ENV] ?? ''
   // The credential lives in a Secret, so only the URL comes back from the API. An empty
   // password on Edit means "keep it"; Clone and Resume clear it below with the rest.
@@ -1071,6 +1122,7 @@ const filterImageOptions = debounce(async (query: string) => {
 }, 300)
 
 const onOpen = async () => {
+  privateKeyFileName.value = ''
   showAdvanced.value = false
   cachedUseWorkspaceStorage.value = undefined
   pendingWorkspaceId.value = store.currentWorkspaceId ?? store.firstWorkspace ?? ''
@@ -1186,9 +1238,18 @@ html.dark .section-card:hover {
   margin-top: 4px;
 }
 
-.pem-file-input {
+.pem-file-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin-top: 8px;
+}
+.pem-file-name {
   font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.pem-file-input {
+  display: none;
 }
 
 /* Fill the field width as one segmented row, matching the inputs below it. Buttons in

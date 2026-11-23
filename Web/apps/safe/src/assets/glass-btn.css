@@ -1,13 +1,13 @@
-/* ① 基础：把玻璃效果应用到带这些类名的 el-button 上 */
+/* 1. Base: apply the glass effect to el-buttons with these classes */
 .el-button.btn-primary-plain,
 .el-button.btn-danger-plain,
 .el-button.btn-success-plain,
 .el-button.btn-neutral-plain {
-  /* 主题色：各变体会覆盖它 */
+  /* Accent color: each variant overrides it */
   --btn-accent: var(--el-color-primary);
 
   position: relative;
-  overflow: hidden; /* ✅ 裁剪扫光，防止“飞出去” */
+  overflow: hidden; /* Clip the sheen so it cannot spill outside the button */
   border: 0;
   border-radius: inherit;
   background:
@@ -25,7 +25,7 @@
     background 0.18s ease;
 }
 
-/* ② 不同语义的强调色（按需保留） */
+/* 2. Accent color for each meaning (keep only the ones in use) */
 .el-button.btn-primary-plain {
   --btn-accent: var(--el-color-primary);
 }
@@ -43,7 +43,7 @@
   );
 }
 
-/* ③ 渐变描边（只在边缘发光，不覆盖内容） */
+/* 3. Gradient border (glows at the edge only, never over the content) */
 .el-button.btn-primary-plain::before,
 .el-button.btn-danger-plain::before,
 .el-button.btn-success-plain::before,
@@ -68,7 +68,7 @@
   pointer-events: none;
 }
 
-/* ④ 内部扫光（使用 background-position，且被 overflow 裁剪） */
+/* 4. Inner sheen (moved by background-position, clipped by overflow) */
 .el-button.btn-primary-plain::after,
 .el-button.btn-danger-plain::after,
 .el-button.btn-success-plain::after,
@@ -108,7 +108,7 @@
   background-position: 120% 0%;
 }
 
-/* ⑤ 焦点与禁用 */
+/* 5. Focus and disabled states */
 .el-button.btn-primary-plain:focus-visible,
 .el-button.btn-danger-plain:focus-visible,
 .el-button.btn-success-plain:focus-visible,
@@ -125,7 +125,7 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
-/* ⑥ 文字 / 图标层级，避免被扫光遮住 */
+/* 6. Keep text and icons above the sheen */
 .el-button.btn-primary-plain .el-icon,
 .el-button.btn-danger-plain .el-icon,
 .el-button.btn-success-plain .el-icon,
@@ -138,7 +138,7 @@
   z-index: 1;
 }
 
-/* ⑦ 暗色下稍加深底色 */
+/* 7. Slightly darker base in dark mode */
 html.dark .el-button.btn-primary-plain,
 html.dark .el-button.btn-danger-plain,
 html.dark .el-button.btn-success-plain,
@@ -148,7 +148,7 @@ html.dark .el-button.btn-neutral-plain {
     color-mix(in oklab, var(--el-bg-color) 45%, transparent 55%);
 }
 
-/* ⑧ 降动效（尊重系统设置） */
+/* 8. Reduced motion (follows the system setting) */
 @media (prefers-reduced-motion: reduce) {
   .el-button.btn-primary-plain::after,
   .el-button.btn-danger-plain::after,

@@ -64,16 +64,25 @@ const (
 type DispatcherReconciler struct {
 	client.Client
 	clusterClientSets *commonutils.ObjectManager
+	// apiReader reads workloads from the API server. Quota decisions must see a scale
+	// that another webhook replica has already stored.
+	apiReader client.Reader
 	// portMu serializes host-port allocation. With MaxConcurrentReconciles > 1,
 	// two workloads could otherwise read the same "used ports" snapshot and pick
 	// the same host port before either is persisted.
 	portMu sync.Mutex
+	// scaleMu guards scaleHeld.
+	scaleMu sync.Mutex
+	// scaleHeld is a scale this process has decided to apply, before the running-size
+	// annotation is cleared. Keyed by user id, cluster id and workload name.
+	scaleHeld map[string][]v1.WorkloadResource
 }
 
 // SetupDispatcherController initializes and registers the dispatcher controller with the manager.
 func SetupDispatcherController(mgr manager.Manager) error {
 	r := &DispatcherReconciler{
 		Client:            mgr.GetClient(),
+		apiReader:         mgr.GetAPIReader(),
 		clusterClientSets: commonutils.NewObjectManagerSingleton(),
 	}
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &v1.Workload{}, cicdProxyOwnerIndex, cicdProxyOwnerUID); err != nil {
@@ -174,16 +183,23 @@ func (r *DispatcherReconciler) Reconcile(ctx context.Context, req ctrlruntime.Re
 		return ctrlruntime.Result{}, err
 	}
 
+	// A scale that does not fit is restored to the running size before any object is synced.
 	var result ctrlruntime.Result
-	switch {
-	case commonworkload.IsTorchFT(workload):
-		result, err = r.processTorchFTWorkload(ctx, workload)
-	case commonworkload.IsMonarchJob(workload):
-		result, err = r.processMonarchWorkload(ctx, workload)
-	case commonworkload.IsAtom(workload), commonworkload.IsSGLangRouter(workload):
-		result, err = r.processAtomWorkload(ctx, workload)
-	default:
-		result, err = r.processWorkload(ctx, workload)
+	clearRunning, err := r.prepareScaleQuota(ctx, workload)
+	if err == nil {
+		switch {
+		case commonworkload.IsTorchFT(workload):
+			result, err = r.processTorchFTWorkload(ctx, workload)
+		case commonworkload.IsMonarchJob(workload):
+			result, err = r.processMonarchWorkload(ctx, workload)
+		case commonworkload.IsAtom(workload), commonworkload.IsSGLangRouter(workload):
+			result, err = r.processAtomWorkload(ctx, workload)
+		default:
+			result, err = r.processWorkload(ctx, workload)
+		}
+	}
+	if err == nil && clearRunning && result.RequeueAfter == 0 {
+		err = r.clearRunningResources(ctx, workload)
 	}
 
 	if err != nil {
@@ -484,7 +500,12 @@ func (r *DispatcherReconciler) generateK8sObject(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	derived := cicdProxyWorkload(adminWorkload, source, result)
+	derived := cicdWorkloadWithParentAPIKey(cicdProxyWorkload(adminWorkload, source, result), source)
+	scaleSet, err := unifiedJobScaleSet(ctx, r.Client, adminWorkload)
+	if err != nil {
+		return nil, err
+	}
+	derived = cicdWorkloadWithParentAPIKey(derived, scaleSet)
 	if err = r.applyWorkloadSpecToObject(ctx, clientSets, result, derived, workspace, rt, source); err != nil {
 		return nil, commonerrors.NewInternalError(err.Error())
 	}

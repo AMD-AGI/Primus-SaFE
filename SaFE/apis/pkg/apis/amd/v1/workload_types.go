@@ -52,6 +52,13 @@ const (
 	AdminFailover WorkloadConditionType = "AdminFailover"
 	AdminFailed   WorkloadConditionType = "AdminFailed"
 	AdminStopped  WorkloadConditionType = "AdminStopped"
+
+	AdminLowUtilization WorkloadConditionType = "AdminLowUtilization"
+	// A timeout above the runtime ceiling was set by a user holding workload/long-runtime.
+	RuntimeExtended WorkloadConditionType = "RuntimeExtended"
+	// The workload was exempted from, or put back under, the low utilization policy by a user
+	// holding workload/low-util-exempt. Reason Set or Cleared.
+	LowUtilizationExempt WorkloadConditionType = "LowUtilizationExempt"
 )
 
 type WorkloadResource struct {
@@ -139,6 +146,9 @@ type SecretEntity struct {
 	Id string `json:"id"`
 	// Secret type, optional. e.g. ssh/image/general
 	Type SecretType `json:"type,omitempty"`
+	// AsEnv also exposes the keys of a general secret to every container as environment variables, optional.
+	// Only keys that are valid environment variable names (e.g. WANDB_API_KEY) are exposed; the kubelet skips others such as config.json.
+	AsEnv bool `json:"asEnv,omitempty"`
 }
 
 type WorkloadSpec struct {

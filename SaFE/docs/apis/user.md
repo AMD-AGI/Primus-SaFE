@@ -10,6 +10,8 @@ Create a new user account.
 
 **Endpoint**: `POST /api/v1/users`
 
+Served when `auth.mode` is `builtin`. External mode does not register this route.
+
 **Authentication Required**: No (Public endpoint)
 
 **Request Parameters**:
@@ -115,8 +117,8 @@ User authentication and access token retrieval.
 | creationTime | string | User creation time (RFC3339)                                  |
 | restrictedType | int | Restriction: 0 normal, 1 frozen                               |
 | avatarUrl | string | Avatar URL                                                    |
-| token | string | User token, encrypted internally.                             |
-| expire | int | Token expire time (Unix seconds)                              |
+| token | string | User token, encrypted internally. Empty with `auth.mode: external`: the browser keeps the identity provider's session cookie, and the response sets no cookie |
+| expire | int | Token expire time (Unix seconds); with `auth.mode: external`, the end of the identity provider's session (0 when it reports none) |
 
 Nested workspace object:
 
@@ -266,14 +268,19 @@ Update user information or permissions.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | roles | []string | No | User roles list |
-| workspaces | []string | No | List of accessible workspace IDs |
+| workspaces | []string | No | List of accessible workspace IDs, replaces the whole list |
+| addWorkspaces | []string | No | Workspace IDs to add to the accessible workspaces; exclusive with `workspaces` |
+| removeWorkspaces | []string | No | Workspace IDs to remove from the accessible workspaces; exclusive with `workspaces` |
 | avatarUrl | string | No | Avatar URL |
 | password | string | No | New password |
 | restrictedType | int | No | Restriction type: 0 (normal)/1 (frozen) |
 | email | string | No | Email address |
 
+When `auth.mode` is `external`, a change of `restrictedType` between normal (`0`) and frozen (`1`) is sent to the identity service first: `PUT /api/v1/identities/{UserId}/status` with `{"status":"disabled"}` when freezing and `{"status":"active"}` when unfreezing. The call uses the caller's bearer credential. The local user is updated only after that call succeeds. If the identity service cannot be reached the response is 503; if it refuses, 502. Clearing a freeze also removes the annotation `primus-safe.scim.deactivated`. Builtin mode updates the local user only. See [External Authentication](external-authentication.md).
+
 **Permission Requirements**:
 - Updating roles and workspaces requires system admin permission
+- `addWorkspaces` and `removeWorkspaces` are checked against the named workspaces only: the caller must be a system admin or manage every workspace named in the request. The two lists must not share an ID, and an empty ID or a request that also carries `workspaces` is rejected with 400
 - Users can update their own password, email and avatar
 
 **Response**: 200 OK with no response body
@@ -285,6 +292,8 @@ Update user information or permissions.
 Delete a specific user.
 
 **Endpoint**: `DELETE /api/v1/users/{UserId}`
+
+Served when `auth.mode` is `builtin`. The route removes the user from workspaces the user manages and deletes the local user. External mode does not register this route.
 
 **Authentication Required**: Yes
 
