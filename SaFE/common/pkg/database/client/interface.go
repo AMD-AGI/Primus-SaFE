@@ -40,6 +40,9 @@ type Interface interface {
 	WorkloadPodInterface
 	WorkloadDispatchNodeInterface
 	WorkspaceUsageInterface
+	PostTrainingRunInterface
+	PostTrainingRunMetricInterface
+	PostTrainingConvertCacheInterface
 }
 
 type WorkloadInterface interface {
@@ -302,4 +305,37 @@ type OptimizationTaskInterface interface {
 	ListOptimizationEvents(ctx context.Context, taskID string, afterSeq int64, limit int) ([]*OptimizationEvent, error)
 	OptimizationEventSeq(ctx context.Context, taskID string, eventID string) (int64, bool, error)
 	LatestOptimizationEventSeq(ctx context.Context, taskID string) (int64, error)
+}
+
+// PostTrainingRunInterface defines database operations for Post Training runs.
+type PostTrainingRunInterface interface {
+	CreatePostTrainingRun(ctx context.Context, run *PostTrainingRun) error
+	GetPostTrainingRun(ctx context.Context, runID string) (*PostTrainingRun, error)
+	ListPostTrainingRuns(ctx context.Context, filter PostTrainingRunFilter) ([]*PostTrainingRun, int64, error)
+	UpdatePostTrainingRun(ctx context.Context, runID string, fields map[string]interface{}) error
+	SetPostTrainingRunDeleted(ctx context.Context, runID string) error
+	IsPostTrainingRunDeleted(ctx context.Context, runID string) (bool, error)
+	ListPostTrainingRecipeRecords(ctx context.Context, workspace string, hashes []string) (map[string]RecipeRecord, error)
+}
+
+// PostTrainingConvertCacheInterface defines database operations for the shared weight conversions of Post
+// Training.
+type PostTrainingConvertCacheInterface interface {
+	GetPostTrainingConvertCache(ctx context.Context, workspace, cacheKey string) (*PostTrainingConvertCache, error)
+	UpsertPostTrainingConvertCache(ctx context.Context, cache *PostTrainingConvertCache) error
+	ListPostTrainingConvertCaches(ctx context.Context, filter PostTrainingConvertCacheFilter) ([]*PostTrainingConvertCache, error)
+	UpdatePostTrainingConvertCache(ctx context.Context, id int64, fields map[string]interface{}) error
+	DeletePostTrainingConvertCache(ctx context.Context, id int64) error
+}
+
+// PostTrainingRunMetricInterface defines database operations for the metric points of Post Training runs.
+type PostTrainingRunMetricInterface interface {
+	SavePostTrainingRunMetrics(ctx context.Context, runID string, points []*PostTrainingRunMetric,
+		runFields map[string]interface{}) error
+	DeletePostTrainingRunMetricsAfterStep(ctx context.Context, runID string, step int) error
+	ListPostTrainingRunMetrics(ctx context.Context, runID string, names []string) ([]*PostTrainingRunMetric, error)
+	ListLatestPostTrainingRunMetrics(ctx context.Context, runID string, names []string,
+		limit int) ([]*PostTrainingRunMetric, error)
+	ListPostTrainingRunMetricNames(ctx context.Context, runID string) ([]string, error)
+	DeletePostTrainingRunMetrics(ctx context.Context, runID string) error
 }

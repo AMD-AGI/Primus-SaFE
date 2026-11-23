@@ -529,6 +529,186 @@ model_optimization:
   # per-deploy via .env `optimize_max_concurrent` (synced into values.yaml by
   # upgrade.sh and into the live apiserver ConfigMap by cd-deploy.sh).
   max_concurrent: 1024
+# Post Training (slime). When enabled, the post-training-registry ConfigMap is rendered from
+# post_training.registry; the apiserver and the Post Training controller treat a missing ConfigMap
+# as Post Training being disabled. Override the registry per cluster to enable images and features
+# once they pass acceptance.
+post_training:
+  enabled: false
+  registry:
+    frameworks:
+      - name: slime
+        default: true
+        compiler: slime
+        adapter: frameworks/slime
+        metrics:
+          include: ["train/*", "eval/*", "eval/*/*", "rollout/*", "rollout/*/*", "perf/*", "passrate/*"]
+          summary: {sft: train/loss, rl: rollout/raw_reward}
+          better: {"train/loss": lower, "eval/*/loss": lower, "rollout/raw_reward": higher, "eval/*": higher, "eval/*-truncated_ratio": lower, "passrate/*": higher}
+          maxPointsPerRun: 2000000
+          panels:
+            sft:
+              - {id: loss, series: [train/loss, "eval/*/loss"], smooth: true}
+              - {id: lr, series: ["train/lr-pg_*"]}
+              - {id: grad_norm, series: [train/grad_norm], logY: true}
+              - {id: throughput, series: [perf/actor_train_tok_per_s, perf/actor_train_tflops]}
+            rl:
+              - {id: reward, series: [rollout/raw_reward, "eval/*"], smooth: true}
+              - {id: signal, series: ["rollout/zero_std/count_*"], per: prompts, stack: true, when: grpo}
+              - {id: passrate, series: ["passrate/pass@*", "eval/*-pass@*"], when: present}
+              - {id: policy, series: [train/pg_loss, train/kl_loss, train/ppo_kl]}
+              - {id: clip_entropy, series: [train/pg_clipfrac, train/entropy_loss]}
+              - {id: consistency, series: [train/train_rollout_logprob_abs_diff, train/tis, train/ois, train/tis_clipfrac]}
+              - {id: length, band: [rollout/response_len/min, rollout/response_len/max], series: [rollout/response_len/median, rollout/truncated, rollout/repetition_frac, "eval/*-truncated_ratio"]}
+              - {id: time, series: [perf/rollout_time, perf/data_preprocess_time, perf/log_probs_time, perf/ref_log_probs_time, perf/actor_train_time, perf/update_weights_time, perf/save_model_time, perf/sleep_time, perf/wake_up_time], stack: true, rest: perf/step_time}
+              - {id: engine, series: [perf/tokens_per_gpu_per_sec, perf/longest_sample_tokens_per_sec, rollout/prefix_cache_hit_rate, rollout/spec_accept_rate]}
+              - {id: grad_perf, series: [train/grad_norm, perf/step_time, perf/actor_train_tok_per_s, perf/wait_time_ratio]}
+              - {id: staleness, series: [rollout/staleness/mean, rollout/staleness/max], when: async}
+              - {id: critic, series: [train/critic-value_loss, train/critic-value_clipfrac], when: ppo}
+              - {id: mtp, series: [train/mtp_loss], when: present}
+    specs:
+      - name: qwen3-4B
+        match: {architectures: [Qwen3ForCausalLM], num_hidden_layers: 36, hidden_size: 2560,
+                num_attention_heads: 32, num_key_value_heads: 8, rope_theta: 1000000}
+        checkpoint: {keepLast: 0}
+        watchdog: {startupMinutes: 30, minStallMinutes: 30, stallFactor: 3, saveMinutes: 20}
+        frameworks:
+          slime:
+            modelScript: scripts/models/qwen3-4B.sh
+            methods: {sft: [full], rl: [full]}
+            defaults: {tp: 2, pp: 1, cp: 2, ep: 1, gpusPerEngine: 2}
+            minNodes: {sft-full: 1, rl: 1, rl-separate: 2}
+            convertNodes: 1
+      - name: qwen3-4B-Instruct-2507
+        match: {architectures: [Qwen3ForCausalLM], num_hidden_layers: 36, hidden_size: 2560,
+                num_attention_heads: 32, num_key_value_heads: 8, rope_theta: 5000000}
+        checkpoint: {keepLast: 0}
+        watchdog: {startupMinutes: 30, minStallMinutes: 30, stallFactor: 3, saveMinutes: 20}
+        frameworks:
+          slime:
+            modelScript: scripts/models/qwen3-4B-Instruct-2507.sh
+            methods: {sft: [full], rl: [full]}
+            defaults: {tp: 2, pp: 1, cp: 2, ep: 1, gpusPerEngine: 2}
+            minNodes: {sft-full: 1, rl: 1, rl-separate: 2}
+            convertNodes: 1
+      - name: qwen3-8B
+        match: {architectures: [Qwen3ForCausalLM], num_hidden_layers: 36, hidden_size: 4096,
+                num_attention_heads: 32, num_key_value_heads: 8, rope_theta: 1000000}
+        checkpoint: {keepLast: 0}
+        watchdog: {startupMinutes: 30, minStallMinutes: 30, stallFactor: 3, saveMinutes: 20}
+        frameworks:
+          slime:
+            modelScript: scripts/models/qwen3-8B.sh
+            methods: {sft: [full], rl: [full]}
+            defaults: {tp: 2, pp: 1, cp: 1, ep: 1, gpusPerEngine: 2}
+            minNodes: {sft-full: 1, rl: 1, rl-separate: 2}
+            convertNodes: 1
+      # The specs below are unverified until their smoke runs pass on the target nodes.
+      - name: qwen3-14B
+        match: {architectures: [Qwen3ForCausalLM], num_hidden_layers: 40, hidden_size: 5120,
+                num_attention_heads: 40, num_key_value_heads: 8, rope_theta: 1000000}
+        checkpoint: {keepLast: 0}
+        watchdog: {startupMinutes: 30, minStallMinutes: 30, stallFactor: 3, saveMinutes: 20}
+        frameworks:
+          slime:
+            modelScript: scripts/models/qwen3-14B.sh
+            methods: {sft: [full], rl: [full]}
+            defaults: {tp: 2, pp: 1, cp: 1, ep: 1, gpusPerEngine: 2}
+            minNodes: {sft-full: 1, rl: 1, rl-separate: 2}
+            unverified: [sft-full, rl, rl-separate]
+            convertNodes: 1
+      - name: qwen3-32B
+        match: {architectures: [Qwen3ForCausalLM], num_hidden_layers: 64, hidden_size: 5120,
+                num_attention_heads: 64, num_key_value_heads: 8, rope_theta: 1000000}
+        checkpoint: {keepLast: 2, keepBest: true}
+        watchdog: {startupMinutes: 45, minStallMinutes: 45, stallFactor: 3, saveMinutes: 30}
+        frameworks:
+          slime:
+            modelScript: scripts/models/qwen3-32B.sh
+            methods: {sft: [full], rl: [full]}
+            defaults: {tp: 4, pp: 1, cp: 1, ep: 1, gpusPerEngine: 4}
+            minNodes: {sft-full: 2, rl: 2, rl-separate: 3}
+            unverified: [sft-full, rl, rl-separate]
+            convertNodes: 1
+      # Llama 3.1 base and Instruct share one structure; max_position_embeddings tells them from Llama 3.
+      - name: llama3.1-8B
+        match: {architectures: [LlamaForCausalLM], num_hidden_layers: 32, hidden_size: 4096,
+                num_attention_heads: 32, num_key_value_heads: 8, rope_theta: 500000,
+                max_position_embeddings: 131072}
+        checkpoint: {keepLast: 0}
+        watchdog: {startupMinutes: 30, minStallMinutes: 30, stallFactor: 3, saveMinutes: 20}
+        frameworks:
+          slime:
+            modelScript: scripts/models/llama3.1-8B-Instruct.sh
+            methods: {sft: [full], rl: [full]}
+            defaults: {tp: 2, pp: 1, cp: 1, ep: 1, gpusPerEngine: 2}
+            minNodes: {sft-full: 1, rl: 1, rl-separate: 2}
+            unverified: [sft-full, rl, rl-separate]
+            convertNodes: 1
+      - name: llama3.1-70B
+        match: {architectures: [LlamaForCausalLM], num_hidden_layers: 80, hidden_size: 8192,
+                num_attention_heads: 64, num_key_value_heads: 8, rope_theta: 500000,
+                max_position_embeddings: 131072}
+        checkpoint: {keepLast: 2, keepBest: true}
+        watchdog: {startupMinutes: 60, minStallMinutes: 60, stallFactor: 3, saveMinutes: 45}
+        frameworks:
+          slime:
+            # slime has no script for this model; the slime-rocm image ships it.
+            modelScript: scripts/models/llama3.1-70B-Instruct.sh
+            methods: {sft: [full], rl: [full]}
+            defaults: {tp: 8, pp: 2, cp: 1, ep: 1, gpusPerEngine: 8}
+            minNodes: {sft-full: 4, rl: 4, rl-separate: 5}
+            unverified: [sft-full, rl, rl-separate]
+            convertNodes: 1
+      # GLM-5.3 as verified on Spur: J2 trains with the experts of layers 0-69 frozen on 2 nodes, J3 runs GRPO on
+      # 2 training nodes and 1 FP8 TP8 rollout node.
+      - name: glm5.3-744B-A40B
+        match: {architectures: [GlmMoeDsaForCausalLM], model_type: glm_moe_dsa, num_hidden_layers: 78,
+                hidden_size: 6144, num_attention_heads: 64, num_key_value_heads: 64, num_experts: 256,
+                max_position_embeddings: 1048576}
+        checkpoint: {keepLast: 2, keepBest: true}
+        watchdog: {startupMinutes: 120, convertMinutes: 240, minStallMinutes: 60, stallFactor: 3, saveMinutes: 90}
+        frameworks:
+          slime:
+            modelScript: scripts/models/glm5.2-744B-A40B.sh
+            methods: {sft: [full], rl: [full]}
+            # The critic shares the actor's GPUs, which cannot hold a second 744B model.
+            algorithms: [grpo]
+            rollout: {fp8: true, pd: true, requireSeparate: true}
+            # Full training trains every parameter but the experts of layers 0-69 by default. The sizes are J2's:
+            # 95.91B trainable parameters and about 1.34 TB per checkpoint with optimizer state, against about
+            # 10 TB for a checkpoint of all 744B.
+            freeze: {allowed: true, default: ['^(?!.*decoder\.layers\.([0-9]|[1-6][0-9])\.mlp\.experts\.)'],
+                     label: "experts in layers 0–69", trainableB: 95.91, totalB: 744, checkpointTB: 1.34,
+                     fullCheckpointTB: 10}
+            defaults: {tp: 2, pp: 2, cp: 2, ep: 8, gpusPerEngine: 8, maxTokensPerGpu: 16384}
+            minNodes: {sft-freeze: 2, rl-separate: 3, sft-full: 8, rl-full-separate: 9}
+            unverified: [sft-full, rl-full-separate]
+            # J2 peaked at about 2.1 TB of host memory on a node.
+            minHostMemoryTB: 2.1
+            # slime 540ea91 loads the BF16 HF directory as --ref-load (as the Spur J2/J3 scripts do); convert
+            # only builds FP8 weights when the rollout needs them.
+            hfDirect: true
+    images:
+      # Registered unvalidated: mark validated and list features once the Qwen3-4B SFT and GRPO smoke runs
+      # pass on the target nodes.
+      - image: primussafe/slime:540ea91-rocm724-gfx950
+        framework: slime
+        arch: [gfx950]
+        frameworkCommit: 540ea91
+        megatronBridge: v0.6.2
+        env: {RAY_EXPERIMENTAL_NOSET_HIP_VISIBLE_DEVICES: "1"}
+        validated: false
+        features: []
+    gpuArch: {MI300X: gfx942, MI325X: gfx942, MI350X: gfx950, MI355X: gfx950}
+    # Multi-node runs get network.ainic.env. Clusters with AINIC set it to the values the older SFT
+    # job uses: USING_AINIC=1, NCCL_IB_GID_INDEX=1, NCCL_DMABUF_ENABLE=0, NCCL_MAX_P2P_CHANNELS=56,
+    # NET_OPTIONAL_RECV_COMPLETION=1, NCCL_IB_USE_INLINE=1, RCCL_GDR_FLUSH_GPU_MEM_NO_RELAXED_ORDERING=0,
+    # NCCL_GDR_FLUSH_DISABLE=1, NCCL_IGNORE_CPU_AFFINITY=1 and
+    # LD_LIBRARY_PATH=/opt/amd-anp/build:/opt/rccl/build/release:/opt/rocm/lib.
+    # Mooncake PD moves the KV cache over network.rdmaDevices, the RDMA NICs every node of a cluster has, e.g.
+    # rdmaDevices: {<cluster>: [rdma0, rdma1]}; the wizard offers PD only on clusters listed there.
+    network: {}
 # Save Image: where a cluster's saved workload images go. A cluster without an entry uses
 # the default registry. Each entry:
 #   cluster: <cluster id>

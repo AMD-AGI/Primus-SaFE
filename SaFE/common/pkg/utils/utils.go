@@ -9,6 +9,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -50,6 +52,19 @@ func GenerateName(base string) string {
 		base = base[0:MaxGeneratedNameLength]
 	}
 	return fmt.Sprintf("%s-%s", base, utilrand.String(randomLength))
+}
+
+var nonDNSChars = regexp.MustCompile(`[^a-z0-9]+`)
+
+// DNSDisplayName joins prefix and the lower-cased name, with every run of other characters turned into a hyphen,
+// into a display name the workload webhook accepts: at most maxLen characters, ending in a letter or digit. prefix
+// must start with a lower case letter.
+func DNSDisplayName(prefix, name string, maxLen int) string {
+	out := strings.Trim(prefix+nonDNSChars.ReplaceAllString(strings.ToLower(name), "-"), "-")
+	if len(out) > maxLen {
+		out = out[:maxLen]
+	}
+	return strings.TrimRight(out, "-")
 }
 
 // GetBaseFromName extracts the base name from a generated name by removing the random suffix.
