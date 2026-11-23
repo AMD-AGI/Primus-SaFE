@@ -26,6 +26,19 @@
       </el-text>
 
       <el-form-item label="Name" prop="name">
+        <template v-if="isAdopt" #label>
+          <span class="inline-flex items-center gap-1">
+            Name
+            <el-tooltip
+              content="If the cluster was created by SaFE, the name must be the SaFE cluster name."
+              placement="top"
+            >
+              <el-icon size="14" color="#909399">
+                <QuestionFilled />
+              </el-icon>
+            </el-tooltip>
+          </span>
+        </template>
         <el-input v-model="form.name" :disabled="isUpgrade" />
       </el-form-item>
 
@@ -208,6 +221,7 @@
 <script setup lang="ts">
 import { reactive, ref, computed } from 'vue'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
+import { QuestionFilled } from '@element-plus/icons-vue'
 import KeyValueList from '@/components/Base/KeyValueList.vue'
 import {
   getSecrets,
