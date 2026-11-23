@@ -46,17 +46,19 @@ type postTrainingMetricKey struct {
 }
 
 // SavePostTrainingRunMetrics stores points under runID and sets runFields on the run in one transaction, so a
-// batch of points and the advanced log cursor are saved together or not at all. A point written again keeps
-// the newer value. It returns gorm.ErrRecordNotFound, and saves nothing, when runFields is set but the run
-// does not exist.
+// batch of points and the advanced log cursor are saved together or not at all. When dropAfterStep is set, the
+// points after that step, which an attempt resumed from a checkpoint at that step writes again, are deleted
+// first in the same transaction. A point written again keeps the newer value. It returns
+// gorm.ErrRecordNotFound, and saves nothing, when runFields is set but the run does not exist.
 func (c *Client) SavePostTrainingRunMetrics(
 	ctx context.Context,
 	runID string,
 	points []*PostTrainingRunMetric,
 	runFields map[string]interface{},
+	dropAfterStep *int,
 ) error {
 	points = dedupePostTrainingRunMetrics(runID, points)
-	if len(points) == 0 && len(runFields) == 0 {
+	if len(points) == 0 && len(runFields) == 0 && dropAfterStep == nil {
 		return nil
 	}
 	db, err := c.GetGormDB()
@@ -64,6 +66,12 @@ func (c *Client) SavePostTrainingRunMetrics(
 		return err
 	}
 	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if dropAfterStep != nil {
+			if err := tx.Where("run_id = ? AND step > ?", runID, *dropAfterStep).
+				Delete(&PostTrainingRunMetric{}).Error; err != nil {
+				return err
+			}
+		}
 		if len(points) > 0 {
 			if err := tx.Clauses(clause.OnConflict{
 				Columns:   []clause.Column{{Name: "run_id"}, {Name: "name"}, {Name: "step"}},
@@ -79,15 +87,17 @@ func (c *Client) SavePostTrainingRunMetrics(
 	})
 }
 
-// DeletePostTrainingRunMetricsAfterStep removes the points after step when a new attempt resumes from a
-// checkpoint at that step. It returns how many points it removed.
-func (c *Client) DeletePostTrainingRunMetricsAfterStep(ctx context.Context, runID string, step int) (int64, error) {
+// CountPostTrainingRunMetricsAfterStep counts the points after step, which a new attempt resumed from a
+// checkpoint at that step replaces.
+func (c *Client) CountPostTrainingRunMetricsAfterStep(ctx context.Context, runID string, step int) (int64, error) {
 	db, err := c.GetGormDB()
 	if err != nil {
 		return 0, err
 	}
-	res := db.WithContext(ctx).Where("run_id = ? AND step > ?", runID, step).Delete(&PostTrainingRunMetric{})
-	return res.RowsAffected, res.Error
+	var n int64
+	err = db.WithContext(ctx).Model(&PostTrainingRunMetric{}).
+		Where("run_id = ? AND step > ?", runID, step).Count(&n).Error
+	return n, err
 }
 
 // ListPostTrainingRunMetrics returns a run's points for the given names, or for all names when names is
