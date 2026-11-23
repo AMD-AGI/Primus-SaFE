@@ -225,18 +225,27 @@ describe('postTrainingIsOn', () => {
     expect(await postTrainingIsOn('ws1')).toBe(false)
     vi.mocked(request.get).mockRejectedValueOnce({ response: { status: 503 } })
     expect(await postTrainingIsOn('ws1')).toBe(false)
-    vi.mocked(request.get).mockResolvedValueOnce({ total: 0, items: [] } as never)
+    vi.mocked(request.get).mockResolvedValueOnce({ items: [] } as never)
     expect(await postTrainingIsOn('ws1')).toBe(true)
   })
 
-  it('reads one run rather than every model', async () => {
+  it('keeps Post Train where the workspace cannot run Post Training', async () => {
     vi.mocked(request.get).mockClear()
-    vi.mocked(request.get).mockResolvedValueOnce({ total: 0, items: [] } as never)
-    await postTrainingIsOn('ws1')
-    expect(vi.mocked(request.get)).toHaveBeenCalledWith('/post-training/runs', {
-      params: { workspace: 'ws1', limit: 1 },
+    vi.mocked(request.get).mockResolvedValueOnce({
+      items: [],
+      unavailableReason: 'No validated slime image for workspace GPU architecture gfx942',
+    } as never)
+    expect(await postTrainingIsOn('ws1')).toBe(false)
+    expect(vi.mocked(request.get)).toHaveBeenCalledWith('/post-training/models', {
+      params: { workspace: 'ws1' },
       silentErrors: true,
     })
+    // A cluster whose new runs are paused still runs Post Training; the pages say why nothing can start.
+    vi.mocked(request.get).mockResolvedValueOnce({
+      items: [],
+      pausedReason: 'maintenance',
+    } as never)
+    expect(await postTrainingIsOn('ws1')).toBe(true)
   })
 })
 
@@ -270,6 +279,21 @@ describe('postTrainingEntryReasons', () => {
     // Only an answer says Post Training is on, as for the menu.
     vi.mocked(request.get).mockRejectedValueOnce({ response: { status: 503 } })
     expect(await postTrainingEntryReasons('ws1')).toBeUndefined()
+    // Nor where the workspace cannot run it: the page keeps the legacy Train.
+    vi.mocked(request.get).mockResolvedValueOnce({
+      items: [{ modelId: 'm1', supported: false, reason: 'x' }],
+      unavailableReason: 'No validated slime image for workspace GPU architecture gfx942',
+    })
+    expect(await postTrainingEntryReasons('ws1')).toBeUndefined()
+  })
+
+  it('names the pause of new runs for every model', async () => {
+    vi.mocked(request.get).mockResolvedValueOnce({
+      items: [{ modelId: 'm1', supported: true }],
+      pausedReason: 'maintenance',
+    })
+    const reasonOf = await postTrainingEntryReasons('ws1')
+    expect(reasonOf?.('m1')).toBe('New runs are paused on this cluster. maintenance')
   })
 
   it('names a model missing from the list as not ready here', async () => {

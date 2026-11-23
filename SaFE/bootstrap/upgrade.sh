@@ -926,7 +926,9 @@ sed -i '/s3:/,/^[a-z]/ s/enable: .*/enable: '"$s3_enable"'/' "$values_yaml"
 if [[ "$s3_enable" == "true" ]]; then
   sed -i '/^s3:/,/^[a-z]/ s#secret: ".*"#secret: "'"$S3_SECRET"'"#' "$values_yaml"
 fi
-# Post Training stays at the chart default (on) unless post_training_enable is set in .env.
+# Post Training stays at the chart default (on) unless post_training_enable is set in .env. A workspace runs it only
+# once post_training_registry in .env provides a validated image for its GPU architecture; until then the console
+# keeps the legacy Post Train there.
 if [[ -n "${post_training_enable:-}" ]]; then
   if [[ "$post_training_enable" != "true" && "$post_training_enable" != "false" ]]; then
     echo "Error: post_training_enable in .env must be true or false" >&2

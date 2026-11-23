@@ -39,17 +39,16 @@ export function getPostTrainingModels(
 }
 
 /**
- * Whether Post Training is on in the cluster, read from one run of the workspace's list, the cheapest call of its
- * API. Only an answer says it is on: where it is off the API answers 404, and a call that fails otherwise (no
- * access to the workspace, a server error) cannot tell, so the legacy Post Train entries stay.
+ * Whether Post Training can run in the workspace, so that the console shows it in place of the legacy Post Train.
+ * Only an answer of the model list without an unavailableReason says so. Where Post Training is off the API answers
+ * 404; where the cluster has no validated image for the workspace's GPU architecture, which each environment
+ * provides in its registry, the answer carries the reason; and a call that fails otherwise (no access to the
+ * workspace, a server error) cannot tell. In each of these cases the legacy Post Train entries stay.
  */
 export async function postTrainingIsOn(workspace: string): Promise<boolean> {
   try {
-    await request.get<RunListResp>('/post-training/runs', {
-      params: { workspace, limit: 1 },
-      silentErrors: true,
-    })
-    return true
+    const res = (await getPostTrainingModels(workspace)) as unknown as ModelsResp
+    return !res.unavailableReason
   } catch {
     return false
   }
@@ -133,17 +132,18 @@ export function getPostTrainingRun(runId: string, quiet = false) {
 
 /**
  * Loads once why Train with Post Training is unavailable for the models of a workspace and returns the reason of a
- * model, or an empty string when the model can be trained; there is none where Post Training is off.
+ * model, or an empty string when the model can be trained. There is none where Post Training cannot run in the
+ * workspace, as for postTrainingIsOn: the page keeps the legacy Train there.
  */
 export async function postTrainingEntryReasons(
   workspace: string,
 ): Promise<((modelId: string) => string) | undefined> {
   try {
     const res = (await getPostTrainingModels(workspace)) as unknown as ModelsResp
-    const paused = res.pausedReason
+    if (res.unavailableReason) return undefined
+    const global = res.pausedReason
       ? `New runs are paused on this cluster. ${res.pausedReason}`
       : ''
-    const global = res.unavailableReason || paused
     const byId = new Map(
       (res.items ?? []).map((m) => [m.modelId, m.supported ? '' : m.reason || 'Not supported']),
     )
