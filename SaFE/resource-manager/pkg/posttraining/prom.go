@@ -18,7 +18,8 @@ import (
 
 const unfinishedSweepInterval = time.Minute
 
-// runUnfinishedSweeps goes over the unfinished runs every unfinishedSweepInterval until ctx ends.
+// runUnfinishedSweeps goes over the unfinished runs every unfinishedSweepInterval until ctx ends. The first sweep
+// runs once the controller leads, so runs whose workloads changed while it was down are advanced too.
 func (r *RunReconciler) runUnfinishedSweeps(ctx context.Context) error {
 	ticker := time.NewTicker(unfinishedSweepInterval)
 	defer ticker.Stop()
@@ -52,7 +53,9 @@ func (r *RunReconciler) sweepUnfinished(ctx context.Context) {
 			if run.StalledSince.Valid {
 				stalled++
 			}
-			r.requeue(run.RunID)
+			if !r.requeue(ctx, run.RunID) {
+				return
+			}
 		}
 		if len(runs) < recoverPageSize {
 			break

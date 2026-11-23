@@ -189,10 +189,12 @@ func loadCursor(data string) *logCursor {
 	return cur
 }
 
-// setPod points the cursor at pod; a different pod is read from its first line.
+// setPod points the cursor at pod; a different pod is read from its first line. The last [STAGE] of an earlier
+// pod says nothing of the launcher of this one: a retry or a preemption may have kept the run queued for longer
+// than lostAfter, so the new pod is judged lost only by [STAGE] lines of its own.
 func (c *logCursor) setPod(pod string) {
 	if c.Pod != pod {
-		c.Pod, c.Since, c.SinceN = pod, "", 0
+		c.Pod, c.Since, c.SinceN, c.LastStage = pod, "", 0, 0
 	}
 }
 

@@ -15,22 +15,31 @@ import (
 	"testing"
 	"time"
 
+	"github.com/agiledragon/gomonkey/v2"
 	"github.com/golang/mock/gomock"
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/validation/field"
+	k8sfake "k8s.io/client-go/kubernetes/fake"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/yaml"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	mockclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
+	commonclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	commonopsjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
@@ -247,7 +256,7 @@ func TestAPendingRunWithoutAWorkloadIsQueuedAndEnded(t *testing.T) {
 	reconcileRun(t, r)
 	last := (*updates)[len(*updates)-1]
 	require.Equal(t, "Failed", last["status"])
-	require.Equal(t, "The workload ended while the controller was down and its result was lost", last["message"])
+	require.Equal(t, goneMessage, last["message"])
 
 	// A run that was just recorded is given the time its workload takes to show.
 	fresh := testRunRow("Pending", "queued")
@@ -395,4 +404,157 @@ func TestTheChildrenOfADeletedRunAreRemoved(t *testing.T) {
 	require.NoError(t, err)
 	require.Error(t, r.Get(ctx, client.ObjectKeyFromObject(left), &v1.Workload{}),
 		"a workload of a deleted run holds GPUs nothing else frees")
+}
+
+// While Post Training is off the controller is not set up at all, even with the database on: nothing is watched
+// and nothing is swept.
+func TestTheControllerIsNotSetUpWhilePostTrainingIsOff(t *testing.T) {
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	patches.ApplyFunc(commonconfig.IsDBEnable, func() bool { return true })
+	patches.ApplyFunc(commonconfig.IsPostTrainingEnable, func() bool { return false })
+	// A nil manager fails any setup that reaches it.
+	require.NoError(t, SetupPostTrainingController(context.Background(), nil))
+}
+
+// readTestLog reads the submitter log of a running testRun from a cluster whose only pod is the submitter pod
+// named pod, with the run's cursor stored as cur, and returns the columns the read saved.
+func readTestLog(t *testing.T, pod string, cur *logCursor) map[string]interface{} {
+	run := testRunRow("Running", "train")
+	data, err := json.Marshal(cur)
+	require.NoError(t, err)
+	run.MetricCursor = string(data)
+	w := endedWorkload(v1.WorkloadRunning)
+	w.Status.EndTime = nil
+	w.Labels[v1.ClusterIdLabel] = "c1"
+	submitter := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: pod, Namespace: "ws1", Labels: map[string]string{v1.WorkloadIdLabel: testRun}},
+		Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: SubmitterContainer}}},
+	}
+	clients := commonclient.NewClientFactoryWithOnlyClient(context.Background(), "c1", k8sfake.NewSimpleClientset(submitter))
+	manager := commonutils.NewObjectManager()
+	manager.AddOrReplace("c1", clients)
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	var saved map[string]interface{}
+	db.EXPECT().SavePostTrainingRunMetrics(gomock.Any(), testRun, gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, _ []*dbclient.PostTrainingRunMetric, fields map[string]interface{}) error {
+			saved = fields
+			return nil
+		})
+	r := &RunReconciler{reader: ctrlfake.NewClientBuilder().Build(), db: db, clientManager: manager}
+	_, err = r.readLog(context.Background(), w, newRunUpdate(run))
+	require.NoError(t, err)
+	return saved
+}
+
+// The last [STAGE] of a submitter pod judges only that pod: a retry or a preemption that kept the run queued for
+// longer than lostAfter does not make the launcher of the next pod lost before it had the time to report.
+func TestANewSubmitterPodIsNotTakenForALostLauncher(t *testing.T) {
+	old := time.Now().Add(-30 * time.Minute)
+	// The fake cluster serves a log without any marker, which is what a launcher that has not reported yet gives.
+	saved := readTestLog(t, "submitter-a1", &logCursor{Pod: "submitter-a1", LastStage: old.Unix()})
+	require.Contains(t, saved["message"], lostMessage, "the launcher of the pod read before is silent")
+
+	saved = readTestLog(t, "submitter-a2", &logCursor{Pod: "submitter-a1", LastStage: old.Unix()})
+	require.NotContains(t, saved, "message")
+	require.NotContains(t, saved, "stalled_since")
+	require.NotContains(t, saved, "stage_history", "no lost event is recorded")
+	cur := loadCursor(saved["metric_cursor"].(string))
+	require.Equal(t, "submitter-a2", cur.Pod)
+	require.Zero(t, cur.LastStage)
+}
+
+// endedTestRun returns a reconciler of a run whose workload succeeded with a result in its run directory and
+// whose output Model reconciles cannot create: create fails every Create of a Model.
+func endedTestRun(t *testing.T, run *dbclient.PostTrainingRun, create error) (
+	*RunReconciler, *[]map[string]interface{}) {
+	r, db, updates := newTestReconciler(t, run, endedWorkload(v1.WorkloadSucceeded))
+	db.EXPECT().ListWorkloadPods(gomock.Any(), testRun, "uid1").Return(submitterPods(
+		`[SUCCESS] {"run":"`+testRun+`","attempt":"a1","output":"`+testRunDir+`/final_model"}`), nil).AnyTimes()
+	r.Client = interceptor.NewClient(r.Client.(client.WithWatch), interceptor.Funcs{
+		Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+			if _, ok := obj.(*v1.Model); ok {
+				return create
+			}
+			return c.Create(ctx, obj, opts...)
+		}})
+	return r, updates
+}
+
+// A Model the API server rejects fails the run at once, and one that keeps failing otherwise fails it once the
+// registration has taken longer than registerTimeout.
+func TestARegistrationThatKeepsFailingEnds(t *testing.T) {
+	invalid := apierrors.NewInvalid(schema.GroupKind{Group: "amd.com", Kind: "Model"}, testRun,
+		field.ErrorList{field.Invalid(field.NewPath("spec"), "", "bad")})
+	r, updates := endedTestRun(t, testRunRow("Running", "export"), invalid)
+	reconcileRun(t, r)
+	last := (*updates)[len(*updates)-1]
+	require.Equal(t, "Failed", last["status"])
+	require.Equal(t, "register", last["failed_stage"])
+	require.Contains(t, last["message"], "The output model could not be registered")
+
+	transient := apierrors.NewServiceUnavailable("try again")
+	r, updates = endedTestRun(t, testRunRow("Running", "export"), transient)
+	_, err := r.Reconcile(context.Background(), ctrlruntime.Request{NamespacedName: client.ObjectKey{Name: testRun}})
+	require.Error(t, err, "an error a retry may not repeat is retried")
+	last = (*updates)[len(*updates)-1]
+	require.Equal(t, "register", last["stage"])
+	require.NotContains(t, last, "status")
+
+	late := testRunRow("Running", "register")
+	late.StageHistory = `[{"stage":"register","time":"` + time.Now().Add(-31*time.Minute).UTC().Format(time.RFC3339) + `"}]`
+	r, updates = endedTestRun(t, late, transient)
+	reconcileRun(t, r)
+	last = (*updates)[len(*updates)-1]
+	require.Equal(t, "Failed", last["status"])
+	require.Equal(t, "register", last["failed_stage"])
+	require.Contains(t, last["message"], "not registered within 30 minutes")
+}
+
+// A reconcile that runs before the cache shows the Model a previous one created does not create a second one.
+func TestTheOutputModelIsCreatedOnceWhileTheCacheLags(t *testing.T) {
+	run := testRunRow("Running", "register")
+	created := outputModel(run, testRunDir+"/final_model")
+	r, db, updates := newTestReconciler(t, run, endedWorkload(v1.WorkloadSucceeded), created)
+	db.EXPECT().ListWorkloadPods(gomock.Any(), testRun, "uid1").Return(submitterPods(
+		`[SUCCESS] {"run":"`+testRun+`","attempt":"a1","output":"`+testRunDir+`/final_model"}`), nil).AnyTimes()
+	api := r.Client
+	r.reader = api
+	r.Client = interceptor.NewClient(api.(client.WithWatch), interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if _, ok := obj.(*v1.Model); ok {
+				return apierrors.NewNotFound(schema.GroupResource{Group: "amd.com", Resource: "models"}, key.Name)
+			}
+			return c.Get(ctx, key, obj, opts...)
+		}})
+	require.Equal(t, runningRequeue, reconcileRun(t, r).RequeueAfter)
+	require.Equal(t, testRun, (*updates)[len(*updates)-1]["output_model_id"])
+	models := &v1.ModelList{}
+	require.NoError(t, api.List(context.Background(), models))
+	require.Len(t, models.Items, 1)
+
+	// A Model of the name that is not the run's is not taken for its output.
+	foreign := &v1.Model{ObjectMeta: metav1.ObjectMeta{Name: testRun}}
+	r, db, updates = newTestReconciler(t, run, endedWorkload(v1.WorkloadSucceeded), foreign)
+	db.EXPECT().ListWorkloadPods(gomock.Any(), testRun, "uid1").Return(submitterPods(
+		`[SUCCESS] {"run":"`+testRun+`","attempt":"a1","output":"`+testRunDir+`/final_model"}`), nil).AnyTimes()
+	reconcileRun(t, r)
+	last := (*updates)[len(*updates)-1]
+	require.Equal(t, "Failed", last["status"])
+	require.NotContains(t, last, "output_model_id")
+}
+
+// A run deleted while its last log read is saved ends the reconcile without an error.
+func TestARunDeletedAtTheEndOfItsWorkloadIsNotRetried(t *testing.T) {
+	run := testRunRow("Running", "train")
+	r, _, _ := newTestReconciler(t, run, endedWorkload(v1.WorkloadSucceeded))
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	gomock.InOrder(
+		db.EXPECT().GetPostTrainingRun(gomock.Any(), testRun).Return(run, nil),
+		db.EXPECT().GetPostTrainingRun(gomock.Any(), testRun).Return(nil, gorm.ErrRecordNotFound),
+	)
+	db.EXPECT().SavePostTrainingRunMetrics(gomock.Any(), testRun, gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	r.db = db
+	res := reconcileRun(t, r)
+	require.Zero(t, res.RequeueAfter)
 }

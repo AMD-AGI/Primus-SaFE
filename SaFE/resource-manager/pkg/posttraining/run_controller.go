@@ -56,6 +56,9 @@ const (
 	defaultMaxPoints  = 2000000
 	recoverPageSize   = 500
 	recoverBufferSize = 1024
+	// logReadTimeout bounds one read of a submitter log, so a data-plane API server or kubelet that hangs does
+	// not hold a worker.
+	logReadTimeout = 2 * time.Minute
 )
 
 var (
@@ -66,6 +69,10 @@ var (
 
 // lostMessage starts the message of a run whose launcher stopped reporting.
 const lostMessage = "The launcher has not reported"
+
+// goneMessage is the failure of a run whose workload is gone without a result: it ended while the controller was
+// down, or it was never created.
+const goneMessage = "The workload of the run is gone and its result was not found"
 
 // notRetriedEvent records that the run failed in a way a retry would repeat, so the platform does not retry it.
 const notRetriedEvent = "not-retried"
@@ -240,8 +247,13 @@ type RunReconciler struct {
 	recovered     chan event.GenericEvent
 }
 
-// SetupPostTrainingController registers the Post Training run controller; it needs the database.
+// SetupPostTrainingController registers the Post Training run controller when Post Training is enabled; it needs
+// the database. While Post Training is off nothing is watched or swept.
 func SetupPostTrainingController(_ context.Context, mgr manager.Manager) error {
+	if !commonconfig.IsPostTrainingEnable() {
+		klog.Info("Post Training is disabled, skip the Post Training controller")
+		return nil
+	}
 	if !commonconfig.IsDBEnable() {
 		klog.Info("The database is disabled, skip the Post Training controller")
 		return nil
@@ -268,9 +280,6 @@ func SetupPostTrainingController(_ context.Context, mgr manager.Manager) error {
 	if err != nil {
 		return err
 	}
-	if err = mgr.Add(manager.RunnableFunc(r.recoverRuns)); err != nil {
-		return err
-	}
 	if err = mgr.Add(manager.RunnableFunc(r.runUnfinishedSweeps)); err != nil {
 		return err
 	}
@@ -286,40 +295,15 @@ func runRequest(_ context.Context, obj client.Object) []reconcile.Request {
 	return []reconcile.Request{{NamespacedName: client.ObjectKey{Name: v1.GetLabel(obj, v1.PostTrainingRunIdLabel)}}}
 }
 
-// recoverRuns queues every unfinished run once the controller leads, so runs whose workloads changed while it
-// was down are advanced too.
-func (r *RunReconciler) recoverRuns(ctx context.Context) error {
-	filter := dbclient.PostTrainingRunFilter{
-		Statuses: []string{string(v1.WorkloadPending), string(v1.WorkloadRunning)}, Limit: recoverPageSize}
-	for {
-		runs, _, err := r.db.ListPostTrainingRuns(ctx, filter)
-		if err != nil {
-			klog.ErrorS(err, "failed to list unfinished Post Training runs")
-			return nil
-		}
-		for _, run := range runs {
-			obj := &metav1.PartialObjectMetadata{ObjectMeta: metav1.ObjectMeta{Name: run.RunID}}
-			select {
-			case r.recovered <- event.GenericEvent{Object: obj}:
-			case <-ctx.Done():
-				return nil
-			}
-		}
-		if len(runs) < recoverPageSize {
-			break
-		}
-		filter.Offset += recoverPageSize
-	}
-	<-ctx.Done()
-	return nil
-}
-
-// requeue queues a run for a reconcile. A run the queue has no room for waits for its next event or sweep.
-func (r *RunReconciler) requeue(runID string) {
+// requeue queues a run for a reconcile, waiting while the queue is full so that no run of a sweep is skipped. It
+// reports false once ctx ends.
+func (r *RunReconciler) requeue(ctx context.Context, runID string) bool {
 	obj := &metav1.PartialObjectMetadata{ObjectMeta: metav1.ObjectMeta{Name: runID}}
 	select {
 	case r.recovered <- event.GenericEvent{Object: obj}:
-	default:
+		return true
+	case <-ctx.Done():
+		return false
 	}
 }
 
@@ -440,7 +424,7 @@ func (r *RunReconciler) reconcileWorkload(ctx context.Context, run *dbclient.Pos
 		}
 		run, err := r.db.GetPostTrainingRun(ctx, run.RunID)
 		if err != nil {
-			return ctrlruntime.Result{}, client.IgnoreNotFound(err)
+			return ctrlruntime.Result{}, ignoreRecordNotFound(err)
 		}
 		endTime := u.now
 		if w.Status.EndTime != nil {
@@ -512,7 +496,7 @@ func (r *RunReconciler) reconcileLost(ctx context.Context, run *dbclient.PostTra
 		}
 		return r.finish(ctx, u, v1.WorkloadFailed, endTime, nil)
 	}
-	u.fail(run.Stage, "The workload ended while the controller was down and its result was lost", endTime)
+	u.fail(run.Stage, goneMessage, endTime)
 	return ctrlruntime.Result{}, r.save(ctx, u)
 }
 
@@ -617,7 +601,9 @@ func (r *RunReconciler) readLog(ctx context.Context, w *v1.Workload, u *runUpdat
 	cur := loadCursor(run.MetricCursor)
 	in := r.newIngestion(ctx, u, cur)
 	rejected, skipped := in.sum.Rejected, cur.Skipped
-	more, readErr := r.readSubmitter(ctx, w, cur, in)
+	readCtx, cancel := context.WithTimeout(ctx, logReadTimeout)
+	more, readErr := r.readSubmitter(readCtx, w, cur, in)
+	cancel()
 	points := in.finish()
 	if in.resumeFrom != nil {
 		if err := r.db.DeletePostTrainingRunMetricsAfterStep(ctx, run.RunID, int(*in.resumeFrom)); err != nil {

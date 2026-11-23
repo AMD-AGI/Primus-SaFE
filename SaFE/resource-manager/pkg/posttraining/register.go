@@ -7,11 +7,13 @@ package posttraining
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/util/retry"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
@@ -20,13 +22,15 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/posttraining/registry"
-	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
 
 const (
 	originFineTuned = "fine_tuned"
 	originRLTrained = "rl_trained"
 )
+
+// errModelTaken is returned when a Model of another owner has the name of the run's output Model.
+var errModelTaken = errors.New("a model of another owner has the name of the output model")
 
 // register turns a successful result into the run's output Model and finishes the run once the Model is Ready; a
 // run that exports no model finishes at once, with nothing to register.
@@ -44,8 +48,20 @@ func (r *RunReconciler) register(ctx context.Context, u *runUpdate, res *marker,
 		return ctrlruntime.Result{}, r.save(ctx, u)
 	}
 	u.moveTo("register")
+	start := u.stageStart("register")
+	timedOut := !start.IsZero() && u.now.Sub(start) > registerTimeout
 	model, err := r.ensureModel(ctx, run, output)
 	if err != nil {
+		// A Model the API server rejects is rejected again on every retry, and one that keeps failing otherwise
+		// must not keep the run in register for ever.
+		switch {
+		case permanentModelError(err):
+			u.fail("register", fmt.Sprintf("The output model could not be registered: %v", err), endTime)
+			return ctrlruntime.Result{}, r.save(ctx, u)
+		case timedOut:
+			u.fail("register", fmt.Sprintf("The output model was not registered within 30 minutes: %v", err), endTime)
+			return ctrlruntime.Result{}, r.save(ctx, u)
+		}
 		if serr := r.save(ctx, u); serr != nil {
 			return ctrlruntime.Result{}, serr
 		}
@@ -53,7 +69,7 @@ func (r *RunReconciler) register(ctx context.Context, u *runUpdate, res *marker,
 	}
 	u.set("output_model_id", run.OutputModelID, model.Name)
 	if !model.IsReady() {
-		if start := u.stageStart("register"); !start.IsZero() && u.now.Sub(start) > registerTimeout {
+		if timedOut {
 			u.fail("register", "The output model did not become ready within 30 minutes", endTime)
 			return ctrlruntime.Result{}, r.save(ctx, u)
 		}
@@ -73,20 +89,40 @@ func withinDir(path, dir string) bool {
 	return strings.HasPrefix(path, dir+string(filepath.Separator))
 }
 
-// ensureModel returns the run's output Model, creating it on first use; a Model found by the run label is
-// reused, so a retried registration never creates a second one. The base model's structure summary is copied
-// once the new Model is visible.
+// permanentModelError reports whether creating or reading the output Model failed in a way a retry repeats.
+func permanentModelError(err error) bool {
+	return apierrors.IsInvalid(err) || apierrors.IsForbidden(err) || apierrors.IsBadRequest(err) ||
+		errors.Is(err, errModelTaken)
+}
+
+// ensureModel returns the run's output Model, creating it on first use. The Model is named after the run, so a
+// reconcile that runs before the cache shows the Model a previous one created finds it there instead of creating
+// a second one. The base model's structure summary is copied once the new Model is visible.
 func (r *RunReconciler) ensureModel(ctx context.Context, run *dbclient.PostTrainingRun, output string) (*v1.Model, error) {
-	list := &v1.ModelList{}
-	if err := r.List(ctx, list, client.MatchingLabels{v1.PostTrainingRunIdLabel: run.RunID}); err != nil {
+	key := client.ObjectKey{Name: outputModelName(run)}
+	model := &v1.Model{}
+	err := r.Get(ctx, key, model)
+	if apierrors.IsNotFound(err) {
+		model = outputModel(run, output)
+		if err = r.Create(ctx, model); !apierrors.IsAlreadyExists(err) {
+			return model, err
+		}
+		model = &v1.Model{}
+		err = r.reader.Get(ctx, key, model)
+	}
+	if err != nil {
 		return nil, err
 	}
-	if len(list.Items) > 0 {
-		model := &list.Items[0]
-		return model, r.inheritModelConfig(ctx, run, model)
+	if v1.GetLabel(model, v1.PostTrainingRunIdLabel) != run.RunID {
+		return nil, fmt.Errorf("%w: %s", errModelTaken, key.Name)
 	}
-	model := outputModel(run, output)
-	return model, r.Create(ctx, model)
+	return model, r.inheritModelConfig(ctx, run, model)
+}
+
+// outputModelName returns the name of the run's output Model: the run id, which is unique, at most 63 characters
+// and made of lower case letters, digits and hyphens, so it is a valid Model name.
+func outputModelName(run *dbclient.PostTrainingRun) string {
+	return run.RunID
 }
 
 // outputModel builds the local_path Model that registers the run's output.
@@ -96,7 +132,7 @@ func outputModel(run *dbclient.PostTrainingRun, output string) *v1.Model {
 		origin = originRLTrained
 	}
 	m := &v1.Model{}
-	m.Name = commonutils.GenerateName(run.RunID)
+	m.Name = outputModelName(run)
 	m.Labels = map[string]string{v1.PostTrainingRunIdLabel: run.RunID}
 	for key, value := range map[string]string{v1.DisplayNameLabel: run.DisplayName, v1.UserIdLabel: run.UserID} {
 		if value != "" && len(validation.IsValidLabelValue(value)) == 0 {
