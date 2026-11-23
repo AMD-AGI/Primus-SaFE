@@ -34,6 +34,7 @@ import (
 	llmgateway "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/llm-gateway"
 	model_handlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/model-handlers"
 	optimizationhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/optimization"
+	posttraininghandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/post-training-handlers"
 	proxyhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/proxy-handlers"
 	reshandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/scim"
@@ -74,6 +75,7 @@ func sweepHandlers(t *testing.T) routeHandlers {
 		githubWorkflow: true,
 		inferencex:     inferencexhandlers.NewHandler(time.Hour),
 		optimization:   &optimizationhandlers.Handler{},
+		postTraining:   &posttraininghandlers.Handler{},
 		mcp:            true,
 		scimToken:      scim.NewToken("sweep-token"),
 	}
@@ -258,8 +260,8 @@ func TestEveryAuthenticatedRouteRefusesAUserWhoHoldsNoAccess(t *testing.T) {
 	require.Equal(t, []string{
 		"handlers/authority", "handlers/cd-handlers", "handlers/email-relay-handlers", "handlers/github-workflow",
 		"handlers/image-handlers", "handlers/inferencex", "handlers/lens-compat", "handlers/llm-gateway",
-		"handlers/model-handlers", "handlers/optimization", "handlers/proxy-handlers", "handlers/resources",
-		"handlers/scim", "handlers/ssh-handlers", "mcp/router",
+		"handlers/model-handlers", "handlers/optimization", "handlers/post-training-handlers",
+		"handlers/proxy-handlers", "handlers/resources", "handlers/scim", "handlers/ssh-handlers", "mcp/router",
 	}, gotPackages, "the packages that register routes changed: check that registerRoutes still registers them all")
 
 	// 3. A user who holds no access is refused by the gate everywhere but on the routes it is served.
