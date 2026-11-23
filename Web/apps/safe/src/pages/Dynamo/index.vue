@@ -115,6 +115,7 @@
                 >
                   {{ row.phase }}
                 </el-tag>
+                <PendingCauseIcon v-if="canAnalyzePending(row)" :workload-id="row.workloadId" />
               </div>
             </div>
           </template>
@@ -243,6 +244,7 @@ import {
   VideoPlay,
 } from '@element-plus/icons-vue'
 import ResetIcon from '@/components/icons/ResetIcon.vue'
+import PendingCauseIcon from '@/components/Workload/PendingCauseIcon.vue'
 import { useWorkloadWriteGuard } from '@/composables/useWorkloadWriteGuard'
 import {
   useWorkloadResumePermission,
@@ -251,6 +253,7 @@ import {
 import { useWorkloadListQuery } from '@/composables/useWorkloadListQuery'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useUserStore } from '@/stores/user'
+import { canAnalyzePending } from '@/utils/workloadPending'
 import {
   deleteWorkload,
   getWorkloadsList,

@@ -168,7 +168,7 @@
                     <WarningFilled />
                   </el-icon>
                 </el-tooltip>
-                <PendingCauseIcon v-if="row.phase === 'Pending'" :workload-id="row.workloadId" />
+                <PendingCauseIcon v-if="canAnalyzePending(row)" :workload-id="row.workloadId" />
               </div>
               <div class="text-sm" v-if="row.phase === 'Pending' && !!row.queuePosition">
                 position in queue:{{ row.queuePosition }}
@@ -318,6 +318,7 @@
 
 <script lang="ts" setup>
 import PendingCauseIcon from '@/components/Workload/PendingCauseIcon.vue'
+import { canAnalyzePending } from '@/utils/workloadPending'
 import { ref, reactive, watch, nextTick, onMounted, onBeforeUnmount, h, computed, shallowRef } from 'vue'
 import { useWorkloadWriteGuard } from '@/composables/useWorkloadWriteGuard'
 import {
