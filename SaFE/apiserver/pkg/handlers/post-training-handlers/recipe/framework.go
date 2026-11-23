@@ -744,9 +744,14 @@ const (
 	maxFrameworkOptionsBytes = 16 << 10
 	maxFieldMappings         = 16
 	maxFreezePatterns        = 64
+	// maxNameBytes bounds a name, such as a W&B project or team, a dataset field or a reward key.
+	maxNameBytes = 256
+	// maxTextBytes bounds an address, a file path, a regex or an image reference.
+	maxTextBytes = 2048
 )
 
-// requestLimits keeps the free-form parts of a request within their limits.
+// requestLimits keeps the free-form parts of a request within their limits, so a request that compiles also fits
+// the workload that carries its recipe.
 func requestLimits(req *SubmitRequest, res *Result) {
 	c := req.Choices
 	if len(req.FrameworkOptions) > 0 {
@@ -760,6 +765,34 @@ func requestLimits(req *SubmitRequest, res *Result) {
 	if c.Freeze != nil && len(c.Freeze.TrainOnly) > maxFreezePatterns {
 		res.errorf("choices.freeze", "Give at most %d patterns to train", maxFreezePatterns)
 	}
+	tooLong := func(field, label, value string, limit int) {
+		if len(value) > limit {
+			res.errorf(field, "%s must not exceed %d bytes", label, limit)
+		}
+	}
+	keys := make([]string, 0, len(c.FieldMap))
+	for k := range c.FieldMap {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		tooLong("choices.fieldMap", "A mapped field name", k, maxNameBytes)
+		tooLong("choices.fieldMap."+k, "A dataset field name", c.FieldMap[k], maxNameBytes)
+	}
+	if c.Freeze != nil {
+		for _, p := range c.Freeze.TrainOnly {
+			tooLong("choices.freeze", "A pattern to train", p, maxTextBytes)
+		}
+	}
+	tooLong("choices.rewardHook", "The reward function", c.RewardHook, maxTextBytes)
+	tooLong("choices.generateHook", "The generate function", c.GenerateHook, maxTextBytes)
+	if r := c.RewardRemote; r != nil {
+		tooLong("choices.rewardRemote.url", "The reward service address", r.URL, maxTextBytes)
+		tooLong("choices.rewardRemote.rewardKey", "The reward key", r.RewardKey, maxNameBytes)
+	}
+	tooLong("tracking.wandb.project", "The W&B project", req.Tracking.Wandb.Project, maxNameBytes)
+	tooLong("tracking.wandb.team", "The W&B team", req.Tracking.Wandb.Team, maxNameBytes)
+	tooLong("resources.image", "The image", req.Resources.Image, maxTextBytes)
 }
 
 // platformRules applies the framework-independent rules of a full request.
@@ -809,6 +842,10 @@ func platformRules(ctx *Context, res *Result) {
 	nodes := req.Resources.Nodes
 	if nodes < 1 || req.Resources.GpusPerNode < 1 {
 		res.errorf("resources.nodes", "Nodes and GPUs per node must be positive")
+	}
+	// The workload webhook refuses more GPUs than a node has, after the run is recorded.
+	if n := in.Workspace.NodeGPUs; n > 0 && req.Resources.GpusPerNode > n {
+		res.errorf("resources.gpusPerNode", "The workspace's nodes have %d GPUs", n)
 	}
 	// Another value is authorized as low but runs as high, as the workload webhook clamps it.
 	if p := req.Resources.Priority; p < common.LowPriorityInt || p > common.HighPriorityInt {

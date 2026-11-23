@@ -6,6 +6,7 @@
 package recipe
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -45,6 +46,8 @@ specs:
     match: {architectures: [Qwen3ForCausalLM], hidden_size: 4096}
     frameworks:
       slime:
+        modelScript: scripts/models/qwen3-8B.sh
+        convertNodes: 1
         methods: {sft: [full], rl: [full]}
         minNodes: {sft-full: 1, rl: 1, rl-separate: 2}
         unverified: [rl-separate]
@@ -151,6 +154,27 @@ func TestCompileRejects(t *testing.T) {
 		}, "allows only full SFT and GRPO without other features, not valLoss"},
 		"feature":      {func(in *Input) { in.Request.Choices.ValSplit = 0.1 }, "validated for valLoss"},
 		"rl min nodes": {rlSeparate, "at least 2 nodes"},
+		"gpus per node": {func(in *Input) { in.Workspace.NodeGPUs, in.Request.Resources.GpusPerNode = 8, 64 },
+			"The workspace's nodes have 8 GPUs"},
+		"long wandb project": {func(in *Input) {
+			in.Request.Tracking.Wandb = Wandb{Enabled: true, Project: strings.Repeat("p", maxNameBytes+1)}
+		}, "The W&B project must not exceed 256 bytes"},
+		"long wandb team": {func(in *Input) { in.Request.Tracking.Wandb.Team = strings.Repeat("t", maxNameBytes+1) },
+			"The W&B team must not exceed 256 bytes"},
+		"long field": {func(in *Input) {
+			in.Request.Choices.FieldMap = map[string]string{"output": strings.Repeat("f", maxNameBytes+1)}
+		}, "A dataset field name must not exceed 256 bytes"},
+		"long field key": {func(in *Input) {
+			in.Request.Choices.FieldMap = map[string]string{strings.Repeat("k", maxNameBytes+1): "output"}
+		}, "A mapped field name must not exceed 256 bytes"},
+		"long reward address": {func(in *Input) {
+			in.Request.Choices.RewardRemote = &RewardRemote{URL: "https://" + strings.Repeat("r", maxTextBytes)}
+		}, "The reward service address must not exceed 2048 bytes"},
+		"long reward key": {func(in *Input) {
+			in.Request.Choices.RewardRemote = &RewardRemote{RewardKey: strings.Repeat("k", maxNameBytes+1)}
+		}, "The reward key must not exceed 256 bytes"},
+		"long reward hook": {func(in *Input) { in.Request.Choices.RewardHook = strings.Repeat("h", maxTextBytes+1) },
+			"The reward function must not exceed 2048 bytes"},
 		"missing field": {func(in *Input) {
 			in.Dataset.Fields = []string{"instruction"}
 			in.Request.Choices.FieldMap = map[string]string{"output": "answer"}
@@ -166,6 +190,13 @@ func TestCompileRejects(t *testing.T) {
 			require.Contains(t, errorsOf(res)[0], c.want)
 		})
 	}
+}
+
+// A pattern to train is kept within its limit, whatever else the request asks.
+func TestALongPatternToTrainIsRefused(t *testing.T) {
+	in := input(t)
+	in.Request.Choices.Freeze = &FreezeChoice{TrainOnly: []string{strings.Repeat("x", maxTextBytes+1)}}
+	require.Contains(t, errorsOf(Compile(in)), "A pattern to train must not exceed 2048 bytes")
 }
 
 // rlSeparate turns the input into an RL request with a separate rollout.

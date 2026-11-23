@@ -496,15 +496,39 @@ func TestModelParallelRules(t *testing.T) {
 		return strings.Join(msgs, "; ")
 	}
 	require.Empty(t, messages(nil, 3, 3), "a model still being read is checked once its structure is known")
-	require.Empty(t, messages(&v1.ModelConfig{NumAttentionHeads: 32, NumKeyValueHeads: 4}, 8, 1),
-		"TP may be a multiple of the KV heads")
+	require.Empty(t, messages(&v1.ModelConfig{NumAttentionHeads: 32, NumKeyValueHeads: 8}, 4, 1))
+	require.Contains(t, messages(&v1.ModelConfig{NumAttentionHeads: 32, NumKeyValueHeads: 4}, 8, 1),
+		"TP (8) must divide the 4 KV heads", "Megatron splits the KV heads across TP and does not replicate them")
 	require.Contains(t, messages(&v1.ModelConfig{NumAttentionHeads: 20, NumKeyValueHeads: 4}, 8, 1),
 		"TP (8) must divide the 20 attention heads")
 	require.Contains(t, messages(&v1.ModelConfig{NumAttentionHeads: 32, NumKeyValueHeads: 3}, 2, 1),
-		"The KV heads (3) and TP (2) must be multiples of one another")
+		"TP (2) must divide the 3 KV heads")
 	require.Contains(t, messages(&v1.ModelConfig{NumAttentionHeads: 64, NumExperts: 256}, 1, 3),
 		"EP (3) must divide the 256 experts")
 	require.Empty(t, messages(&v1.ModelConfig{NumAttentionHeads: 64, NumExperts: 256}, 1, 8))
+}
+
+// Parallel sizes as large as a request may send are refused with a diagnostic: their product would otherwise wrap
+// to 0 and be divided by.
+func TestHugeParallelSizesAreRefused(t *testing.T) {
+	in := qwen3Input(t, registry.TrainTypeSFT)
+	in.Request.Choices.TP, in.Request.Choices.PP = 4294967296, 4294967296
+	require.Contains(t, errorsOf(in), "TP × PP × CP and EP × PP must each be between 1 and the training GPUs (8)")
+
+	// Without the workspace's size the training GPUs are as many as the request says, and the sizes can each be
+	// below them while their product overflows.
+	in = qwen3Input(t, registry.TrainTypeSFT)
+	in.Workspace = recipe.WorkspaceInfo{ID: "ws", GPUModel: "MI355X"}
+	in.Request.Resources.Nodes, in.Request.Resources.GpusPerNode = 1<<31, 1<<31
+	in.Request.Choices.TP, in.Request.Choices.PP, in.Request.Choices.CP = 1<<31, 1<<31, 1<<31
+	require.Contains(t, errorsOf(in), "must each be between 1 and the training GPUs (4611686018427387904)")
+	in.Request.Choices.TP, in.Request.Choices.PP, in.Request.Choices.CP, in.Request.Choices.EP = 1, 1<<62, 1, 4
+	require.Contains(t, errorsOf(in), "must each be between 1 and the training GPUs", "EP × PP overflows")
+
+	require.Equal(t, 8, boundedProduct(8, 2, 2, 2))
+	require.Equal(t, 0, boundedProduct(8, 2, 2, 4), "a product above the limit cannot divide it")
+	require.Equal(t, 0, boundedProduct(0, 1), "no GPUs take no parallel size")
+	require.Equal(t, 0, boundedProduct(1<<62, 1<<62, 1<<62))
 }
 
 // RL tells slime the GPUs of a node for placing rollout engines.

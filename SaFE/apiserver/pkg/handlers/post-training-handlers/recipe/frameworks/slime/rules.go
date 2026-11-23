@@ -219,7 +219,9 @@ var rewardTypes = map[string]bool{defaultRewardType: true, "dapo": true, "math":
 	rewardCustom: true, rewardRemote: true}
 
 // modelParallelRules checks the parallelism against the model's structure the way Megatron does at start-up: TP
-// divides the attention heads, the KV heads and TP are multiples of one another, and EP divides the experts.
+// divides the attention heads and the KV heads, and EP divides the experts. Megatron-core's attention splits the
+// query groups (the KV heads) evenly across the TP ranks and does not replicate them, so TP above the KV heads
+// fails as well.
 func modelParallelRules(cfg *v1.ModelConfig, c recipe.Choices) []recipe.Diagnostic {
 	if cfg == nil {
 		return nil
@@ -231,8 +233,8 @@ func modelParallelRules(cfg *v1.ModelConfig, c recipe.Choices) []recipe.Diagnost
 	if heads := cfg.NumAttentionHeads; heads > 0 && heads%c.TP != 0 {
 		fail("choices.tp", "TP (%d) must divide the %d attention heads", c.TP, heads)
 	}
-	if kv := cfg.NumKeyValueHeads; kv > 0 && kv%c.TP != 0 && c.TP%kv != 0 {
-		fail("choices.tp", "The KV heads (%d) and TP (%d) must be multiples of one another", kv, c.TP)
+	if kv := cfg.NumKeyValueHeads; kv > 0 && kv%c.TP != 0 {
+		fail("choices.tp", "TP (%d) must divide the %d KV heads", c.TP, kv)
 	}
 	switch {
 	case cfg.NumExperts == 0 && c.EP > 1:
@@ -241,6 +243,20 @@ func modelParallelRules(cfg *v1.ModelConfig, c recipe.Choices) []recipe.Diagnost
 		fail("choices.ep", "EP (%d) must divide the %d experts", c.EP, cfg.NumExperts)
 	}
 	return out
+}
+
+// boundedProduct multiplies parallel sizes of at least 1 and returns 0 once the product passes limit, which it then
+// cannot divide. Each step is checked before it is taken, so sizes as large as a request may send cannot overflow
+// the product, which could otherwise wrap to 0 and be divided by.
+func boundedProduct(limit int, sizes ...int) int {
+	p := 1
+	for _, s := range sizes {
+		if limit < 1 || s > limit/p {
+			return 0
+		}
+		p *= s
+	}
+	return p
 }
 
 // Validate applies slime's rules on top of the platform rules.
@@ -258,11 +274,15 @@ func (p plugin) Validate(ctx *recipe.Context) []recipe.Diagnostic {
 		fail("choices.tp", "TP, PP, CP and EP must be positive")
 		return out
 	}
-	if train := l.ActorGpus; train <= 0 || train%(c.TP*c.PP*c.CP) != 0 || train%(c.EP*c.PP) != 0 {
+	train := l.ActorGpus
+	switch mp, ep := boundedProduct(train, c.TP, c.PP, c.CP), boundedProduct(train, c.EP, c.PP); {
+	case mp == 0 || ep == 0:
+		fail("choices.tp", "TP × PP × CP and EP × PP must each be between 1 and the training GPUs (%d)", train)
+	case train%mp != 0 || train%ep != 0:
 		fail("choices.tp", "Training GPUs (%d) must be divisible by TP × PP × CP (%d) and EP × PP (%d)",
-			l.ActorGpus, c.TP*c.PP*c.CP, c.EP*c.PP)
-	} else {
-		dp, global := train/(c.TP*c.PP*c.CP), c.BatchSize
+			train, mp, ep)
+	default:
+		dp, global := train/mp, c.BatchSize
 		if ctx.Request.TrainType == registry.TrainTypeRL {
 			global = c.BatchSize * c.NSamplesPerPrompt
 		}
@@ -330,8 +350,9 @@ func (p plugin) Validate(ctx *recipe.Context) []recipe.Diagnostic {
 	if c.Schedule != "" && c.Schedule != "sync" && !async {
 		fail("choices.schedule", "Schedule must be sync or async")
 	}
+	// 0 leaves a sync rollout at SGLang's own concurrency; an async one has the default filled in.
 	if c.Concurrency < 0 || c.Concurrency > maxConcurrency {
-		fail("choices.concurrency", "Concurrency must be between 1 and %d", maxConcurrency)
+		fail("choices.concurrency", "Concurrency must be between 0 (the default) and %d", maxConcurrency)
 	}
 	warn := func(field, message string) {
 		out = append(out, recipe.Diagnostic{Level: recipe.LevelWarning, Field: field, Message: message})
