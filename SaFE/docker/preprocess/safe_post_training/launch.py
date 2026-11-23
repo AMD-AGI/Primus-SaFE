@@ -1,0 +1,277 @@
+#
+# Copyright (C) 2025-2026, Advanced Micro Devices, Inc. All rights reserved.
+# See LICENSE for license information.
+#
+"""Post Training launcher entry point: python3 /shared-data/safe_post_training/launch.py.
+
+Reads the recipe from PT_RECIPE (base64 JSON), registers a new attempt, runs the stages and prints the result
+marker last. Exits 0 only when every stage succeeded.
+"""
+
+import argparse
+import base64
+import collections
+import errno
+import importlib
+import json
+import math
+import os
+import re
+import signal
+import sys
+import threading
+import time
+
+if __package__ in (None, ""):
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from safe_post_training import metrics, stages  # noqa: E402
+
+LAUNCHER_VERSION = "1.0.0"
+NORETRY_FILE = ".noretry"
+NORETRY_WAIT = 90
+STATUS_FILE = "status.json"
+WATCH_INTERVAL = 10
+UNKNOWN_NORETRY = "an earlier attempt failed for good and its reason was not recorded"
+SAVING_PATTERN = re.compile(r"saving checkpoint", re.IGNORECASE)
+
+
+class Watchdog:
+    """Progress watchdog of one child process. Progress is a new training step, rollout or evaluation, or any
+    output before the first step and in stages without steps. Past the warning threshold it prints a stalled
+    [STAGE]; past the stop threshold it ends the child's process group."""
+
+    def __init__(self, emitter, config=None, clock=time.time, interval=WATCH_INTERVAL, grace=stages.KILL_GRACE):
+        cfg = config or {}
+        self.emitter, self.clock, self.interval, self.grace = emitter, clock, interval, grace
+        self.startup = cfg.get("startupMinutes") or 30
+        self.convert = cfg.get("convertMinutes") or self.startup
+        self.min_stall = cfg.get("minStallMinutes") or 30
+        self.factor = cfg.get("stallFactor") or 3
+        self.save = cfg.get("saveMinutes") or 20
+        self._lock = threading.Lock()
+        self._done = threading.Event()
+        self._thread = None
+        self.reset(None)
+
+    def reset(self, stage):
+        """Start watching stage from now."""
+        self.stage, self.last, self.step, self.saving, self.warned, self.reason = \
+            stage, self.clock(), None, False, False, None
+        self.times = collections.deque(maxlen=11)
+
+    def line(self, text):
+        """Note one line of child output: the start of a checkpoint save, or progress before the first step."""
+        with self._lock:
+            if SAVING_PATTERN.search(text):
+                self.saving, self.last = True, self.clock()
+            elif self.step is None:
+                self._progress()
+
+    def progress(self, step):
+        """Note a new training step, rollout or evaluation."""
+        with self._lock:
+            self.step, self.saving = step, False
+            self.times.append(self.clock())
+            self._progress()
+
+    def saved(self):
+        """Note that a checkpoint finished saving."""
+        with self._lock:
+            self.saving = False
+            self._progress()
+
+    def _progress(self):
+        """Restart the idle time and report a recovery after a stall warning."""
+        self.last = self.clock()
+        if self.warned:
+            self.warned = False
+            self.emitter.notice("recovered", {"lastStep": self.step})
+
+    def thresholds(self):
+        """Return the warning and stop thresholds in minutes."""
+        if self.saving:
+            return self.save, 2 * self.save
+        if self.step is None:
+            stop = self.convert if self.stage == "convert" else self.startup
+            return stop / 2.0, stop
+        times = list(self.times)
+        gaps = sorted(b - a for a, b in zip(times, times[1:]))
+        median = gaps[len(gaps) // 2] / 60.0 if gaps else 0
+        warn = max(self.min_stall, self.factor * median)
+        return warn, 2 * warn
+
+    def check(self):
+        """Warn once past the warning threshold; past the stop threshold return the reason to stop."""
+        with self._lock:
+            idle = (self.clock() - self.last) / 60.0
+            warn, stop = self.thresholds()
+            last = "none" if self.step is None else self.step
+            if idle >= stop:
+                self.reason = "%d minutes without training progress (last step %s)" % (idle, last)
+                return self.reason
+            if idle >= warn and not self.warned:
+                self.warned = True
+                self.emitter.notice("stalled", {"since": round(self.last, 3), "lastStep": self.step,
+                                                "minutes": int(idle), "stopMinutes": int(math.ceil(stop))})
+        return None
+
+    def watch(self, proc, stage, tick=None):
+        """Watch proc from a background thread until unwatch; tick runs on every pass."""
+        self.reset(stage)
+        self._done.clear()
+
+        def loop():
+            while not self._done.wait(self.interval):
+                if tick:
+                    tick()
+                if self.check():
+                    stages.stop_group(proc, self.grace)
+                    return
+
+        self._thread = threading.Thread(target=loop, name="watchdog", daemon=True)
+        self._thread.start()
+
+    def unwatch(self):
+        """Stop watching."""
+        self._done.set()
+        if self._thread:
+            self._thread.join()
+            self._thread = None
+
+
+def load_recipe(env=os.environ):
+    """Decode the recipe from the PT_RECIPE environment variable."""
+    raw = env.get("PT_RECIPE")
+    if not raw:
+        raise SystemExit("PT_RECIPE is not set")
+    return json.loads(base64.b64decode(raw))
+
+
+def next_attempt(run_dir):
+    """Count this start in status.json and return its attempt id, a1 for the first start."""
+    path = os.path.join(run_dir, STATUS_FILE)
+    status = {}
+    if os.path.exists(path):
+        with open(path) as f:
+            status = json.load(f)
+    status["attempts"] = status.get("attempts", 0) + 1
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(status, f)
+    os.replace(tmp, path)
+    return "a%d" % status["attempts"]
+
+
+def peek_attempt(run_dir):
+    """Return the attempt id the next start gets without recording it, a1 when status.json cannot be read."""
+    try:
+        with open(os.path.join(run_dir, STATUS_FILE)) as f:
+            return "a%d" % (int(json.load(f).get("attempts", 0)) + 1)
+    except (OSError, ValueError, TypeError, AttributeError):
+        return "a1"
+
+
+def stored_error(path):
+    """Return the error a .noretry file holds, an unknown final error when it cannot be read."""
+    try:
+        with open(path) as f:
+            reason = json.load(f)
+        if isinstance(reason, dict):
+            return reason
+    except (OSError, ValueError):
+        pass
+    return {"stage": "start", "reason": UNKNOWN_NORETRY}
+
+
+def launcher_error(stage, err, run_dir):
+    """Turn a launcher crash into a stage error; running out of space is final unless it names a path outside the
+    run directory."""
+    if isinstance(err, OSError) and err.errno == errno.ENOSPC and \
+            not (isinstance(err.filename, str) and not stages.under(run_dir, err.filename)):
+        return stages.StageError(stage, stages.space_reason(run_dir), retry=False)
+    return stages.StageError(stage, "launcher error: %s" % err)
+
+
+def load_adapter(framework):
+    """Load the framework adapter of the recipe."""
+    module = importlib.import_module("safe_post_training.frameworks.%s.adapter" % framework)
+    return module.Adapter()
+
+
+def fail(emitter, run_dir, err, sleep=time.sleep):
+    """Report a failed stage: an error that would recur is written to .noretry first and given time for the
+    controller to disable failover; then the [ERROR] marker is printed last."""
+    reason = {"stage": err.stage, "reason": err.reason}
+    if not err.retry:
+        try:
+            with open(os.path.join(run_dir, NORETRY_FILE), "w") as f:
+                json.dump(reason, f)
+        except OSError:
+            pass
+        emitter.stage(err.stage, state="failed", detail=reason, retry=False)
+        sleep(NORETRY_WAIT)
+    emitter.wait_after_last_metric(sleep=sleep)
+    emitter.stop_heartbeat()
+    emitter.error(err.stage, err.reason, retry=err.retry)
+    return 1
+
+
+def run(recipe, out=None, gpus=stages.ray_gpus, sleep=time.sleep, watchdog=None):
+    """Run a recipe end to end and return the exit code."""
+    run_dir = recipe["output"]["base"]
+    attempt, metrics_path = None, os.path.join(run_dir, "metrics", "metrics.jsonl")
+    try:
+        for sub in ("metrics", "logs/nccl"):
+            os.makedirs(os.path.join(run_dir, sub), exist_ok=True)
+        attempt = next_attempt(run_dir)
+    except (OSError, ValueError) as err:
+        emitter = metrics.Emitter(recipe["runId"], attempt or peek_attempt(run_dir), out=out)
+        emitter.stage("start", detail={"launcher": LAUNCHER_VERSION})
+        return fail(emitter, run_dir, launcher_error("start", err, run_dir), sleep=sleep)
+    emitter = metrics.Emitter(recipe["runId"], attempt, metrics_path,
+                              include=(recipe.get("metrics") or {}).get("include"), out=out)
+    emitter.stage("start", detail={"launcher": LAUNCHER_VERSION})
+    noretry = os.path.join(run_dir, NORETRY_FILE)
+    if os.path.exists(noretry):
+        reason = stored_error(noretry)
+        emitter.error(reason.get("stage", ""), reason.get("reason", ""), retry=False)
+        return 1
+    emitter.start_heartbeat()
+    try:
+        runner = stages.Runner(recipe, run_dir, load_adapter(recipe["framework"]), emitter, gpus=gpus,
+                               watchdog=watchdog or Watchdog(emitter, recipe.get("watchdog")))
+        result = runner.run()
+    except stages.StageError as err:
+        return fail(emitter, run_dir, err, sleep=sleep)
+    except Exception as err:  # noqa: BLE001 - any crash must still end with an [ERROR] marker
+        return fail(emitter, run_dir, launcher_error(emitter.stage_name or "start", err, run_dir), sleep=sleep)
+    emitter.wait_after_last_metric(sleep=sleep)
+    emitter.stop_heartbeat()
+    emitter.success(**result)
+    return 0
+
+
+def exit_on_sigterm():
+    """Turn SIGTERM into SystemExit, so a stopped run still releases its conversion lock and ends its children."""
+    signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(128 + signum))
+
+
+def main(argv=None):
+    """Parse the command line and run the recipe, or print its plan with --dry-run."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--dry-run", action="store_true", help="print the stages and commands without running")
+    args = parser.parse_args(argv)
+    recipe = load_recipe()
+    if args.dry_run:
+        adapter = load_adapter(recipe["framework"])
+        cmd, env, files = adapter.train_command(recipe, recipe["output"]["base"])
+        print(json.dumps({"stages": list(stages.STAGES), "train": cmd, "env": env, "files": sorted(files or {})},
+                         indent=2))
+        return 0
+    exit_on_sigterm()
+    return run(recipe)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
