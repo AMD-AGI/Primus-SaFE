@@ -12,10 +12,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	batchv1 "k8s.io/api/batch/v1"
@@ -31,6 +33,8 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	mockclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonopsjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
 	commonsecret "github.com/AMD-AIG-AIMA/SAFE/common/pkg/secret"
@@ -1429,4 +1433,458 @@ func TestModelDownloadSavesFinishedJobOnLaterError(t *testing.T) {
 		}
 		assert.Equal(t, v1.LocalPathStatusReady, getModel(t, cl, "m1").Status.LocalPaths[0].Status, step)
 	}
+}
+
+// enablePostTraining turns the Post Training switch on for one test.
+func enablePostTraining(t *testing.T) {
+	t.Helper()
+	setViper(t, map[string]any{"post_training.enable": true})
+}
+
+// The reported model config is parsed with its rope theta and dtype, next to the size line.
+func TestReportedModelConfig(t *testing.T) {
+	lines := `["[SUCCESS] MODEL_CONFIG={\"architectures\":[\"Qwen3ForCausalLM\"],\"model_type\":\"qwen3\",` +
+		`\"num_hidden_layers\":36,\"num_key_value_heads\":8,\"rope_theta\":1000000.0,\"torch_dtype\":\"bfloat16\"}",` +
+		`"[SUCCESS] MODEL_SIZE_BYTES=42"]`
+	job := &v1.OpsJob{Status: v1.OpsJobStatus{Outputs: []v1.Parameter{{Name: "result", Value: lines}}}}
+	cfg, err := reportedModelConfig(job)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"Qwen3ForCausalLM"}, cfg.Architectures)
+	assert.Equal(t, 36, cfg.NumHiddenLayers)
+	assert.Equal(t, "1000000.0", cfg.RopeTheta)
+	assert.Equal(t, "bfloat16", cfg.TorchDtype)
+	assert.Equal(t, int64(42), reportedModelSize(job), "the size line next to it still parses")
+
+	cfg, err = reportedModelConfig(&v1.OpsJob{Status: v1.OpsJobStatus{Outputs: []v1.Parameter{
+		{Name: "result", Value: "[SUCCESS] MODEL_CONFIG={}"}}}})
+	assert.Nil(t, cfg)
+	assert.ErrorContains(t, err, "neither its model_type nor its architectures")
+	_, err = reportedModelConfig(&v1.OpsJob{Status: v1.OpsJobStatus{Outputs: []v1.Parameter{
+		{Name: "result", Value: "[SUCCESS] MODEL_SIZE_BYTES=42"}}}})
+	assert.ErrorContains(t, err, "reported no MODEL_CONFIG line")
+}
+
+// A field of an unexpected type is left out without failing the others.
+func TestParseModelConfigReadsEachFieldOnItsOwn(t *testing.T) {
+	cfg, err := parseModelConfig([]byte(`{"model_type":"qwen3","rope_theta":"1e6","num_experts":[8],` +
+		`"num_hidden_layers":36,"hidden_size":"big"}`))
+	require.NoError(t, err)
+	assert.Equal(t, "qwen3", cfg.ModelType)
+	assert.Equal(t, "1e6", cfg.RopeTheta, "a rope_theta written as a string is kept")
+	assert.Equal(t, 36, cfg.NumHiddenLayers)
+	assert.Zero(t, cfg.NumExperts, "a field of an unexpected type is left out")
+	assert.Zero(t, cfg.HiddenSize)
+
+	cfg, err = parseModelConfig([]byte(`{"architectures":["X"],"rope_theta":"linear"}`))
+	require.NoError(t, err)
+	assert.Equal(t, "linear", cfg.RopeTheta)
+	_, err = parseModelConfig([]byte(`[1]`))
+	assert.ErrorContains(t, err, "not a JSON object")
+}
+
+// A Post Training output's weights stay while runs train from it, and go with it after. A run counts while its
+// workload exists and has not ended, or its row changed a moment ago; a run left Running without a workload, or
+// with one that ended, does not hold the model.
+func TestPostTrainingOutputCleanupWaitsForBasedRuns(t *testing.T) {
+	model := genMockModel("qwen-sft-out", v1.AccessModeLocalPath, "ws1")
+	model.Spec.PostTrainingRunId = "pt-qwen-abc12"
+	r := &ModelReconciler{}
+	assert.True(t, r.needsCleanup(model), "a Post Training output is deleted with its weights")
+	assert.False(t, r.needsCleanup(genMockModel("registered", v1.AccessModeLocalPath, "ws1")))
+
+	enablePostTraining(t)
+	now := metav1.Now()
+	model.DeletionTimestamp = &now
+	model.Finalizers = []string{ModelFinalizer}
+	workload := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "pt-running"}}
+	ended := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "pt-ended"}}
+	ended.Status.Phase = v1.WorkloadSucceeded
+	cli := lifecycleClient(t, model, workload, ended)
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	run := func(workload string, updated time.Time) *dbclient.PostTrainingRun {
+		r := &dbclient.PostTrainingRun{RunID: workload, WorkloadID: workload}
+		r.UpdatedAt.Time, r.UpdatedAt.Valid = updated, true
+		return r
+	}
+	long := time.Now().Add(-time.Hour)
+	db.EXPECT().ListPostTrainingRuns(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, f dbclient.PostTrainingRunFilter) ([]*dbclient.PostTrainingRun, int64, error) {
+			assert.Equal(t, "qwen-sft-out", f.BaseModelID)
+			return []*dbclient.PostTrainingRun{
+				run("pt-running", long),         // its workload runs
+				run("pt-submitted", time.Now()), // its workload is about to be created
+				run("pt-orphaned", long),        // left Running after its workload went away
+				run("pt-ended", long),           // left Running after its workload ended
+			}, 4, nil
+		})
+	r = &ModelReconciler{ClusterBaseReconciler: &ClusterBaseReconciler{Client: cli}, db: db}
+	ctx := context.Background()
+	res, err := r.handleDelete(ctx, model)
+	require.NoError(t, err)
+	assert.Equal(t, baseInUseRequeue, res.RequeueAfter)
+	got := getModel(t, cli, model.Name)
+	assert.Contains(t, got.Finalizers, ModelFinalizer, "the weights stay while runs train from them")
+	assert.Contains(t, got.Status.Message, "Waiting for 2 unfinished Post Training runs",
+		"the runs whose workload is gone or ended do not count")
+	assert.Contains(t, got.Status.Message, AbandonCleanupAnnotation, "the way out is named")
+
+	// A database that cannot answer keeps the files.
+	db.EXPECT().ListPostTrainingRuns(gomock.Any(), gomock.Any()).Return(nil, int64(0), stderrors.New("db down"))
+	_, err = r.handleDelete(ctx, got)
+	assert.ErrorContains(t, err, "db down")
+	assert.Contains(t, getModel(t, cli, model.Name).Finalizers, ModelFinalizer)
+
+	// With Post Training off the database is not asked, so the deletion does not depend on it.
+	setViper(t, map[string]any{"post_training.enable": false})
+	_, err = r.handleDelete(ctx, getModel(t, cli, model.Name))
+	require.NoError(t, err)
+	assert.True(t, errors.IsNotFound(cli.Get(ctx, client.ObjectKeyFromObject(model), &v1.Model{})),
+		"the model is released")
+}
+
+// The download and inspect scripts are valid shell.
+func TestModelScriptsAreValidShell(t *testing.T) {
+	for name, script := range map[string]string{"download": hfDownloadScript, "inspect": modelInspectScript} {
+		out, err := exec.Command("sh", "-n", "-c", script).CombinedOutput()
+		require.NoError(t, err, "%s: %s", name, out)
+	}
+	assert.Contains(t, hfDownloadScript, modelConfigShell)
+}
+
+// The inspect script reports the model's config.json, also the fields a multimodal model keeps in the config of
+// its language model, or an error when it cannot.
+func TestModelInspectScript(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 is not installed")
+	}
+	dir := t.TempDir()
+	run := func() (string, error) {
+		cmd := exec.Command("sh", "-c", modelInspectScript)
+		cmd.Env = append(os.Environ(), "DEST_PATH="+dir)
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+	read := func(config string) *v1.ModelConfig {
+		t.Helper()
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "config.json"), []byte(config), 0o644))
+		out, err := run()
+		require.NoError(t, err, out)
+		job := &v1.OpsJob{Status: v1.OpsJobStatus{Outputs: []v1.Parameter{{Name: "result",
+			Value: commonopsjob.FilterResultLog([]byte(out))}}}}
+		cfg, err := reportedModelConfig(job)
+		require.NoError(t, err)
+		return cfg
+	}
+	out, err := run()
+	assert.Error(t, err)
+	assert.Contains(t, out, "[ERROR] "+dir+"/config.json does not exist")
+
+	cfg := read(`{"architectures":["Qwen3ForCausalLM"],"model_type":"qwen3","num_hidden_layers":36}`)
+	assert.Equal(t, 36, cfg.NumHiddenLayers)
+
+	cfg = read(`{"architectures":["InternVLChatModel"],"model_type":"internvl_chat",` +
+		`"llm_config":{"num_hidden_layers":28,"hidden_size":3584,"rope_theta":1000000.0}}`)
+	assert.Equal(t, "internvl_chat", cfg.ModelType)
+	assert.Equal(t, 28, cfg.NumHiddenLayers, "read from llm_config")
+	assert.Equal(t, "1000000.0", cfg.RopeTheta)
+	cfg = read(`{"model_type":"llava","language_config":{"num_attention_heads":32}}`)
+	assert.Equal(t, 32, cfg.NumAttentionHeads, "read from language_config")
+	cfg = read(`{"model_type":"qwen3","rope_parameters":{"rope_theta":5000000,"rope_type":"default"}}`)
+	assert.Equal(t, "5000000", cfg.RopeTheta, "read from rope_parameters")
+	cfg = read(`{"model_type":"gemma3_text","rope_parameters":{"sliding_attention":{"rope_theta":10000},` +
+		`"full_attention":{"rope_theta":1000000}}}`)
+	assert.Equal(t, "1000000", cfg.RopeTheta, "the full attention's, per attention type")
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"num_hidden_layers":`), 0o644))
+	out, err = run()
+	assert.Error(t, err)
+	assert.Contains(t, out, "is not a readable model config")
+}
+
+// inspectFixture is a Ready local_path model in workspace ws1 of cluster c1, with Post Training on.
+func inspectFixture(t *testing.T, name string, intercept *interceptor.Funcs) (*ModelReconciler, client.Client, *v1.Model) {
+	t.Helper()
+	enablePostTraining(t)
+	model := genMockModel(name, v1.AccessModeLocalPath, "ws1")
+	model.Labels = map[string]string{v1.UserIdLabel: "alice"}
+	model.Spec.Source.LocalPath = "/data/models/" + name
+	model.Status.Phase = v1.ModelPhaseReady
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1"}}
+	builder := fake.NewClientBuilder().WithScheme(lifecycleScheme(t)).WithObjects(model, ws).
+		WithStatusSubresource(model)
+	if intercept != nil {
+		builder = builder.WithInterceptorFuncs(*intercept)
+	}
+	cli := builder.Build()
+	r := &ModelReconciler{ClusterBaseReconciler: &ClusterBaseReconciler{Client: cli}, apiReader: cli,
+		db: mockclient.NewMockInterface(gomock.NewController(t))}
+	return r, cli, model
+}
+
+// failInspectJob marks the model's inspect job failed with message, after it ended long ago.
+func failInspectJob(t *testing.T, cli client.Client, model *v1.Model, message string) {
+	t.Helper()
+	job := &v1.OpsJob{}
+	require.NoError(t, cli.Get(context.Background(), client.ObjectKey{Name: inspectJobName(model)}, job))
+	long := metav1.NewTime(time.Now().Add(-time.Hour))
+	job.Status.Phase, job.Status.FinishedAt = v1.OpsJobFailed, &long
+	job.Status.Conditions = []metav1.Condition{failedJobCondition(message)}
+	require.NoError(t, cli.Update(context.Background(), job))
+}
+
+func inspectJobExists(t *testing.T, cli client.Client, model *v1.Model) bool {
+	t.Helper()
+	err := cli.Get(context.Background(), client.ObjectKey{Name: inspectJobName(model)}, &v1.OpsJob{})
+	if errors.IsNotFound(err) {
+		return false
+	}
+	require.NoError(t, err)
+	return true
+}
+
+// A model's config is read once, a failed read is tried again, and a recorded failure is read again later.
+func TestInspectModelReadsConfigOnce(t *testing.T) {
+	r, cli, model := inspectFixture(t, "registered", nil)
+	ctx := context.Background()
+
+	_, err := r.inspectModel(ctx, model)
+	require.NoError(t, err)
+	job := &v1.OpsJob{}
+	require.NoError(t, cli.Get(ctx, client.ObjectKey{Name: inspectJobName(model)}, job))
+	assert.Equal(t, v1.OpsJobModelInspectType, job.Spec.Type)
+	assert.Equal(t, "/data/models/registered", job.GetParameter(v1.ParameterDestPath).Value)
+	assert.Equal(t, common.UserSystem, v1.GetUserId(job), "the owner did not start it and is not notified")
+	assert.Equal(t, common.UserSystem, v1.GetUserName(job))
+
+	job.Status.Phase = v1.OpsJobSucceeded
+	job.Status.Outputs = []v1.Parameter{{Name: "result", Value: `["[SUCCESS] MODEL_CONFIG={\"model_type\":\"qwen3\"}"]`}}
+	require.NoError(t, cli.Update(ctx, job))
+	_, err = r.inspectModel(ctx, getModel(t, cli, model.Name))
+	require.NoError(t, err)
+	got := getModel(t, cli, model.Name)
+	assert.Equal(t, "qwen3", got.Status.ModelConfig.ModelType)
+	assert.Equal(t, inspectDone, got.Annotations[v1.ModelInspectAnnotation])
+	assert.Empty(t, got.Annotations[inspectAttemptsAnnotation])
+	assert.False(t, inspectJobExists(t, cli, model))
+
+	failed := genMockModel("broken", v1.AccessModeLocalPath, "ws1")
+	failed.Spec.Source.LocalPath = "/data/models/broken"
+	require.NoError(t, cli.Create(ctx, failed))
+	for attempt := 1; attempt <= inspectAttempts; attempt++ {
+		failed = getModel(t, cli, failed.Name)
+		_, err = r.inspectModel(ctx, failed)
+		require.NoError(t, err)
+		assert.True(t, inspectJobExists(t, cli, failed), "attempt %d", attempt)
+		failInspectJob(t, cli, failed, "[ERROR] config.json does not exist\n")
+		_, err = r.inspectModel(ctx, getModel(t, cli, failed.Name))
+		require.NoError(t, err)
+		got = getModel(t, cli, failed.Name)
+		if attempt < inspectAttempts {
+			assert.Empty(t, got.Annotations[v1.ModelInspectAnnotation], "a failed read is tried again, attempt %d", attempt)
+			assert.False(t, inspectJobExists(t, cli, failed))
+		}
+	}
+	assert.Equal(t, inspectFailed, got.Annotations[v1.ModelInspectAnnotation])
+	assert.Contains(t, got.Annotations[v1.ModelInspectErrorAnnotation], "config.json does not exist")
+	assert.NotEmpty(t, got.Annotations[inspectFailedAtAnnotation])
+	res, err := r.inspectModel(ctx, got)
+	require.NoError(t, err)
+	assert.InDelta(t, inspectFailedRetryInterval.Seconds(), res.RequeueAfter.Seconds(), 60,
+		"a recorded failure is read again after a long while")
+	assert.False(t, inspectJobExists(t, cli, failed), "until then the failure is kept")
+
+	// Removing the failure time reads the model again at once.
+	patch := client.MergeFrom(got.DeepCopy())
+	v1.RemoveAnnotation(got, inspectFailedAtAnnotation)
+	require.NoError(t, cli.Patch(ctx, got, patch))
+	_, err = r.inspectModel(ctx, got)
+	require.NoError(t, err)
+	assert.True(t, inspectJobExists(t, cli, failed))
+	got = getModel(t, cli, failed.Name)
+	assert.Empty(t, got.Annotations[v1.ModelInspectAnnotation])
+	assert.Equal(t, "1", got.Annotations[inspectAttemptsAnnotation])
+}
+
+// Each job counts once created, so jobs the TTL controller deleted before their failure was seen still bound the
+// attempts.
+func TestInspectModelCountsJobsDeletedBeforeTheirFailureWasSeen(t *testing.T) {
+	r, cli, model := inspectFixture(t, "m1", nil)
+	ctx := context.Background()
+	for attempt := 1; attempt <= inspectAttempts; attempt++ {
+		_, err := r.inspectModel(ctx, getModel(t, cli, model.Name))
+		require.NoError(t, err)
+		assert.Equal(t, strconv.Itoa(attempt), getModel(t, cli, model.Name).Annotations[inspectAttemptsAnnotation])
+		job := &v1.OpsJob{}
+		require.NoError(t, cli.Get(ctx, client.ObjectKey{Name: inspectJobName(model)}, job))
+		require.NoError(t, cli.Delete(ctx, job), "deleted after its TTL")
+	}
+	_, err := r.inspectModel(ctx, getModel(t, cli, model.Name))
+	require.NoError(t, err)
+	assert.False(t, inspectJobExists(t, cli, model), "no job beyond the attempts")
+	got := getModel(t, cli, model.Name)
+	assert.Equal(t, inspectFailed, got.Annotations[v1.ModelInspectAnnotation])
+	assert.Contains(t, got.Annotations[v1.ModelInspectErrorAnnotation], "could not be read in 3 attempts")
+}
+
+// An image without python3 is not the model's failure: the reason is shown and the read is tried again later.
+func TestInspectModelRetriesWhenTheImageHasNoPython(t *testing.T) {
+	r, cli, model := inspectFixture(t, "m1", nil)
+	ctx := context.Background()
+	_, err := r.inspectModel(ctx, model)
+	require.NoError(t, err)
+	failInspectJob(t, cli, model, "[ERROR] "+inspectNoPython+"\n")
+	res, err := r.inspectModel(ctx, getModel(t, cli, model.Name))
+	require.NoError(t, err)
+	assert.Equal(t, inspectEnvRetryInterval, res.RequeueAfter)
+	got := getModel(t, cli, model.Name)
+	assert.Empty(t, got.Annotations[v1.ModelInspectAnnotation], "not recorded as the model's failure")
+	assert.Contains(t, got.Annotations[v1.ModelInspectErrorAnnotation], inspectNoPython, "the reason is shown")
+	assert.Empty(t, got.Annotations[inspectAttemptsAnnotation], "the attempt does not count")
+	assert.False(t, inspectJobExists(t, cli, model))
+
+	res, err = r.inspectModel(ctx, got)
+	require.NoError(t, err)
+	assert.Positive(t, res.RequeueAfter)
+	assert.False(t, inspectJobExists(t, cli, model), "not before the interval")
+
+	patch := client.MergeFrom(got.DeepCopy())
+	v1.SetAnnotation(got, inspectFailedAtAnnotation, time.Now().Add(-2*inspectEnvRetryInterval).UTC().Format(time.RFC3339))
+	require.NoError(t, cli.Patch(ctx, got, patch))
+	_, err = r.inspectModel(ctx, got)
+	require.NoError(t, err)
+	assert.True(t, inspectJobExists(t, cli, model), "read again after the interval")
+}
+
+// Without Post Training no model is read; a job that cannot be built, or whose workspace is gone, fails the read
+// with its reason.
+func TestInspectModelWaitsForPostTrainingAndFailsAJobItCannotBuild(t *testing.T) {
+	model := genMockModel("registered", v1.AccessModeLocalPath, "ws1")
+	model.Spec.Source.LocalPath = "/data/models/org--repo"
+	model.Status.Phase = v1.ModelPhaseReady
+	gone := genMockModel("gone", v1.AccessModeLocalPath, "ws-gone")
+	gone.Spec.Source.LocalPath = "/data/models/gone"
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
+	cli := fake.NewClientBuilder().WithScheme(lifecycleScheme(t)).WithObjects(model, gone, ws).
+		WithStatusSubresource(model, gone).Build()
+	r := &ModelReconciler{ClusterBaseReconciler: &ClusterBaseReconciler{Client: cli}, apiReader: cli,
+		db: mockclient.NewMockInterface(gomock.NewController(t))}
+	ctx := context.Background()
+	setViper(t, map[string]any{"post_training.enable": false})
+	res, err := r.inspectModel(ctx, model)
+	require.NoError(t, err)
+	assert.Zero(t, res.RequeueAfter, "with Post Training off nothing is read or requeued")
+	assert.False(t, inspectJobExists(t, cli, model))
+
+	enablePostTraining(t)
+	_, err = r.inspectModel(ctx, model)
+	require.NoError(t, err)
+	got := getModel(t, cli, model.Name)
+	assert.Equal(t, inspectFailed, got.Annotations[v1.ModelInspectAnnotation],
+		"a job that cannot be built, here for a workspace without a cluster, fails the read")
+	assert.Contains(t, got.Annotations[v1.ModelInspectErrorAnnotation], "no cluster")
+
+	_, err = r.inspectModel(ctx, gone)
+	require.NoError(t, err)
+	got = getModel(t, cli, gone.Name)
+	assert.Equal(t, inspectFailed, got.Annotations[v1.ModelInspectAnnotation], "a missing workspace is recorded")
+	assert.Contains(t, got.Annotations[v1.ModelInspectErrorAnnotation], "workspace ws-gone")
+}
+
+// A model's files are read in the first of its workspaces that still exists; the read fails only when none does.
+func TestInspectModelSkipsAWorkspaceThatIsGone(t *testing.T) {
+	r, cli, model := inspectFixture(t, "two-paths", nil)
+	model.Status.LocalPaths = []v1.ModelLocalPath{
+		{Workspace: "ws-gone", Path: "/data/gone/two-paths", Status: v1.LocalPathStatusReady},
+		{Workspace: "ws1", Path: "/data/ws1/two-paths", Status: v1.LocalPathStatusReady},
+	}
+	ctx := context.Background()
+	_, err := r.inspectModel(ctx, model)
+	require.NoError(t, err)
+	job := &v1.OpsJob{}
+	require.NoError(t, cli.Get(ctx, client.ObjectKey{Name: inspectJobName(model)}, job))
+	assert.Equal(t, "/data/ws1/two-paths", job.GetParameter(v1.ParameterDestPath).Value,
+		"the path in the workspace that exists is read")
+	assert.Empty(t, getModel(t, cli, model.Name).Annotations[v1.ModelInspectAnnotation], "nothing is recorded")
+}
+
+// A model-inspect job the API server did not take is tried again, and the read is not recorded as failed.
+func TestInspectModelRetriesAJobTheAPIServerDidNotTake(t *testing.T) {
+	r, cli, model := inspectFixture(t, "registered", &interceptor.Funcs{
+		Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+			if _, ok := obj.(*v1.OpsJob); ok {
+				return errors.NewServiceUnavailable("the API server is busy")
+			}
+			return c.Create(ctx, obj, opts...)
+		},
+	})
+	ctx := context.Background()
+	_, err := r.inspectModel(ctx, model)
+	require.Error(t, err, "the controller tries again with its backoff")
+	got := getModel(t, cli, model.Name)
+	assert.Empty(t, got.Annotations[v1.ModelInspectAnnotation])
+	assert.Empty(t, got.Annotations[inspectAttemptsAnnotation], "a job not created does not count")
+}
+
+// A model-inspect job the OpsJob webhook refuses fails the read with the webhook's reason instead of being tried
+// for ever.
+func TestInspectModelRecordsAJobTheWebhookRefuses(t *testing.T) {
+	denied := commonerrors.NewBadRequest(`admission webhook "vopsjob" denied the request: ` +
+		"dest.path must be an absolute path below a models directory")
+	r, cli, model := inspectFixture(t, "registered", &interceptor.Funcs{
+		Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+			if _, ok := obj.(*v1.OpsJob); ok {
+				return denied
+			}
+			return c.Create(ctx, obj, opts...)
+		},
+	})
+	_, err := r.inspectModel(context.Background(), model)
+	require.NoError(t, err)
+	got := getModel(t, cli, model.Name)
+	assert.Equal(t, inspectFailed, got.Annotations[v1.ModelInspectAnnotation])
+	assert.Contains(t, got.Annotations[v1.ModelInspectErrorAnnotation], "below a models directory")
+}
+
+// A download keeps the structure summary its job reported only while Post Training is on.
+func TestDownloadKeepsModelConfigOnlyForPostTraining(t *testing.T) {
+	for _, on := range []bool{false, true} {
+		setViper(t, map[string]any{"s3.enable": false, "post_training.enable": on})
+		cl := lifecycleClient(t, lifecycleModel("m1"), lifecycleWorkspace("ws1", "c1", lifecycleRoot))
+		r := newMockModelReconciler(cl)
+		if on {
+			r.db = mockclient.NewMockInterface(gomock.NewController(t))
+		}
+		for i := 0; i < 4; i++ { // finalizer, Pending, Downloading, download job
+			reconcileModel(t, r, "m1")
+		}
+		downloads := listOpsJobs(t, cl, v1.OpsJobDownloadType)
+		require.Len(t, downloads, 1)
+		setOpsJobPhase(t, cl, downloads[0].Name, v1.OpsJobSucceeded, v1.Parameter{Name: "result",
+			Value: "[SUCCESS] " + modelConfigMarker + `{"model_type":"qwen3"}` + "\n[SUCCESS] " + modelSizeMarker + "1\n"})
+		reconcileModel(t, r, "m1")
+		m := getModel(t, cl, "m1")
+		require.Equal(t, v1.ModelPhaseReady, m.Status.Phase)
+		if on {
+			require.NotNil(t, m.Status.ModelConfig)
+			assert.Equal(t, "qwen3", m.Status.ModelConfig.ModelType)
+		} else {
+			assert.Nil(t, m.Status.ModelConfig, "nothing is kept for Post Training while it is off")
+		}
+	}
+}
+
+// A directory cleanup job refuses a path outside the workspace volume.
+func TestNewDirectoryCleanupOpsJob(t *testing.T) {
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{Cluster: "c1",
+		Volumes: []v1.WorkspaceVolume{{Type: v1.PFS, MountPath: "/wekafs"}}}}
+	dir := "/wekafs/custom/models/post-training-cache/slime-qwen3-8B-m1-540ea91"
+	job, err := NewDirectoryCleanupOpsJob(ws, dir, map[string]string{v1.PostTrainingConvertCacheLabel: "7"})
+	require.NoError(t, err)
+	assert.Equal(t, DirectoryCleanupJobName("ws1", dir), job.Name)
+	assert.Equal(t, v1.OpsJobModelCleanupType, job.Spec.Type)
+	assert.Equal(t, dir, job.GetParameter(v1.ParameterDestPath).Value)
+	assert.Equal(t, "/wekafs", job.Spec.Env["VOLUME_ROOT"])
+	assert.Equal(t, "7", job.Labels[v1.PostTrainingConvertCacheLabel])
+	_, err = NewDirectoryCleanupOpsJob(ws, "/etc/models/x", nil)
+	assert.Error(t, err, "a path outside the workspace volume is refused")
 }

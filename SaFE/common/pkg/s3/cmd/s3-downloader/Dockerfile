@@ -27,7 +27,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o s3-downloader ./p
 # Runtime stage
 FROM alpine:latest
 
-RUN apk --no-cache add ca-certificates
+# python3 runs the model-inspect script of the ops jobs on this image.
+RUN apk --no-cache add ca-certificates python3
 
 WORKDIR /app
 

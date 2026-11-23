@@ -6,6 +6,7 @@
 package resource
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -25,6 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -34,6 +36,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonworkspace "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workspace"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
@@ -66,6 +69,36 @@ const (
 	// the files it left on disk. The job prints it on a "[SUCCESS]" line, the only kind of
 	// line besides "[ERROR]" that reaches the job outputs.
 	modelSizeMarker = "MODEL_SIZE_BYTES="
+	// modelConfigMarker prefixes the JSON of the structure fields of the model's config.json,
+	// printed the same way.
+	modelConfigMarker = "MODEL_CONFIG="
+	// baseInUseRequeue is how often the deletion of a base model of unfinished Post Training
+	// runs checks again whether they finished.
+	baseInUseRequeue = time.Minute
+	// basedRunGrace is how long after its row last changed a Post Training run counts as using its base model
+	// even without a workload: the row is written before the workload is created.
+	basedRunGrace = 10 * time.Minute
+	// InspectJobPrefix is the prefix for the names of the jobs that read a model's config.json.
+	InspectJobPrefix = "inspect-"
+	inspectDone      = "done"
+	inspectFailed    = "failed"
+	// inspectAttempts is how many model-inspect jobs are run for a model before a failure is recorded; the n-th
+	// retry waits n times inspectRetryDelay after the failed job ended.
+	inspectAttempts   = 3
+	inspectRetryDelay = 5 * time.Minute
+	// inspectAttemptsAnnotation counts the model-inspect jobs created for a model since the last recorded outcome.
+	// A job is counted when it is created, so one the TTL controller deletes before its failure was seen still
+	// counts.
+	inspectAttemptsAnnotation = v1.ModelPrefix + "inspect-attempts"
+	// inspectFailedAtAnnotation is when the last read of a model's config.json failed. A recorded failure is
+	// tried again after inspectFailedRetryInterval, and a failure of the environment the job ran in, which is
+	// not recorded as the model's, after inspectEnvRetryInterval: the cause may have been fixed meanwhile.
+	// Removing this annotation from a model reads its config.json again at once.
+	inspectFailedAtAnnotation  = v1.ModelPrefix + "inspect-failed-at"
+	inspectFailedRetryInterval = 24 * time.Hour
+	inspectEnvRetryInterval    = time.Hour
+	// inspectNoPython is the reason the model-inspect job gives on an image without python3.
+	inspectNoPython = "python3 is not available to read config.json"
 
 	// cleanupRetryInterval is how long a failed cleanup waits before it runs again.
 	cleanupRetryInterval = 30 * time.Second
@@ -95,6 +128,8 @@ type ModelReconciler struct {
 	apiReader client.Reader
 	// recorder reports what happens to a model's files when they cannot be removed.
 	recorder record.EventRecorder
+	// db finds the unfinished Post Training runs that use a model as their base; nil unless Post Training is on.
+	db dbclient.Interface
 }
 
 // SetupModelController sets up the controller with the Manager.
@@ -105,6 +140,9 @@ func SetupModelController(mgr manager.Manager) error {
 		},
 		apiReader: mgr.GetAPIReader(),
 		recorder:  mgr.GetEventRecorderFor("model-controller"),
+	}
+	if commonconfig.IsPostTrainingEnable() && commonconfig.IsDBEnable() {
+		r.db = dbclient.NewClient()
 	}
 	err := ctrl.NewControllerManagedBy(mgr).
 		For(&v1.Model{}).
@@ -172,7 +210,7 @@ func (r *ModelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 				return ctrl.Result{}, err
 			}
 		}
-		return ctrl.Result{}, nil
+		return r.inspectModel(ctx, model)
 	}
 
 	// 5. Initialize Status if needed
@@ -207,6 +245,9 @@ func (r *ModelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		if model.IsLocal() && hasUnfinishedLocalPath(model) {
 			return r.handleDownloading(ctx, model)
 		}
+		if model.IsLocal() {
+			return r.inspectModel(ctx, model)
+		}
 		return ctrl.Result{}, nil
 	case v1.ModelPhaseFailed:
 		return ctrl.Result{}, nil
@@ -226,9 +267,70 @@ func hasUnfinishedLocalPath(model *v1.Model) bool {
 	return false
 }
 
-// needsCleanup checks if the model needs cleanup on deletion (only Local type needs cleanup)
+// needsCleanup checks if the model needs cleanup on deletion: downloaded local models, and the
+// local_path outputs of Post Training runs, whose weights are deleted with the model.
 func (r *ModelReconciler) needsCleanup(model *v1.Model) bool {
-	return model.Spec.Source.AccessMode == v1.AccessModeLocal
+	return model.Spec.Source.AccessMode == v1.AccessModeLocal ||
+		(model.Spec.Source.AccessMode == v1.AccessModeLocalPath && model.Spec.PostTrainingRunId != "")
+}
+
+// postTrainingOn reports whether Post Training is turned on, with the database it needs. Models are read and
+// held for Post Training runs only then; otherwise the controller behaves as it did before Post Training.
+func (r *ModelReconciler) postTrainingOn() bool {
+	return r.db != nil && commonconfig.IsPostTrainingEnable()
+}
+
+// basedRuns counts the unfinished Post Training runs that train from model; their weights must stay until
+// they end. A run whose row says Pending or Running counts only while its training or conversion workload
+// exists and has not ended, or while the row changed within basedRunGrace, which covers the moment between
+// writing the row and creating the workload: a row left unfinished after its workload went away or ended (Post
+// Training turned off while it ran, status sync lag, or a controller that stopped following it) does not hold
+// the model forever.
+func (r *ModelReconciler) basedRuns(ctx context.Context, model *v1.Model) (int, error) {
+	if !r.postTrainingOn() {
+		return 0, nil
+	}
+	runs, _, err := r.db.ListPostTrainingRuns(ctx, dbclient.PostTrainingRunFilter{BaseModelID: model.Name,
+		Statuses: []string{string(v1.WorkloadPending), string(v1.WorkloadRunning)}})
+	if err != nil {
+		return 0, err
+	}
+	count := 0
+	for _, run := range runs {
+		active, err := r.isRunActive(ctx, run)
+		if err != nil {
+			return 0, err
+		}
+		if active {
+			count++
+		}
+	}
+	return count, nil
+}
+
+// isRunActive reports whether an unfinished Post Training run may still read its base model.
+func (r *ModelReconciler) isRunActive(ctx context.Context, run *dbclient.PostTrainingRun) (bool, error) {
+	if run.UpdatedAt.Valid && time.Since(run.UpdatedAt.Time) < basedRunGrace {
+		return true, nil
+	}
+	for _, name := range []string{run.WorkloadID, run.ConvertWorkloadID} {
+		if name == "" {
+			continue
+		}
+		workload := &v1.Workload{}
+		err := r.Get(ctx, client.ObjectKey{Name: name}, workload)
+		if err == nil {
+			// A workload kept after it ended reads the model no more.
+			if !workload.IsEnd() {
+				return true, nil
+			}
+			continue
+		}
+		if !errors.IsNotFound(err) {
+			return false, err
+		}
+	}
+	return false, nil
 }
 
 // handleDelete removes what a local model left behind before the finalizer is released:
@@ -260,6 +362,19 @@ func (r *ModelReconciler) handleDelete(ctx context.Context, model *v1.Model) (ct
 		klog.InfoS(message, "model", model.Name)
 		r.event(model, corev1.EventTypeWarning, "CleanupAbandoned", message)
 		return r.releaseModel(ctx, model)
+	}
+
+	// 0. Unfinished Post Training runs still read the weights as their base model.
+	runs, err := r.basedRuns(ctx, model)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	// This check runs in the same pass that creates the cleanup jobs below, with no wait in between.
+	if runs > 0 {
+		message := fmt.Sprintf("Waiting for %d unfinished Post Training runs that train from this model "+
+			"before removing its files; set the annotation %s=true on the model to release it now and leave "+
+			"the files on disk", runs, AbandonCleanupAnnotation)
+		return ctrl.Result{RequeueAfter: baseInUseRequeue}, r.setDeletingMessage(ctx, model, message)
 	}
 
 	// 1. A download still writing into the directory would refill it after the cleanup.
@@ -783,6 +898,279 @@ func validateCleanupPath(workspace *v1.Workspace, p string) error {
 	return nil
 }
 
+// inspectJobName is the name of the job that reads the config.json of a model.
+func inspectJobName(model *v1.Model) string {
+	return hashedJobName(InspectJobPrefix+model.Name, model.Name)
+}
+
+// inspectModel reads the config.json of a Ready local model that has no structure summary while Post Training is
+// on: it runs a model-inspect job in a workspace holding the model, writes the summary to the status and records
+// the outcome, with the reason of a failure, in annotations. At most inspectAttempts jobs are run before a failure
+// is recorded, and a recorded failure is tried again after inspectFailedRetryInterval. A job that fails because
+// its image has no python3 is not the model's failure: its reason is shown and the read is tried again after
+// inspectEnvRetryInterval, as often as it takes. Jobs are started within the download limit.
+func (r *ModelReconciler) inspectModel(ctx context.Context, model *v1.Model) (ctrl.Result, error) {
+	if !r.postTrainingOn() || model.Status.ModelConfig != nil ||
+		v1.GetAnnotation(model, v1.ModelInspectAnnotation) == inspectDone {
+		return ctrl.Result{}, nil
+	}
+	if wait, err := r.inspectRetryWait(ctx, model); err != nil || wait > 0 {
+		return ctrl.Result{RequeueAfter: wait}, err
+	}
+	targets := inspectTargets(model)
+	if len(targets) == 0 {
+		return ctrl.Result{}, nil
+	}
+	attempts, _ := strconv.Atoi(v1.GetAnnotation(model, inspectAttemptsAnnotation))
+	job := &v1.OpsJob{}
+	err := r.Get(ctx, client.ObjectKey{Name: inspectJobName(model)}, job)
+	switch {
+	case errors.IsNotFound(err):
+		if attempts >= inspectAttempts {
+			// The last job was deleted after its TTL before its outcome was seen.
+			return ctrl.Result{}, r.finishInspect(ctx, model, nil, inspectFailed,
+				fmt.Sprintf("config.json could not be read in %d attempts", attempts))
+		}
+		return r.startInspect(ctx, model, targets)
+	case err != nil:
+		return ctrl.Result{}, err
+	case !job.GetDeletionTimestamp().IsZero():
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	case job.Status.Phase == v1.OpsJobSucceeded:
+		cfg, err := reportedModelConfig(job)
+		if cfg == nil {
+			return ctrl.Result{}, r.finishInspect(ctx, model, job, inspectFailed, err.Error())
+		}
+		model.Status.ModelConfig = cfg
+		if err = r.Status().Update(ctx, model); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, r.finishInspect(ctx, model, job, inspectDone, "")
+	case job.Status.Phase == v1.OpsJobFailed:
+		reason := r.extractOpsJobFailureReason(job)
+		if strings.Contains(reason, inspectNoPython) {
+			return ctrl.Result{RequeueAfter: inspectEnvRetryInterval}, r.finishInspect(ctx, model, job, "", reason)
+		}
+		if attempts >= inspectAttempts {
+			return ctrl.Result{}, r.finishInspect(ctx, model, job, inspectFailed, reason)
+		}
+		ended := job.CreationTimestamp.Time
+		if job.Status.FinishedAt != nil {
+			ended = job.Status.FinishedAt.Time
+		}
+		if wait := time.Duration(max(attempts, 1))*inspectRetryDelay - time.Since(ended); wait > 0 {
+			return ctrl.Result{RequeueAfter: wait}, nil
+		}
+		return ctrl.Result{RequeueAfter: time.Second}, client.IgnoreNotFound(r.Delete(ctx, job))
+	}
+	return ctrl.Result{}, nil
+}
+
+// inspectRetryWait returns how long a model whose last read failed waits before it is read again. Once the wait
+// is over, the failure is cleared so the model is read again; its reason stays until the next outcome.
+func (r *ModelReconciler) inspectRetryWait(ctx context.Context, model *v1.Model) (time.Duration, error) {
+	failedAt := v1.GetAnnotation(model, inspectFailedAtAnnotation)
+	outcome := v1.GetAnnotation(model, v1.ModelInspectAnnotation)
+	if failedAt == "" && outcome == "" {
+		return 0, nil
+	}
+	interval := inspectEnvRetryInterval
+	if outcome == inspectFailed {
+		interval = inspectFailedRetryInterval
+	}
+	// A failure without its time, such as one whose time an administrator removed, is tried again at once.
+	if t, err := time.Parse(time.RFC3339, failedAt); err == nil {
+		if wait := interval - time.Since(t); wait > 0 {
+			return wait, nil
+		}
+	}
+	patch := client.MergeFrom(model.DeepCopy())
+	v1.RemoveAnnotation(model, v1.ModelInspectAnnotation)
+	v1.RemoveAnnotation(model, inspectFailedAtAnnotation)
+	v1.RemoveAnnotation(model, inspectAttemptsAnnotation)
+	return 0, r.Patch(ctx, model, patch)
+}
+
+// inspectSource is a workspace and a directory in it from which a model's config.json can be read.
+type inspectSource struct {
+	workspace, dir string
+}
+
+// inspectTargets returns, in order of preference, where a model's config.json can be read: its Ready local paths,
+// then the path a local_path model was registered from.
+func inspectTargets(model *v1.Model) []inspectSource {
+	var targets []inspectSource
+	seen := map[inspectSource]bool{}
+	add := func(s inspectSource) {
+		if s.workspace != "" && s.dir != "" && !seen[s] {
+			seen[s] = true
+			targets = append(targets, s)
+		}
+	}
+	for _, lp := range model.Status.LocalPaths {
+		if lp.Status == v1.LocalPathStatusReady {
+			add(inspectSource{lp.Workspace, lp.Path})
+		}
+	}
+	if model.Spec.Source.AccessMode == v1.AccessModeLocalPath {
+		add(inspectSource{model.Spec.Workspace, model.Spec.Source.LocalPath})
+	}
+	return targets
+}
+
+// startInspect creates the model-inspect job once a download slot is free, counting the jobs in the cache, as a
+// job too many only reads one file. The job is counted against inspectAttempts once created. A job the API server
+// did not take for a passing reason is tried again with the controller's backoff; one that cannot be built from
+// the model and its workspace, or that the API server refuses as such (such as a path the OpsJob webhook does not
+// accept), fails the read with its reason.
+func (r *ModelReconciler) startInspect(ctx context.Context, model *v1.Model, targets []inspectSource) (ctrl.Result, error) {
+	if limit := commonconfig.GetModelMaxConcurrentDownloads(); limit > 0 {
+		jobs := &v1.OpsJobList{}
+		if err := r.List(ctx, jobs, client.MatchingLabels{
+			v1.OpsJobTypeLabel: string(v1.OpsJobModelInspectType)}); err != nil {
+			return ctrl.Result{}, err
+		}
+		active := 0
+		for i := range jobs.Items {
+			if !jobs.Items[i].IsEnd() {
+				active++
+			}
+		}
+		if active >= limit {
+			return ctrl.Result{RequeueAfter: downloadSlotWaitInterval}, nil
+		}
+	}
+	// The files are read in the first workspace that still exists; a read fails only when none does.
+	var workspace *v1.Workspace
+	var dir string
+	var gone []string
+	for _, target := range targets {
+		ws := &v1.Workspace{}
+		if err := r.Get(ctx, client.ObjectKey{Name: target.workspace}, ws); err != nil {
+			if errors.IsNotFound(err) {
+				gone = append(gone, target.workspace)
+				continue
+			}
+			return ctrl.Result{}, err
+		}
+		workspace, dir = ws, target.dir
+		break
+	}
+	if workspace == nil {
+		return ctrl.Result{}, r.finishInspect(ctx, model, nil, inspectFailed,
+			fmt.Sprintf("workspace %s of the model's files does not exist", strings.Join(gone, ", ")))
+	}
+	job, err := r.constructModelInspectOpsJob(model, workspace, dir)
+	if err != nil {
+		// What the model and its workspace say does not make a job, which another try does not change.
+		return ctrl.Result{}, r.finishInspect(ctx, model, nil, inspectFailed, err.Error())
+	}
+	if err = r.Create(ctx, job); err != nil {
+		if errors.IsAlreadyExists(err) {
+			// Created by an earlier pass the cache has not shown yet; that pass counted it.
+			return ctrl.Result{RequeueAfter: time.Second}, nil
+		}
+		klog.ErrorS(err, "Failed to start reading the model config", "model", model.Name)
+		if !isRetryableCreateError(err) {
+			return ctrl.Result{}, r.finishInspect(ctx, model, nil, inspectFailed,
+				fmt.Sprintf("the model-inspect job was refused: %v", err))
+		}
+		return ctrl.Result{}, err
+	}
+	return ctrl.Result{}, r.countInspectAttempt(ctx, model)
+}
+
+// countInspectAttempt adds the job just created to the model's attempts. It counts on the latest version of the
+// model read from the API server, so a count written a moment ago by an earlier pass is never lost to a stale cache.
+func (r *ModelReconciler) countInspectAttempt(ctx context.Context, model *v1.Model) error {
+	reader := r.apiReader
+	if reader == nil {
+		reader = r.Client
+	}
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		latest := &v1.Model{}
+		if err := reader.Get(ctx, client.ObjectKeyFromObject(model), latest); err != nil {
+			return err
+		}
+		attempts, _ := strconv.Atoi(v1.GetAnnotation(latest, inspectAttemptsAnnotation))
+		patch := client.MergeFromWithOptions(latest.DeepCopy(), client.MergeFromWithOptimisticLock{})
+		v1.SetAnnotation(latest, inspectAttemptsAnnotation, strconv.Itoa(attempts+1))
+		if err := r.Patch(ctx, latest, patch); err != nil {
+			return err
+		}
+		v1.SetAnnotation(model, inspectAttemptsAnnotation, strconv.Itoa(attempts+1))
+		return nil
+	})
+}
+
+// finishInspect records the outcome of reading a model's config.json and deletes the job. A failure is recorded
+// with its reason and time; outcome "" is a failure of the environment the job ran in, which is shown and tried
+// again but not recorded as the model's. Every outcome starts the count of attempts over.
+func (r *ModelReconciler) finishInspect(ctx context.Context, model *v1.Model, job *v1.OpsJob, outcome, reason string) error {
+	patch := client.MergeFrom(model.DeepCopy())
+	v1.RemoveAnnotation(model, inspectAttemptsAnnotation)
+	if outcome == inspectDone {
+		v1.SetAnnotation(model, v1.ModelInspectAnnotation, inspectDone)
+		v1.RemoveAnnotation(model, v1.ModelInspectErrorAnnotation)
+		v1.RemoveAnnotation(model, inspectFailedAtAnnotation)
+	} else {
+		if outcome != "" {
+			v1.SetAnnotation(model, v1.ModelInspectAnnotation, outcome)
+		}
+		v1.SetAnnotation(model, v1.ModelInspectErrorAnnotation, reason)
+		v1.SetAnnotation(model, inspectFailedAtAnnotation, time.Now().UTC().Format(time.RFC3339))
+	}
+	if err := r.Patch(ctx, model, patch); err != nil {
+		return err
+	}
+	if job != nil {
+		if err := r.Delete(ctx, job); err != nil && !errors.IsNotFound(err) {
+			klog.ErrorS(err, "Failed to delete the finished model-inspect job", "job", job.Name)
+		}
+	}
+	return nil
+}
+
+// constructModelInspectOpsJob creates the job that reads the config.json in dir, in the workspace holding it. The
+// job runs as the system user, not as the model's owner: it is a background read the owner did not start, and its
+// workload must send the owner no notification. It only reads, so the owner's identity on storage is not needed.
+func (r *ModelReconciler) constructModelInspectOpsJob(model *v1.Model, workspace *v1.Workspace, dir string) (*v1.OpsJob, error) {
+	if workspace.Spec.Cluster == "" {
+		return nil, fmt.Errorf("workspace %s has no cluster configured", workspace.Name)
+	}
+	image := commonconfig.GetDownloadJoImage()
+	entryPoint := base64.StdEncoding.EncodeToString([]byte(modelInspectScript))
+	job := &v1.OpsJob{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: inspectJobName(model),
+			Labels: map[string]string{
+				v1.ClusterIdLabel:   workspace.Spec.Cluster,
+				v1.WorkspaceIdLabel: workspace.Name,
+				v1.ModelIdLabel:     model.Name,
+				v1.DisplayNameLabel: jobDisplayName("inspect-" + model.Name),
+				v1.UserIdLabel:      common.UserSystem,
+				v1.OpsJobTypeLabel:  string(v1.OpsJobModelInspectType),
+			},
+			Annotations: map[string]string{v1.UserNameAnnotation: common.UserSystem},
+		},
+		Spec: v1.OpsJobSpec{
+			Type:                    v1.OpsJobModelInspectType,
+			Image:                   &image,
+			EntryPoint:              &entryPoint,
+			TimeoutSecond:           600,
+			TTLSecondsAfterFinished: 600,
+			Inputs: []v1.Parameter{
+				{Name: v1.ParameterDestPath, Value: dir},
+				{Name: v1.ParameterWorkspace, Value: workspace.Name},
+			},
+		},
+	}
+	if err := controllerutil.SetControllerReference(model, job, r.Scheme()); err != nil {
+		return nil, err
+	}
+	return job, nil
+}
+
 // cleanupJobName is the name of the job that removes one local directory of a model.
 func cleanupJobName(model *v1.Model, workspace, p string) string {
 	return hashedJobName(CleanupJobPrefix+model.Name, model.Name+"\x00"+workspace+"\x00"+p)
@@ -936,6 +1324,54 @@ func (r *ModelReconciler) constructModelCleanupOpsJob(model *v1.Model, workspace
 	}
 	if err := controllerutil.SetControllerReference(model, job, r.Scheme()); err != nil {
 		return nil, err
+	}
+	return job, nil
+}
+
+// DirectoryCleanupJobName is the name of the job that removes a directory that belongs to no model.
+func DirectoryCleanupJobName(workspace, dir string) string {
+	return hashedJobName(CleanupJobPrefix+"dir", workspace+"\x00"+dir)
+}
+
+// NewDirectoryCleanupOpsJob builds the model-cleanup job that removes dir, which belongs to no model, such as a
+// Post Training conversion cache. It runs in the workspace that holds dir as the system user, with the same
+// path checks as a model's cleanup; labels are added to the job.
+func NewDirectoryCleanupOpsJob(workspace *v1.Workspace, dir string, labels map[string]string) (*v1.OpsJob, error) {
+	if workspace.Spec.Cluster == "" {
+		return nil, fmt.Errorf("workspace %s has no cluster configured", workspace.Name)
+	}
+	if err := validateCleanupPath(workspace, dir); err != nil {
+		return nil, err
+	}
+	image := commonconfig.GetModelCleanupImage()
+	entryPoint := base64.StdEncoding.EncodeToString([]byte(modelCleanupScript))
+	job := &v1.OpsJob{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: DirectoryCleanupJobName(workspace.Name, dir),
+			Labels: map[string]string{
+				v1.ClusterIdLabel:   workspace.Spec.Cluster,
+				v1.WorkspaceIdLabel: workspace.Name,
+				v1.DisplayNameLabel: jobDisplayName("cleanup-" + path.Base(dir)),
+				v1.UserIdLabel:      common.UserSystem,
+				v1.OpsJobTypeLabel:  string(v1.OpsJobModelCleanupType),
+			},
+			Annotations: map[string]string{v1.UserNameAnnotation: common.UserSystem},
+		},
+		Spec: v1.OpsJobSpec{
+			Type:                    v1.OpsJobModelCleanupType,
+			Image:                   &image,
+			EntryPoint:              &entryPoint,
+			Env:                     map[string]string{"VOLUME_ROOT": volumeRootOf(workspace, dir)},
+			TimeoutSecond:           3600,
+			TTLSecondsAfterFinished: 600,
+			Inputs: []v1.Parameter{
+				{Name: v1.ParameterDestPath, Value: dir},
+				{Name: v1.ParameterWorkspace, Value: workspace.Name},
+			},
+		},
+	}
+	for k, v := range labels {
+		job.Labels[k] = v
 	}
 	return job, nil
 }
@@ -1387,6 +1823,10 @@ func (r *ModelReconciler) handleDownloading(ctx context.Context, model *v1.Model
 				lp.Status = v1.LocalPathStatusReady
 				lp.Message = "Download completed"
 				lp.SizeBytes = reportedModelSize(opsJob)
+				// The structure summary is kept only for Post Training, like the one a model-inspect job reads.
+				if model.Status.ModelConfig == nil && r.postTrainingOn() {
+					model.Status.ModelConfig, _ = reportedModelConfig(opsJob)
+				}
 				klog.InfoS("Local download completed", "model", model.Name, "workspace", lp.Workspace,
 					"path", lp.Path, "sizeBytes", lp.SizeBytes)
 
@@ -1579,6 +2019,69 @@ func reportedModelSize(job *v1.OpsJob) int64 {
 		}
 	}
 	return size
+}
+
+// reportedModelConfig returns the structure summary the job reported in its output, or nil and why there is none.
+// The outputs hold the job's marker lines, as a JSON array of lines or as plain lines.
+func reportedModelConfig(job *v1.OpsJob) (*v1.ModelConfig, error) {
+	var (
+		cfg *v1.ModelConfig
+		err = fmt.Errorf("the job reported no %s line", strings.TrimSuffix(modelConfigMarker, "="))
+	)
+	for _, out := range job.Status.Outputs {
+		var lines []string
+		if json.Unmarshal([]byte(out.Value), &lines) != nil {
+			lines = strings.Split(out.Value, "\n")
+		}
+		for _, line := range lines {
+			if i := strings.Index(line, modelConfigMarker); i >= 0 {
+				if parsed, perr := parseModelConfig([]byte(line[i+len(modelConfigMarker):])); perr == nil {
+					cfg, err = parsed, nil
+				} else if cfg == nil {
+					err = perr
+				}
+			}
+		}
+	}
+	return cfg, err
+}
+
+// parseModelConfig converts the config.json structure fields printed after MODEL_CONFIG= into a ModelConfig. Each
+// field is read on its own: one of an unexpected type, such as num_experts given as a list, is left out instead
+// of failing the others. rope_theta is kept as written, a number or a string. A config is accepted when it names
+// its model_type or architectures.
+func parseModelConfig(data []byte) (*v1.ModelConfig, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(bytes.TrimSpace(data), &fields); err != nil {
+		return nil, fmt.Errorf("the model config is not a JSON object: %v", err)
+	}
+	read := func(key string, into any) {
+		if raw, ok := fields[key]; ok {
+			if err := json.Unmarshal(raw, into); err != nil {
+				klog.InfoS("Ignoring a config.json field of an unexpected type", "field", key, "value", string(raw))
+			}
+		}
+	}
+	cfg := &v1.ModelConfig{}
+	read("architectures", &cfg.Architectures)
+	read("model_type", &cfg.ModelType)
+	read("num_hidden_layers", &cfg.NumHiddenLayers)
+	read("hidden_size", &cfg.HiddenSize)
+	read("num_attention_heads", &cfg.NumAttentionHeads)
+	read("num_key_value_heads", &cfg.NumKeyValueHeads)
+	read("num_experts", &cfg.NumExperts)
+	read("max_position_embeddings", &cfg.MaxPositionEmbeddings)
+	read("torch_dtype", &cfg.TorchDtype)
+	var ropeTheta json.Number
+	if raw, ok := fields["rope_theta"]; ok && json.Unmarshal(raw, &ropeTheta) == nil {
+		cfg.RopeTheta = ropeTheta.String()
+	} else {
+		read("rope_theta", &cfg.RopeTheta)
+	}
+	if cfg.ModelType == "" && len(cfg.Architectures) == 0 {
+		return nil, fmt.Errorf("config.json names neither its model_type nor its architectures")
+	}
+	return cfg, nil
 }
 
 // initializeLocalPaths initializes the local paths based on workspace configuration
@@ -1976,6 +2479,65 @@ func (r *ModelReconciler) unshareModelToken(ctx context.Context, model *v1.Model
 	return nil
 }
 
+// modelConfigShell sets $config to the JSON of the structure fields of $DEST_PATH/config.json and prints it after
+// MODEL_CONFIG= on a "[SUCCESS]" line. A field the top level lacks is read from the config of the language model
+// of a multimodal model (text_config, or llm_config and language_config as InternVL-style models name it), and
+// rope_theta also from rope_parameters, where newer configs keep it, per attention type for some models. A
+// missing python3 or config.json leaves $config empty and fails nothing.
+const modelConfigShell = `config=""
+if [ -f "$DEST_PATH/config.json" ] && command -v python3 >/dev/null 2>&1; then
+  config="$(python3 -c '
+import json, sys
+c = json.load(open(sys.argv[1]))
+srcs = [c] + [c[k] for k in ("text_config", "llm_config", "language_config") if isinstance(c.get(k), dict)]
+def get(*keys):
+    for k in keys:
+        for src in srcs:
+            if src.get(k) is not None:
+                return src[k]
+def rope_theta():
+    if get("rope_theta") is not None:
+        return get("rope_theta")
+    for src in srcs:
+        p = src.get("rope_parameters")
+        if not isinstance(p, dict):
+            continue
+        if p.get("rope_theta") is not None:
+            return p["rope_theta"]
+        for k in sorted(p, key=lambda k: k != "full_attention"):
+            if isinstance(p[k], dict) and p[k].get("rope_theta") is not None:
+                return p[k]["rope_theta"]
+out = {"architectures": get("architectures"), "model_type": get("model_type"),
+       "num_hidden_layers": get("num_hidden_layers"), "hidden_size": get("hidden_size"),
+       "num_attention_heads": get("num_attention_heads"), "num_key_value_heads": get("num_key_value_heads"),
+       "num_experts": get("num_experts", "n_routed_experts", "num_local_experts"),
+       "rope_theta": rope_theta(), "max_position_embeddings": get("max_position_embeddings"),
+       "torch_dtype": get("torch_dtype", "dtype")}
+print(json.dumps({k: v for k, v in out.items() if v is not None}, separators=(",", ":")))
+' "$DEST_PATH/config.json" 2>/dev/null || true)"
+fi
+if [ -n "$config" ]; then
+  echo "[SUCCESS] ` + modelConfigMarker + `$config"
+fi
+`
+
+// modelInspectScript reads the structure fields of $DEST_PATH/config.json; it fails with the reason on an
+// "[ERROR]" line when they cannot be read.
+const modelInspectScript = `set -u
+if [ ! -f "$DEST_PATH/config.json" ]; then
+  echo "[ERROR] $DEST_PATH/config.json does not exist"
+  exit 1
+fi
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "[ERROR] ` + inspectNoPython + `"
+  exit 1
+fi
+` + modelConfigShell + `if [ -z "$config" ]; then
+  echo "[ERROR] $DEST_PATH/config.json is not a readable model config"
+  exit 1
+fi
+`
+
 // hfDownloadScript downloads $HF_REPO_ID into $DEST_PATH. Only the files needed to load
 // the model are fetched: configs, tokenizer, remote code and one format of weights. The
 // weights are safetensors when the repository has them, otherwise PyTorch checkpoints
@@ -2037,7 +2599,7 @@ if ! has_files '*.safetensors' '*.bin' '*.pth' '*.pt'; then
   echo "[ERROR] $HF_REPO_ID has no safetensors or PyTorch (.bin, .pth, .pt) weights; GGUF and TensorFlow/Flax weights are not downloaded"
   exit 1
 fi
-size="$(du -sb --exclude=.cache "$DEST_PATH" | cut -f1)"
+` + modelConfigShell + `size="$(du -sb --exclude=.cache "$DEST_PATH" | cut -f1)"
 echo "[SUCCESS] ` + modelSizeMarker + `$size"
 `
 

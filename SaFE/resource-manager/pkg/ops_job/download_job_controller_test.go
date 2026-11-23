@@ -73,6 +73,11 @@ func TestDownloadGenerateWorkload(t *testing.T) {
 	assert.Equal(t, "j1", wl.Name)
 	assert.Equal(t, "http://x", wl.Spec.Env["INPUT_URL"])
 	assert.Equal(t, "/data", wl.Spec.Env["DEST_PATH"])
+
+	job.Labels[v1.PostTrainingConvertCacheLabel] = "c1"
+	wl, err = r.generateDownloadWorkload(context.Background(), job)
+	assert.NoError(t, err)
+	assert.Equal(t, "c1", wl.Labels[v1.PostTrainingConvertCacheLabel])
 }
 
 func TestDownloadGenerateWorkloadNoWorkspaceId(t *testing.T) {
@@ -245,4 +250,44 @@ func TestDownloadWorkloadQueuesOnExternalWorkspace(t *testing.T) {
 			assert.True(t, v1.IsWorkloadScheduled(wl), "a native workload still skips the queue")
 		})
 	}
+}
+
+// The download controller runs model inspections, with their own command only for a model.
+func TestModelInspectJobWorkload(t *testing.T) {
+	job := &v1.OpsJob{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "inspect-m1",
+			Labels: map[string]string{v1.WorkspaceIdLabel: "ws1", v1.ClusterIdLabel: "c1"},
+		},
+		Spec: v1.OpsJobSpec{
+			Type:       v1.OpsJobModelInspectType,
+			Image:      pointer.String("s3-downloader"),
+			EntryPoint: pointer.String("cm0="),
+			Inputs:     []v1.Parameter{{Name: v1.ParameterDestPath, Value: "/data/models/org--repo"}},
+		},
+	}
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
+	r := &DownloadJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job, ws)}
+	assert.False(t, r.filter(context.Background(), job), "the download controller runs model inspections")
+	_, err := r.generateDownloadWorkload(context.Background(), job)
+	assert.Error(t, err, "an inspection that belongs to no model cannot pick its command")
+
+	job.OwnerReferences = []metav1.OwnerReference{{APIVersion: "amd.com/v1", Kind: v1.ModelKind, Name: "m1", UID: "u1",
+		Controller: pointer.Bool(true)}}
+	wl, err := r.generateDownloadWorkload(context.Background(), job)
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"cm0="}, wl.Spec.EntryPoints)
+	assert.Equal(t, "1", wl.Spec.Resources[0].CPU)
+	assert.True(t, isDownloadWorkload(wl))
+}
+
+// Only a cleanup of a conversion cache may run its own script.
+func TestConvertCacheCleanupMayRunItsScript(t *testing.T) {
+	job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{}},
+		Spec: v1.OpsJobSpec{Type: v1.OpsJobModelCleanupType}}
+	assert.False(t, mayRunEntryPoint(job))
+	job.Labels[v1.PostTrainingConvertCacheLabel] = "7"
+	assert.True(t, mayRunEntryPoint(job))
+	job.Spec.Type = v1.OpsJobDownloadType
+	assert.False(t, mayRunEntryPoint(job), "only cleanups of a conversion cache")
 }

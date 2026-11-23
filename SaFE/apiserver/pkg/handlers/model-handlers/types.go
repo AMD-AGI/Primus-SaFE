@@ -119,6 +119,9 @@ type ModelInfo struct {
 	// Optional download placement; mirrors Model.spec.targetVolume / spec.targetSubpath.
 	TargetVolume  string `json:"targetVolume,omitempty"`
 	TargetSubpath string `json:"targetSubpath,omitempty"`
+
+	// PostTrainingRunId is the Post Training run that produced the model.
+	PostTrainingRunId string `json:"postTrainingRunId,omitempty"`
 }
 
 // LocalPathInfo represents local path status for a workspace.
