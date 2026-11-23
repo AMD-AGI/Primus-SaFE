@@ -529,12 +529,13 @@ model_optimization:
   # per-deploy via .env `optimize_max_concurrent` (synced into values.yaml by
   # upgrade.sh and into the live apiserver ConfigMap by cd-deploy.sh).
   max_concurrent: 1024
-# Post Training (slime). When enabled, the post-training-registry ConfigMap is rendered from
+# Post Training (slime), on by default; where it is on, the web console shows it in place of the
+# legacy Post Train. When enabled, the post-training-registry ConfigMap is rendered from
 # post_training.registry; the apiserver and the Post Training controller treat a missing ConfigMap
-# as Post Training being disabled. Override the registry per cluster to enable images and features
-# once they pass acceptance.
+# as Post Training being disabled, so enabled: false turns it off. Override the registry per cluster
+# to enable images and features once they pass acceptance.
 post_training:
-  enabled: false
+  enabled: true
   registry:
     frameworks:
       - name: slime
