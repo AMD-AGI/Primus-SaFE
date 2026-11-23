@@ -6,7 +6,7 @@
 import { ref } from 'vue'
 import type { UsagePoint } from '@/services/usage/type'
 import { fmtAxisTime } from '../usageUtils'
-import { USAGE_COLORS, chartTheme, useUsageChart } from '../useUsageChart'
+import { USAGE_COLORS, chartTheme, timeAxis, useUsageChart } from '../useUsageChart'
 
 const props = withDefaults(defineProps<{ series: UsagePoint[]; height?: number }>(), {
   height: 200,
@@ -33,14 +33,10 @@ useUsageChart(chartRef, (dark) => {
     tooltip: { trigger: 'axis', confine: true },
     legend: { data: REASONS.map((r) => r.label), top: 0, textStyle: { color: theme.text } },
     grid: { left: '2%', right: '2%', top: 32, bottom: 8, containLabel: true },
-    xAxis: {
-      type: 'category',
-      boundaryGap: false,
-      data: s.map((p) => fmtAxisTime(p.time, span)),
-      axisTick: { show: false },
-      axisLine: { lineStyle: { color: theme.axis } },
-      axisLabel: { color: theme.subtext, hideOverlap: true },
-    },
+    xAxis: timeAxis(
+      s.map((p) => fmtAxisTime(p.time, span)),
+      theme,
+    ),
     yAxis: {
       type: 'value',
       min: 0,

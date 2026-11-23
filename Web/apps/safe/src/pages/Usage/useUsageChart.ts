@@ -21,6 +21,22 @@ export const chartTheme = (dark: boolean) => ({
   grid: dark ? '#FFFFFF1F' : '#00000012',
 })
 
+/** Category time axis shared by the usage charts. */
+export const timeAxis = (data: string[], theme: ReturnType<typeof chartTheme>) => ({
+  type: 'category' as const,
+  boundaryGap: false,
+  data,
+  axisTick: { show: false },
+  axisLine: { lineStyle: { color: theme.axis } },
+  axisLabel: {
+    color: theme.subtext,
+    hideOverlap: true,
+    // The end labels sit on the plot edges; align them inward so a narrow chart does not clip them.
+    alignMinLabel: 'left' as const,
+    alignMaxLabel: 'right' as const,
+  },
+})
+
 /**
  * Owns the ECharts instance of one container: creates it on mount, re-renders when the option
  * or the theme changes, resizes with the container and disposes it on unmount.
