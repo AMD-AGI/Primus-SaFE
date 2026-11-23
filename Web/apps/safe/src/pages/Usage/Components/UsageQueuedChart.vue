@@ -15,10 +15,16 @@ const props = withDefaults(defineProps<{ series: UsagePoint[]; height?: number }
 const chartRef = ref<HTMLElement | null>(null)
 
 const REASONS = [
-  { key: 'queuedQuota', label: 'Workspace quota', color: USAGE_COLORS.queuedQuota },
-  { key: 'queuedUserQos', label: 'User QoS', color: USAGE_COLORS.queuedUserQos },
-  { key: 'queuedExternal', label: 'External capacity', color: USAGE_COLORS.queuedExternal },
-  { key: 'queuedOther', label: 'Other', color: USAGE_COLORS.queuedOther },
+  { key: 'queuedQuota', label: 'Workspace quota', color: USAGE_COLORS.queuedQuota, area: 0.5 },
+  { key: 'queuedUserQos', label: 'User QoS', color: USAGE_COLORS.queuedUserQos, area: 0.5 },
+  {
+    key: 'queuedExternal',
+    label: 'External capacity',
+    color: USAGE_COLORS.queuedExternal,
+    area: 0.5,
+  },
+  // Catch-all bucket: kept low-key so the named reasons stand out.
+  { key: 'queuedOther', label: 'Other', color: USAGE_COLORS.queuedOther, area: 0.2 },
 ] as const
 
 useUsageChart(chartRef, (dark) => {
@@ -51,9 +57,9 @@ useUsageChart(chartRef, (dark) => {
       stack: 'queued',
       showSymbol: false,
       data: s.map((p) => p[r.key] ?? 0),
-      lineStyle: { width: 1, color: r.color },
+      lineStyle: { width: 1.5, color: r.color },
       itemStyle: { color: r.color },
-      areaStyle: { color: r.color, opacity: 0.7 },
+      areaStyle: { color: r.color, opacity: r.area },
     })),
   }
 })
