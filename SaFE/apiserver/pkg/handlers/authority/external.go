@@ -407,12 +407,15 @@ func CheckExternalDeployment() error {
 }
 
 // refreshUser makes the name, email and preferred name annotations of an existing record follow the
-// identity's claims. It is for the display only, so it is best effort: an error is
-// logged and the request goes on. The account itself is never changed, and a record
-// that is not an SSO user is left alone: the identity provider names an existing local
-// account (Spec.Type default) by its user id, but the account stays what it is. Its
-// user name is immutable, the user webhook refuses a patch that changes it, and a login
-// through the provider is no reason to rewrite a record that SaFE manages.
+// identity's claims. The name and email annotations are display metadata. The preferred name
+// annotation is execution metadata: new workloads take their run-as account from it, while
+// workloads that already exist keep the account stamped at submission. The refresh is best
+// effort: an error is logged and the request goes on, and the next request tries again.
+// The account type and its other fields are never changed, and a record that is not an SSO
+// user is left alone: the identity provider names an existing local account (Spec.Type
+// default) by its user id, but the account stays what it is. Its user name is immutable,
+// the user webhook refuses a patch that changes it, and a login through the provider is no
+// reason to rewrite a record that SaFE manages.
 func (st *externalAuth) refreshUser(ctx context.Context, user *v1.User, id *extauth.Identity) {
 	if user.Spec.Type != v1.SSOUserType {
 		return
