@@ -39,6 +39,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/quantity"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 )
 
 const (
@@ -522,43 +523,34 @@ func (h *Handler) authorizeRuntime(c *gin.Context, w *v1.Workload) (*metav1.Cond
 	if name == "" {
 		name = userID
 	}
-	return &metav1.Condition{
-		Type:   string(v1.RuntimeExtended),
-		Status: metav1.ConditionTrue,
-		Reason: "Extended",
-		Message: fmt.Sprintf("runtime set to %s by %s, above the qos limit %s", formatRuntime(*w.Spec.Timeout), name,
-			formatRuntime(limits.RuntimeSeconds)),
-		LastTransitionTime: metav1.NewTime(time.Now().UTC()),
-	}, nil
+	return commonworkload.NewRuntimeExtendedCondition(fmt.Sprintf("runtime set to %s by %s, above the qos limit %s",
+		commonworkload.FormatRuntime(*w.Spec.Timeout), name, commonworkload.FormatRuntime(limits.RuntimeSeconds))), nil
 }
 
-// formatRuntime renders a timeout in seconds as the workload timeline does, such as 3h or 1h30m.
-func formatRuntime(seconds int) string {
-	text := (time.Duration(seconds) * time.Second).String()
-	if strings.HasSuffix(text, "m0s") {
-		text = strings.TrimSuffix(text, "0s")
-	}
-	if strings.HasSuffix(text, "h0m") {
-		text = strings.TrimSuffix(text, "0m")
-	}
-	return text
-}
+const (
+	// conditionRetryCount and conditionRetryDelay are how often, and how far apart, a timeline entry is written
+	// again after a conflict, as POST /workloads does: right after the create, controllers write the status, and a
+	// cached read may still return the version that conflicted.
+	conditionRetryCount = 5
+	conditionRetryDelay = 200 * time.Millisecond
+)
 
-// appendWorkloadCondition adds one timeline entry to a workload's status, reading the workload again on a conflict.
+// appendWorkloadCondition adds one timeline entry to a workload's status, reading the workload again after a
+// conflict.
 func (h *Handler) appendWorkloadCondition(ctx context.Context, w *v1.Workload, cond *metav1.Condition) error {
-	for attempt := 0; ; attempt++ {
+	return backoff.ConflictRetry(func() error {
 		base := w.DeepCopy()
 		w.Status.Conditions = append(w.Status.Conditions, *cond)
 		err := h.client.Status().Patch(ctx, w, ctrlclient.MergeFromWithOptions(base, ctrlclient.MergeFromWithOptimisticLock{}))
-		if !apierrors.IsConflict(err) || attempt == 2 {
-			return err
+		if apierrors.IsConflict(err) {
+			latest := &v1.Workload{}
+			if getErr := h.client.Get(ctx, ctrlclient.ObjectKeyFromObject(w), latest); getErr != nil {
+				return getErr
+			}
+			w = latest
 		}
-		latest := &v1.Workload{}
-		if err := h.client.Get(ctx, ctrlclient.ObjectKeyFromObject(w), latest); err != nil {
-			return err
-		}
-		w = latest
-	}
+		return err
+	}, conditionRetryCount, conditionRetryDelay)
 }
 
 // rewardSecret returns the secret of an RL request's remote reward service, or an empty string.

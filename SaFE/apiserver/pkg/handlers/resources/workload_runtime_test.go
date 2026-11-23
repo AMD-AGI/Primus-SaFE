@@ -22,6 +22,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
+	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 )
 
 const userManager = "manager-user"
@@ -180,8 +181,8 @@ func TestAppendWorkloadConditionKeepsEveryEntry(t *testing.T) {
 
 	stored := &v1.Workload{}
 	require.NoError(t, cli.Get(t.Context(), client.ObjectKey{Name: "w1"}, stored))
-	require.NoError(t, h.appendWorkloadCondition(t.Context(), stored, newRuntimeExtendedCondition("first")))
-	require.NoError(t, h.appendWorkloadCondition(t.Context(), stored, newRuntimeExtendedCondition("second")))
+	require.NoError(t, h.appendWorkloadCondition(t.Context(), stored, commonworkload.NewRuntimeExtendedCondition("first")))
+	require.NoError(t, h.appendWorkloadCondition(t.Context(), stored, commonworkload.NewRuntimeExtendedCondition("second")))
 
 	require.NoError(t, cli.Get(t.Context(), client.ObjectKey{Name: "w1"}, stored))
 	var messages []string
@@ -207,18 +208,11 @@ func TestRuntimeExtendedKeptAfterControllerPhase(t *testing.T) {
 	require.NoError(t, cli.Status().Update(t.Context(), scheduled))
 
 	require.NoError(t, h.updateWorkloadPhase(t.Context(), created, v1.WorkloadPending, nil))
-	require.NoError(t, h.appendWorkloadCondition(t.Context(), created, newRuntimeExtendedCondition("set")))
+	require.NoError(t, h.appendWorkloadCondition(t.Context(), created, commonworkload.NewRuntimeExtendedCondition("set")))
 
 	stored := &v1.Workload{}
 	require.NoError(t, cli.Get(t.Context(), client.ObjectKey{Name: "w1"}, stored))
 	assert.Equal(t, v1.WorkloadRunning, stored.Status.Phase)
 	require.Len(t, stored.Status.Conditions, 1)
 	assert.Equal(t, string(v1.RuntimeExtended), stored.Status.Conditions[0].Type)
-}
-
-func TestFormatRuntime(t *testing.T) {
-	for seconds, want := range map[int]string{0: "unlimited", -1: "unlimited", 90: "1m30s", 1800: "30m",
-		3600: "1h", 5400: "1h30m", 10800: "3h", 3661: "1h1m1s"} {
-		assert.Equal(t, want, formatRuntime(seconds), "%d", seconds)
-	}
 }

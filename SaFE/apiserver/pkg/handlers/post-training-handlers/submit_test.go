@@ -401,3 +401,31 @@ func TestATimeoutAboveTheRuntimeCeilingNeedsTheGrant(t *testing.T) {
 	require.Empty(t, extendedBy("u1", 1800), "a timeout within the ceiling needs no grant")
 	require.Empty(t, extended)
 }
+
+// A timeline entry written right after the create, while controllers write the status, is written again after
+// each conflict, with a pause between tries, rather than dropped after a few back-to-back ones.
+func TestAppendWorkloadConditionOutlastsConflicts(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1.AddToScheme(scheme))
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "pt-x"}}
+	conflicts := 0
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(w).WithStatusSubresource(w).
+		WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: func(ctx context.Context, c ctrlclient.Client,
+			sub string, obj ctrlclient.Object, patch ctrlclient.Patch, opts ...ctrlclient.SubResourcePatchOption) error {
+			if conflicts < 3 {
+				conflicts++
+				return apierrors.NewConflict(v1.SchemeGroupVersion.WithResource("workloads").GroupResource(), obj.GetName(),
+					nil)
+			}
+			return c.SubResource(sub).Patch(ctx, obj, patch, opts...)
+		}}).Build()
+	h := &Handler{client: cli}
+	stored := &v1.Workload{}
+	require.NoError(t, cli.Get(context.Background(), ctrlclient.ObjectKeyFromObject(w), stored))
+	cond := &metav1.Condition{Type: string(v1.RuntimeExtended), Status: metav1.ConditionTrue, Reason: "Extended",
+		LastTransitionTime: metav1.Now()}
+	require.NoError(t, h.appendWorkloadCondition(context.Background(), stored, cond))
+	require.Equal(t, 3, conflicts)
+	require.NoError(t, cli.Get(context.Background(), ctrlclient.ObjectKeyFromObject(w), stored))
+	require.Len(t, stored.Status.Conditions, 1)
+}
