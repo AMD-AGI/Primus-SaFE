@@ -307,6 +307,11 @@ func GetOpenSearchIndexPrefix() string {
 	return getString(openSearchIndexPrefix, "")
 }
 
+// IsPostTrainingEnable returns whether Post Training is enabled; it needs the database as well.
+func IsPostTrainingEnable() bool {
+	return getBool(postTrainingEnable, false)
+}
+
 // IsDBEnable returns whether the database is enabled.
 func IsDBEnable() bool {
 	return getBool(dbEnable, false)
