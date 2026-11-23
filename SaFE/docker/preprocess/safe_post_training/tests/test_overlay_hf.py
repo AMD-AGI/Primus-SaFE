@@ -49,24 +49,22 @@ def test_the_trained_tensors_replace_their_base_tensors_only(tmp_path):
     assert torch.equal(read(out / "model-1.safetensors", "a"), torch.arange(4, dtype=torch.bfloat16))
     b = read(out / "model-1.safetensors", "b")
     assert b.dtype == torch.bfloat16 and bool(b.eq(3).all()), "a trained tensor keeps the base dtype"
-    assert os.stat(out / "model-2.safetensors").st_ino == os.stat(base / "model-2.safetensors").st_ino, \
-        "a shard without trained tensors is a hard link of the base"
+    assert (out / "model-2.safetensors").read_bytes() == (base / "model-2.safetensors").read_bytes()
+    assert os.stat(out / "model-2.safetensors").st_ino != os.stat(base / "model-2.safetensors").st_ino, \
+        "a shard without trained tensors is a copy of the base, not a link"
     assert json.loads((out / overlay_hf.INDEX).read_text()) == json.loads((base / overlay_hf.INDEX).read_text())
     assert (out / "tokenizer.json").exists() and (out / "config.json").exists()
     assert not (tmp_path / "out.partial").exists()
 
 
-def test_shards_are_copied_where_links_fail(monkeypatch, tmp_path):
+def test_an_in_place_write_to_the_export_leaves_the_base_alone(tmp_path):
     base, trained = base_and_trained(tmp_path)
-
-    def refuse(src, dst):
-        raise OSError("cross-device link")
-
-    monkeypatch.setattr(os, "link", refuse)
+    before = (base / "model-2.safetensors").read_bytes()
     out = tmp_path / "out"
     overlay_hf.overlay(str(base), str(trained), str(out))
-    assert os.stat(out / "model-2.safetensors").st_ino != os.stat(base / "model-2.safetensors").st_ino
-    assert (out / "model-2.safetensors").read_bytes() == (base / "model-2.safetensors").read_bytes()
+    with open(out / "model-2.safetensors", "r+b") as f:
+        f.write(b"\0" * 8)
+    assert (base / "model-2.safetensors").read_bytes() == before
 
 
 def test_a_checkpoint_that_does_not_fit_the_base_is_refused(tmp_path):

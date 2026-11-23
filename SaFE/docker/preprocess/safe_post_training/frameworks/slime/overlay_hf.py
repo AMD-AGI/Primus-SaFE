@@ -4,9 +4,11 @@
 #
 """Overlay the HF tensors converted from a trainable-only checkpoint onto the base model's HF directory.
 
-Shards without a trained tensor are hard-linked from the base (copied when the file system refuses the link), the
-others are rewritten with the trained tensors in place, and the base index is kept, so every untrained tensor stays
-bit-identical to the base. The result is written aside and moved into place.
+Shards without a trained tensor are copied from the base, the others are rewritten with the trained tensors in
+place, and the base index is kept, so every untrained tensor stays bit-identical to the base. The shards are copied,
+not hard-linked: a linked shard shares its data with the base, so a later in-place write to either, such as a tool
+that edits the exported model or the base weights updated with cp, would silently change the other. The result is
+written aside and moved into place.
 
     python overlay_hf.py --base <base HF dir> --trained <converted trainable tensors> --out <export dir>
 """
@@ -33,14 +35,6 @@ def weight_map(hf_dir):
 
     with safe_open(os.path.join(hf_dir, shards[0]), framework="pt") as f:
         return {name: shards[0] for name in f.keys()}
-
-
-def link_or_copy(src, dst):
-    """Hard-link src to dst, or copy it when the file system does not allow the link."""
-    try:
-        os.link(src, dst)
-    except OSError:
-        shutil.copyfile(src, dst)
 
 
 def overlay(base, trained, out):
@@ -70,7 +64,7 @@ def overlay(base, trained, out):
         src, dst = os.path.join(base, shard), os.path.join(tmp, shard)
         names = by_shard.get(shard)
         if not names:
-            link_or_copy(src, dst)
+            shutil.copyfile(src, dst)
             continue
         with safe_open(src, framework="pt") as f:
             metadata = f.metadata()
