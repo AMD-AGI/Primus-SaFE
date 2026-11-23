@@ -1483,7 +1483,8 @@ func TestParseModelConfigReadsEachFieldOnItsOwn(t *testing.T) {
 }
 
 // A Post Training output's weights stay while runs train from it, and go with it after. A run counts while its
-// workload exists or its row changed a moment ago; a run left Running without a workload does not hold the model.
+// workload exists and has not ended, or its row changed a moment ago; a run left Running without a workload, or
+// with one that ended, does not hold the model.
 func TestPostTrainingOutputCleanupWaitsForBasedRuns(t *testing.T) {
 	model := genMockModel("qwen-sft-out", v1.AccessModeLocalPath, "ws1")
 	model.Spec.PostTrainingRunId = "pt-qwen-abc12"
@@ -1496,7 +1497,9 @@ func TestPostTrainingOutputCleanupWaitsForBasedRuns(t *testing.T) {
 	model.DeletionTimestamp = &now
 	model.Finalizers = []string{ModelFinalizer}
 	workload := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "pt-running"}}
-	cli := lifecycleClient(t, model, workload)
+	ended := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "pt-ended"}}
+	ended.Status.Phase = v1.WorkloadSucceeded
+	cli := lifecycleClient(t, model, workload, ended)
 	db := mockclient.NewMockInterface(gomock.NewController(t))
 	run := func(workload string, updated time.Time) *dbclient.PostTrainingRun {
 		r := &dbclient.PostTrainingRun{RunID: workload, WorkloadID: workload}
@@ -1511,7 +1514,8 @@ func TestPostTrainingOutputCleanupWaitsForBasedRuns(t *testing.T) {
 				run("pt-running", long),         // its workload runs
 				run("pt-submitted", time.Now()), // its workload is about to be created
 				run("pt-orphaned", long),        // left Running after its workload went away
-			}, 3, nil
+				run("pt-ended", long),           // left Running after its workload ended
+			}, 4, nil
 		})
 	r = &ModelReconciler{ClusterBaseReconciler: &ClusterBaseReconciler{Client: cli}, db: db}
 	ctx := context.Background()
@@ -1521,7 +1525,7 @@ func TestPostTrainingOutputCleanupWaitsForBasedRuns(t *testing.T) {
 	got := getModel(t, cli, model.Name)
 	assert.Contains(t, got.Finalizers, ModelFinalizer, "the weights stay while runs train from them")
 	assert.Contains(t, got.Status.Message, "Waiting for 2 unfinished Post Training runs",
-		"the run whose workload is gone does not count")
+		"the runs whose workload is gone or ended do not count")
 	assert.Contains(t, got.Status.Message, AbandonCleanupAnnotation, "the way out is named")
 
 	// A database that cannot answer keeps the files.
@@ -1784,6 +1788,23 @@ func TestInspectModelWaitsForPostTrainingAndFailsAJobItCannotBuild(t *testing.T)
 	got = getModel(t, cli, gone.Name)
 	assert.Equal(t, inspectFailed, got.Annotations[v1.ModelInspectAnnotation], "a missing workspace is recorded")
 	assert.Contains(t, got.Annotations[v1.ModelInspectErrorAnnotation], "workspace ws-gone")
+}
+
+// A model's files are read in the first of its workspaces that still exists; the read fails only when none does.
+func TestInspectModelSkipsAWorkspaceThatIsGone(t *testing.T) {
+	r, cli, model := inspectFixture(t, "two-paths", nil)
+	model.Status.LocalPaths = []v1.ModelLocalPath{
+		{Workspace: "ws-gone", Path: "/data/gone/two-paths", Status: v1.LocalPathStatusReady},
+		{Workspace: "ws1", Path: "/data/ws1/two-paths", Status: v1.LocalPathStatusReady},
+	}
+	ctx := context.Background()
+	_, err := r.inspectModel(ctx, model)
+	require.NoError(t, err)
+	job := &v1.OpsJob{}
+	require.NoError(t, cli.Get(ctx, client.ObjectKey{Name: inspectJobName(model)}, job))
+	assert.Equal(t, "/data/ws1/two-paths", job.GetParameter(v1.ParameterDestPath).Value,
+		"the path in the workspace that exists is read")
+	assert.Empty(t, getModel(t, cli, model.Name).Annotations[v1.ModelInspectAnnotation], "nothing is recorded")
 }
 
 // A model-inspect job the API server did not take is tried again, and the read is not recorded as failed.

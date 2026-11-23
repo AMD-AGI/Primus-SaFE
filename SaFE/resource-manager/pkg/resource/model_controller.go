@@ -282,9 +282,10 @@ func (r *ModelReconciler) postTrainingOn() bool {
 
 // basedRuns counts the unfinished Post Training runs that train from model; their weights must stay until
 // they end. A run whose row says Pending or Running counts only while its training or conversion workload
-// exists, or while the row changed within basedRunGrace, which covers the moment between writing the row and
-// creating the workload: a row left unfinished after its workload went away (Post Training turned off while
-// it ran, or a controller that stopped following it) does not hold the model forever.
+// exists and has not ended, or while the row changed within basedRunGrace, which covers the moment between
+// writing the row and creating the workload: a row left unfinished after its workload went away or ended (Post
+// Training turned off while it ran, status sync lag, or a controller that stopped following it) does not hold
+// the model forever.
 func (r *ModelReconciler) basedRuns(ctx context.Context, model *v1.Model) (int, error) {
 	if !r.postTrainingOn() {
 		return 0, nil
@@ -316,9 +317,14 @@ func (r *ModelReconciler) isRunActive(ctx context.Context, run *dbclient.PostTra
 		if name == "" {
 			continue
 		}
-		err := r.Get(ctx, client.ObjectKey{Name: name}, &v1.Workload{})
+		workload := &v1.Workload{}
+		err := r.Get(ctx, client.ObjectKey{Name: name}, workload)
 		if err == nil {
-			return true, nil
+			// A workload kept after it ended reads the model no more.
+			if !workload.IsEnd() {
+				return true, nil
+			}
+			continue
 		}
 		if !errors.IsNotFound(err) {
 			return false, err
@@ -911,8 +917,8 @@ func (r *ModelReconciler) inspectModel(ctx context.Context, model *v1.Model) (ct
 	if wait, err := r.inspectRetryWait(ctx, model); err != nil || wait > 0 {
 		return ctrl.Result{RequeueAfter: wait}, err
 	}
-	workspaceName, dir := inspectTarget(model)
-	if dir == "" {
+	targets := inspectTargets(model)
+	if len(targets) == 0 {
 		return ctrl.Result{}, nil
 	}
 	attempts, _ := strconv.Atoi(v1.GetAnnotation(model, inspectAttemptsAnnotation))
@@ -925,7 +931,7 @@ func (r *ModelReconciler) inspectModel(ctx context.Context, model *v1.Model) (ct
 			return ctrl.Result{}, r.finishInspect(ctx, model, nil, inspectFailed,
 				fmt.Sprintf("config.json could not be read in %d attempts", attempts))
 		}
-		return r.startInspect(ctx, model, workspaceName, dir)
+		return r.startInspect(ctx, model, targets)
 	case err != nil:
 		return ctrl.Result{}, err
 	case !job.GetDeletionTimestamp().IsZero():
@@ -985,17 +991,31 @@ func (r *ModelReconciler) inspectRetryWait(ctx context.Context, model *v1.Model)
 	return 0, r.Patch(ctx, model, patch)
 }
 
-// inspectTarget returns the workspace and directory from which a model's config.json is read.
-func inspectTarget(model *v1.Model) (string, string) {
-	for _, lp := range model.Status.LocalPaths {
-		if lp.Status == v1.LocalPathStatusReady && lp.Path != "" && lp.Workspace != "" {
-			return lp.Workspace, lp.Path
+// inspectSource is a workspace and a directory in it from which a model's config.json can be read.
+type inspectSource struct {
+	workspace, dir string
+}
+
+// inspectTargets returns, in order of preference, where a model's config.json can be read: its Ready local paths,
+// then the path a local_path model was registered from.
+func inspectTargets(model *v1.Model) []inspectSource {
+	var targets []inspectSource
+	seen := map[inspectSource]bool{}
+	add := func(s inspectSource) {
+		if s.workspace != "" && s.dir != "" && !seen[s] {
+			seen[s] = true
+			targets = append(targets, s)
 		}
 	}
-	if model.Spec.Source.AccessMode == v1.AccessModeLocalPath && model.Spec.Workspace != "" {
-		return model.Spec.Workspace, model.Spec.Source.LocalPath
+	for _, lp := range model.Status.LocalPaths {
+		if lp.Status == v1.LocalPathStatusReady {
+			add(inspectSource{lp.Workspace, lp.Path})
+		}
 	}
-	return "", ""
+	if model.Spec.Source.AccessMode == v1.AccessModeLocalPath {
+		add(inspectSource{model.Spec.Workspace, model.Spec.Source.LocalPath})
+	}
+	return targets
 }
 
 // startInspect creates the model-inspect job once a download slot is free, counting the jobs in the cache, as a
@@ -1003,7 +1023,7 @@ func inspectTarget(model *v1.Model) (string, string) {
 // did not take for a passing reason is tried again with the controller's backoff; one that cannot be built from
 // the model and its workspace, or that the API server refuses as such (such as a path the OpsJob webhook does not
 // accept), fails the read with its reason.
-func (r *ModelReconciler) startInspect(ctx context.Context, model *v1.Model, workspaceName, dir string) (ctrl.Result, error) {
+func (r *ModelReconciler) startInspect(ctx context.Context, model *v1.Model, targets []inspectSource) (ctrl.Result, error) {
 	if limit := commonconfig.GetModelMaxConcurrentDownloads(); limit > 0 {
 		jobs := &v1.OpsJobList{}
 		if err := r.List(ctx, jobs, client.MatchingLabels{
@@ -1020,13 +1040,25 @@ func (r *ModelReconciler) startInspect(ctx context.Context, model *v1.Model, wor
 			return ctrl.Result{RequeueAfter: downloadSlotWaitInterval}, nil
 		}
 	}
-	workspace := &v1.Workspace{}
-	if err := r.Get(ctx, client.ObjectKey{Name: workspaceName}, workspace); err != nil {
-		if errors.IsNotFound(err) {
-			return ctrl.Result{}, r.finishInspect(ctx, model, nil, inspectFailed,
-				fmt.Sprintf("workspace %s of the model's files does not exist", workspaceName))
+	// The files are read in the first workspace that still exists; a read fails only when none does.
+	var workspace *v1.Workspace
+	var dir string
+	var gone []string
+	for _, target := range targets {
+		ws := &v1.Workspace{}
+		if err := r.Get(ctx, client.ObjectKey{Name: target.workspace}, ws); err != nil {
+			if errors.IsNotFound(err) {
+				gone = append(gone, target.workspace)
+				continue
+			}
+			return ctrl.Result{}, err
 		}
-		return ctrl.Result{}, err
+		workspace, dir = ws, target.dir
+		break
+	}
+	if workspace == nil {
+		return ctrl.Result{}, r.finishInspect(ctx, model, nil, inspectFailed,
+			fmt.Sprintf("workspace %s of the model's files does not exist", strings.Join(gone, ", ")))
 	}
 	job, err := r.constructModelInspectOpsJob(model, workspace, dir)
 	if err != nil {
