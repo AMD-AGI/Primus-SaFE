@@ -239,8 +239,9 @@ spec:
                 items:
                   properties:
                     asEnv:
-                      description: AsEnv also exposes the keys of a general secret
-                        to every container as environment variables, optional.
+                      description: |-
+                        AsEnv also exposes the keys of a general secret to every container as environment variables, optional.
+                        Only keys that are valid environment variable names (e.g. WANDB_API_KEY) are exposed; the kubelet skips others such as config.json.
                       type: boolean
                     id:
                       description: Secret id, required
