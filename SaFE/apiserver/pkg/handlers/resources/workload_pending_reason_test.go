@@ -8,6 +8,7 @@ package resources
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -357,6 +358,92 @@ func TestPendingPodEvidenceNotReadyApplication(t *testing.T) {
 	lines, _ = h.pendingPodEvidence(context.Background(), workload)
 	assert.Empty(t, lines)
 	assert.Equal(t, "status.phase=Pending", listFields)
+}
+
+func notReadyEvidenceHandler(t *testing.T, data *k8sfake.Clientset) *Handler {
+	t.Helper()
+	const clusterID = "c1"
+	manager := commonutils.NewObjectManager()
+	require.NoError(t, manager.Add(clusterID, k8sclient.NewClientFactoryWithOnlyClient(context.Background(), clusterID, data)))
+	return &Handler{clientManager: manager}
+}
+
+func notReadyWorkload() *v1.Workload {
+	return &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{Name: "wl-app", Labels: map[string]string{v1.ClusterIdLabel: "c1"}},
+		Status:     v1.WorkloadStatus{Phase: v1.WorkloadNotReady},
+	}
+}
+
+// The readiness filter runs after the list, so an unhealthy replica on a later page must still be found.
+func TestPendingPodEvidenceFollowsContinuation(t *testing.T) {
+	readyPod := func(i int) corev1.Pod {
+		return corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("ready-%02d", i), Namespace: "ws-a", Labels: map[string]string{v1.WorkloadIdLabel: "wl-app"}},
+			Status: corev1.PodStatus{
+				Phase:      corev1.PodRunning,
+				Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}},
+			},
+		}
+	}
+	first := &corev1.PodList{ListMeta: metav1.ListMeta{Continue: "page-2"}}
+	for i := 0; i < pendingEvidencePodListLimit; i++ {
+		first.Items = append(first.Items, readyPod(i))
+	}
+	second := &corev1.PodList{Items: []corev1.Pod{{
+		ObjectMeta: metav1.ObjectMeta{Name: "late-crash", Namespace: "ws-a", Labels: map[string]string{v1.WorkloadIdLabel: "wl-app"}},
+		Status: corev1.PodStatus{
+			Phase:      corev1.PodRunning,
+			Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionFalse}},
+			ContainerStatuses: []corev1.ContainerStatus{{
+				Name:  "main",
+				State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "CrashLoopBackOff"}},
+			}},
+		},
+	}}}
+	data := k8sfake.NewSimpleClientset()
+	calls := 0
+	data.PrependReactor("list", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		calls++
+		if calls == 1 {
+			return true, first, nil
+		}
+		return true, second, nil
+	})
+
+	lines, _ := notReadyEvidenceHandler(t, data).pendingPodEvidence(context.Background(), notReadyWorkload())
+	assert.Equal(t, 2, calls)
+	assert.Contains(t, strings.Join(lines, "\n"), "CrashLoopBackOff")
+}
+
+// A Running pod held back by a readiness gate has no waiting container, so its conditions are the evidence.
+func TestPendingPodEvidenceReadinessConditions(t *testing.T) {
+	gated := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "gated", Namespace: "ws-a", Labels: map[string]string{v1.WorkloadIdLabel: "wl-app"}},
+		Spec:       corev1.PodSpec{ReadinessGates: []corev1.PodReadinessGate{{ConditionType: "example.com/target-healthy"}}},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionFalse, Reason: "ReadinessGatesNotReady", Message: "the status of pod readiness gate is not true"},
+				{Type: corev1.ContainersReady, Status: corev1.ConditionFalse, Reason: "ReadinessGatesNotReady", Message: "the status of pod readiness gate is not true"},
+				{Type: "example.com/target-healthy", Status: corev1.ConditionFalse, Reason: "TargetUnhealthy", Message: "target is draining"},
+				{Type: corev1.PodScheduled, Status: corev1.ConditionTrue},
+			},
+		},
+	}
+	data := k8sfake.NewSimpleClientset(gated)
+
+	lines, fallback := notReadyEvidenceHandler(t, data).pendingPodEvidence(context.Background(), notReadyWorkload())
+	text := strings.Join(lines, "\n")
+	assert.Contains(t, text, "ReadinessGatesNotReady")
+	assert.Contains(t, text, "TargetUnhealthy: target is draining")
+	assert.Equal(t, 1, strings.Count(text, "ReadinessGatesNotReady"))
+	assert.Contains(t, fallback, "ReadinessGatesNotReady")
+
+	// A Pending pod keeps its scheduling facts only.
+	assert.Empty(t, notReadyConditionLines(&corev1.Pod{Status: corev1.PodStatus{Phase: corev1.PodPending,
+		Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionFalse}}}}))
+	assert.Empty(t, notReadyConditionLines(nil))
 }
 
 func TestFilterWorkloadLogLines(t *testing.T) {

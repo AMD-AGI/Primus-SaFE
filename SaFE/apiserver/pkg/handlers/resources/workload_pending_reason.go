@@ -32,6 +32,7 @@ import (
 const (
 	pendingEvidencePodLimit     = 5
 	pendingEvidencePodListLimit = 50
+	pendingEvidencePodListPages = 10
 	pendingEvidenceEventLimit   = 5
 	pendingEvidenceLogPods      = 3
 	pendingEvidenceLogTail      = 400
@@ -266,16 +267,24 @@ func (h *Handler) pendingPodEvidence(ctx context.Context, w *v1.Workload) ([]str
 	if w.Status.Phase != v1.WorkloadNotReady {
 		listOpts.FieldSelector = fields.OneTermEqualSelector("status.phase", string(corev1.PodPending)).String()
 	}
-	list, err := clientSet.CoreV1().Pods(metav1.NamespaceAll).List(ctx, listOpts)
-	if err != nil {
-		klog.ErrorS(err, "failed to list workload pods", "workload", w.Name)
-		return nil, ""
-	}
-	pending := make([]corev1.Pod, 0, len(list.Items))
-	for i := range list.Items {
-		if isHeldBackPod(&list.Items[i], w.Status.Phase == v1.WorkloadNotReady) {
-			pending = append(pending, list.Items[i])
+	var pending []corev1.Pod
+	// The readiness filter runs client side, so follow the continuation until enough
+	// held-back pods are found or the pages are exhausted.
+	for page := 0; page < pendingEvidencePodListPages; page++ {
+		list, err := clientSet.CoreV1().Pods(metav1.NamespaceAll).List(ctx, listOpts)
+		if err != nil {
+			klog.ErrorS(err, "failed to list workload pods", "workload", w.Name)
+			break
 		}
+		for i := range list.Items {
+			if isHeldBackPod(&list.Items[i], w.Status.Phase == v1.WorkloadNotReady) {
+				pending = append(pending, list.Items[i])
+			}
+		}
+		if len(pending) >= pendingEvidencePodLimit || list.Continue == "" {
+			break
+		}
+		listOpts.Continue = list.Continue
 	}
 	sort.Slice(pending, func(i, j int) bool { return pending[i].Name < pending[j].Name })
 	if len(pending) > pendingEvidencePodLimit {
@@ -310,8 +319,9 @@ func isHeldBackPod(pod *corev1.Pod, includeNotReady bool) bool {
 	return true
 }
 
-// describePendingPod formats container waiting reasons and an unschedulable condition.
-// The fallback prefers a container waiting reason over the scheduling condition.
+// describePendingPod formats container waiting reasons, an unschedulable condition, and, for a
+// Running pod, the readiness conditions that are not true.
+// The fallback prefers a container waiting reason over the scheduling condition, then a readiness condition.
 func describePendingPod(pod *corev1.Pod) ([]string, string) {
 	if pod == nil {
 		return nil, ""
@@ -345,7 +355,40 @@ func describePendingPod(pod *corev1.Pod) ([]string, string) {
 			fallback = line
 		}
 	}
+	readyLines := notReadyConditionLines(pod)
+	lines = append(lines, readyLines...)
+	if fallback == "" && len(readyLines) > 0 {
+		fallback = readyLines[0]
+	}
 	return lines, fallback
+}
+
+// notReadyConditionLines formats the readiness conditions of a Running pod that are not true:
+// Ready, ContainersReady, and the pod's readiness gates. Conditions that repeat a reason and message are listed once.
+func notReadyConditionLines(pod *corev1.Pod) []string {
+	if pod == nil || pod.Status.Phase != corev1.PodRunning {
+		return nil
+	}
+	relevant := map[corev1.PodConditionType]bool{corev1.PodReady: true, corev1.ContainersReady: true}
+	for _, gate := range pod.Spec.ReadinessGates {
+		relevant[gate.ConditionType] = true
+	}
+	var lines []string
+	seen := map[string]bool{}
+	for i := range pod.Status.Conditions {
+		cond := &pod.Status.Conditions[i]
+		if !relevant[cond.Type] || cond.Status == corev1.ConditionTrue {
+			continue
+		}
+		reason, message := strings.TrimSpace(cond.Reason), strings.TrimSpace(cond.Message)
+		key := reason + "|" + message
+		if (reason != "" || message != "") && seen[key] {
+			continue
+		}
+		seen[key] = true
+		lines = append(lines, joinReason(fmt.Sprintf("pod/%s condition %s is %s", pod.Name, cond.Type, cond.Status), reason, message))
+	}
+	return lines
 }
 
 // podSchedulingEvents returns the newest warning or scheduling events for one pod.
