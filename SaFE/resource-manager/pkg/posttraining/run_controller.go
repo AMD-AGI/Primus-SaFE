@@ -594,6 +594,20 @@ func ignoreRecordNotFound(err error) error {
 	return err
 }
 
+// dropResumedPoints deletes the stored points after the step a resumed attempt starts from, which that attempt
+// writes again, and takes them off the run's point count so a run resumed often does not reach its cap early.
+func (r *RunReconciler) dropResumedPoints(ctx context.Context, runID string, in *ingestion) error {
+	if in.resumeFrom == nil {
+		return nil
+	}
+	deleted, err := r.db.DeletePostTrainingRunMetricsAfterStep(ctx, runID, int(*in.resumeFrom))
+	if err != nil {
+		return err
+	}
+	in.sum.Points = max(in.sum.Points-deleted, 0)
+	return nil
+}
+
 // readLog reads the submitter log from the run's cursor, applies the markers and saves the points with the
 // advanced cursor and the other changed columns in one transaction. It reports whether more log is waiting.
 func (r *RunReconciler) readLog(ctx context.Context, w *v1.Workload, u *runUpdate) (bool, error) {
@@ -605,10 +619,8 @@ func (r *RunReconciler) readLog(ctx context.Context, w *v1.Workload, u *runUpdat
 	more, readErr := r.readSubmitter(readCtx, w, cur, in)
 	cancel()
 	points := in.finish()
-	if in.resumeFrom != nil {
-		if err := r.db.DeletePostTrainingRunMetricsAfterStep(ctx, run.RunID, int(*in.resumeFrom)); err != nil {
-			return false, err
-		}
+	if err := r.dropResumedPoints(ctx, run.RunID, in); err != nil {
+		return false, err
 	}
 	switch {
 	case in.result != nil:

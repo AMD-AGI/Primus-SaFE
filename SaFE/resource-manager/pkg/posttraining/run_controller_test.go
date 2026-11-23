@@ -558,3 +558,26 @@ func TestARunDeletedAtTheEndOfItsWorkloadIsNotRetried(t *testing.T) {
 	res := reconcileRun(t, r)
 	require.Zero(t, res.RequeueAfter)
 }
+
+// The points a resumed attempt replaces are deleted and no longer count against the run's cap.
+func TestAResumeTakesTheReplacedPointsOffTheCount(t *testing.T) {
+	db := mockclient.NewMockInterface(gomock.NewController(t))
+	r := &RunReconciler{db: db}
+	in := newTestIngestion(100)
+	in.sum.Points = 10
+	require.NoError(t, r.dropResumedPoints(context.Background(), testRun, in), "a read without a resume deletes nothing")
+	require.Equal(t, int64(10), in.sum.Points)
+
+	step := int64(5)
+	in.resumeFrom = &step
+	db.EXPECT().DeletePostTrainingRunMetricsAfterStep(gomock.Any(), testRun, 5).Return(int64(4), nil)
+	require.NoError(t, r.dropResumedPoints(context.Background(), testRun, in))
+	require.Equal(t, int64(6), in.sum.Points)
+
+	db.EXPECT().DeletePostTrainingRunMetricsAfterStep(gomock.Any(), testRun, 5).Return(int64(50), nil)
+	require.NoError(t, r.dropResumedPoints(context.Background(), testRun, in))
+	require.Zero(t, in.sum.Points, "the count never goes below zero")
+
+	db.EXPECT().DeletePostTrainingRunMetricsAfterStep(gomock.Any(), testRun, 5).Return(int64(0), errors.New("db down"))
+	require.Error(t, r.dropResumedPoints(context.Background(), testRun, in))
+}
