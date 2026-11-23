@@ -342,6 +342,29 @@ func TestExternalJITSetsPreferredName(t *testing.T) {
 	require.Equal(t, "jihong.he@amd.com", v1.GetAnnotation(e.user(extUser), v1.UserPreferredNameAnnotation))
 }
 
+// TestExternalPreferredNameFallsBackToEmailPrefix checks that the preferred name is the preferred_username
+// the issuer reported, and that without one it is the local part of the e-mail.
+func TestExternalPreferredNameFallsBackToEmailPrefix(t *testing.T) {
+	e := newExtEnv(t, nil, false)
+	_, err := extParse(t, http.MethodGet, "/api/v1/workloads", e.jwt(map[string]any{
+		"preferred_username": nil, "email": "Zhen.Huang@amd.com",
+	}))
+	require.NoError(t, err)
+	require.Equal(t, "Zhen.Huang", v1.GetAnnotation(e.user(extUser), v1.UserPreferredNameAnnotation))
+
+	e2 := newExtEnvWith(t, nil, false, nil)
+	e2.revUsers["ak-email"] = map[string]any{"sub": "jihong-id", "username": "Jihong.He@amd.com", "aud": extAudience}
+	_, err = extParse(t, http.MethodGet, "/api/v1/workloads", "ak-email")
+	require.NoError(t, err)
+	require.Equal(t, "Jihong.He", v1.GetAnnotation(e2.user("jihong-id"), v1.UserPreferredNameAnnotation))
+
+	e3 := newExtEnvWith(t, nil, false, nil)
+	e3.revUsers["ak-both"] = map[string]any{"sub": "jihhe-id", "username": "Jihong.He@amd.com", "preferred_username": "jihhe@amd.com", "aud": extAudience}
+	_, err = extParse(t, http.MethodGet, "/api/v1/workloads", "ak-both")
+	require.NoError(t, err)
+	require.Equal(t, "jihhe@amd.com", v1.GetAnnotation(e3.user("jihhe-id"), v1.UserPreferredNameAnnotation))
+}
+
 // TestExternalIntrospectionSetsPreferredName checks that the preferred name comes from the answer's
 // preferred_username, the SSO login name, and never from username, which is the e-mail or display name.
 func TestExternalIntrospectionSetsPreferredName(t *testing.T) {

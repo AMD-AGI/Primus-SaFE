@@ -483,6 +483,7 @@ func (a *IntrospectionAuthenticator) identity(r *introspectionAnswer) (*Identity
 	if id.Email == "" && strings.Contains(r.Username, "@") {
 		id.Email = r.Username
 	}
+	id.PreferredName = preferredNameFrom(id.PreferredName, id.Email)
 	if r.Act != nil {
 		// A delegated credential. One that says so but not for whom must not pass as an
 		// ordinary one: that would lift the restrictions on delegated credentials.
