@@ -743,6 +743,26 @@ func TestBuildPodTerminatedInfoCarriesOrdinaryReason(t *testing.T) {
 	assert.Equal(t, wp.Containers[0].Reason, "Error")
 }
 
+// A Post Training submitter whose log holds no result of its run keeps its termination message.
+func TestBuildPodTerminatedInfoKeepsTheSubmitterMessageWithoutAResult(t *testing.T) {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w",
+		Labels: map[string]string{v1.PostTrainingRunIdLabel: "pt-run-abc12"}}}
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "w-sub", Namespace: "ws"}, Status: corev1.PodStatus{
+		Phase: corev1.PodFailed,
+		ContainerStatuses: []corev1.ContainerStatus{{
+			Name: common.RayJobSubmitterName,
+			State: corev1.ContainerState{
+				Terminated: &corev1.ContainerStateTerminated{Reason: "Error", ExitCode: 1, Message: "submit failed"},
+			},
+		}},
+	}}
+	wp := &v1.WorkloadPod{}
+	// The fake clientset serves "fake logs" for every pod: a log without any result line.
+	buildPodTerminatedInfo(context.Background(), k8sfake.NewSimpleClientset(), w, pod, wp, "")
+	assert.Equal(t, len(wp.Containers), 1)
+	assert.Equal(t, wp.Containers[0].Message, "submit failed")
+}
+
 func TestGenerateStickyFault(t *testing.T) {
 	// Empty node id -> nil fault, no error.
 	f, err := generateStickyFault(&v1.Workload{}, "", syncerScheme(t))

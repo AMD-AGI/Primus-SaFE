@@ -1484,8 +1484,12 @@ func buildPodTerminatedInfo(ctx context.Context, clientSet kubernetes.Interface,
 				c.Message = message
 			}
 		}
+		// A submitter whose log has no result of its run, or could not be read, keeps its termination message.
 		if commonworkload.IsPostTraining(adminWorkload) && c.Name == common.RayJobSubmitterName {
-			c.Message = getPostTrainingResult(ctx, clientSet, pod, v1.GetLabel(adminWorkload, v1.PostTrainingRunIdLabel))
+			runID := v1.GetLabel(adminWorkload, v1.PostTrainingRunIdLabel)
+			if result := getPostTrainingResult(ctx, clientSet, pod, runID); result != "" {
+				c.Message = result
+			}
 		}
 		workloadPod.Containers = append(workloadPod.Containers, c)
 	}
