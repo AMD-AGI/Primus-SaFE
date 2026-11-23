@@ -24,6 +24,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/middleware"
 	model_handlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/model-handlers"
 	optimizationhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/optimization"
+	posttraininghandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/post-training-handlers"
 	proxyhandlers "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/proxy-handlers"
 	reshandler "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/scim"
@@ -167,6 +168,14 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 		}
 	}
 
+	// Post Training needs the database for its runs; it answers 404 until the post-training-registry
+	// ConfigMap exists.
+	if commonconfig.IsDBEnable() {
+		if ptDBClient := dbclient.NewClient(); ptDBClient != nil {
+			routes.postTraining = posttraininghandlers.NewHandler(mgr.GetClient(), ptDBClient)
+		}
+	}
+
 	// MCP (Model Context Protocol) server: opt-in via mcp.enabled (default true
 	// in Helm chart). Mounts SSE + Streamable HTTP transports under the path
 	// configured by mcp.base_path so AI clients can drive the apiserver.
@@ -196,6 +205,7 @@ type routeHandlers struct {
 	githubWorkflow bool
 	inferencex     *inferencexhandlers.Handler
 	optimization   *optimizationhandlers.Handler
+	postTraining   *posttraininghandlers.Handler
 	mcp            bool
 	// scimToken is set when the SCIM endpoint is served. Nil leaves the routes unregistered.
 	scimToken *scim.Token
@@ -242,6 +252,9 @@ func registerRoutes(engine *gin.Engine, h routeHandlers) {
 	}
 	if h.optimization != nil {
 		optimizationhandlers.InitRoutes(engine, h.optimization)
+	}
+	if h.postTraining != nil {
+		posttraininghandlers.InitRoutes(engine, h.postTraining)
 	}
 	if h.mcp {
 		mcprouter.InitRoutes(engine)
