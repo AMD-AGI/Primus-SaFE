@@ -26,12 +26,9 @@
 #      runs server-side apply at pre-install/pre-upgrade), which is compatible with
 #      SaFE addon helm install flow.
 #
-# Default-addon: every registered Cluster auto-installs the dynamo-operator
-# via `ClusterReconciler.guaranteeDefaultAddon` (resource-manager). No
-# per-cluster Addon YAML is needed; deploy this AddonTemplate once on the
-# management plane and SaFE federates the helm install to every dataplane on
-# Cluster register. Assumes the SaFE deployment runs on inference-bearing
-# clusters where DGD / DCD CRDs are wanted everywhere.
+# Opt-in addon: the template carries no `primus-safe.addon.default` label, so
+# clusters do not install it on registration. A cluster that needs the operator
+# creates an Addon that references this template.
 #
 
 apiVersion: amd.com/v1
@@ -40,11 +37,6 @@ metadata:
   labels:
     primus-safe.display.name: "dynamo-operator.1.1.0"
     app.kubernetes.io/managed-by: Helm
-    # Marks this template as a default addon: SaFE's ClusterReconciler picks it
-    # up via label selector and synthesises an `Addon` instance for every
-    # registered Cluster, triggering federated helm install. Override per
-    # cluster by hand-writing an Addon CR with the same release name.
-    primus-safe.addon.default: ""
   annotations:
     meta.helm.sh/release-name: {{ .Release.Name }}
     meta.helm.sh/release-namespace: {{ .Release.Namespace }}

@@ -4,7 +4,6 @@ import { WorkloadKind } from '@/services/workload/type'
 const APPLICATION_KINDS: string[] = [
   WorkloadKind.Deployment,
   WorkloadKind.StatefulSet,
-  WorkloadKind.DynamoDeployment,
   WorkloadKind.InferaDeployment,
   WorkloadKind.Atom,
   WorkloadKind.SGLangRouter,
