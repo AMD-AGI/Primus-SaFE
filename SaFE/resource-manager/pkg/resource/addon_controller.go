@@ -130,8 +130,11 @@ func (r *AddonController) guaranteeHelmAddon(ctx context.Context, addon *v1.Addo
 	if controllerutil.AddFinalizer(addon, v1.AddonFinalizer) {
 		return commonutils.PatchObjectFinalizer(ctx, r.Client, addon)
 	}
+	if v1.GetAnnotation(addon, v1.AddonPreinstalledAnnotation) == v1.TrueStr {
+		return nil
+	}
 	if addon.Status.AddonSourceStatus.HelmRepositoryStatus == nil {
-		return r.helmInstall(ctx, addon)
+		return r.helmInstall(ctx, addon, v1.IsAdoptedCluster(cluster))
 	}
 	return r.helmUpgrade(ctx, addon)
 }
@@ -182,8 +185,8 @@ func parseHelmValues(raw string) (map[string]interface{}, error) {
 	return out, nil
 }
 
-// helmInstall installs a Helm chart for the addon.
-func (r *AddonController) helmInstall(ctx context.Context, addon *v1.Addon) error {
+// helmInstall installs a Helm chart for the addon. adopted reports whether the addon's cluster is adopted.
+func (r *AddonController) helmInstall(ctx context.Context, addon *v1.Addon, adopted bool) error {
 	name, url, version, values, err := r.getHelm(ctx, addon)
 	if err != nil {
 		return r.patchErrorStatus(ctx, addon, err)
@@ -223,9 +226,27 @@ func (r *AddonController) helmInstall(ctx context.Context, addon *v1.Addon) erro
 		if err.Error() == installedMsg {
 			return r.helmStatus(ctx, addon)
 		}
-		return r.patchErrorStatus(ctx, addon, fmt.Errorf("helm chart install %s", err))
+		return r.handleInstallError(ctx, addon, adopted, err)
 	}
 	return r.updateAddonHelmStatus(ctx, addon, resp)
+}
+
+// handleInstallError records a failed helm install. In an adopted cluster, resources owned by
+// another release mean the chart is already installed there: the Addon is marked preinstalled
+// and running, and it is neither installed, upgraded nor uninstalled afterwards.
+func (r *AddonController) handleInstallError(ctx context.Context, addon *v1.Addon, adopted bool, err error) error {
+	if !adopted || !strings.Contains(err.Error(), ownershipConflictMsg) {
+		return r.patchErrorStatus(ctx, addon, fmt.Errorf("helm chart install %s", err))
+	}
+	original := client.MergeFrom(addon.DeepCopy())
+	v1.SetAnnotation(addon, v1.AddonPreinstalledAnnotation, v1.TrueStr)
+	if patchErr := r.Patch(ctx, addon, original); patchErr != nil {
+		return patchErr
+	}
+	original = client.MergeFrom(addon.DeepCopy())
+	addon.Status.Phase = v1.AddonRunning
+	klog.Infof("addon %s is already installed by another release, mark it preinstalled", addon.Name)
+	return r.Status().Patch(ctx, addon, original)
 }
 
 // getActionConfig creates and configures Helm action configuration for the addon's cluster.

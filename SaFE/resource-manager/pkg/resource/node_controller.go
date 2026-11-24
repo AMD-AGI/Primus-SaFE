@@ -8,9 +8,12 @@ package resource
 import (
 	"bytes"
 	"context"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -46,9 +49,15 @@ const (
 	harborCACertPathUbuntu = "/usr/local/share/ca-certificates/harbor-ca.crt"
 	harborCACertPathCentOS = "/etc/pki/ca-trust/source/anchors/harbor-ca.crt"
 
+	adoptedHarborCACertPathUbuntu = "/usr/local/share/ca-certificates/primus-global-harbor-ca.crt"
+	adoptedHarborCACertPathCentOS = "/etc/pki/ca-trust/source/anchors/primus-global-harbor-ca.crt"
+	containerdCertsDir            = "/etc/containerd/certs.d"
+
 	machineCheckInterval = time.Minute * 10
 	podManagementTimeout = 3600 * 2
 )
+
+var harborHostPattern = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$`)
 
 type NodeReconciler struct {
 	*ClusterBaseReconciler
@@ -774,7 +783,11 @@ func (r *NodeReconciler) handleHarborCertificate(ctx context.Context, node *v1.N
 	}
 	defer sshClient.Close()
 
-	ok, err := r.installHarborCert(ctx, sshClient)
+	adopted, err := r.belongsToAdoptedCluster(ctx, node)
+	if err != nil {
+		return err
+	}
+	ok, err := r.installHarborCert(ctx, sshClient, adopted)
 	if err != nil {
 		klog.ErrorS(err, "failed to install harbor cert", "node", node.Name)
 		node.Status.ClusterStatus.CommandStatus =
@@ -1382,7 +1395,9 @@ func getClusterId(adminNode *v1.Node) string {
 }
 
 // installHarborCert installs the Harbor CA certificate on the Node.
-func (r *NodeReconciler) installHarborCert(ctx context.Context, sshClient *ssh.Client) (bool, error) {
+// On a node of an adopted cluster the CA goes to its own file, so the CA of the cluster's
+// Harbor is kept, and containerd is pointed at it for the Harbor hosts without a restart.
+func (r *NodeReconciler) installHarborCert(ctx context.Context, sshClient *ssh.Client, adopted bool) (bool, error) {
 	secret := new(corev1.Secret)
 	err := r.Get(ctx, types.NamespacedName{
 		Namespace: "harbor",
@@ -1398,15 +1413,52 @@ func (r *NodeReconciler) installHarborCert(ctx context.Context, sshClient *ssh.C
 	if !ok {
 		return false, nil
 	}
-	ubuntu := fmt.Sprintf("touch %s && chmod -R 666 %s && echo \"%s\" > %s && update-ca-certificates",
-		harborCACertPathUbuntu, harborCACertPathUbuntu, string(ca), harborCACertPathUbuntu)
-	centos := fmt.Sprintf("touch %s && chmod -R 666 %s && echo \"%s\" > %s && update-ca-trust",
-		harborCACertPathCentOS, harborCACertPathCentOS, string(ca), harborCACertPathCentOS)
-	cmd := fmt.Sprintf("command -v update-ca-certificates >/dev/null 2>&1 && (%s) || (%s)", ubuntu, centos)
+	cmd := harborCertCommand(ca, harborHosts(secret.Data["tls.crt"]), adopted)
 	if err = r.executeSSHCommand(sshClient, cmd); err != nil {
 		return false, err
 	}
 	return true, nil
+}
+
+// harborCertCommand builds the remote script that trusts the Harbor CA. For an adopted node the
+// CA is written to a separate file and a containerd hosts.toml is written for each Harbor host.
+func harborCertCommand(ca []byte, hosts []string, adopted bool) string {
+	ubuntuPath, centosPath := harborCACertPathUbuntu, harborCACertPathCentOS
+	if adopted {
+		ubuntuPath, centosPath = adoptedHarborCACertPathUbuntu, adoptedHarborCACertPathCentOS
+	}
+	ubuntu := fmt.Sprintf("touch %s && chmod -R 666 %s && echo \"%s\" > %s && update-ca-certificates",
+		ubuntuPath, ubuntuPath, string(ca), ubuntuPath)
+	centos := fmt.Sprintf("touch %s && chmod -R 666 %s && echo \"%s\" > %s && update-ca-trust",
+		centosPath, centosPath, string(ca), centosPath)
+	cmd := fmt.Sprintf("command -v update-ca-certificates >/dev/null 2>&1 && (%s) || (%s)", ubuntu, centos)
+	if !adopted {
+		return cmd
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "(%s) && if [ -f %s ]; then ca=%s; else ca=%s; fi", cmd, ubuntuPath, ubuntuPath, centosPath)
+	for _, host := range hosts {
+		if !harborHostPattern.MatchString(host) {
+			continue
+		}
+		dir := containerdCertsDir + "/" + host
+		fmt.Fprintf(&b, " && mkdir -p %s && printf 'server = \"https://%s\"\\n\\n[host.\"https://%s\"]\\n"+
+			"  capabilities = [\"pull\", \"resolve\"]\\n  ca = \"%%s\"\\n' \"$ca\" > %s/hosts.toml", dir, host, host, dir)
+	}
+	return b.String()
+}
+
+// harborHosts returns the DNS names of the Harbor serving certificate.
+func harborHosts(tlsCrt []byte) []string {
+	block, _ := pem.Decode(tlsCrt)
+	if block == nil {
+		return nil
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil
+	}
+	return cert.DNSNames
 }
 
 // installAddons installs addons on the Node by creating an OpsJob.

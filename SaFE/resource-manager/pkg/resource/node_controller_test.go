@@ -7,6 +7,11 @@ package resource
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
+	"math/big"
 	"testing"
 	"time"
 
@@ -896,7 +901,7 @@ func TestNodeInstallHarborCertNoSecret(t *testing.T) {
 	sshClient, cleanup := startInMemorySSHServer(t)
 	defer cleanup()
 	// No harbor-tls secret -> returns false, nil.
-	ok, err := r.installHarborCert(context.Background(), sshClient)
+	ok, err := r.installHarborCert(context.Background(), sshClient, false)
 	testifyassert.NoError(t, err)
 	testifyassert.False(t, ok)
 }
@@ -1266,9 +1271,36 @@ func TestInstallHarborCertSuccess(t *testing.T) {
 		Data:       map[string][]byte{"ca.crt": []byte("cacert")},
 	}
 	r := newMockNodeReconciler(ctrlfakeNewClient(scheme, secret))
-	ok, err := r.installHarborCert(context.Background(), sshClient)
+	ok, err := r.installHarborCert(context.Background(), sshClient, false)
 	testifyassert.NoError(t, err)
 	testifyassert.True(t, ok)
+}
+
+func TestHarborCertCommandAdoptedKeepsClusterCA(t *testing.T) {
+	cmd := harborCertCommand([]byte("cacert"), []string{"harbor.global.primus-safe.amd.com", "bad;host"}, true)
+	testifyassert.NotContains(t, cmd, harborCACertPathUbuntu)
+	testifyassert.NotContains(t, cmd, harborCACertPathCentOS)
+	testifyassert.Contains(t, cmd, adoptedHarborCACertPathUbuntu)
+	testifyassert.Contains(t, cmd, "/etc/containerd/certs.d/harbor.global.primus-safe.amd.com/hosts.toml")
+	testifyassert.NotContains(t, cmd, "bad;host")
+}
+
+func TestHarborCertCommandManagedUsesDefaultPath(t *testing.T) {
+	cmd := harborCertCommand([]byte("cacert"), []string{"harbor.global.primus-safe.amd.com"}, false)
+	testifyassert.Contains(t, cmd, harborCACertPathUbuntu)
+	testifyassert.NotContains(t, cmd, "certs.d")
+}
+
+func TestHarborHostsFromCertificate(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	testifyassert.NoError(t, err)
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(1), DNSNames: []string{"harbor.global.primus-safe.amd.com"},
+		NotBefore: time.Now(), NotAfter: time.Now().Add(time.Hour)}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	testifyassert.NoError(t, err)
+	pemCert := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	testifyassert.Equal(t, []string{"harbor.global.primus-safe.amd.com"}, harborHosts(pemCert))
+	testifyassert.Empty(t, harborHosts([]byte("not a cert")))
 }
 
 func TestInstallHarborCertNoCAKey(t *testing.T) {
@@ -1280,7 +1312,7 @@ func TestInstallHarborCertNoCAKey(t *testing.T) {
 		Data:       map[string][]byte{},
 	}
 	r := newMockNodeReconciler(ctrlfakeNewClient(scheme, secret))
-	ok, err := r.installHarborCert(context.Background(), sshClient)
+	ok, err := r.installHarborCert(context.Background(), sshClient, false)
 	testifyassert.NoError(t, err)
 	testifyassert.False(t, ok)
 }

@@ -551,6 +551,43 @@ func TestAdoptedFlavorRoundsMemoryToGi(t *testing.T) {
 	assert.Equal(t, "2015Gi", a.Spec.Memory.String())
 }
 
+func TestAdoptedExtendedResources(t *testing.T) {
+	node := &corev1.Node{Status: corev1.NodeStatus{
+		Capacity:    corev1.ResourceList{corev1.ResourceEphemeralStorage: resource.MustParse("943819063296")},
+		Allocatable: corev1.ResourceList{"rdma/hca": resource.MustParse("1k")},
+	}}
+	res := adoptedExtendedResources(node, "rdma/hca")
+	storage := res[corev1.ResourceEphemeralStorage]
+	rdma := res["rdma/hca"]
+	assert.Equal(t, "879Gi", storage.String())
+	assert.Equal(t, "1k", rdma.String())
+	_, ok := adoptedExtendedResources(node, "")["rdma/hca"]
+	assert.False(t, ok)
+}
+
+func TestEnsureAdoptedFlavorAddsMissingResources(t *testing.T) {
+	existing := &v1.NodeFlavor{ObjectMeta: metav1.ObjectMeta{Name: "f1"}, Spec: v1.NodeFlavorSpec{
+		Memory:          resource.MustParse("10Gi"),
+		ExtendResources: corev1.ResourceList{corev1.ResourceEphemeralStorage: resource.MustParse("100Gi")},
+	}}
+	r := newPlaneReconciler(t, existing)
+	desired := &v1.NodeFlavor{ObjectMeta: metav1.ObjectMeta{Name: "f1"}, Spec: v1.NodeFlavorSpec{
+		Memory: resource.MustParse("20Gi"),
+		ExtendResources: corev1.ResourceList{
+			corev1.ResourceEphemeralStorage: resource.MustParse("879Gi"),
+			"rdma/hca":                      resource.MustParse("1k"),
+		},
+	}}
+	assert.NoError(t, r.ensureAdoptedFlavor(context.Background(), desired))
+	got := &v1.NodeFlavor{}
+	assert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "f1"}, got))
+	storage := got.Spec.ExtendResources[corev1.ResourceEphemeralStorage]
+	rdma := got.Spec.ExtendResources["rdma/hca"]
+	assert.Equal(t, "100Gi", storage.String())
+	assert.Equal(t, "1k", rdma.String())
+	assert.Equal(t, "10Gi", got.Spec.Memory.String())
+}
+
 func TestVolumesFromPVCsIgnoresUnrelatedClaims(t *testing.T) {
 	storage := "cephfs"
 	pvcs := []corev1.PersistentVolumeClaim{

@@ -8,6 +8,7 @@ package resource
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"testing"
 
@@ -441,6 +442,42 @@ func TestReleasingAdoptedClusterKeepsRelease(t *testing.T) {
 	assert.Equal(t, v1.AddonPhaseType(v1.AddonDeleted), addon.Status.Phase)
 }
 
+const ownershipConflictErr = "Unable to continue with install: ServiceAccount \"fluent-operator\" in namespace " +
+	"\"primus-robust\" exists and cannot be imported into the current release: invalid ownership metadata"
+
+func TestInstallConflictMarksAdoptedAddonPreinstalled(t *testing.T) {
+	addon := helmAddon("ccs300-primus-robust", "primus-robust")
+	addon.Status.AddonSourceStatus.HelmRepositoryStatus = nil
+	r := newHelmAddonController(t, addon)
+	testifyassert.NoError(t, r.handleInstallError(context.Background(), addon, true, fmt.Errorf(ownershipConflictErr)))
+	got := &v1.Addon{}
+	testifyassert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: addon.Name}, got))
+	assert.Equal(t, v1.TrueStr, v1.GetAnnotation(got, v1.AddonPreinstalledAnnotation))
+	assert.Equal(t, v1.AddonPhaseType(v1.AddonRunning), got.Status.Phase)
+	testifyassert.Nil(t, got.Status.AddonSourceStatus.HelmRepositoryStatus)
+}
+
+func TestInstallConflictFailsOnManagedCluster(t *testing.T) {
+	addon := helmAddon("c1-primus-robust", "primus-robust")
+	addon.Status.AddonSourceStatus.HelmRepositoryStatus = nil
+	r := newHelmAddonController(t, addon)
+	testifyassert.Error(t, r.handleInstallError(context.Background(), addon, false, fmt.Errorf(ownershipConflictErr)))
+	assert.Equal(t, v1.AddonPhaseType(v1.AddonError), addon.Status.Phase)
+	assert.Equal(t, "", v1.GetAnnotation(addon, v1.AddonPreinstalledAnnotation))
+}
+
+func TestGuaranteeHelmAddonSkipsPreinstalled(t *testing.T) {
+	addon := helmAddon("ccs300-primus-robust", "primus-robust")
+	addon.Status.AddonSourceStatus.HelmRepositoryStatus = nil
+	addon.Status.Phase = v1.AddonRunning
+	addon.Finalizers = []string{v1.AddonFinalizer}
+	addon.Spec.AddonSource.HelmRepository.Template = &corev1.ObjectReference{Name: "missing-template"}
+	v1.SetAnnotation(addon, v1.AddonPreinstalledAnnotation, v1.TrueStr)
+	r := newHelmAddonController(t, addon)
+	testifyassert.NoError(t, r.guaranteeHelmAddon(context.Background(), addon))
+	assert.Equal(t, v1.AddonPhaseType(v1.AddonRunning), addon.Status.Phase)
+}
+
 func TestHelmUninstallNoStatus(t *testing.T) {
 	addon := helmAddon("a1", "rel1")
 	addon.Status.AddonSourceStatus.HelmRepositoryStatus = nil
@@ -580,7 +617,7 @@ func TestHelmInstallViaMemory(t *testing.T) {
 	patches := patchAddonHelmWithChart(r, cfg, chartPath)
 	defer patches.Reset()
 
-	err := r.helmInstall(context.Background(), addon)
+	err := r.helmInstall(context.Background(), addon, false)
 	testifyassert.NoError(t, err)
 }
 

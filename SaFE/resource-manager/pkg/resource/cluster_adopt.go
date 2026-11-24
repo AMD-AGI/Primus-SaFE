@@ -30,6 +30,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/utils"
 )
@@ -258,6 +259,8 @@ func (r *ClusterReconciler) syncAdoptedControlPlane(ctx context.Context, cluster
 	return r.Patch(ctx, cluster, original)
 }
 
+// ensureAdoptedFlavor creates the flavor, or adds the extended resources an existing flavor lacks.
+// Fields already set on an existing flavor are left unchanged.
 func (r *ClusterReconciler) ensureAdoptedFlavor(ctx context.Context, flavor *v1.NodeFlavor) error {
 	if flavor == nil || flavor.Name == "" {
 		return nil
@@ -265,7 +268,22 @@ func (r *ClusterReconciler) ensureAdoptedFlavor(ctx context.Context, flavor *v1.
 	existing := &v1.NodeFlavor{}
 	err := r.Get(ctx, types.NamespacedName{Name: flavor.Name}, existing)
 	if err == nil {
-		return nil
+		original := client.MergeFrom(existing.DeepCopy())
+		changed := false
+		for name, quantity := range flavor.Spec.ExtendResources {
+			if _, ok := existing.Spec.ExtendResources[name]; ok {
+				continue
+			}
+			if existing.Spec.ExtendResources == nil {
+				existing.Spec.ExtendResources = corev1.ResourceList{}
+			}
+			existing.Spec.ExtendResources[name] = quantity
+			changed = true
+		}
+		if !changed {
+			return nil
+		}
+		return r.Patch(ctx, existing, original)
 	}
 	if !apierrors.IsNotFound(err) {
 		return err
@@ -486,7 +504,25 @@ func adoptedFlavor(cluster *v1.Cluster, node *corev1.Node) *v1.NodeFlavor {
 	if gpuResource != "" {
 		flavor.Spec.Gpu = &v1.GpuChip{ResourceName: gpuResource, Quantity: gpu}
 	}
+	if res := adoptedExtendedResources(node, commonconfig.GetRdmaName()); len(res) > 0 {
+		flavor.Spec.ExtendResources = res
+	}
 	return flavor
+}
+
+// adoptedExtendedResources returns the node ephemeral storage, rounded down to whole GiB, and the
+// allocatable RDMA resource when rdmaName is set.
+func adoptedExtendedResources(node *corev1.Node, rdmaName string) corev1.ResourceList {
+	res := corev1.ResourceList{}
+	if storage, ok := node.Status.Capacity[corev1.ResourceEphemeralStorage]; ok && !storage.IsZero() {
+		res[corev1.ResourceEphemeralStorage] = roundDownToGi(storage)
+	}
+	if rdmaName != "" {
+		if rdma, ok := node.Status.Allocatable[corev1.ResourceName(rdmaName)]; ok && !rdma.IsZero() {
+			res[corev1.ResourceName(rdmaName)] = rdma
+		}
+	}
+	return res
 }
 
 // roundDownToGi rounds memory down to whole GiB, at least 1Gi, so that identical machines

@@ -396,6 +396,8 @@ const (
 	AddonDefaultLabel = AddonPrefix + "default"
 	// Comma-separated cluster names that do not receive a default AddonTemplate.
 	AddonDefaultSkipClustersAnnotation = AddonPrefix + "default.skip-clusters"
+	// Marks an Addon whose chart was already installed in an adopted cluster by another release.
+	AddonPreinstalledAnnotation = AddonPrefix + "preinstalled"
 
 	// model
 	ModelPrefix              = PrimusSafePrefix + "model."
