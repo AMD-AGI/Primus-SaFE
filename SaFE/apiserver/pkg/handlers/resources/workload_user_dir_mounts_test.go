@@ -102,3 +102,30 @@ func TestUserDirMountsOffMarkCannotBeForged(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, v1.HasAnnotation(stored, v1.WorkloadUserDirMountsOffAnnotation))
 }
+
+// A patch of a workload that carries the opt-out mark needs a system administrator, so a workspace
+// manager cannot change what runs with whole volumes; a workload without the mark is unchanged.
+func TestUserDirMountsOffWorkloadPatchRequiresSystemAdmin(t *testing.T) {
+	off := false
+	f := newHostPathFixture(t)
+	marked, err := f.createUserDirMounts(t, hpAdmin, nil, &off)
+	require.NoError(t, err)
+	plain, err := f.createUserDirMounts(t, hpManager, nil, nil)
+	require.NoError(t, err)
+
+	patch := func(userId string, workload *v1.Workload) error {
+		requestUser := &v1.User{}
+		require.NoError(t, f.cli.Get(t.Context(), client.ObjectKey{Name: userId}, requestUser))
+		roles := f.h.accessController.GetRoles(t.Context(), requestUser)
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = httptest.NewRequest(http.MethodPatch, "/", nil)
+		c.Set(common.UserId, userId)
+		_, err := f.h.authWorkloadUpdate(c, workload, requestUser, roles, &view.PatchWorkloadRequest{})
+		return err
+	}
+	err = patch(hpManager, marked)
+	require.Error(t, err)
+	require.True(t, apierrors.IsForbidden(err), "%v", err)
+	require.NoError(t, patch(hpAdmin, marked))
+	require.NoError(t, patch(hpManager, plain))
+}
