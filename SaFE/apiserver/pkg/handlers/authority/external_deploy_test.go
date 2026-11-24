@@ -14,8 +14,8 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 )
 
-// External mode needs a login URL and a group that grants system-admin. The identity service URL is not
-// needed to start: a SCIM registration without it logs its failure.
+// External mode needs a login URL and a group that grants system-admin. The identity service URL is needed
+// while SCIM is enabled, because the apiserver registers its SCIM target with that service.
 func TestCheckExternalDeployment(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
@@ -31,7 +31,7 @@ func TestCheckExternalDeployment(t *testing.T) {
 	require.ErrorContains(t, CheckExternalDeployment(), "system-admin to no group")
 
 	viper.Set("auth.group_mappings", []map[string]any{{"group": "admins", "roles": []string{"system-admin"}}})
-	require.NoError(t, CheckExternalDeployment(), "SCIM on without an identity URL does not block start-up")
+	require.ErrorContains(t, CheckExternalDeployment(), "identity_url", "SCIM is on by default and needs an identity URL")
 
 	viper.Set("auth.scim.enabled", false)
 	require.NoError(t, CheckExternalDeployment())

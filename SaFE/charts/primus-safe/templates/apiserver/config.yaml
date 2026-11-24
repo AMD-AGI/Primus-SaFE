@@ -237,6 +237,21 @@ data:
     {{- end }}
     {{- end }}
     {{- end }}
+    {{- /* The apiserver registers its SCIM target with the identity service, so the SCIM identity URL must resolve. */}}
+    {{- $scimOn := default dict .Values.auth.scim }}
+    {{- if ne ($scimOn.enabled | toString) "false" }}
+    {{- $idBase := $scimOn.identity_url | default "" | toString }}
+    {{- if not $idBase }}
+    {{- range $a := default (list) .Values.auth.authenticators }}
+    {{- if and (not $idBase) (eq (lower (default "" $a.type)) "introspection") }}
+    {{- $idBase = $a.url | default $a.issuer | default "" | toString }}
+    {{- end }}
+    {{- end }}
+    {{- end }}
+    {{- if not $idBase }}
+    {{- fail "auth.scim is enabled but auth.scim.identity_url cannot be resolved from an introspection authenticator" }}
+    {{- end }}
+    {{- end }}
     {{- end }}
     {{- $scimPublic := (default dict .Values.auth.scim).public_url }}
     {{- $scimOrigin := include "primus-safe.publicOrigin" . }}

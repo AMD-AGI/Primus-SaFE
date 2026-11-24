@@ -391,7 +391,8 @@ run_upgrade "$LIVE_BUILTIN" "$(sed 's|^auth_group_mappings=.*|auth_group_mapping
 expect "external without a system-admin group: refused" refused
 expect "external without a system-admin group: says why" grep -q 'roles include system-admin' "$OUT/log"
 run_upgrade "$LIVE_BUILTIN" "$(sed 's/^auth_scim_enabled=false/auth_scim_enabled=true/' <<<"$AUTH_ENV")"
-expect "external with scim and no identity url: applied, registration logs its own failure" applied
+expect "external with scim and no identity url: refused" refused
+expect "external with scim and no identity url: says why" grep -q 'auth_scim_identity_url cannot be resolved' "$OUT/log"
 run_upgrade "$LIVE_BUILTIN" "$(sed -e 's/^auth_scim_enabled=false/auth_scim_enabled=true/' -e 's|^auth_scim_identity_url=.*|auth_scim_identity_url=https://idp.example.com|' <<<"$AUTH_ENV")"
 expect "external with scim and an identity url: applied" applied
 expect "external with scim and an identity url: rendered" grep -qF 'identity_url: "https://idp.example.com"' "$OUT/rendered.yaml"

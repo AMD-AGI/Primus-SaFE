@@ -22,6 +22,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/extauth"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/identity"
 	apimetrics "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/metrics"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
@@ -372,8 +373,9 @@ func accountType(id *extauth.Identity) v1.UserType {
 	return v1.SSOUserType
 }
 
-// CheckExternalDeployment rejects an external configuration that cannot sign in or grant an
-// administrator. Builtin mode returns nil.
+// CheckExternalDeployment rejects an external configuration that cannot sign in, grant an
+// administrator, or resolve the identity service URL while SCIM is enabled, since the apiserver
+// registers its SCIM target with that service. Builtin mode returns nil.
 func CheckExternalDeployment() error {
 	if commonconfig.GetAuthMode() != commonconfig.AuthModeExternal {
 		return nil
@@ -395,6 +397,11 @@ func CheckExternalDeployment() error {
 	}
 	if !admin {
 		return errors.New("auth.mode is external but auth.group_mappings grants system-admin to no group")
+	}
+	if commonconfig.IsSCIMEnabled() {
+		if _, err = identity.ResolveBase(); err != nil {
+			return fmt.Errorf("auth.scim is enabled but auth.scim.identity_url cannot be resolved: %w", err)
+		}
 	}
 	return nil
 }

@@ -2056,7 +2056,7 @@ func TestChartRefusesAnIncompleteExternalAuth(t *testing.T) {
 		{"oidc only, allowed", externalAuthArgs("--set", "auth.authenticators[0].type=oidc", "--set", "auth.allow_oidc_only=true"), ""},
 		{"no system-admin group", externalAuthArgs("--set", "auth.group_mappings[0].roles[0]=system-admin-readonly"),
 			"grants system-admin to no group"},
-		{"scim without an identity URL does not block the render", externalAuthArgs("--set", "auth.scim.enabled=true"), ""},
+		{"scim without an identity URL", externalAuthArgs("--set", "auth.scim.enabled=true"), "auth.scim.identity_url cannot be resolved"},
 		{"scim with an identity URL", externalAuthArgs("--set", "auth.scim.enabled=true", "--set-string", "auth.scim.identity_url=https://idp.example"), ""},
 		{"provider_client was removed", externalAuthArgs("--set", "auth.provider_client=true"), "auth.provider_client has been removed"},
 		{"sso.login with no oidc entry for the console", externalAuthArgs("--set", "sso.login.enable=true"), ""},
