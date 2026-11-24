@@ -68,6 +68,9 @@ func (r *ClusterAdoptReconciler) Reconcile(ctx context.Context, req ctrlruntime.
 		return ctrlruntime.Result{}, nil
 	}
 	err := r.adoptClusterContents(ctx, cluster)
+	if err == nil && v1.HasAnnotation(cluster, v1.ClusterAdoptWorkloadsAnnotation) {
+		err = r.importAdoptedWorkloads(ctx, cluster)
+	}
 	if !errors.Is(err, errAdoptedClientNotReady) {
 		if msgErr := r.setClusterMessage(ctx, cluster, adoptFailedMessage, err); msgErr != nil {
 			klog.ErrorS(msgErr, "failed to update cluster message", "cluster", cluster.Name)
@@ -81,8 +84,8 @@ func (r *ClusterAdoptReconciler) Reconcile(ctx context.Context, req ctrlruntime.
 	return ctrlruntime.Result{RequeueAfter: adoptResyncInterval}, nil
 }
 
-// adoptedClusterPredicate admits clusters marked for adoption on creation, spec changes and
-// control plane phase changes. Other updates rely on the periodic requeue.
+// adoptedClusterPredicate admits clusters marked for adoption on creation, spec changes,
+// control plane phase changes and a new workload import request. Other updates rely on the periodic requeue.
 func adoptedClusterPredicate() predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
@@ -99,7 +102,9 @@ func adoptedClusterPredicate() predicate.Predicate {
 				return false
 			}
 			return oldCluster.GetGeneration() != newCluster.GetGeneration() ||
-				oldCluster.Status.ControlPlaneStatus.Phase != newCluster.Status.ControlPlaneStatus.Phase
+				oldCluster.Status.ControlPlaneStatus.Phase != newCluster.Status.ControlPlaneStatus.Phase ||
+				(!v1.HasAnnotation(oldCluster, v1.ClusterAdoptWorkloadsAnnotation) &&
+					v1.HasAnnotation(newCluster, v1.ClusterAdoptWorkloadsAnnotation))
 		},
 		DeleteFunc: func(event.DeleteEvent) bool { return false },
 	}

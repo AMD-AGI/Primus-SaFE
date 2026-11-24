@@ -1285,8 +1285,12 @@ func indexOfPod(pods []v1.WorkloadPod, podId string) int {
 // isStaleWorkloadGeneration reports whether a data-plane object belongs to a
 // previous CR that reused this workload id. Only a mismatched uid label is
 // stale. Objects without a uid are not classified; dispatch count is ignored.
+// The data plane uid recorded on an adopted workload counts as current.
 func isStaleWorkloadGeneration(w *v1.Workload, workloadUid string) bool {
 	if w == nil || w.UID == "" || workloadUid == "" {
+		return false
+	}
+	if adopted := v1.GetAnnotation(w, v1.WorkloadAdoptUidAnnotation); adopted != "" && workloadUid == adopted {
 		return false
 	}
 	return workloadUid != string(w.UID)

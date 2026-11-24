@@ -40,6 +40,45 @@ func TestAdoptedClusterPredicateIgnoresUnrelatedUpdates(t *testing.T) {
 	pending := old.DeepCopy()
 	pending.Status.ControlPlaneStatus.Phase = v1.PendingPhase
 	assert.True(t, p.Update(event.UpdateEvent{ObjectOld: pending, ObjectNew: old}))
+
+	requested := old.DeepCopy()
+	v1.SetAnnotation(requested, v1.ClusterAdoptWorkloadsAnnotation, v1.TrueStr)
+	assert.True(t, p.Update(event.UpdateEvent{ObjectOld: old, ObjectNew: requested}))
+	assert.False(t, p.Update(event.UpdateEvent{ObjectOld: requested, ObjectNew: old}))
+}
+
+func TestClusterAdoptReconcileImportsWorkloadsOnlyWhenRequested(t *testing.T) {
+	cluster := testCluster("c1")
+	v1.SetAnnotation(cluster, v1.ClusterAdoptAnnotation, v1.TrueStr)
+	r := &ClusterAdoptReconciler{ClusterReconciler: newPlaneReconciler(t, cluster)}
+	imports := 0
+	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(&ClusterReconciler{}), "importAdoptedWorkloads",
+		func(_ *ClusterReconciler, _ context.Context, _ *v1.Cluster) error { imports++; return nil })
+	defer patches.Reset()
+	req := ctrlruntime.Request{NamespacedName: types.NamespacedName{Name: "c1"}}
+
+	_, err := r.Reconcile(context.Background(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, 0, imports)
+
+	got := &v1.Cluster{}
+	assert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: "c1"}, got))
+	v1.SetAnnotation(got, v1.ClusterAdoptWorkloadsAnnotation, v1.TrueStr)
+	assert.NoError(t, r.Update(context.Background(), got))
+	_, err = r.Reconcile(context.Background(), req)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, imports)
+}
+
+func TestImportAdoptedWorkloadsRemovesRequest(t *testing.T) {
+	cluster := testCluster("c1")
+	v1.SetAnnotation(cluster, v1.ClusterAdoptWorkloadsAnnotation, v1.TrueStr)
+	r := newClusterReconcilerFull(t, k8sfake.NewSimpleClientset(), cluster)
+
+	assert.NoError(t, r.importAdoptedWorkloads(context.Background(), cluster))
+	got := &v1.Cluster{}
+	assert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: "c1"}, got))
+	assert.False(t, v1.HasAnnotation(got, v1.ClusterAdoptWorkloadsAnnotation))
 }
 
 func TestClusterAdoptReconcileRequeuesPeriodically(t *testing.T) {

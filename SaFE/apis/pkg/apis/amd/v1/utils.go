@@ -303,6 +303,11 @@ func IsControlPlane(obj metav1.Object) bool {
 	return HasLabel(obj, KubernetesControlPlane)
 }
 
+// IsAdoptedWorkload reports a workload imported from the SaFE of an adopted cluster.
+func IsAdoptedWorkload(obj metav1.Object) bool {
+	return GetAnnotation(obj, WorkloadAdoptAnnotation) == TrueStr
+}
+
 // IsAdoptedWorkspace reports a workspace recorded from a data plane that already has it.
 func IsAdoptedWorkspace(obj metav1.Object) bool {
 	return GetAnnotation(obj, WorkspaceAdoptAnnotation) == TrueStr
