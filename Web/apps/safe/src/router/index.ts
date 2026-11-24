@@ -185,6 +185,11 @@ const router = createRouter({
           component: () => import('../pages/Infer/InferDetail.vue'),
         },
         {
+          path: '/dynamo/detail',
+          name: 'DynamoDetail',
+          component: () => import('../pages/Dynamo/DynamoDetail.vue'),
+        },
+        {
           path: '/infera/detail',
           name: 'InferaDetail',
           component: () => import('../pages/Infera/InferaDetail.vue'),

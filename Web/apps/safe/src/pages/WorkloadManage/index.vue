@@ -376,7 +376,7 @@ const getWorkloadReplicaCount = (row: {
 }
 
 // ── Kind config (includes extra types only visible in admin page) ──
-const ALL_KINDS = [...Object.values(WorkloadKind).filter((k) => k !== WorkloadKind.DynamoDeployment), 'Job']
+const ALL_KINDS = [...Object.values(WorkloadKind), 'Job']
 const kindFilters = ALL_KINDS.map((k) => ({ text: k, value: k }))
 const filterSelectedKind = ref<string[]>([])
 
@@ -385,6 +385,7 @@ const isTrainingLike = (kind: string) =>
     WorkloadKind.PyTorchJob,
     WorkloadKind.TorchFT,
     WorkloadKind.RayJob,
+    WorkloadKind.DynamoDeployment,
     WorkloadKind.InferaDeployment,
   ].includes(kind as WorkloadKind)
 
@@ -417,6 +418,7 @@ const dialogImportMap: Record<string, () => Promise<any>> = {
   Authoring: () => import('@/pages/Authoring/Components/AddDialog.vue'),
   TorchFT: () => import('@/pages/TorchFT/Components/AddDialog.vue'),
   RayJob: () => import('@/pages/RayJob/Components/AddDialog.vue'),
+  DynamoDeployment: () => import('@/pages/Dynamo/Components/AddDialog.vue'),
   InferaDeployment: () => import('@/pages/Infera/Components/AddDialog.vue'),
   Atom: () => import('@/pages/Atom/Components/AddDialog.vue'),
   SGLangRouter: () => import('@/pages/SGLangRouter/Components/AddDialog.vue'),

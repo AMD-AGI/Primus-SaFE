@@ -32,6 +32,7 @@ export interface MenuIcons {
   download: IconSet
   infer: IconSet
   deployment: IconSet
+  dynamo: IconSet
   infera: IconSet
   modelSquare: IconSet
   preflight: IconSet
@@ -74,6 +75,7 @@ export const menuIcons: MenuIcons = {
   download: createIconSet('deploy'), // Using deploy icons as placeholder
   infer: createIconSet('infer'),
   deployment: createIconSet('deployment'),
+  dynamo: createIconSet('dynamo'),
   infera: createIconSet('infera'),
   dataset: createIconSet('dataset'),
   evaluation: createIconSet('evaluation'),

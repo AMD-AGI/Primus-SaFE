@@ -50,7 +50,7 @@ export enum WorkloadKind {
   SGLangRouter = 'SGLangRouter',
 }
 // kind -> base path
-export const KindPathMap: Partial<Record<WorkloadKind, `/${string}`>> = {
+export const KindPathMap: Record<WorkloadKind, `/${string}`> = {
   [WorkloadKind.PyTorchJob]: '/training',
   [WorkloadKind.Authoring]: '/authoring',
   [WorkloadKind.Deployment]: '/infer',
@@ -62,6 +62,7 @@ export const KindPathMap: Partial<Record<WorkloadKind, `/${string}`>> = {
   [WorkloadKind.TorchFT]: '/torchft',
   [WorkloadKind.RayJob]: '/rayjob',
   [WorkloadKind.Sandbox]: '/sandbox-workload',
+  [WorkloadKind.DynamoDeployment]: '/dynamo',
   [WorkloadKind.InferaDeployment]: '/infera',
   [WorkloadKind.Atom]: '/atom',
   [WorkloadKind.SGLangRouter]: '/sglang-router',
