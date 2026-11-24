@@ -215,27 +215,51 @@ func TestSyncAdoptedInventoryKeepsExistingWorkspace(t *testing.T) {
 	assert.Empty(t, got.Spec.Volumes)
 }
 
-func TestSyncAdoptedInventoryCopiesWorkspaceScopes(t *testing.T) {
+func TestSyncAdoptedInventoryKeepsLocalWorkspaceConfig(t *testing.T) {
 	cluster := testCluster("ccs300")
 	k8sNode := workerNode("gpu9458", "10.0.0.11")
 	k8sNode.Labels = map[string]string{v1.WorkspaceIdLabel: "ccs300-gpu", v1.NodeFlavorIdLabel: "mi300x-ccs300"}
+	pvc := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "pfs-1", Namespace: "ccs300-gpu"}}
+	volumes := []v1.WorkspaceVolume{
+		{Id: 1, Type: v1.PFS, MountPath: "/cephfs", AccessMode: corev1.ReadWriteMany, Capacity: "1Pi", StorageClass: "cephfs"},
+		{Id: 2, Type: v1.HOSTPATH, MountPath: "/primus-shared", HostPath: "/primus-shared", AccessMode: corev1.ReadWriteMany},
+	}
+	local := &v1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{Name: "ccs300-gpu",
+			Labels:      map[string]string{v1.DisplayNameLabel: "gpu"},
+			Annotations: map[string]string{v1.DescriptionAnnotation: "gpu pool", v1.GpuProductAnnotation: "MI300X"}},
+		Spec: v1.WorkspaceSpec{Volumes: volumes, Scopes: []v1.WorkspaceScope{"Train", "Infer"},
+			QueuePolicy: v1.QueueBalancePolicy, IsDefault: true, Managers: []string{"local-user"}},
+	}
 	r := newPlaneReconciler(t, cluster)
-	scopes := map[string][]v1.WorkspaceScope{"ccs300-gpu": {"Train", "Infer"}}
-	assert.NoError(t, r.syncAdoptedInventory(context.Background(), cluster, fake.NewSimpleClientset(), []corev1.Node{k8sNode}, scopes))
+	assert.NoError(t, r.syncAdoptedInventory(context.Background(), cluster, fake.NewSimpleClientset(pvc),
+		[]corev1.Node{k8sNode}, map[string]*v1.Workspace{"ccs300-gpu": local}))
+
 	got := &v1.Workspace{}
 	assert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "ccs300-gpu"}, got))
+	assert.Equal(t, volumes, got.Spec.Volumes)
 	assert.Equal(t, []v1.WorkspaceScope{"Train", "Infer"}, got.Spec.Scopes)
+	assert.Equal(t, v1.QueueBalancePolicy, got.Spec.QueuePolicy)
+	assert.Equal(t, "gpu", v1.GetLabel(got, v1.DisplayNameLabel))
+	assert.Equal(t, "gpu pool", v1.GetAnnotation(got, v1.DescriptionAnnotation))
+	assert.Equal(t, "MI300X", v1.GetAnnotation(got, v1.GpuProductAnnotation))
+	assert.False(t, got.Spec.IsDefault)
+	assert.Empty(t, got.Spec.Managers)
+	assert.Equal(t, 1, got.Spec.Replica)
+	assert.Equal(t, "mi300x-ccs300", got.Spec.NodeFlavor)
 }
 
-func TestDataPlaneWorkspaceScopes(t *testing.T) {
+func TestDataPlaneWorkspaces(t *testing.T) {
 	gvr := v1.SchemeGroupVersion.WithResource("workspaces")
 	workspace := func(name string, scopes ...interface{}) *unstructured.Unstructured {
-		obj := &unstructured.Unstructured{Object: map[string]interface{}{"spec": map[string]interface{}{}}}
+		obj := &unstructured.Unstructured{Object: map[string]interface{}{"spec": map[string]interface{}{
+			"volumes": []interface{}{map[string]interface{}{"id": int64(1), "type": "pfs", "mountPath": "/cephfs"}},
+		}}}
 		obj.SetAPIVersion(v1.SchemeGroupVersion.String())
 		obj.SetKind(v1.WorkspaceKind)
 		obj.SetName(name)
 		if len(scopes) > 0 {
-			obj.Object["spec"] = map[string]interface{}{"scopes": scopes}
+			obj.Object["spec"].(map[string]interface{})["scopes"] = scopes
 		}
 		return obj
 	}
@@ -244,15 +268,18 @@ func TestDataPlaneWorkspaceScopes(t *testing.T) {
 			map[schema.GroupVersionResource]string{gvr: "WorkspaceList"}, objs...)
 	}
 
-	got, err := dataPlaneWorkspaceScopes(context.Background(), newClient(workspace("gpu", "Train", "Ray"), workspace("empty")))
+	got, err := dataPlaneWorkspaces(context.Background(), newClient(workspace("gpu", "Train", "Ray"), workspace("empty")))
 	assert.NoError(t, err)
-	assert.Equal(t, map[string][]v1.WorkspaceScope{"gpu": {"Train", "Ray"}}, got)
+	assert.Len(t, got, 2)
+	assert.Equal(t, []v1.WorkspaceScope{"Train", "Ray"}, got["gpu"].Spec.Scopes)
+	assert.Empty(t, got["empty"].Spec.Scopes)
+	assert.Equal(t, "/cephfs", got["gpu"].Spec.Volumes[0].MountPath)
 
 	missing := newClient()
 	missing.PrependReactor("list", "workspaces", func(k8stesting.Action) (bool, runtime.Object, error) {
 		return true, nil, apierrors.NewNotFound(gvr.GroupResource(), "")
 	})
-	got, err = dataPlaneWorkspaceScopes(context.Background(), missing)
+	got, err = dataPlaneWorkspaces(context.Background(), missing)
 	assert.NoError(t, err)
 	assert.Empty(t, got)
 
@@ -260,7 +287,7 @@ func TestDataPlaneWorkspaceScopes(t *testing.T) {
 	failing.PrependReactor("list", "workspaces", func(k8stesting.Action) (bool, runtime.Object, error) {
 		return true, nil, fmt.Errorf("connection refused")
 	})
-	_, err = dataPlaneWorkspaceScopes(context.Background(), failing)
+	_, err = dataPlaneWorkspaces(context.Background(), failing)
 	assert.Error(t, err)
 }
 

@@ -22,7 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
@@ -83,12 +83,12 @@ func (r *ClusterReconciler) adoptClusterContents(ctx context.Context, cluster *v
 	if dc := factory.DynamicClient(); dc != nil {
 		dynamicClient = dc
 	}
-	scopes, err := dataPlaneWorkspaceScopes(ctx, dynamicClient)
+	locals, err := dataPlaneWorkspaces(ctx, dynamicClient)
 	if err != nil {
 		return err
 	}
 	authorizeErr := r.authorizeAdoptedWorkers(ctx, cluster, nodes)
-	if err = r.syncAdoptedInventory(ctx, cluster, factory.ClientSet(), nodes, scopes); err != nil {
+	if err = r.syncAdoptedInventory(ctx, cluster, factory.ClientSet(), nodes, locals); err != nil {
 		return err
 	}
 	return authorizeErr
@@ -201,10 +201,10 @@ func bootstrapAdoptedNodes(cluster *v1.Cluster) []*v1.Node {
 }
 
 // syncAdoptedInventory creates missing flavors, workspaces and nodes from the data plane.
-// New workspaces take their scopes from the same-named entry in scopes.
+// New workspaces keep the local configuration of the same-named entry in locals.
 // Nodes that cannot be recorded are skipped, and a failure on one object does not stop the others.
 func (r *ClusterReconciler) syncAdoptedInventory(ctx context.Context, cluster *v1.Cluster,
-	clientSet kubernetes.Interface, nodes []corev1.Node, scopes map[string][]v1.WorkspaceScope) error {
+	clientSet kubernetes.Interface, nodes []corev1.Node, locals map[string]*v1.Workspace) error {
 	nodes = adoptableNodes(nodes)
 	grouped := groupNodesByWorkspace(nodes)
 	if mixed := mixedFlavorWorkspaces(cluster, grouped); len(mixed) > 0 {
@@ -233,7 +233,7 @@ func (r *ClusterReconciler) syncAdoptedInventory(ctx context.Context, cluster *v
 		if pvcs != nil {
 			items = pvcs.Items
 		}
-		if err = r.ensureAdoptedWorkspace(ctx, cluster, name, members, items, scopes[name]); err != nil {
+		if err = r.ensureAdoptedWorkspace(ctx, cluster, name, members, items, locals[name]); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -312,8 +312,11 @@ func (r *ClusterReconciler) ensureAdoptedFlavor(ctx context.Context, flavor *v1.
 	return client.IgnoreAlreadyExists(r.Create(ctx, flavor))
 }
 
+// ensureAdoptedWorkspace creates the workspace when missing. When local, the same-named
+// Workspace of the data plane, is given, its local configuration is kept; otherwise
+// volumes are derived from the data plane PVCs.
 func (r *ClusterReconciler) ensureAdoptedWorkspace(ctx context.Context, cluster *v1.Cluster, name string,
-	members []corev1.Node, pvcs []corev1.PersistentVolumeClaim, scopes []v1.WorkspaceScope) error {
+	members []corev1.Node, pvcs []corev1.PersistentVolumeClaim, local *v1.Workspace) error {
 	if name == "" {
 		return nil
 	}
@@ -342,11 +345,31 @@ func (r *ClusterReconciler) ensureAdoptedWorkspace(ctx context.Context, cluster 
 			Replica:     len(members),
 			QueuePolicy: v1.QueueFifoPolicy,
 			Volumes:     volumesFromPVCs(pvcs),
-			Scopes:      scopes,
 		},
+	}
+	if local != nil {
+		applyLocalWorkspaceConfig(workspace, local)
 	}
 	v1.SetAnnotation(workspace, v1.WorkspaceAdoptAnnotation, v1.TrueStr)
 	return client.IgnoreAlreadyExists(r.Create(ctx, workspace))
+}
+
+// applyLocalWorkspaceConfig copies volumes, scopes, queue policy, display name, description
+// and GPU product from the data plane Workspace. Default flag and managers are not copied.
+func applyLocalWorkspaceConfig(workspace, local *v1.Workspace) {
+	workspace.Spec.Volumes = local.Spec.Volumes
+	workspace.Spec.Scopes = local.Spec.Scopes
+	if local.Spec.QueuePolicy != "" {
+		workspace.Spec.QueuePolicy = local.Spec.QueuePolicy
+	}
+	if name := v1.GetLabel(local, v1.DisplayNameLabel); name != "" {
+		workspace.Labels[v1.DisplayNameLabel] = name
+	}
+	for _, key := range []string{v1.DescriptionAnnotation, v1.GpuProductAnnotation} {
+		if val := v1.GetAnnotation(local, key); val != "" {
+			v1.SetAnnotation(workspace, key, val)
+		}
+	}
 }
 
 func (r *ClusterReconciler) ensureAdoptedNode(ctx context.Context, cluster *v1.Cluster, k8sNode *corev1.Node) error {
@@ -610,10 +633,10 @@ func groupNodesByWorkspace(nodes []corev1.Node) map[string][]corev1.Node {
 	return grouped
 }
 
-// dataPlaneWorkspaceScopes returns the scopes of each SaFE Workspace on the data plane, keyed by name.
+// dataPlaneWorkspaces returns the SaFE Workspaces on the data plane, keyed by name.
 // It returns an empty map when the data plane has no Workspace CRD.
-func dataPlaneWorkspaceScopes(ctx context.Context, dc dynamic.Interface) (map[string][]v1.WorkspaceScope, error) {
-	result := map[string][]v1.WorkspaceScope{}
+func dataPlaneWorkspaces(ctx context.Context, dc dynamic.Interface) (map[string]*v1.Workspace, error) {
+	result := map[string]*v1.Workspace{}
 	if dc == nil {
 		return result, nil
 	}
@@ -624,16 +647,12 @@ func dataPlaneWorkspaceScopes(ctx context.Context, dc dynamic.Interface) (map[st
 		}
 		return nil, err
 	}
-	for _, item := range list.Items {
-		raw, found, err := unstructured.NestedStringSlice(item.Object, "spec", "scopes")
-		if err != nil || !found {
-			continue
+	for i := range list.Items {
+		workspace := &v1.Workspace{}
+		if err = runtime.DefaultUnstructuredConverter.FromUnstructured(list.Items[i].Object, workspace); err != nil {
+			return nil, fmt.Errorf("decode data plane workspace %s: %w", list.Items[i].GetName(), err)
 		}
-		scopes := make([]v1.WorkspaceScope, 0, len(raw))
-		for _, s := range raw {
-			scopes = append(scopes, v1.WorkspaceScope(s))
-		}
-		result[item.GetName()] = scopes
+		result[workspace.Name] = workspace
 	}
 	return result, nil
 }
