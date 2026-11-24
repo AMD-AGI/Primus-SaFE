@@ -116,7 +116,7 @@ func TestPlanImports(t *testing.T) {
 		localWorkload("same-id-other-name", "chenluo-id", "chenluo", v1.WorkloadRunning),
 		localWorkload("unmapped", "local-meili", "meili", v1.WorkloadRunning),
 	}
-	plans, err := PlanImports(context.Background(), c, locals, map[string]string{"weilei": "mapped-id"})
+	plans, err := PlanImports(context.Background(), c, locals, map[string]string{"weilei": "mapped-id"}, false)
 	assert.NoError(t, err)
 	actions := map[string]string{}
 	for _, p := range plans {
@@ -126,8 +126,64 @@ func TestPlanImports(t *testing.T) {
 		"same-id-other-name": ActionUnmapped, "unmapped": ActionUnmapped}, actions)
 	assert.Equal(t, "mapped-id", plans[2].User.Name)
 
-	_, err = PlanImports(context.Background(), c, locals[4:], map[string]string{"meili": "no-such-user"})
+	_, err = PlanImports(context.Background(), c, locals[4:], map[string]string{"meili": "no-such-user"}, false)
 	assert.Error(t, err)
+}
+
+func TestPlanImportsLeavesUnscheduledWorkloads(t *testing.T) {
+	c := newAdminClient(t, globalUser("root-id", "root"))
+	pending := localWorkload("pending", "root-id", "root", v1.WorkloadPending)
+	delete(pending.Annotations, v1.WorkloadScheduledAnnotation)
+	delete(pending.Annotations, v1.WorkloadDispatchedAnnotation)
+	scheduled := localWorkload("scheduled", "root-id", "root", v1.WorkloadPending)
+	delete(scheduled.Annotations, v1.WorkloadDispatchedAnnotation)
+	locals := []*v1.Workload{pending, scheduled}
+
+	plans, err := PlanImports(context.Background(), c, locals, nil, false)
+	assert.NoError(t, err)
+	assert.Equal(t, ActionUnscheduled, plans[0].Action)
+	assert.Equal(t, ActionMatched, plans[1].Action)
+
+	plans, err = PlanImports(context.Background(), c, locals, nil, true)
+	assert.NoError(t, err)
+	assert.Equal(t, ActionMatched, plans[0].Action)
+}
+
+func TestAdminWorkloadDropsGrantsOfAnotherOwner(t *testing.T) {
+	local := localWorkload("w1", "local-id", "weilei", v1.WorkloadRunning)
+	v1.SetAnnotation(local, v1.WorkloadHostPathAuthzAnnotation, v1.TrueStr)
+	v1.SetAnnotation(local, v1.WorkloadPrivilegedVolumesAuthzAnnotation, v1.TrueStr)
+	v1.SetAnnotation(local, v1.WorkloadRuntimeExtendedByAnnotation, "local-id")
+
+	mapped := AdminWorkload(local, globalUser("global-id", "Wei, Lei"))
+	same := AdminWorkload(local, globalUser("local-id", "weilei"))
+	for _, key := range grantAnnotations {
+		assert.False(t, v1.HasAnnotation(mapped, key), key)
+		assert.True(t, v1.HasAnnotation(same, key), key)
+	}
+}
+
+func TestImportWorkloadMarksPermanentFailures(t *testing.T) {
+	local := localWorkload("w1", "local-id", "weilei", v1.WorkloadRunning)
+	user := globalUser("global-id", "Wei, Lei")
+
+	_, err := ImportWorkload(context.Background(), newAdminClient(t), "ccs300", local, user)
+	assert.ErrorIs(t, err, ErrNotImportable)
+	_, err = ImportWorkload(context.Background(), newAdminClient(t, adoptedWorkspace("other")), "ccs300", local, user)
+	assert.ErrorIs(t, err, ErrNotImportable)
+}
+
+func TestImportWorkloadCompletesStatusOfImportedWorkload(t *testing.T) {
+	existing := AdminWorkload(localWorkload("w1", "local-id", "weilei", v1.WorkloadRunning), globalUser("global-id", "Wei, Lei"))
+	c := newAdminClient(t, adoptedWorkspace("ccs300"), existing)
+
+	created, err := ImportWorkload(context.Background(), c, "ccs300",
+		localWorkload("w1", "local-id", "weilei", v1.WorkloadRunning), globalUser("global-id", "Wei, Lei"))
+	assert.NoError(t, err)
+	assert.False(t, created)
+	got := &v1.Workload{}
+	assert.NoError(t, c.Get(context.Background(), types.NamespacedName{Name: "w1"}, got))
+	assert.Equal(t, v1.WorkloadRunning, got.Status.Phase)
 }
 
 func TestImportWorkloadCopiesStatus(t *testing.T) {

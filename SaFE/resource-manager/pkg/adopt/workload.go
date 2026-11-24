@@ -8,6 +8,7 @@ package adopt
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -25,6 +26,18 @@ import (
 
 // lastAppliedAnnotation is written by kubectl apply and is not copied to the admin plane.
 const lastAppliedAnnotation = "kubectl.kubernetes.io/last-applied-configuration"
+
+// grantAnnotations record authorizations given to the owner of a Workload. They are not kept
+// when the admin plane owner differs from the data plane owner.
+var grantAnnotations = []string{
+	v1.WorkloadHostPathAuthzAnnotation,
+	v1.WorkloadPrivilegedVolumesAuthzAnnotation,
+	v1.WorkloadRuntimeExtendedByAnnotation,
+}
+
+// ErrNotImportable marks a Workload that cannot be imported until its admin plane state changes,
+// such as a missing workspace or a workspace of another cluster.
+var ErrNotImportable = errors.New("workload is not importable")
 
 // ListUnfinishedWorkloads returns the Workloads of the data plane SaFE that have not ended.
 // It returns none when the data plane has no Workload CRD.
@@ -74,6 +87,8 @@ func MatchedGlobalUser(ctx context.Context, c client.Client, local *v1.Workload)
 const (
 	// ActionExists means a Workload of the same name is already on the admin plane.
 	ActionExists = "exists"
+	// ActionUnscheduled means the data plane SaFE has not scheduled the Workload yet.
+	ActionUnscheduled = "unscheduled"
 	// ActionMatched means the owner matches an admin plane user by id and name.
 	ActionMatched = "matched"
 	// ActionMapped means the owner is taken from the user map.
@@ -91,8 +106,10 @@ type Plan struct {
 
 // PlanImports decides how each data plane Workload is imported. An owner that does not match an
 // admin plane user is looked up in userMap, keyed by the data plane user name, whose value is an
-// admin plane user id. A user id in userMap that does not exist is an error.
-func PlanImports(ctx context.Context, c client.Client, locals []*v1.Workload, userMap map[string]string) ([]Plan, error) {
+// admin plane user id. A user id in userMap that does not exist is an error. Workloads the data
+// plane SaFE has neither scheduled nor dispatched are left to it unless includeUnscheduled is set.
+func PlanImports(ctx context.Context, c client.Client, locals []*v1.Workload,
+	userMap map[string]string, includeUnscheduled bool) ([]Plan, error) {
 	plans := make([]Plan, 0, len(locals))
 	for _, local := range locals {
 		plan := Plan{Workload: local, Action: ActionUnmapped}
@@ -102,6 +119,11 @@ func PlanImports(ctx context.Context, c client.Client, locals []*v1.Workload, us
 			continue
 		} else if !apierrors.IsNotFound(err) {
 			return nil, err
+		}
+		if !includeUnscheduled && !v1.IsWorkloadScheduled(local) && !v1.IsWorkloadDispatched(local) {
+			plan.Action = ActionUnscheduled
+			plans = append(plans, plan)
+			continue
 		}
 		user, err := MatchedGlobalUser(ctx, c, local)
 		if err != nil {
@@ -123,7 +145,8 @@ func PlanImports(ctx context.Context, c client.Client, locals []*v1.Workload, us
 
 // AdminWorkload returns the admin plane copy of a data plane Workload owned by user.
 // Spec, labels and annotations are copied as they are, the owner is replaced by user, and
-// the copy is marked as adopted with the UID of the data plane Workload.
+// the copy is marked as adopted with the UID of the data plane Workload. Grants of the data plane
+// owner are dropped when user is another owner.
 func AdminWorkload(local *v1.Workload, user *v1.User) *v1.Workload {
 	workload := &v1.Workload{
 		ObjectMeta: metav1.ObjectMeta{
@@ -134,6 +157,11 @@ func AdminWorkload(local *v1.Workload, user *v1.User) *v1.Workload {
 		Spec: *local.Spec.DeepCopy(),
 	}
 	delete(workload.Annotations, lastAppliedAnnotation)
+	if user.Name != v1.GetUserId(local) {
+		for _, key := range grantAnnotations {
+			delete(workload.Annotations, key)
+		}
+	}
 	userName := v1.GetUserName(user)
 	if userName == "" {
 		userName = user.Name
@@ -147,31 +175,42 @@ func AdminWorkload(local *v1.Workload, user *v1.User) *v1.Workload {
 }
 
 // ImportWorkload creates the admin plane copy of a data plane Workload of the given cluster and
-// copies its status. It returns false without any change when a Workload of the same name exists.
-// The Workload must run in a workspace of the cluster.
+// copies its status. It returns false when a Workload of the same name exists, and only completes
+// the status of an imported Workload that has none. The Workload must run in a workspace of the
+// cluster. Errors that persist until the admin plane state changes wrap ErrNotImportable.
 func ImportWorkload(ctx context.Context, c client.Client, clusterName string, local *v1.Workload, user *v1.User) (bool, error) {
 	if user == nil {
-		return false, fmt.Errorf("workload %s has no admin plane owner", local.Name)
+		return false, fmt.Errorf("workload %s has no admin plane owner: %w", local.Name, ErrNotImportable)
 	}
-	if err := c.Get(ctx, types.NamespacedName{Name: local.Name}, &v1.Workload{}); err == nil {
+	existing := &v1.Workload{}
+	if err := c.Get(ctx, types.NamespacedName{Name: local.Name}, existing); err == nil {
+		if v1.IsAdoptedWorkload(existing) {
+			return false, copyStatus(ctx, c, existing.Name, &local.Status)
+		}
 		return false, nil
 	} else if !apierrors.IsNotFound(err) {
 		return false, err
 	}
 	workspace := &v1.Workspace{}
 	if err := c.Get(ctx, types.NamespacedName{Name: local.Spec.Workspace}, workspace); err != nil {
+		if apierrors.IsNotFound(err) {
+			err = fmt.Errorf("%w: %w", ErrNotImportable, err)
+		}
 		return false, fmt.Errorf("workspace %s of workload %s: %w", local.Spec.Workspace, local.Name, err)
 	}
 	if workspace.Spec.Cluster != clusterName {
-		return false, fmt.Errorf("workspace %s of workload %s belongs to cluster %s, not %s",
-			workspace.Name, local.Name, workspace.Spec.Cluster, clusterName)
+		return false, fmt.Errorf("workspace %s of workload %s belongs to cluster %s, not %s: %w",
+			workspace.Name, local.Name, workspace.Spec.Cluster, clusterName, ErrNotImportable)
 	}
 	workload := AdminWorkload(local, user)
 	if err := c.Create(ctx, workload); err != nil {
 		if apierrors.IsAlreadyExists(err) {
 			return false, nil
 		}
-		return false, err
+		if apierrors.IsInvalid(err) || apierrors.IsForbidden(err) || apierrors.IsBadRequest(err) {
+			err = fmt.Errorf("%w: %w", ErrNotImportable, err)
+		}
+		return false, fmt.Errorf("create workload %s: %w", local.Name, err)
 	}
 	return true, copyStatus(ctx, c, workload.Name, &local.Status)
 }

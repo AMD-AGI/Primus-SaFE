@@ -14,12 +14,14 @@ import (
 
 	"github.com/agiledragon/gomonkey/v2"
 	"github.com/stretchr/testify/assert"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/adopt"
 )
 
 func TestAdoptedClusterPredicateIgnoresUnrelatedUpdates(t *testing.T) {
@@ -79,6 +81,17 @@ func TestImportAdoptedWorkloadsRemovesRequest(t *testing.T) {
 	got := &v1.Cluster{}
 	assert.NoError(t, r.Get(context.Background(), types.NamespacedName{Name: "c1"}, got))
 	assert.False(t, v1.HasAnnotation(got, v1.ClusterAdoptWorkloadsAnnotation))
+}
+
+func TestImportPlannedWorkloadsSkipsNotImportable(t *testing.T) {
+	r := newClusterReconcilerFull(t, k8sfake.NewSimpleClientset())
+	user := &v1.User{ObjectMeta: metav1.ObjectMeta{Name: "root-id"}}
+	local := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w1"}, Spec: v1.WorkloadSpec{Workspace: "gone"}}
+	plans := []adopt.Plan{
+		{Workload: local, User: user, Action: adopt.ActionMatched},
+		{Workload: &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w2"}}, Action: adopt.ActionUnscheduled},
+	}
+	assert.NoError(t, r.importPlannedWorkloads(context.Background(), "c1", plans))
 }
 
 func TestClusterAdoptReconcileRequeuesPeriodically(t *testing.T) {
