@@ -84,7 +84,11 @@ func (r *ClusterReconciler) guaranteeClusterControlPlane(ctx context.Context, cl
 }
 
 // handleControlPlaneCreation manages the creation workflow for control plane.
+// An adopted cluster already has its control plane and is never installed or reset here.
 func (r *ClusterReconciler) handleControlPlaneCreation(ctx context.Context, cluster *v1.Cluster) error {
+	if v1.IsAdoptedCluster(cluster) {
+		return nil
+	}
 	hostsContent, err := r.generateHosts(ctx, cluster, nil)
 	if err != nil {
 		klog.ErrorS(err, "failed to generate hosts content", "cluster", cluster.Name)

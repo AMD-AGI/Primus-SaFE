@@ -622,6 +622,21 @@ func TestHandleControlPlaneCreation(t *testing.T) {
 	}, pod))
 }
 
+func TestHandleControlPlaneCreationSkipsAdoptedCluster(t *testing.T) {
+	for _, phase := range []v1.ClusterPhase{"", v1.PendingPhase, v1.CreationFailed} {
+		t.Run(string(phase), func(t *testing.T) {
+			cluster, r := planeClusterWithNode(t)
+			v1.SetAnnotation(cluster, v1.ClusterAdoptAnnotation, v1.TrueStr)
+			cluster.Status.ControlPlaneStatus.Phase = phase
+			testifyassert.NoError(t, r.handleControlPlaneCreation(context.Background(), cluster))
+			err := r.Get(context.Background(), client.ObjectKey{
+				Name: "c1-" + string(v1.ClusterCreateAction), Namespace: common.PrimusSafeNamespace,
+			}, &corev1.Pod{})
+			testifyassert.True(t, apierrors.IsNotFound(err))
+		})
+	}
+}
+
 func TestCreateControlPlanePod(t *testing.T) {
 	cluster, r := planeClusterWithNode(t)
 	hosts, err := r.generateHosts(context.Background(), cluster, nil)
