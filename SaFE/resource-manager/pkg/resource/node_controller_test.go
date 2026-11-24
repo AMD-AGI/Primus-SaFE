@@ -688,10 +688,9 @@ func TestDeleteK8sNodeFull(t *testing.T) {
 	testifyassert.Error(t, err)
 }
 
-func TestAdoptedClusterNodeDeletionKeepsK8sNode(t *testing.T) {
+func TestReleasingAdoptedClusterKeepsK8sNode(t *testing.T) {
 	ctx := context.Background()
-	cluster := &v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "c1",
-		Annotations: map[string]string{v1.ClusterAdoptAnnotation: v1.TrueStr}}}
+	cluster := releasingAdoptedCluster("c1")
 	now := metav1.Now()
 	adminNode := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1", DeletionTimestamp: &now,
 		Finalizers: []string{v1.NodeFinalizer}, Labels: map[string]string{v1.ClusterIdLabel: "c1"}}}

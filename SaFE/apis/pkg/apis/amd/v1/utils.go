@@ -313,6 +313,12 @@ func IsAdoptedCluster(cluster *Cluster) bool {
 	return cluster != nil && GetAnnotation(cluster, ClusterAdoptAnnotation) == TrueStr
 }
 
+// IsReleasingAdoptedCluster reports an adopted cluster that is being deleted. Its admin records
+// are removed while the data plane objects they describe stay in place.
+func IsReleasingAdoptedCluster(cluster *Cluster) bool {
+	return IsAdoptedCluster(cluster) && !cluster.GetDeletionTimestamp().IsZero()
+}
+
 // GetAdoptControlPlaneIPs returns the trimmed, non-empty control plane IPs of an adopted cluster.
 func GetAdoptControlPlaneIPs(obj metav1.Object) []string {
 	ips := make([]string, 0)

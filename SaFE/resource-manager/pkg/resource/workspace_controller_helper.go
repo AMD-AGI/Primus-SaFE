@@ -225,7 +225,11 @@ func syncDataPlanePVC(ctx context.Context, workspace *v1.Workspace, clientSet ku
 		}
 		desiredPVCs.Insert(vol.GenFullVolumeId())
 	}
-	// Prune unexpected PVCs (those managed by workspace but not desired)
+	// Prune unexpected PVCs (those managed by workspace but not desired).
+	// The PVCs of an adopted workspace were made by its data plane and are never pruned.
+	if v1.IsAdoptedWorkspace(workspace) {
+		return createDataPlanePvc(ctx, workspace, clientSet)
+	}
 	pvcList, err := clientSet.CoreV1().PersistentVolumeClaims(workspace.Name).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return err

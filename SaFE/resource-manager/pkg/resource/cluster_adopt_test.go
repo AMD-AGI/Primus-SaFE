@@ -475,6 +475,31 @@ func TestSyncAdoptedInventorySkipsInvalidNodes(t *testing.T) {
 	assert.Equal(t, []string{"cp1"}, got.Spec.ControlPlane.Nodes)
 }
 
+func TestSyncAdoptedInventoryRecordsOnlyRegisteredControlPlanes(t *testing.T) {
+	cluster := testCluster("ccs300")
+	v1.SetAnnotation(cluster, v1.ClusterAdoptAnnotation, v1.TrueStr)
+	cluster.Spec.ControlPlane.Nodes = []string{}
+	scheme, err := genMockScheme()
+	assert.NoError(t, err)
+	cl := ctrlfake.NewClientBuilder().WithScheme(scheme).WithObjects(cluster).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+				if obj.GetName() == "cp2" {
+					return apierrors.NewBadRequest("spec.nodeTemplate: Invalid value")
+				}
+				return c.Create(ctx, obj, opts...)
+			},
+		}).Build()
+	r := &ClusterReconciler{ClusterBaseReconciler: &ClusterBaseReconciler{Client: cl}}
+	cp1, cp2 := workerNode("cp1", "10.0.0.1"), workerNode("cp2", "10.0.0.2")
+	cp1.Labels = map[string]string{v1.KubernetesControlPlane: ""}
+	cp2.Labels = map[string]string{v1.KubernetesControlPlane: ""}
+	assert.Error(t, r.syncAdoptedInventory(context.Background(), cluster, fake.NewSimpleClientset(), []corev1.Node{cp1, cp2}))
+	got := &v1.Cluster{}
+	assert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "ccs300"}, got))
+	assert.Equal(t, []string{"cp1"}, got.Spec.ControlPlane.Nodes)
+}
+
 func TestSyncAdoptedInventoryToleratesStaleCache(t *testing.T) {
 	cluster := testCluster("ccs300")
 	scheme, err := genMockScheme()

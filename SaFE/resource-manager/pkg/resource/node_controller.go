@@ -172,12 +172,12 @@ func (r *NodeReconciler) delete(ctx context.Context, adminNode *v1.Node) (ctrlru
 	// part of releasing the allocation. Deleting that node object here would evict pods
 	// whose tasks the provider has not finished stopping, and the deletion would race the
 	// provider's own cleanup rather than replace it.
-	// A node of an adopted cluster stays in its data plane; only the admin record is removed.
-	adopted, err := r.belongsToAdoptedCluster(ctx, adminNode)
-	if err != nil {
+	// While an adopted cluster is released, its nodes stay in the data plane.
+	cluster, err := getAdminCluster(ctx, r.Client, getClusterId(adminNode))
+	if client.IgnoreNotFound(err) != nil {
 		return ctrlruntime.Result{}, err
 	}
-	if !adminNode.DeclaresExternalLifecycle() && !adopted {
+	if !adminNode.DeclaresExternalLifecycle() && !v1.IsReleasingAdoptedCluster(cluster) {
 		result, err := r.deleteK8sNode(ctx, adminNode)
 		if err != nil || result.RequeueAfter > 0 {
 			return result, err

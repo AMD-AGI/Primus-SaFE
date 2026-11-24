@@ -113,8 +113,8 @@ func (r *AddonController) guaranteeHelmAddon(ctx context.Context, addon *v1.Addo
 			return r.Status().Patch(ctx, addon, originalAddon)
 		}
 		originalAddon := client.MergeFrom(addon.DeepCopy())
-		// The release of an adopted cluster stays installed in its data plane.
-		if !v1.IsAdoptedCluster(cluster) {
+		// While an adopted cluster is released, its helm releases stay installed.
+		if !v1.IsReleasingAdoptedCluster(cluster) {
 			if err := r.helmUninstall(ctx, addon); err != nil {
 				return err
 			}

@@ -422,9 +422,8 @@ func TestHelmUninstallViaMemory(t *testing.T) {
 	testifyassert.NoError(t, err)
 }
 
-func TestAdoptedClusterAddonDeletionKeepsRelease(t *testing.T) {
-	cluster := &v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "c1",
-		Annotations: map[string]string{v1.ClusterAdoptAnnotation: v1.TrueStr}}}
+func TestReleasingAdoptedClusterKeepsRelease(t *testing.T) {
+	cluster := releasingAdoptedCluster("c1")
 	addon := helmAddon("c1-a1", "rel1")
 	addon.Spec.Cluster = &corev1.ObjectReference{Name: "c1"}
 	now := metav1.Now()

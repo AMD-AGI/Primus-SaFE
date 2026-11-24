@@ -383,17 +383,6 @@ func (r *WorkspaceReconciler) Reconcile(ctx context.Context, req ctrlruntime.Req
 		// one, and a failed one comes back through the work queue.
 		return ctrlruntime.Result{}, r.delete(ctx, workspace)
 	}
-	// An adopted workspace only reports status and resource totals. It is never scaled and
-	// never writes to the data plane, so spec edits have no effect.
-	if v1.IsAdoptedWorkspace(workspace) {
-		if err := r.updatePhase(ctx, workspace, v1.WorkspaceRunning); err != nil {
-			return ctrlruntime.Result{}, err
-		}
-		if err := r.syncWorkspace(ctx, workspace); err != nil {
-			return ctrlruntime.Result{}, err
-		}
-		return keepAlive(ctrlruntime.Result{}), nil
-	}
 	clientSet, err := r.getClientSetOfDataplane(ctx, workspace.Spec.Cluster)
 	if err != nil {
 		if apierrors.IsNotFound(err) {
@@ -486,8 +475,7 @@ func (r *WorkspaceReconciler) delete(ctx context.Context, workspace *v1.Workspac
 	// goroutines by now, so nothing is left to write the entry back; a late Node event finds
 	// no entry and settles nothing.
 	r.removeExpectations(workspace.Name)
-	// An adopted workspace, or any workspace of an adopted cluster, names a namespace that the
-	// data plane owns. Deleting the record must not delete that namespace or its volumes.
+	// While an adopted cluster is released, its workspace namespaces and volumes stay in place.
 	keepDataPlane, err := r.keepsDataPlane(ctx, workspace)
 	if err != nil {
 		return err
@@ -501,16 +489,13 @@ func (r *WorkspaceReconciler) delete(ctx context.Context, workspace *v1.Workspac
 	return utils.RemoveFinalizer(ctx, r.Client, workspace, v1.WorkspaceFinalizer)
 }
 
-// keepsDataPlane reports whether the workspace is adopted or belongs to an adopted cluster.
+// keepsDataPlane reports whether the workspace belongs to an adopted cluster that is being released.
 func (r *WorkspaceReconciler) keepsDataPlane(ctx context.Context, workspace *v1.Workspace) (bool, error) {
-	if v1.IsAdoptedWorkspace(workspace) {
-		return true, nil
-	}
 	cluster, err := getAdminCluster(ctx, r.Client, workspace.Spec.Cluster)
 	if err != nil {
 		return false, client.IgnoreNotFound(err)
 	}
-	return v1.IsAdoptedCluster(cluster), nil
+	return v1.IsReleasingAdoptedCluster(cluster), nil
 }
 
 // updatePhase updates the phase of a Workspace resource.

@@ -256,6 +256,27 @@ func TestGetControllerPlaneNodes(t *testing.T) {
 	testifyassert.Error(t, err)
 }
 
+func TestGetControllerPlaneNodesAdoptedFallsBackToBootstrap(t *testing.T) {
+	node := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1"}, Spec: v1.NodeSpec{PrivateIP: "10.0.0.1"}}
+	r := newPlaneReconciler(t, node)
+	cluster := testCluster("c1")
+	v1.SetAnnotation(cluster, v1.ClusterAdoptAnnotation, v1.TrueStr)
+	v1.SetAnnotation(cluster, v1.ClusterAdoptControlPlaneIPsAnnotation, "10.0.0.8,10.0.0.9")
+	cluster.Spec.ControlPlane.SSHSecret = &corev1.ObjectReference{Name: "ssh", Namespace: common.PrimusSafeNamespace}
+
+	cluster.Spec.ControlPlane.Nodes = []string{"missing1", "missing2"}
+	nodes, err := r.getControllerPlaneNodes(context.Background(), cluster)
+	testifyassert.NoError(t, err)
+	testifyassert.Len(t, nodes, 2)
+	testifyassert.Equal(t, "10.0.0.8", nodes[0].Spec.PrivateIP)
+
+	cluster.Spec.ControlPlane.Nodes = []string{"n1", "missing1"}
+	nodes, err = r.getControllerPlaneNodes(context.Background(), cluster)
+	testifyassert.NoError(t, err)
+	testifyassert.Len(t, nodes, 1)
+	testifyassert.Equal(t, "n1", nodes[0].Name)
+}
+
 func TestGuaranteeNamespace(t *testing.T) {
 	cs := k8sfake.NewSimpleClientset()
 	r := newPlaneReconciler(t)

@@ -727,11 +727,17 @@ func (r *ClusterReconciler) getControllerPlaneNodes(ctx context.Context, cluster
 	for _, v := range cluster.Spec.ControlPlane.Nodes {
 		node := new(v1.Node)
 		if err := r.Get(ctx, types.NamespacedName{Name: v}, node); err != nil {
+			// A pending adopted cluster may list control planes that are not registered yet.
+			if apierrors.IsNotFound(err) && isAdoptedClusterPending(cluster) {
+				continue
+			}
 			return nil, err
 		}
 		nodes = append(nodes, node.DeepCopy())
 	}
-
+	if len(nodes) == 0 {
+		return bootstrapAdoptedNodes(cluster), nil
+	}
 	return nodes, nil
 }
 

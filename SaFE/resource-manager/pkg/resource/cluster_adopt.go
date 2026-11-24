@@ -215,12 +215,15 @@ func (r *ClusterReconciler) syncAdoptedInventory(ctx context.Context, cluster *v
 			errs = append(errs, err)
 		}
 	}
+	recorded := make([]corev1.Node, 0, len(nodes))
 	for i := range nodes {
 		if err := r.ensureAdoptedNode(ctx, cluster, &nodes[i]); err != nil {
 			errs = append(errs, err)
+			continue
 		}
+		recorded = append(recorded, nodes[i])
 	}
-	if err := r.syncAdoptedControlPlane(ctx, cluster, nodes); err != nil {
+	if err := r.syncAdoptedControlPlane(ctx, cluster, recorded); err != nil {
 		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
