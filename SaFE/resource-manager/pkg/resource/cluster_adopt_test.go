@@ -25,8 +25,13 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/utils/pointer"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -72,7 +77,7 @@ func TestSyncAdoptedInventoryCreatesFlavorWorkspaceAndNode(t *testing.T) {
 	}
 	cs := fake.NewSimpleClientset(k8sNode, pvc)
 	r := newPlaneReconciler(t, cluster)
-	assert.NoError(t, r.syncAdoptedInventory(context.Background(), cluster, cs, []corev1.Node{*k8sNode}))
+	assert.NoError(t, r.syncAdoptedInventory(context.Background(), cluster, cs, []corev1.Node{*k8sNode}, nil))
 
 	flavor := &v1.NodeFlavor{}
 	assert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "mi300x-ccs300"}, flavor))
@@ -112,7 +117,7 @@ func TestSyncAdoptedInventoryPlainClusterHasNoWorkspace(t *testing.T) {
 		}},
 	}
 	r := newPlaneReconciler(t, cluster)
-	assert.NoError(t, r.syncAdoptedInventory(context.Background(), cluster, fake.NewSimpleClientset(), nodes))
+	assert.NoError(t, r.syncAdoptedInventory(context.Background(), cluster, fake.NewSimpleClientset(), nodes, nil))
 
 	flavorName := adoptedFlavor(cluster, &nodes[0]).Name
 	assert.Equal(t, flavorName, adoptedFlavor(cluster, &nodes[1]).Name)
@@ -147,7 +152,7 @@ func TestSyncAdoptedInventoryRecordsControlPlaneAndWorkspace(t *testing.T) {
 			Status: corev1.NodeStatus{Addresses: []corev1.NodeAddress{{Type: corev1.NodeInternalIP, Address: "10.235.225.46"}}, Capacity: capacity}},
 	}
 	r := newPlaneReconciler(t, cluster)
-	assert.NoError(t, r.syncAdoptedInventory(context.Background(), cluster, fake.NewSimpleClientset(), nodes))
+	assert.NoError(t, r.syncAdoptedInventory(context.Background(), cluster, fake.NewSimpleClientset(), nodes, nil))
 
 	for _, name := range []string{"gpu4455", "gpu4456", "gpu9458"} {
 		node := &v1.Node{}
@@ -184,7 +189,7 @@ func TestSyncAdoptedInventoryUsesManualFlavor(t *testing.T) {
 		Capacity:  corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("64"), corev1.ResourceMemory: resource.MustParse("256Gi")},
 	}}
 	r := newPlaneReconciler(t, cluster, existing)
-	assert.NoError(t, r.syncAdoptedInventory(context.Background(), cluster, fake.NewSimpleClientset(), []corev1.Node{node}))
+	assert.NoError(t, r.syncAdoptedInventory(context.Background(), cluster, fake.NewSimpleClientset(), []corev1.Node{node}, nil))
 	got := &v1.Node{}
 	assert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "n1"}, got))
 	assert.Equal(t, "manual-cpu", got.Spec.NodeFlavor.Name)
@@ -203,11 +208,60 @@ func TestSyncAdoptedInventoryKeepsExistingWorkspace(t *testing.T) {
 		v1.WorkspaceIdLabel: "ccs300-gpu", v1.NodeFlavorIdLabel: "mi300x-ccs300",
 	}}}
 	r := newPlaneReconciler(t, cluster, existing)
-	assert.NoError(t, r.syncAdoptedInventory(context.Background(), cluster, fake.NewSimpleClientset(), []corev1.Node{*k8sNode}))
+	assert.NoError(t, r.syncAdoptedInventory(context.Background(), cluster, fake.NewSimpleClientset(), []corev1.Node{*k8sNode}, nil))
 	got := &v1.Workspace{}
 	assert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "ccs300-gpu"}, got))
 	assert.Equal(t, 5, got.Spec.Replica)
 	assert.Empty(t, got.Spec.Volumes)
+}
+
+func TestSyncAdoptedInventoryCopiesWorkspaceScopes(t *testing.T) {
+	cluster := testCluster("ccs300")
+	k8sNode := workerNode("gpu9458", "10.0.0.11")
+	k8sNode.Labels = map[string]string{v1.WorkspaceIdLabel: "ccs300-gpu", v1.NodeFlavorIdLabel: "mi300x-ccs300"}
+	r := newPlaneReconciler(t, cluster)
+	scopes := map[string][]v1.WorkspaceScope{"ccs300-gpu": {"Train", "Infer"}}
+	assert.NoError(t, r.syncAdoptedInventory(context.Background(), cluster, fake.NewSimpleClientset(), []corev1.Node{k8sNode}, scopes))
+	got := &v1.Workspace{}
+	assert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "ccs300-gpu"}, got))
+	assert.Equal(t, []v1.WorkspaceScope{"Train", "Infer"}, got.Spec.Scopes)
+}
+
+func TestDataPlaneWorkspaceScopes(t *testing.T) {
+	gvr := v1.SchemeGroupVersion.WithResource("workspaces")
+	workspace := func(name string, scopes ...interface{}) *unstructured.Unstructured {
+		obj := &unstructured.Unstructured{Object: map[string]interface{}{"spec": map[string]interface{}{}}}
+		obj.SetAPIVersion(v1.SchemeGroupVersion.String())
+		obj.SetKind(v1.WorkspaceKind)
+		obj.SetName(name)
+		if len(scopes) > 0 {
+			obj.Object["spec"] = map[string]interface{}{"scopes": scopes}
+		}
+		return obj
+	}
+	newClient := func(objs ...runtime.Object) *dynamicfake.FakeDynamicClient {
+		return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(),
+			map[schema.GroupVersionResource]string{gvr: "WorkspaceList"}, objs...)
+	}
+
+	got, err := dataPlaneWorkspaceScopes(context.Background(), newClient(workspace("gpu", "Train", "Ray"), workspace("empty")))
+	assert.NoError(t, err)
+	assert.Equal(t, map[string][]v1.WorkspaceScope{"gpu": {"Train", "Ray"}}, got)
+
+	missing := newClient()
+	missing.PrependReactor("list", "workspaces", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, apierrors.NewNotFound(gvr.GroupResource(), "")
+	})
+	got, err = dataPlaneWorkspaceScopes(context.Background(), missing)
+	assert.NoError(t, err)
+	assert.Empty(t, got)
+
+	failing := newClient()
+	failing.PrependReactor("list", "workspaces", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, fmt.Errorf("connection refused")
+	})
+	_, err = dataPlaneWorkspaceScopes(context.Background(), failing)
+	assert.Error(t, err)
 }
 
 func TestEnsureAdoptedNodeFillsEmptyWorkspace(t *testing.T) {
@@ -477,7 +531,7 @@ func TestSyncAdoptedInventorySkipsForeignWorkspace(t *testing.T) {
 	k8sNode := workerNode("gpu1", "10.0.0.11")
 	k8sNode.Labels = map[string]string{v1.WorkspaceIdLabel: "dev"}
 	r := newPlaneReconciler(t, cluster, foreign)
-	assert.NoError(t, r.syncAdoptedInventory(context.Background(), cluster, fake.NewSimpleClientset(), []corev1.Node{k8sNode}))
+	assert.NoError(t, r.syncAdoptedInventory(context.Background(), cluster, fake.NewSimpleClientset(), []corev1.Node{k8sNode}, nil))
 	got := &v1.Node{}
 	assert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "gpu1"}, got))
 	assert.Empty(t, got.GetSpecWorkspace())
@@ -492,7 +546,7 @@ func TestSyncAdoptedInventoryRejectsMixedFlavorWorkspace(t *testing.T) {
 	cpu.Labels = map[string]string{v1.WorkspaceIdLabel: "dev", v1.NodeFlavorIdLabel: "epyc"}
 	r := newPlaneReconciler(t, cluster)
 
-	err := r.syncAdoptedInventory(context.Background(), cluster, fake.NewSimpleClientset(), []corev1.Node{gpu, cpu})
+	err := r.syncAdoptedInventory(context.Background(), cluster, fake.NewSimpleClientset(), []corev1.Node{gpu, cpu}, nil)
 	assert.ErrorContains(t, err, "dev(epyc,mi300x)")
 	for _, list := range []client.ObjectList{&v1.NodeFlavorList{}, &v1.WorkspaceList{}, &v1.NodeList{}} {
 		assert.NoError(t, r.List(context.Background(), list))
@@ -519,7 +573,7 @@ func TestSyncAdoptedInventorySkipsInvalidNodes(t *testing.T) {
 	cp.Labels = map[string]string{v1.KubernetesControlPlane: ""}
 	r := newPlaneReconciler(t, cluster)
 	assert.NoError(t, r.syncAdoptedInventory(context.Background(), cluster, fake.NewSimpleClientset(),
-		[]corev1.Node{noIP, badName, cp}))
+		[]corev1.Node{noIP, badName, cp}, nil))
 	nodes := &v1.NodeList{}
 	assert.NoError(t, r.List(context.Background(), nodes))
 	assert.Len(t, nodes.Items, 1)
@@ -548,7 +602,7 @@ func TestSyncAdoptedInventoryRecordsOnlyRegisteredControlPlanes(t *testing.T) {
 	cp1, cp2 := workerNode("cp1", "10.0.0.1"), workerNode("cp2", "10.0.0.2")
 	cp1.Labels = map[string]string{v1.KubernetesControlPlane: ""}
 	cp2.Labels = map[string]string{v1.KubernetesControlPlane: ""}
-	assert.Error(t, r.syncAdoptedInventory(context.Background(), cluster, fake.NewSimpleClientset(), []corev1.Node{cp1, cp2}))
+	assert.Error(t, r.syncAdoptedInventory(context.Background(), cluster, fake.NewSimpleClientset(), []corev1.Node{cp1, cp2}, nil))
 	got := &v1.Cluster{}
 	assert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "ccs300"}, got))
 	assert.Equal(t, []string{"cp1"}, got.Spec.ControlPlane.Nodes)
@@ -570,8 +624,8 @@ func TestSyncAdoptedInventoryToleratesStaleCache(t *testing.T) {
 		}).Build()
 	r := &ClusterReconciler{ClusterBaseReconciler: &ClusterBaseReconciler{Client: cl}}
 	k8sNodes := []corev1.Node{workerNode("gpu1", "10.0.0.11"), workerNode("gpu2", "10.0.0.12")}
-	assert.NoError(t, r.syncAdoptedInventory(context.Background(), cluster, fake.NewSimpleClientset(), k8sNodes))
-	assert.NoError(t, r.syncAdoptedInventory(context.Background(), cluster, fake.NewSimpleClientset(), k8sNodes))
+	assert.NoError(t, r.syncAdoptedInventory(context.Background(), cluster, fake.NewSimpleClientset(), k8sNodes, nil))
+	assert.NoError(t, r.syncAdoptedInventory(context.Background(), cluster, fake.NewSimpleClientset(), k8sNodes, nil))
 }
 
 func TestAdoptedFlavorRoundsMemoryToGi(t *testing.T) {

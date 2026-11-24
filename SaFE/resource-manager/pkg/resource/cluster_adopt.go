@@ -19,9 +19,12 @@ import (
 	"golang.org/x/crypto/ssh"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/pointer"
@@ -76,8 +79,16 @@ func (r *ClusterReconciler) adoptClusterContents(ctx context.Context, cluster *v
 		return err
 	}
 	nodes := adoptableNodes(nodeList.Items)
+	var dynamicClient dynamic.Interface
+	if dc := factory.DynamicClient(); dc != nil {
+		dynamicClient = dc
+	}
+	scopes, err := dataPlaneWorkspaceScopes(ctx, dynamicClient)
+	if err != nil {
+		return err
+	}
 	authorizeErr := r.authorizeAdoptedWorkers(ctx, cluster, nodes)
-	if err = r.syncAdoptedInventory(ctx, cluster, factory.ClientSet(), nodes); err != nil {
+	if err = r.syncAdoptedInventory(ctx, cluster, factory.ClientSet(), nodes, scopes); err != nil {
 		return err
 	}
 	return authorizeErr
@@ -190,9 +201,10 @@ func bootstrapAdoptedNodes(cluster *v1.Cluster) []*v1.Node {
 }
 
 // syncAdoptedInventory creates missing flavors, workspaces and nodes from the data plane.
+// New workspaces take their scopes from the same-named entry in scopes.
 // Nodes that cannot be recorded are skipped, and a failure on one object does not stop the others.
 func (r *ClusterReconciler) syncAdoptedInventory(ctx context.Context, cluster *v1.Cluster,
-	clientSet kubernetes.Interface, nodes []corev1.Node) error {
+	clientSet kubernetes.Interface, nodes []corev1.Node, scopes map[string][]v1.WorkspaceScope) error {
 	nodes = adoptableNodes(nodes)
 	grouped := groupNodesByWorkspace(nodes)
 	if mixed := mixedFlavorWorkspaces(cluster, grouped); len(mixed) > 0 {
@@ -221,7 +233,7 @@ func (r *ClusterReconciler) syncAdoptedInventory(ctx context.Context, cluster *v
 		if pvcs != nil {
 			items = pvcs.Items
 		}
-		if err = r.ensureAdoptedWorkspace(ctx, cluster, name, members, items); err != nil {
+		if err = r.ensureAdoptedWorkspace(ctx, cluster, name, members, items, scopes[name]); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -301,7 +313,7 @@ func (r *ClusterReconciler) ensureAdoptedFlavor(ctx context.Context, flavor *v1.
 }
 
 func (r *ClusterReconciler) ensureAdoptedWorkspace(ctx context.Context, cluster *v1.Cluster, name string,
-	members []corev1.Node, pvcs []corev1.PersistentVolumeClaim) error {
+	members []corev1.Node, pvcs []corev1.PersistentVolumeClaim, scopes []v1.WorkspaceScope) error {
 	if name == "" {
 		return nil
 	}
@@ -330,6 +342,7 @@ func (r *ClusterReconciler) ensureAdoptedWorkspace(ctx context.Context, cluster 
 			Replica:     len(members),
 			QueuePolicy: v1.QueueFifoPolicy,
 			Volumes:     volumesFromPVCs(pvcs),
+			Scopes:      scopes,
 		},
 	}
 	v1.SetAnnotation(workspace, v1.WorkspaceAdoptAnnotation, v1.TrueStr)
@@ -595,6 +608,34 @@ func groupNodesByWorkspace(nodes []corev1.Node) map[string][]corev1.Node {
 		grouped[name] = append(grouped[name], nodes[i])
 	}
 	return grouped
+}
+
+// dataPlaneWorkspaceScopes returns the scopes of each SaFE Workspace on the data plane, keyed by name.
+// It returns an empty map when the data plane has no Workspace CRD.
+func dataPlaneWorkspaceScopes(ctx context.Context, dc dynamic.Interface) (map[string][]v1.WorkspaceScope, error) {
+	result := map[string][]v1.WorkspaceScope{}
+	if dc == nil {
+		return result, nil
+	}
+	list, err := dc.Resource(v1.SchemeGroupVersion.WithResource("workspaces")).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) {
+			return result, nil
+		}
+		return nil, err
+	}
+	for _, item := range list.Items {
+		raw, found, err := unstructured.NestedStringSlice(item.Object, "spec", "scopes")
+		if err != nil || !found {
+			continue
+		}
+		scopes := make([]v1.WorkspaceScope, 0, len(raw))
+		for _, s := range raw {
+			scopes = append(scopes, v1.WorkspaceScope(s))
+		}
+		result[item.GetName()] = scopes
+	}
+	return result, nil
 }
 
 // mixedFlavorWorkspaces describes each workspace whose members map to more than one flavor,
