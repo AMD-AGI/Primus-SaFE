@@ -2143,16 +2143,3 @@ func TestChartRendersTheConsoleReturnPrefixes(t *testing.T) {
 	loadRendered(t, renderApiserverConfig(t, "--set-json", "console.return_prefixes=[]"))
 	testifyassert.Equal(t, []string{}, GetConsoleReturnPrefixes())
 }
-
-// The SCIM target is registered unless auth.scim.register says otherwise; it has no bearing on
-// auth.provider_client, which keeps its own default.
-func TestSCIMRegisterEnabledDefaultsToOn(t *testing.T) {
-	viper.Reset()
-	t.Cleanup(viper.Reset)
-	testifyassert.True(t, SCIMRegisterEnabled())
-	testifyassert.False(t, ProviderClientEnabled())
-	viper.Set("auth.scim.register", false)
-	testifyassert.False(t, SCIMRegisterEnabled())
-	viper.Set("auth.scim.register", true)
-	testifyassert.True(t, SCIMRegisterEnabled())
-}

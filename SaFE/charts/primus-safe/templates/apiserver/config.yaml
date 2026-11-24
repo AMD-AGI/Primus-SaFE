@@ -277,7 +277,6 @@ data:
         identity_url: {{ default "" (default dict .Values.auth.scim).identity_url | quote }}
         public_url: {{ $scimPublic | quote }}
         token_secret: {{ default "primus-safe-scim-token" (default dict .Values.auth.scim).token_secret | quote }}
-        register: {{ if kindIs "bool" (default dict .Values.auth.scim).register }}{{ (default dict .Values.auth.scim).register }}{{ else }}true{{ end }}
     {{- end }}
     rbac:
       # Prefix of the user and group subjects that project workspace membership into Kubernetes RBAC.

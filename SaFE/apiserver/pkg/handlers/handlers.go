@@ -70,11 +70,7 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 			return nil, commonerrors.NewInternalError("failed to initialize scim: " + err.Error())
 		}
 		scimToken = scim.NewToken(token)
-		if commonconfig.SCIMRegisterEnabled() {
-			scim.StartRegistration(context.Background(), mgr.GetClient(), scimToken)
-		} else {
-			klog.Info("auth.scim.register is off; the scim target is not registered")
-		}
+		scim.StartRegistration(context.Background(), mgr.GetClient(), scimToken)
 	} else if commonconfig.IsSCIMEnabled() {
 		klog.Warning("auth.scim.enabled is set but auth.mode is not external; the scim endpoint is not served")
 	}

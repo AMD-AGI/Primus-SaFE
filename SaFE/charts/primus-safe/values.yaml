@@ -351,8 +351,8 @@ auth:
   # Accept an authenticator list that is only oidc. Off by default: external mode then needs
   # an introspection or builtin entry.
   allow_oidc_only: false
-  # When true, the apiserver calls the identity service to forward a restricted-type change.
-  # Off by default. The SCIM target is registered by scim.register, not by this value.
+  # When true, the apiserver calls the identity service to register the SCIM target and to
+  # forward a restricted-type change. Off by default: configure the SCIM target on the provider.
   provider_client: false
   # Identity connection the console names on the authorize request when sso.enable is on. Empty: okta-amd.
   connection: ""
@@ -390,9 +390,6 @@ auth:
     public_url: ""
     # Secret in the primus-safe namespace that holds the bearer token. The apiserver creates it when absent.
     token_secret: primus-safe-scim-token
-    # Register the SCIM target with the identity service when mode is external. Set false when the target is
-    # configured on the identity service instead. Independent of provider_client.
-    register: true
 # Projection of workspace membership into Kubernetes RBAC on the global cluster (by resource-manager).
 rbac:
   # Prepended to user ids and group names in the projected ClusterRoleBinding subjects.
