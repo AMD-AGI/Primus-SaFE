@@ -372,13 +372,19 @@ func (h *SshHandler) getWorkloadAndClients(ctx context.Context, userInfo *UserIn
 }
 
 // authUser authorizes the user of an SSH connection, the default every entry path calls. An SSH
-// connection is authenticated by public key and not by an identity provider, so in external mode its
-// user is one no identity vouched for (authority.WithoutIdentity): the platform roles stored on the
-// user object do not count, as for a built-in session or API key, and nothing ctx carries overrides
-// that. A path that forgets to choose therefore refuses rather than grants. Only the web shell
-// authorizes differently, and says so by calling authUserAsRequestIdentity.
+// connection is authenticated by public key and not by an identity provider, so the platform roles
+// stored on the user object do not count, as for a built-in session or API key, and nothing ctx
+// carries overrides that. What the identity grants is the groups it pushed to the user by SCIM
+// (identity.GroupsAnnotation), mapped by auth.group_mappings: a user without them, or one the
+// record cannot be read for, holds no platform role. A path that forgets to choose therefore
+// refuses rather than grants. Only the web shell authorizes differently, and says so by calling
+// authUserAsRequestIdentity.
 func (h *SshHandler) authUser(ctx context.Context, userInfo *UserInfo, workload *v1.Workload) error {
-	return h.authorize(authority.WithoutIdentity(ctx, userInfo.User), userInfo, workload)
+	user, err := h.accessController.GetRequestUser(ctx, userInfo.User)
+	if err != nil {
+		return h.authorize(authority.WithoutIdentity(ctx, userInfo.User), userInfo, workload)
+	}
+	return h.authorize(authority.WithRecordedGroups(ctx, user), userInfo, workload)
 }
 
 // authUserAsRequestIdentity authorizes the user for the given workload as the identity ctx carries

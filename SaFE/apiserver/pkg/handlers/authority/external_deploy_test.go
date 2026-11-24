@@ -15,7 +15,7 @@ import (
 )
 
 // External mode needs a login URL and a group that grants system-admin. The identity service URL is needed
-// only while SCIM and auth.provider_client are both enabled.
+// while SCIM is enabled, because the apiserver registers its SCIM target with that service.
 func TestCheckExternalDeployment(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
@@ -31,21 +31,25 @@ func TestCheckExternalDeployment(t *testing.T) {
 	require.ErrorContains(t, CheckExternalDeployment(), "system-admin to no group")
 
 	viper.Set("auth.group_mappings", []map[string]any{{"group": "admins", "roles": []string{"system-admin"}}})
-	require.NoError(t, CheckExternalDeployment(), "SCIM on without provider_client needs no identity URL")
-
-	viper.Set("auth.provider_client", true)
-	require.ErrorContains(t, CheckExternalDeployment(), "identity_url")
+	require.ErrorContains(t, CheckExternalDeployment(), "identity_url", "SCIM is on by default and needs an identity URL")
 
 	viper.Set("auth.scim.enabled", false)
 	require.NoError(t, CheckExternalDeployment())
 
 	viper.Set("auth.scim.enabled", true)
 	viper.Set("auth.scim.identity_url", "https://idp.example")
+	require.ErrorContains(t, CheckExternalDeployment(), "client_secret_file", "the registration signs in with an introspection client")
+
+	creds := map[string]any{"type": "introspection", "client_id": "safe-apiserver", "client_secret_file": "/etc/secrets/auth/client-secret"}
+	viper.Set("auth.authenticators", []map[string]any{creds})
 	require.NoError(t, CheckExternalDeployment())
 
 	viper.Set("auth.scim.identity_url", "")
-	viper.Set("auth.authenticators", []map[string]any{{"type": "introspection", "url": "https://idp.example/oauth/introspect"}})
+	creds["url"] = "https://idp.example/oauth/introspect"
 	require.NoError(t, CheckExternalDeployment(), "the introspection URL is the identity service URL")
+
+	viper.Set("auth.authenticators", []map[string]any{{"type": "introspection", "url": "https://idp.example/oauth/introspect"}})
+	require.ErrorContains(t, CheckExternalDeployment(), "client_secret_file", "an introspection entry without a client cannot register")
 }
 
 // The console's ID token (audience sso.login.client_id) is never a credential, so an external chain with

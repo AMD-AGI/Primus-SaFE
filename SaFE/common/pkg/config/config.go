@@ -1277,10 +1277,6 @@ func GetAuthLogoutURL() string {
 // an introspection or builtin authenticator.
 func AllowOIDCOnly() bool { return getBool(authAllowOIDCOnly, false) }
 
-// ProviderClientEnabled reports auth.provider_client. Off by default: the apiserver does not
-// call the identity service to register a SCIM target or to forward a status change.
-func ProviderClientEnabled() bool { return getBool(authProviderClient, false) }
-
 // DefaultAuthConnection is the identity connection of the SSO sign-in, used when auth.connection is unset or blank.
 const DefaultAuthConnection = "okta-amd"
 

@@ -902,7 +902,7 @@ func checkPrivilegedVolumeHostPath(workload *v1.Workload, workspace *v1.Workspac
 // (read-only for a Sandbox or under a read-only volume); checkExternalPodHostPaths keeps it out of
 // the user directories.
 func checkExternalHostPath(workload *v1.Workload, workspace *v1.Workspace, hostpath string) error {
-	if !isExternalWorkload(workload) || commonconfig.IsExternalUserDirMountsEnable() {
+	if !isExternalWorkload(workload) || userDirMountsEnabled(workload) {
 		return nil
 	}
 	root, sub := commonworkload.HostPathVolumeRoot(workspace, commonworkload.GetScope(workload), hostpath)

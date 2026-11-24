@@ -235,7 +235,6 @@ const (
 	authSCIMPublicURL   = authPrefix + "scim.public_url"
 	authSCIMTokenSecret = authPrefix + "scim.token_secret"
 	authAllowOIDCOnly   = authPrefix + "allow_oidc_only"
-	authProviderClient  = authPrefix + "provider_client"
 	authConnection      = authPrefix + "connection"
 	authAccountsURL     = authPrefix + "accounts_url"
 	authKeysConsoleURL  = authPrefix + "keys_console_url"

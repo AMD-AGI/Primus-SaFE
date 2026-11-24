@@ -69,6 +69,9 @@ type CreateWorkloadRequest struct {
 	// Keep the workload out of its workspace's low utilization policy. Setting it requires the
 	// workload/low-util-exempt grant in the workspace.
 	LowUtilizationExempt *bool `json:"lowUtilizationExempt,omitempty"`
+	// Set to false to mount an external workload's hostpath volumes whole, as when
+	// external_execution.user_dir_mounts is off. Only a system administrator may set it.
+	UserDirMounts *bool `json:"userDirMounts,omitempty"`
 }
 
 // DynamoOptions describes the dynamo-specific knobs that the API server

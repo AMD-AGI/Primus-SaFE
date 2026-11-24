@@ -54,6 +54,8 @@ type scimUser struct {
 	ExternalID string   `json:"externalId"`
 	UserName   string   `json:"userName"`
 	Active     bool     `json:"active"`
+	// Groups is the recorded set, so the identity's reconciliation can compare it. Empty when deactivated.
+	Groups []string `json:"groups"`
 }
 
 type listResponse struct {
@@ -160,7 +162,8 @@ func (s *server) getUser(c *gin.Context) {
 }
 
 // patchUser applies replace operations on active and on groups.
-// groups is the identity's platform groups; spec.roles is rewritten from auth.group_mappings.
+// groups is the identity's platform groups; spec.roles is rewritten from auth.group_mappings and
+// the groups are recorded on the user (identity.GroupsAnnotation).
 func (s *server) patchUser(c *gin.Context) {
 	plan, err := parsePatch(c)
 	if err != nil {
@@ -188,6 +191,12 @@ func (s *server) patchUser(c *gin.Context) {
 			if rolesChanged {
 				changed = true
 			}
+			if identity.RecordGroups(user, *plan.groups) {
+				changed = true
+			}
+		}
+		if v1.GetAnnotation(user, identity.DeactivatedAnnotation) != "" && identity.ForgetGroups(user) {
+			changed = true
 		}
 		if !changed {
 			updated = user
@@ -207,8 +216,8 @@ func (s *server) patchUser(c *gin.Context) {
 	writeJSON(c, http.StatusOK, toSCIMUser(updated))
 }
 
-// deleteUser freezes the user as a patch of active=false does and keeps the record, so a later
-// active=true restores it. An unknown id is 204.
+// deleteUser freezes the user as a patch of active=false does, forgetting the recorded groups, and
+// keeps the record, so a later active=true restores it. An unknown id is 204.
 func (s *server) deleteUser(c *gin.Context) {
 	id := c.Param("id")
 	err := backoff.ConflictRetry(func() error {
@@ -216,7 +225,9 @@ func (s *server) deleteUser(c *gin.Context) {
 		if gerr != nil {
 			return gerr
 		}
-		if !applyActive(user, false) {
+		frozen := applyActive(user, false)
+		forgot := identity.ForgetGroups(user)
+		if !frozen && !forgot {
 			return nil
 		}
 		return s.h.Update(c.Request.Context(), user)
@@ -441,6 +452,7 @@ func activeOf(op patchOp) (bool, bool) {
 }
 
 // applyActive freezes the user and sets the SCIM annotation, or clears both when the annotation is present.
+// Groups are not restored here: the identity pushes them again when it reconciles an active user.
 // It returns whether the object changed.
 func applyActive(user *v1.User, active bool) bool {
 	if active {
@@ -465,12 +477,17 @@ func toSCIMUser(user *v1.User) scimUser {
 	if name == "" {
 		name = user.Name
 	}
+	groups := identity.RecordedGroups(user)
+	if groups == nil || v1.GetAnnotation(user, identity.DeactivatedAnnotation) != "" {
+		groups = []string{}
+	}
 	return scimUser{
 		Schemas:    []string{schemaUser},
 		ID:         user.Name,
 		ExternalID: user.Name,
 		UserName:   name,
 		Active:     !user.IsRestricted(),
+		Groups:     groups,
 	}
 }
 
