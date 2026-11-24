@@ -7,6 +7,7 @@ package webhooks
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"gotest.tools/assert"
@@ -48,7 +49,7 @@ func legacyMutateRoles(user *v1.User) {
 	}
 }
 
-// legacyMutateWorkspace is mutateWorkspace as it was before users.join_default_workspaces existed.
+// legacyMutateWorkspace is mutateWorkspace without the users.join_default_workspaces switch.
 func legacyMutateWorkspace(ctx context.Context, m *UserMutator, user *v1.User) {
 	workspaceSet := sets.NewSet()
 	currentWorkspaces := commonuser.GetWorkspace(user)
@@ -76,7 +77,7 @@ func legacyMutateWorkspace(ctx context.Context, m *UserMutator, user *v1.User) {
 		}
 		workspaces = append(workspaces, w.Name)
 	}
-	if len(currentWorkspaces) != len(workspaces) {
+	if !slices.Equal(currentWorkspaces, workspaces) {
 		commonuser.AssignWorkspace(user, workspaces...)
 	}
 }

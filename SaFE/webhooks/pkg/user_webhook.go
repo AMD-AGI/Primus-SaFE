@@ -9,10 +9,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	admissionv1 "k8s.io/api/admission/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -143,7 +146,7 @@ func (m *UserMutator) mutateRoles(user *v1.User) {
 }
 
 // mutateWorkspace removes duplicate and non-existent workspaces from the user's workspace list.
-// It ensures that each workspace appears only once and that all workspaces actually exist.
+// A workspace is removed only when its lookup returns NotFound; any other lookup error keeps it.
 func (m *UserMutator) mutateWorkspace(ctx context.Context, user *v1.User) {
 	workspaceSet := sets.NewSet()
 	currentWorkspaces := commonuser.GetWorkspace(user)
@@ -153,15 +156,20 @@ func (m *UserMutator) mutateWorkspace(ctx context.Context, user *v1.User) {
 			continue
 		}
 		workspaceSet.Insert(w)
-		if _, err := getWorkspace(ctx, m.Client, w); err == nil {
-			workspaces = append(workspaces, w)
+		if _, err := getWorkspace(ctx, m.Client, w); err != nil {
+			if apierrors.IsNotFound(err) {
+				klog.Infof("remove the non-existent workspace %s from user %s", w, user.Name)
+				continue
+			}
+			klog.ErrorS(err, "failed to get workspace, keep it for user", "user", user.Name, "workspace", w)
 		}
+		workspaces = append(workspaces, w)
 	}
 
 	// adds default workspaces to users' workspace lists, unless the deployment keeps a new user out
 	// of them until an administrator adds the user (users.join_default_workspaces).
 	if !commonconfig.IsUserJoinDefaultWorkspaces() {
-		if len(currentWorkspaces) != len(workspaces) {
+		if !slices.Equal(currentWorkspaces, workspaces) {
 			commonuser.AssignWorkspace(user, workspaces...)
 		}
 		return
@@ -180,7 +188,7 @@ func (m *UserMutator) mutateWorkspace(ctx context.Context, user *v1.User) {
 		}
 		workspaces = append(workspaces, w.Name)
 	}
-	if len(currentWorkspaces) != len(workspaces) {
+	if !slices.Equal(currentWorkspaces, workspaces) {
 		commonuser.AssignWorkspace(user, workspaces...)
 	}
 }
