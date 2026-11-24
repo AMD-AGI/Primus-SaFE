@@ -178,6 +178,8 @@ func (r *ModelPrewarmJobReconciler) generateExternalWorkload(
 				v1.DescriptionAnnotation: v1.OpsJobKind,
 				// Only the model path is mounted, as a hostpath.
 				v1.UseWorkspaceStorageAnnotation: "false",
+				// Creating the job needs a system administrator, so the pod mounts its volume whole.
+				v1.WorkloadUserDirMountsOffAnnotation: v1.TrueStr,
 			},
 		},
 		Spec: v1.WorkloadSpec{
@@ -212,19 +214,16 @@ func (r *ModelPrewarmJobReconciler) generateExternalWorkload(
 	return workload, nil
 }
 
-// prewarmHostPath returns the host path a prewarm pod mounts to read the model. An external pod can mount
-// only the hostpath volume root the workspace declares, unless user_dir_mounts is enabled, which also
-// admits the model path below it.
+// prewarmHostPath returns the host path a prewarm pod mounts to read the model: the hostpath volume
+// root the workspace declares. The prewarm workload opts out of user directory mounts, so the model
+// path below the root is not mounted on its own.
 func prewarmHostPath(workspace *v1.Workspace, workload *v1.Workload, modelPath string) (string, error) {
-	root, sub := commonworkload.HostPathVolumeRoot(workspace, commonworkload.GetScope(workload), modelPath)
+	root, _ := commonworkload.HostPathVolumeRoot(workspace, commonworkload.GetScope(workload), modelPath)
 	if root == "" {
 		return "", commonerrors.NewBadRequest(fmt.Sprintf(
 			"model path %s is not under a hostpath volume of workspace %s", modelPath, workspace.Name))
 	}
-	if sub != "" && !commonconfig.IsExternalUserDirMountsEnable() {
-		return root, nil
-	}
-	return filepath.Clean(modelPath), nil
+	return filepath.Clean(root), nil
 }
 
 // externalWorkloadResult maps the prewarm workload of a node to a node result.

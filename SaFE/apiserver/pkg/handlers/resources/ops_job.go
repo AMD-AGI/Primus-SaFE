@@ -20,6 +20,7 @@ import (
 	"github.com/gin-gonic/gin/binding"
 	"github.com/google/uuid"
 	"github.com/lib/pq"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/klog/v2"
@@ -718,6 +719,9 @@ func (h *Handler) generateModelPrewarmJob(c *gin.Context, body []byte) (*v1.OpsJ
 	if job.GetParameter(v1.ParameterNode) == nil {
 		return nil, commonerrors.NewBadRequest("opsJob nodes are either empty or unhealthy")
 	}
+	if err = h.authModelPrewarmExternalNodes(c, job, requestUser); err != nil {
+		return nil, err
+	}
 
 	if workspaceId := v1.GetWorkspaceId(job); workspaceId != "" {
 		workspaceObj, err := h.getAdminWorkspace(ctx, workspaceId)
@@ -756,6 +760,37 @@ func (h *Handler) generateModelPrewarmJob(c *gin.Context, body []byte) (*v1.OpsJ
 	}
 
 	return job, nil
+}
+
+// modelPrewarmExternalForbidden is the reason a non-administrator gets for prewarming an external node.
+const modelPrewarmExternalForbidden = "prewarming a model on an external node requires a system administrator"
+
+// authModelPrewarmExternalNodes requires a system administrator when the job prewarms an external node:
+// its pod mounts the whole hostpath volume of the workspace. Excluded nodes have an empty value and
+// are skipped; a job of nodes with node-agent keeps its workspace authorization.
+func (h *Handler) authModelPrewarmExternalNodes(c *gin.Context, job *v1.OpsJob, requestUser *v1.User) error {
+	ctx := c.Request.Context()
+	for _, param := range job.GetParameters(v1.ParameterNode) {
+		if param.Value == "" {
+			continue
+		}
+		node, err := h.getAdminNode(ctx, param.Value)
+		if err != nil {
+			return err
+		}
+		if !node.IsExternal() {
+			continue
+		}
+		in := authority.AccessInput{Context: ctx, User: requestUser, UserId: c.GetString(common.UserId)}
+		if err = h.accessController.AuthorizeSystemAdmin(in, false); err != nil {
+			if apierrors.IsForbidden(err) {
+				return commonerrors.NewForbidden(modelPrewarmExternalForbidden)
+			}
+			return err
+		}
+		return nil
+	}
+	return nil
 }
 
 // generateDownloadJob creates a download file-type ops job.

@@ -21,6 +21,7 @@ import (
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	modelprewarm "github.com/AMD-AIG-AIMA/SAFE/common/pkg/model_prewarm"
 )
 
@@ -131,4 +132,36 @@ func TestPrewarmHostPathMountsDeclaredRoot(t *testing.T) {
 
 	_, err = prewarmHostPath(workspace, workload, "/other/models")
 	assert.Error(t, err)
+}
+
+// The prewarm workload of an external node opts out of user directory mounts, so its pod mounts the
+// declared root even when external_execution.user_dir_mounts is on for the cluster.
+func TestExternalPrewarmWorkloadOptsOutOfUserDirMounts(t *testing.T) {
+	const key = "external_execution.user_dir_mounts"
+	commonconfig.SetValue(key, "true")
+	t.Cleanup(func() { commonconfig.UnsetValue(key) })
+
+	hostname := "host-1"
+	workspace := &v1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{Name: "ws", Labels: map[string]string{v1.WorkspaceExternalLabel: v1.TrueStr}},
+		Spec: v1.WorkspaceSpec{Volumes: []v1.WorkspaceVolume{
+			{Id: 1, Type: v1.HOSTPATH, HostPath: "/data", MountPath: "/data"},
+		}},
+	}
+	node := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "ext-1", Labels: map[string]string{v1.WorkspaceIdLabel: "ws"}},
+		Spec: v1.NodeSpec{
+			Hostname:      &hostname,
+			LifecycleMode: v1.NodeLifecycleExternal,
+			ExternalRef:   &v1.NodeExternalRef{Provider: "autopilot", AllocationId: "alloc-1"},
+		},
+	}
+	job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: "j1"}, Spec: v1.OpsJobSpec{Type: v1.OpsJobModelPrewarmType}}
+	r := &ModelPrewarmJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, workspace, node, job)}
+	cfg := &modelPrewarmConfig{modelPath: "/data/models/glm", glob: modelprewarm.DefaultGlob, parallelism: 2}
+
+	workload, err := r.generateExternalWorkload(context.Background(), job, cfg, node, "j1-abc")
+	require.NoError(t, err)
+	assert.Equal(t, v1.TrueStr, v1.GetAnnotation(workload, v1.WorkloadUserDirMountsOffAnnotation))
+	assert.Equal(t, []string{"/data"}, workload.Spec.Hostpath)
 }
