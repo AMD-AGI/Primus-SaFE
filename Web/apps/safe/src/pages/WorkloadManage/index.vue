@@ -680,8 +680,8 @@ const getActions = (row: Row): Action[] => {
     })
   }
 
-  if (dialogImportMap[kind]) {
-    actions.push({
+  actions.push(
+    {
       key: 'edit',
       label: 'Edit',
       icon: Edit,
@@ -689,9 +689,7 @@ const getActions = (row: Row): Action[] => {
       disabled: (r) => !canWrite.value || getEditDisabled(r),
       tooltip: (r) => getEditDisabled(r) ? 'Edit is unavailable for this workload state' : 'Edit workload configuration',
       onClick: (r) => openDialog(r, 'Edit'),
-    })
-  }
-  actions.push(
+    },
     {
       key: 'stop',
       label: 'Stop',

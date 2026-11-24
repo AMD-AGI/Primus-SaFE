@@ -101,10 +101,9 @@
             <el-table v-if="detailData.workloads" :data="detailData.workloads">
               <el-table-column prop="id" label="id" width="180">
                 <template #default="{ row }">
-                  <el-link v-if="detailRouteOf(row.kind, row.id)" type="primary" v-route="detailRouteOf(row.kind, row.id)">{{
+                  <el-link type="primary" v-route="getDetailRoute(row.kind, row.id)">{{
                     row.id
                   }}</el-link>
-                  <span v-else>{{ row.id }}</span>
                 </template>
               </el-table-column>
               <el-table-column prop="userId" label="user" width="180" />
@@ -184,12 +183,13 @@ import {
   getNodeDetailLogs,
   getRebootLogs,
   stopWorkload,
-  detailRouteOf,
+  KindPathMap,
 } from '@/services'
 import type {
   GetNodePodLogResponse,
   NodeRebootData,
   RebootLogsItem,
+  WorkloadKind,
 } from '@/services'
 import type { TabsPaneContext } from 'element-plus'
 import { onMounted, ref, computed, watch, nextTick, reactive, h } from 'vue'
@@ -270,6 +270,18 @@ const handleClick = async (tab: TabsPaneContext) => {
   if (tab.paneName === 'rebootLog') onSearch({ resetPage: true })
 }
 
+const basePathOf = (kind: WorkloadKind): `/${string}` => KindPathMap[kind] ?? '/training'
+const pathFor = (kind: WorkloadKind, sub: string = ''): `/${string}` => {
+  const base = basePathOf(kind)
+  return sub ? (`${base}/${sub.replace(/^\/+/, '')}` as `/${string}`) : base
+}
+const getDetailRoute = (kind: WorkloadKind, id: string) => ({
+  path: `${basePathOf(kind)}/detail`,
+  query: { id },
+})
+const jumpToDetail = (kind: WorkloadKind, id: string) => {
+  router.push({ path: pathFor(kind, 'detail'), query: { id } })
+}
 
 const getDetail = async () => {
   if (!nodeId.value) return
