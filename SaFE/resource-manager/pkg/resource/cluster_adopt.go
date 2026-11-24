@@ -144,10 +144,15 @@ func (r *ClusterReconciler) getAdoptedSSHSecret(ctx context.Context, cluster *v1
 }
 
 // sshPublicKeyFromSecret returns the authorized public key, or derives it from the private key.
+// The key is returned as type and base64 data only, without comment or options.
 // It returns an empty key without error when the secret only holds a password.
 func sshPublicKeyFromSecret(secret *corev1.Secret) (string, error) {
-	if pub := strings.TrimSpace(string(secret.Data[utils.AuthorizePub])); pub != "" {
-		return pub, nil
+	if raw := secret.Data[utils.AuthorizePub]; len(strings.TrimSpace(string(raw))) > 0 {
+		key, _, _, _, err := ssh.ParseAuthorizedKey(raw)
+		if err != nil {
+			return "", fmt.Errorf("ssh secret %s/%s has an invalid public key: %v", secret.Namespace, secret.Name, err)
+		}
+		return strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key))), nil
 	}
 	key := secret.Data[utils.Authorize]
 	if len(key) == 0 {
@@ -189,6 +194,11 @@ func bootstrapAdoptedNodes(cluster *v1.Cluster) []*v1.Node {
 func (r *ClusterReconciler) syncAdoptedInventory(ctx context.Context, cluster *v1.Cluster,
 	clientSet kubernetes.Interface, nodes []corev1.Node) error {
 	nodes = adoptableNodes(nodes)
+	grouped := groupNodesByWorkspace(nodes)
+	if mixed := mixedFlavorWorkspaces(cluster, grouped); len(mixed) > 0 {
+		return fmt.Errorf("adopted cluster %s has workspaces with nodes of multiple flavors: %s",
+			cluster.Name, strings.Join(mixed, "; "))
+	}
 	var errs []error
 	flavors := map[string]bool{}
 	for i := range nodes {
@@ -201,7 +211,6 @@ func (r *ClusterReconciler) syncAdoptedInventory(ctx context.Context, cluster *v
 			errs = append(errs, err)
 		}
 	}
-	grouped := groupNodesByWorkspace(nodes)
 	for name, members := range grouped {
 		pvcs, err := clientSet.CoreV1().PersistentVolumeClaims(name).List(ctx, metav1.ListOptions{})
 		if err != nil && !apierrors.IsNotFound(err) {
@@ -586,6 +595,28 @@ func groupNodesByWorkspace(nodes []corev1.Node) map[string][]corev1.Node {
 		grouped[name] = append(grouped[name], nodes[i])
 	}
 	return grouped
+}
+
+// mixedFlavorWorkspaces describes each workspace whose members map to more than one flavor,
+// as "workspace(flavorA,flavorB)", sorted by workspace name.
+func mixedFlavorWorkspaces(cluster *v1.Cluster, grouped map[string][]corev1.Node) []string {
+	mixed := make([]string, 0)
+	for name, members := range grouped {
+		seen := map[string]bool{}
+		flavors := make([]string, 0)
+		for i := range members {
+			if flavor := adoptedFlavor(cluster, &members[i]); flavor != nil && !seen[flavor.Name] {
+				seen[flavor.Name] = true
+				flavors = append(flavors, flavor.Name)
+			}
+		}
+		if len(flavors) > 1 {
+			sort.Strings(flavors)
+			mixed = append(mixed, fmt.Sprintf("%s(%s)", name, strings.Join(flavors, ",")))
+		}
+	}
+	sort.Strings(mixed)
+	return mixed
 }
 
 func adoptedWorkspaceFlavor(cluster *v1.Cluster, nodes []corev1.Node) string {

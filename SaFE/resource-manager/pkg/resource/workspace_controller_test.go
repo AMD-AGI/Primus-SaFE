@@ -675,6 +675,32 @@ func TestReleasingAdoptedClusterKeepsWorkspaceDataPlane(t *testing.T) {
 	testifyassert.True(t, apierrors.IsNotFound(r.Get(ctx, client.ObjectKey{Name: "ws1"}, &v1.Workspace{})))
 }
 
+func TestDeletingAdoptedWorkspaceKeepsDataPlane(t *testing.T) {
+	ctx := context.Background()
+	for name, cluster := range map[string]*v1.Cluster{
+		"live cluster":    {ObjectMeta: metav1.ObjectMeta{Name: "c1", Annotations: map[string]string{v1.ClusterAdoptAnnotation: v1.TrueStr}}},
+		"missing cluster": nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			cs := k8sfake.NewSimpleClientset(&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}})
+			now := metav1.Now()
+			ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1", DeletionTimestamp: &now,
+				Finalizers:  []string{v1.WorkspaceFinalizer},
+				Annotations: map[string]string{v1.WorkspaceAdoptAnnotation: v1.TrueStr}},
+				Spec: v1.WorkspaceSpec{Cluster: "c1"}}
+			objs := []ctrlclient.Object{ws}
+			if cluster != nil {
+				objs = append(objs, cluster)
+			}
+			r := newWorkspaceReconcilerFull(t, cs, objs...)
+
+			testifyassert.NoError(t, r.delete(ctx, ws))
+			_, err := cs.CoreV1().Namespaces().Get(ctx, "ws1", metav1.GetOptions{})
+			testifyassert.NoError(t, err)
+		})
+	}
+}
+
 func TestGuaranteeAndDeleteDataPlaneResourcesFull(t *testing.T) {
 	cs := k8sfake.NewSimpleClientset()
 	cluster := testCluster("c1")
