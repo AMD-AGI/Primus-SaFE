@@ -21,6 +21,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -536,6 +537,148 @@ func TestLowUtilSkipsExemptAndUnmatchedWorkloads(t *testing.T) {
 	assert.Assert(t, !marked)
 }
 
+// lowUtilExemptUser is a user exempt from the low utilization policy in the given workspaces.
+func lowUtilExemptUser(name string, workspaces ...string) *v1.User {
+	u := &v1.User{ObjectMeta: metav1.ObjectMeta{Name: name}}
+	u.Spec.LowUtilization = &v1.UserLowUtilization{Workspaces: map[string]v1.UserLowUtilizationScope{}}
+	for _, ws := range workspaces {
+		u.Spec.LowUtilization.Workspaces[ws] = v1.UserLowUtilizationScope{Exempt: true}
+	}
+	return u
+}
+
+func lowUtilOwnedWorkload(name, owner, workspace string) *v1.Workload {
+	w := lowUtilTestWorkload(name, "a")
+	w.Labels[v1.UserIdLabel] = owner
+	w.Spec.Workspace = workspace
+	return w
+}
+
+func TestLowUtilSkipsUserExemptOwnerOnlyInThatWorkspace(t *testing.T) {
+	ws2 := lowUtilTestWorkspace(lowUtilPolicy(v1.LowUtilizationAverage))
+	ws2.Name = "ws2"
+	notExempt := lowUtilExemptUser("bob")
+	notExempt.Spec.LowUtilization.Workspaces["ws"] = v1.UserLowUtilizationScope{}
+	src := &fakeGPUWindow{windows: map[string]robustclient.WorkloadGPUWindow{
+		"exempt-uid":     gpuWindow("exempt-uid", 1, 60),
+		"other-ws-uid":   gpuWindow("other-ws-uid", 1, 60),
+		"other-user-uid": gpuWindow("other-user-uid", 1, 60),
+	}}
+	r, cl, _ := newLowUtilTestController(t, src,
+		lowUtilTestWorkspace(lowUtilPolicy(v1.LowUtilizationAverage)), ws2,
+		lowUtilExemptUser("alice", "ws"), notExempt,
+		lowUtilOwnedWorkload("exempt", "alice", "ws"),
+		lowUtilOwnedWorkload("other-ws", "alice", "ws2"),
+		lowUtilOwnedWorkload("other-user", "bob", "ws"))
+
+	r.runOnce(context.Background())
+
+	for name, detected := range map[string]bool{"exempt": false, "other-ws": true, "other-user": true} {
+		got, err := getLowUtilWorkload(t, cl, name)
+		assert.NilError(t, err)
+		_, marked := got.Annotations[v1.WorkloadLowUtilDetectedAtAnnotation]
+		assert.Equal(t, marked, detected, name)
+	}
+	assert.Equal(t, len(lowUtilTimeline(t, cl, "exempt")), 0)
+}
+
+func TestLowUtilUserExemptionClosesOpenEpisode(t *testing.T) {
+	open := lowUtilOwnedWorkload("open", "alice", "ws")
+	lowUtilEnforced(open, 10*time.Minute)
+	open.Status.Conditions = []metav1.Condition{lowUtilDetectedCondition()}
+	quiet := lowUtilOwnedWorkload("quiet", "alice", "ws")
+	recovered := lowUtilOwnedWorkload("recovered", "alice", "ws")
+	lowUtilEnforced(recovered, 10*time.Minute)
+	recovered.Status.Conditions = []metav1.Condition{lowUtilDetectedCondition(), {
+		Type: string(v1.AdminLowUtilization), Status: metav1.ConditionTrue, Reason: "Recovered_1",
+		Message: "recovered", LastTransitionTime: metav1.NewTime(lowUtilTestNow.Add(-time.Hour)),
+	}}
+	src := &fakeGPUWindow{windows: map[string]robustclient.WorkloadGPUWindow{"open-uid": gpuWindow("open-uid", 1, 60)}}
+	r, cl, _ := newLowUtilTestController(t, src, lowUtilTestWorkspace(lowUtilPolicy(v1.LowUtilizationAverage)),
+		lowUtilExemptUser("alice", "ws"), open, quiet, recovered)
+
+	r.runOnce(context.Background())
+	r.runOnce(context.Background())
+
+	assert.Equal(t, len(src.calls), 0)
+	timeline := lowUtilTimeline(t, cl, "open")
+	assert.DeepEqual(t, lowUtilReasons(timeline), []string{"Detected_1", "Exempted_1"})
+	assert.Equal(t, timeline[1].Message, "the owner alice is exempt from the low utilization policy in workspace ws; "+
+		"the workload is no longer checked")
+	got, err := getLowUtilWorkload(t, cl, "open")
+	assert.NilError(t, err)
+	for _, key := range []string{v1.WorkloadLowUtilDetectedAtAnnotation, v1.WorkloadLowUtilEnforcedAtAnnotation,
+		v1.WorkloadLowUtilActiveSinceAnnotation} {
+		_, marked := got.Annotations[key]
+		assert.Assert(t, !marked, key)
+	}
+	assert.Equal(t, got.Status.Phase, v1.WorkloadRunning)
+
+	assert.Equal(t, len(lowUtilTimeline(t, cl, "quiet")), 0)
+	assert.DeepEqual(t, lowUtilReasons(lowUtilTimeline(t, cl, "recovered")), []string{"Detected_1", "Recovered_1"})
+}
+
+func TestLowUtilAnnotationAndUserExemptionBothSkip(t *testing.T) {
+	annotated := lowUtilOwnedWorkload("annotated", "bob", "ws")
+	v1.SetAnnotation(annotated, v1.WorkloadLowUtilExemptAnnotation, v1.TrueStr)
+	both := lowUtilOwnedWorkload("both", "alice", "ws")
+	v1.SetAnnotation(both, v1.WorkloadLowUtilExemptAnnotation, v1.TrueStr)
+	owner := lowUtilOwnedWorkload("owner", "alice", "ws")
+	for _, w := range []*v1.Workload{annotated, both, owner} {
+		lowUtilEnforced(w, 10*time.Minute)
+		w.Status.Conditions = []metav1.Condition{lowUtilDetectedCondition()}
+	}
+	src := &fakeGPUWindow{windows: map[string]robustclient.WorkloadGPUWindow{
+		"annotated-uid": gpuWindow("annotated-uid", 1, 60),
+		"both-uid":      gpuWindow("both-uid", 1, 60),
+		"owner-uid":     gpuWindow("owner-uid", 1, 60),
+	}}
+	r, cl, _ := newLowUtilTestController(t, src, lowUtilTestWorkspace(lowUtilPolicy(v1.LowUtilizationAverage)),
+		lowUtilExemptUser("alice", "ws"), annotated, both, owner)
+
+	r.runOnce(context.Background())
+
+	assert.Equal(t, len(src.calls), 0)
+	for _, name := range []string{"annotated", "both", "owner"} {
+		got, err := getLowUtilWorkload(t, cl, name)
+		assert.NilError(t, err)
+		_, marked := got.Annotations[v1.WorkloadLowUtilDetectedAtAnnotation]
+		assert.Assert(t, !marked, name)
+	}
+	assert.DeepEqual(t, lowUtilReasons(lowUtilTimeline(t, cl, "annotated")), []string{"Detected_1"})
+	assert.DeepEqual(t, lowUtilReasons(lowUtilTimeline(t, cl, "both")), []string{"Detected_1"})
+	assert.DeepEqual(t, lowUtilReasons(lowUtilTimeline(t, cl, "owner")), []string{"Detected_1", "Exempted_1"})
+}
+
+func TestLowUtilUserListErrorKeepsPolicy(t *testing.T) {
+	w := lowUtilOwnedWorkload("w", "alice", "ws")
+	cl := ctrlfake.NewClientBuilder().
+		WithScheme(ttlScheme(t)).
+		WithObjects(lowUtilTestWorkspace(lowUtilPolicy(v1.LowUtilizationAverage)), lowUtilExemptUser("alice", "ws"), w).
+		WithStatusSubresource(&v1.Workload{}).
+		WithInterceptorFuncs(interceptor.Funcs{
+			List: func(ctx context.Context, c ctrlclient.WithWatch, list ctrlclient.ObjectList, opts ...ctrlclient.ListOption) error {
+				if _, ok := list.(*v1.UserList); ok {
+					return errors.New("users unavailable")
+				}
+				return c.List(ctx, list, opts...)
+			},
+		}).
+		Build()
+	src := &fakeGPUWindow{windows: map[string]robustclient.WorkloadGPUWindow{"w-uid": gpuWindow("w-uid", 1, 60)}}
+	r := &LowUtilizationController{
+		Client: cl, source: src, recorder: record.NewFakeRecorder(10),
+		now: func() time.Time { return lowUtilTestNow },
+	}
+
+	r.runOnce(context.Background())
+
+	assert.Equal(t, len(src.calls), 1)
+	got, err := getLowUtilWorkload(t, cl, "w")
+	assert.NilError(t, err)
+	assert.Equal(t, v1.GetAnnotation(got, v1.WorkloadLowUtilDetectedAtAnnotation), lowUtilTestNow.Format(time.RFC3339))
+}
+
 func TestLowUtilSkipsUnsupportedCluster(t *testing.T) {
 	w := lowUtilTestWorkload("w", "a")
 	v1.SetAnnotation(w, v1.WorkloadLowUtilDetectedAtAnnotation, lowUtilTestNow.Add(-time.Hour).Format(time.RFC3339))
@@ -730,6 +873,45 @@ func TestLowUtilEpisodeSurvivesTrimmedHistory(t *testing.T) {
 	r.runOnce(context.Background())
 
 	assert.DeepEqual(t, lowUtilReasons(lowUtilTimeline(t, cl, "w")), []string{"Detected_2", "Recovered_2", "Detected_3"})
+}
+
+// After the exemption is revoked, a detection whose mark was saved but whose entry was not
+// starts a new episode instead of reusing the exempted one.
+func TestLowUtilDetectionAfterExemptionRetriesNewEpisode(t *testing.T) {
+	for name, tc := range map[string]struct {
+		policy   v1.LowUtilizationPolicy
+		detected string
+		src      *fakeGPUWindow
+		want     string
+	}{
+		"legacy": {
+			policy:   lowUtilPolicy(v1.LowUtilizationAverage),
+			detected: "Detected_1",
+			src:      &fakeGPUWindow{windows: map[string]robustclient.WorkloadGPUWindow{"w-uid": gpuWindow("w-uid", 1, 60)}},
+			want:     "Detected_2",
+		},
+		"rules": {
+			policy:   lowUtilRulesPolicy(),
+			detected: "Detected_1_lt11_30m",
+			src:      lowUtilRulesSource(3, 60, 40, 60),
+			want:     "Detected_2_lt11_30m",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := lowUtilOwnedWorkload("w", "alice", "ws")
+			v1.SetAnnotation(w, v1.WorkloadLowUtilDetectedAtAnnotation, lowUtilTestNow.Format(time.RFC3339))
+			detected := lowUtilDetectedCondition()
+			detected.Reason = tc.detected
+			exempted := detected
+			exempted.Reason = "Exempted_1"
+			w.Status.Conditions = []metav1.Condition{detected, exempted}
+			r, cl, _ := newLowUtilTestController(t, tc.src, lowUtilTestWorkspace(tc.policy), lowUtilExemptUser("alice"), w)
+
+			r.runOnce(context.Background())
+
+			assert.DeepEqual(t, lowUtilReasons(lowUtilTimeline(t, cl, "w")), []string{tc.detected, "Exempted_1", tc.want})
+		})
+	}
 }
 
 // lowUtilRulesPolicy is the 11%/30m or 30%/1h policy.

@@ -23,6 +23,15 @@ export interface BaseUserResp {
   roles: string[]
 }
 
+export interface UserLowUtilizationScope {
+  exempt?: boolean
+}
+
+// Per-user low utilization settings keyed by workspace id. They take precedence over the workspace policy.
+export interface UserLowUtilization {
+  workspaces?: Record<string, UserLowUtilizationScope>
+}
+
 export interface EditUserResp {
   password?: string
   email?: string
@@ -33,6 +42,7 @@ export interface EditUserResp {
   managedWorkspaces?: string[]
   restrictedType?: number
   qos?: UserQos
+  lowUtilization?: UserLowUtilization
 }
 
 export interface LoginResp extends BaseUserResp {
@@ -50,6 +60,7 @@ export interface UserSelfData extends BaseUserResp {
   creationTime: string
   restrictedType: number
   qos?: UserQos
+  lowUtilization?: UserLowUtilization
 }
 
 // GET /users/self/workspaces: the workspaces the user can access and the ones the user manages

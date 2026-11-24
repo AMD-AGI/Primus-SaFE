@@ -74,7 +74,7 @@
         </template>
       </el-table-column>
 
-      <el-table-column label="Actions" :width="userStore.isManager ? 168 : 120" fixed="right">
+      <el-table-column label="Actions" :width="userStore.isManager ? 212 : 120" fixed="right">
         <template #default="{ row }">
           <template v-if="userStore.isManager">
             <el-tooltip content="QoS" placement="top">
@@ -84,6 +84,15 @@
                 :icon="Setting"
                 size="default"
                 @click="openQos(row)"
+              />
+            </el-tooltip>
+            <el-tooltip content="Low utilization exemption" placement="top">
+              <el-button
+                circle
+                class="btn-primary-plain"
+                :icon="Odometer"
+                size="default"
+                @click="openLowUtilExemption(row)"
               />
             </el-tooltip>
             <el-tooltip v-if="creatable" content="Delete" placement="top">
@@ -141,6 +150,11 @@
     @success="getUserList()"
   />
   <QosDialog v-model:visible="qosVisible" :user="qosUser" @success="getUserList()" />
+  <LowUtilExemptionDialog
+    v-model:visible="lowUtilExemptionVisible"
+    :user="lowUtilExemptionUser"
+    @success="getUserList()"
+  />
   <el-dialog v-model="addWs.visible" title="Add to workspace" width="420px" destroy-on-close>
     <el-form label-position="top" @submit.prevent>
       <el-form-item label="Workspace">
@@ -192,7 +206,7 @@
 </template>
 <script lang="ts" setup>
 import { ref, onMounted, reactive, h, computed } from 'vue'
-import { Edit, Delete, Plus, Minus, Search, Setting } from '@element-plus/icons-vue'
+import { Edit, Delete, Plus, Minus, Search, Setting, Odometer } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox, type TableColumnCtx } from 'element-plus'
 import {
   getUserDataList,
@@ -203,6 +217,7 @@ import {
 } from '@/services'
 import AddDialog from './Components/AddDialog.vue'
 import QosDialog from './Components/QosDialog.vue'
+import LowUtilExemptionDialog from './Components/LowUtilExemptionDialog.vue'
 import { formatTimeStr } from '@/utils'
 import { useUserStore } from '@/stores/user'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -213,6 +228,8 @@ import { openIdentityConsole } from '@/utils/identityConsole'
 const searchName = ref('')
 const qosVisible = ref(false)
 const qosUser = ref<UserSelfData | null>(null)
+const lowUtilExemptionVisible = ref(false)
+const lowUtilExemptionUser = ref<UserSelfData | null>(null)
 const allUserData = ref<UserSelfData[]>([])
 
 const state = reactive({
@@ -267,6 +284,11 @@ const onSearchChange = () => {
 const openQos = (row: UserSelfData) => {
   qosUser.value = row
   qosVisible.value = true
+}
+
+const openLowUtilExemption = (row: UserSelfData) => {
+  lowUtilExemptionUser.value = row
+  lowUtilExemptionVisible.value = true
 }
 
 const openDialog = (row: UserSelfData) => {

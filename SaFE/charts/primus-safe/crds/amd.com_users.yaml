@@ -42,6 +42,22 @@ spec:
             type: object
           spec:
             properties:
+              lowUtilization:
+                description: Per-user low utilization settings per workspace. They
+                  take precedence over the workspace policy.
+                properties:
+                  workspaces:
+                    additionalProperties:
+                      description: UserLowUtilizationScope is one user's low utilization
+                        setting in one workspace.
+                      properties:
+                        exempt:
+                          description: The user's workloads in this workspace are
+                            not checked by its low utilization policy.
+                          type: boolean
+                      type: object
+                    type: object
+                type: object
               password:
                 description: User password, base64 encoded, optional
                 type: string

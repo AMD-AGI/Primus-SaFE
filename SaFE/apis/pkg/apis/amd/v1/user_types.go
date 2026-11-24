@@ -51,6 +51,20 @@ type UserSpec struct {
 	// Per-user resource and runtime ceilings per workspace. Unset fields use the workspace Qos.
 	// +optional
 	Qos *UserQos `json:"qos,omitempty"`
+	// Per-user low utilization settings per workspace. They take precedence over the workspace policy.
+	// +optional
+	LowUtilization *UserLowUtilization `json:"lowUtilization,omitempty"`
+}
+
+// UserLowUtilization is stored on the User. Workspaces holds the settings keyed by workspace id.
+type UserLowUtilization struct {
+	Workspaces map[string]UserLowUtilizationScope `json:"workspaces,omitempty"`
+}
+
+// UserLowUtilizationScope is one user's low utilization setting in one workspace.
+type UserLowUtilizationScope struct {
+	// The user's workloads in this workspace are not checked by its low utilization policy.
+	Exempt bool `json:"exempt,omitempty"`
 }
 
 // +genclient

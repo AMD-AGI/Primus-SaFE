@@ -160,6 +160,10 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &amdv1.StorageStatusApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("User"):
 		return &amdv1.UserApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("UserLowUtilization"):
+		return &amdv1.UserLowUtilizationApplyConfiguration{}
+	case v1.SchemeGroupVersion.WithKind("UserLowUtilizationScope"):
+		return &amdv1.UserLowUtilizationScopeApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("UserQos"):
 		return &amdv1.UserQosApplyConfiguration{}
 	case v1.SchemeGroupVersion.WithKind("UserQosScope"):
