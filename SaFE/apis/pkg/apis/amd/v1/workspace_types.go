@@ -303,6 +303,26 @@ func (w *Workspace) SandboxScopeLabelValue() string {
 	return ""
 }
 
+// PendingGrants returns the grants recorded in WorkspaceGrantPending.
+func (w *Workspace) PendingGrants() []string {
+	val := GetAnnotation(w, WorkspaceGrantPending)
+	if val == "" {
+		return nil
+	}
+	return strings.Split(val, ",")
+}
+
+// AddPendingGrant records a grant in WorkspaceGrantPending, once.
+func (w *Workspace) AddPendingGrant(grant string) {
+	grants := w.PendingGrants()
+	for _, g := range grants {
+		if g == grant {
+			return
+		}
+	}
+	SetAnnotation(w, WorkspaceGrantPending, strings.Join(append(grants, grant), ","))
+}
+
 func (w *Workspace) GetIdleTime(scope WorkspaceScope) string {
 	idleTime, ok := w.Spec.IdleTime[scope]
 	if !ok {

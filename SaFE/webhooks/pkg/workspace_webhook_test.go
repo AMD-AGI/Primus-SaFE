@@ -101,11 +101,35 @@ func TestWorkspaceMutateDefaultWorkspaceUsers(t *testing.T) {
 	notDefault := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}}
 	assert.NilError(t, m.mutateDefaultWorkspaceUsers(context.Background(), nil, notDefault))
 
+	// Marking a stored workspace as default grants it to the users at once.
 	isDefault := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"}, Spec: v1.WorkspaceSpec{IsDefault: true}}
-	assert.NilError(t, m.mutateDefaultWorkspaceUsers(context.Background(), nil, isDefault))
+	assert.NilError(t, m.mutateDefaultWorkspaceUsers(context.Background(), notDefault, isDefault))
 	updated := &v1.User{}
 	assert.NilError(t, k8sClient.Get(context.Background(), client.ObjectKey{Name: "u1"}, updated))
 	assert.Assert(t, commonuser.HasWorkspaceRight(updated, "ws1"))
+}
+
+// TestWorkspaceMutateCreationLeavesGrantsPending verifies that creating a default workspace with managers
+// leaves the users as they are and records the grants to apply once the workspace is stored.
+func TestWorkspaceMutateCreationLeavesGrantsPending(t *testing.T) {
+	ctx := context.Background()
+	k8sClient := fake.NewClientBuilder().WithScheme(newScheme(t)).WithObjects(validUser("u1"), validUser("u2")).Build()
+	m := &WorkspaceMutator{Client: k8sClient}
+
+	created := &v1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{Name: "ws1"},
+		Spec:       v1.WorkspaceSpec{IsDefault: true, Managers: []string{"u1", "missing"}},
+	}
+	assert.NilError(t, m.mutateManagers(ctx, nil, created))
+	assert.NilError(t, m.mutateDefaultWorkspaceUsers(ctx, nil, created))
+	assert.DeepEqual(t, created.Spec.Managers, []string{"u1"})
+	assert.DeepEqual(t, created.PendingGrants(), []string{v1.WorkspaceGrantManagers, v1.WorkspaceGrantDefault})
+	for _, name := range []string{"u1", "u2"} {
+		got := &v1.User{}
+		assert.NilError(t, k8sClient.Get(ctx, client.ObjectKey{Name: name}, got))
+		assert.Equal(t, len(commonuser.GetWorkspace(got)), 0)
+		assert.Equal(t, len(commonuser.GetManagedWorkspace(got)), 0)
+	}
 }
 
 // TestWorkspaceMutateScaleDown verifies no-op when not scaling down.

@@ -279,6 +279,40 @@ func TestUserMutateWorkspaceRemoveAndAdd(t *testing.T) {
 	assert.DeepEqual(t, commonuser.GetWorkspace(user), []string{"ws-default"})
 }
 
+// TestUserMutateWorkspaceConfirmsMissingWithLiveRead keeps a workspace the cache does not know yet but the
+// live read finds, and removes one that neither finds, in the access list and in the managed list.
+func TestUserMutateWorkspaceConfirmsMissingWithLiveRead(t *testing.T) {
+	ctx := context.Background()
+	scheme := newScheme(t)
+	stored := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws-new"}}
+	live := fake.NewClientBuilder().WithScheme(scheme).WithObjects(stored).Build()
+	cache := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	user := validUser("u1")
+	commonuser.AssignWorkspace(user, "ws-new", "missing")
+	commonuser.AssignManagedWorkspace(user, "ws-new", "missing")
+	m := &UserMutator{Client: cache, apiReader: live}
+	m.mutateWorkspace(ctx, user)
+	m.mutateManagedWorkspaces(ctx, user, false)
+	assert.DeepEqual(t, commonuser.GetWorkspace(user), []string{"ws-new"})
+	assert.DeepEqual(t, commonuser.GetManagedWorkspace(user), []string{"ws-new"})
+}
+
+// TestUserMutateManagedWorkspacesKeepsOnLookupError keeps a managed workspace whose lookup fails with an
+// error other than NotFound.
+func TestUserMutateManagedWorkspacesKeepsOnLookupError(t *testing.T) {
+	cli := fake.NewClientBuilder().WithScheme(newScheme(t)).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(context.Context, client.WithWatch, client.ObjectKey, client.Object, ...client.GetOption) error {
+				return errors.New("transient lookup failure")
+			},
+		}).Build()
+	user := validUser("u1")
+	commonuser.AssignManagedWorkspace(user, "ws1")
+	(&UserMutator{Client: cli}).mutateManagedWorkspaces(context.Background(), user, false)
+	assert.DeepEqual(t, commonuser.GetManagedWorkspace(user), []string{"ws1"})
+}
+
 // TestUserMutateManagedWorkspacesNoRight covers managed workspace access filtering.
 func TestUserMutateManagedWorkspacesNoRight(t *testing.T) {
 	scheme := newScheme(t)
