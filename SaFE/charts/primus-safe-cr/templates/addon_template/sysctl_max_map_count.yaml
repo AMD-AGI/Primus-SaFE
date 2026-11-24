@@ -17,4 +17,4 @@ spec:
   category: System
   required: true
   description: Set vm.max_map_count to 262144
-  action: ZWNobyAidm0ubWF4X21hcF9jb3VudD0yNjIxNDQiID4gL2V0Yy9zeXNjdGwuZC85OS1tYXgtbWFwLWNvdW50LmNvbmYgJiYgc3lzY3RsIC0tc3lzdGVtCg==
+  action: aWYgWyAiJChjYXQgL3Byb2Mvc3lzL3ZtL21heF9tYXBfY291bnQpIiAtZ2UgMjYyMTQ0IF07IHRoZW4KICBleGl0IDAKZmkKZWNobyAidm0ubWF4X21hcF9jb3VudD0yNjIxNDQiID4gL2V0Yy9zeXNjdGwuZC85OS1tYXgtbWFwLWNvdW50LmNvbmYgJiYgc3lzY3RsIC0tc3lzdGVtCg==
