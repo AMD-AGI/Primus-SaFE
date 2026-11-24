@@ -28,6 +28,13 @@ type userDirMount struct {
 	readOnly  bool
 }
 
+// userDirMountsEnabled reports whether an external workload mounts only its user directories and
+// shared paths: external_execution.user_dir_mounts is on and the apiserver did not opt the workload out.
+func userDirMountsEnabled(workload *v1.Workload) bool {
+	return commonconfig.IsExternalUserDirMountsEnable() &&
+		v1.GetAnnotation(workload, v1.WorkloadUserDirMountsOffAnnotation) != v1.TrueStr
+}
+
 // externalUserDirMounts returns what replaces the whole-volume mount of vol in an external Pod, and
 // whether vol is replaced at all. With external_execution.user_dir_mounts on, a hostpath volume with
 // enableUserDir or sharedPaths is mounted as the Pod's own user directory (enableUserDir) and the
@@ -40,7 +47,7 @@ type userDirMount struct {
 // nothing is replaced and the volume is mounted as before. checkExternalPodHostPaths then checks
 // every hostPath the Pod ends up with.
 func externalUserDirMounts(workload *v1.Workload, vol v1.WorkspaceVolume) ([]userDirMount, bool, error) {
-	if !commonconfig.IsExternalUserDirMountsEnable() || !isExternalWorkload(workload) ||
+	if !userDirMountsEnabled(workload) || !isExternalWorkload(workload) ||
 		vol.Type != v1.HOSTPATH || (!vol.EnableUserDir && len(vol.SharedPaths) == 0) {
 		return nil, false, nil
 	}
@@ -90,7 +97,7 @@ func externalUserDirMounts(workload *v1.Workload, vol v1.WorkspaceVolume) ([]use
 // hostpath entry would mount other users' directories beside the Pod's own.
 func checkExternalPodHostPaths(obj *unstructured.Unstructured, workload *v1.Workload, workspace *v1.Workspace,
 	resourceSpec v1.ResourceSpec) error {
-	if !commonconfig.IsExternalUserDirMountsEnable() || !isExternalWorkload(workload) {
+	if !userDirMountsEnabled(workload) || !isExternalWorkload(workload) {
 		return nil
 	}
 	volumes, _, err := jobutils.NestedSlice(obj.Object, podSpecPath(workload, &resourceSpec, "volumes"))

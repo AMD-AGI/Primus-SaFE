@@ -244,6 +244,11 @@ func (h *Handler) createWorkloadImplWithHook(c *gin.Context, workload *v1.Worklo
 			"hostpath", workload.Spec.Hostpath, "user", c.GetString(common.UserName))
 		return nil, err
 	}
+	if err = h.authWorkloadUserDirMounts(c, workload, requestUser, roles); err != nil {
+		klog.ErrorS(err, "failed to auth workload userDirMounts", "workload", workload.Name,
+			"user", c.GetString(common.UserName))
+		return nil, err
+	}
 
 	for i, sec := range workload.Spec.Secrets {
 		secret, err := h.getAndAuthorizeSecret(c.Request.Context(), sec.Id, workload.Spec.Workspace, requestUser, v1.GetVerb)
@@ -688,6 +693,13 @@ func (h *Handler) authWorkloadUpdate(c *gin.Context, adminWorkload *v1.Workload,
 			return nil, err
 		}
 	}
+	// A change to a workload that mounts whole volumes changes what runs with them, so it takes
+	// the administrator its creation took.
+	if v1.GetAnnotation(adminWorkload, v1.WorkloadUserDirMountsOffAnnotation) == v1.TrueStr {
+		if err = h.requireUserDirMountsAdmin(c, requestUser, roles); err != nil {
+			return nil, err
+		}
+	}
 	return change, nil
 }
 
@@ -1126,6 +1138,45 @@ func (h *Handler) authWorkloadStorage(c *gin.Context,
 	return h.accessController.AuthorizeWorkloadPrivilegedVolumes(in, workload, workspace)
 }
 
+// userDirMountsOffForbidden is the reason a non-administrator gets for userDirMounts false.
+const userDirMountsOffForbidden = "setting userDirMounts to false requires a system administrator"
+
+// authWorkloadUserDirMounts keeps the opt-out mark of userDirMounts false only for a system
+// administrator. The mark is removed first, so it stays on a workload only when this check passes.
+func (h *Handler) authWorkloadUserDirMounts(c *gin.Context,
+	workload *v1.Workload, requestUser *v1.User, roles []*v1.Role) error {
+	wanted := v1.GetAnnotation(workload, v1.WorkloadUserDirMountsOffAnnotation) == v1.TrueStr
+	v1.RemoveAnnotation(workload, v1.WorkloadUserDirMountsOffAnnotation)
+	if !wanted {
+		return nil
+	}
+	if err := h.requireUserDirMountsAdmin(c, requestUser, roles); err != nil {
+		return err
+	}
+	v1.SetAnnotation(workload, v1.WorkloadUserDirMountsOffAnnotation, v1.TrueStr)
+	return nil
+}
+
+// requireUserDirMountsAdmin requires a system administrator, with the userDirMounts reason on refusal.
+func (h *Handler) requireUserDirMountsAdmin(c *gin.Context, requestUser *v1.User, roles []*v1.Role) error {
+	if h.accessController == nil {
+		return commonerrors.NewForbidden(userDirMountsOffForbidden)
+	}
+	in := authority.AccessInput{
+		Context: c.Request.Context(),
+		User:    requestUser,
+		UserId:  c.GetString(common.UserId),
+		Roles:   roles,
+	}
+	if err := h.accessController.AuthorizeSystemAdmin(in, false); err != nil {
+		if apierrors.IsForbidden(err) {
+			return commonerrors.NewForbidden(userDirMountsOffForbidden)
+		}
+		return err
+	}
+	return nil
+}
+
 // validateWorkloadId checks a caller-chosen id against every constraint it has
 // to satisfy downstream. Without this the first thing to reject it is the owner
 // label on a Secret the caller never named, which reports the caller's id as an
@@ -1199,6 +1250,10 @@ func (h *Handler) generateWorkload(ctx context.Context,
 	}
 	if req.LowUtilizationExempt != nil {
 		setLowUtilExempt(workload, *req.LowUtilizationExempt)
+	}
+	if req.UserDirMounts != nil && !*req.UserDirMounts {
+		// Kept only if authWorkloadUserDirMounts finds a system administrator behind the request.
+		v1.SetAnnotation(workload, v1.WorkloadUserDirMountsOffAnnotation, v1.TrueStr)
 	}
 	if commonworkload.IsCICDScalingRunnerSet(workload) {
 		if err = h.generateCICDScaleRunnerSet(ctx, workload, requestUser, req.GitHubAuth, req.ProxyAuth); err != nil {
