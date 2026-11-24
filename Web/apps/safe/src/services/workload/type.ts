@@ -67,6 +67,12 @@ export const KindPathMap: Partial<Record<WorkloadKind, `/${string}`>> = {
   [WorkloadKind.SGLangRouter]: '/sglang-router',
 } as const
 
+// Returns the detail route of a workload kind, or undefined when the kind has no detail page.
+export const detailRouteOf = (kind: string, id: string) => {
+  const base = KindPathMap[kind as WorkloadKind]
+  return base ? { path: `${base}/detail`, query: { id } } : undefined
+}
+
 export type PriorityValue = 0 | 1 | 2
 
 export const PRIORITY_LABEL_MAP: Record<PriorityValue, 'Low' | 'Medium' | 'High'> = {
