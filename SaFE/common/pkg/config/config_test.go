@@ -856,13 +856,12 @@ func TestSandboxAdmissionKeySetDefaultsToTheClusterHost(t *testing.T) {
 	testifyassert.Equal(t, "https://idp.example", cfg.Issuer)
 }
 
-// Console URLs keep a path or an http(s) URL and drop anything else; the accounts and API keys pages default to the identity console. The provider client and OIDC-only switches default off.
-func TestConsoleURLAndProviderSwitches(t *testing.T) {
+// Console URLs keep a path or an http(s) URL and drop anything else; the accounts and API keys pages default to the identity console. The OIDC-only switch defaults off.
+func TestConsoleURLAndOIDCOnlySwitch(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
 
 	testifyrequire.False(t, AllowOIDCOnly())
-	testifyrequire.False(t, ProviderClientEnabled())
 	testifyrequire.Equal(t, DefaultAuthConnection, GetAuthConnection())
 	testifyrequire.Equal(t, DefaultAccountsURL, GetAuthAccountsURL())
 	testifyrequire.Equal(t, DefaultKeysConsoleURL, GetAuthKeysConsoleURL())
@@ -874,13 +873,11 @@ func TestConsoleURLAndProviderSwitches(t *testing.T) {
 	testifyrequire.Equal(t, "/identity/#keys", GetAuthKeysConsoleURL())
 
 	viper.Set("auth.allow_oidc_only", true)
-	viper.Set("auth.provider_client", true)
 	viper.Set("auth.connection", "  local  ")
 	viper.Set("auth.accounts_url", "/idp/accounts")
 	viper.Set("auth.keys_console_url", "https://idp.example/keys")
 	viper.Set("auth.scim.token_secret", "  ")
 	testifyrequire.True(t, AllowOIDCOnly())
-	testifyrequire.True(t, ProviderClientEnabled())
 	testifyrequire.Equal(t, "local", GetAuthConnection())
 	testifyrequire.Equal(t, "/idp/accounts", GetAuthAccountsURL())
 	testifyrequire.Equal(t, "https://idp.example/keys", GetAuthKeysConsoleURL())
@@ -2059,13 +2056,9 @@ func TestChartRefusesAnIncompleteExternalAuth(t *testing.T) {
 		{"oidc only, allowed", externalAuthArgs("--set", "auth.authenticators[0].type=oidc", "--set", "auth.allow_oidc_only=true"), ""},
 		{"no system-admin group", externalAuthArgs("--set", "auth.group_mappings[0].roles[0]=system-admin-readonly"),
 			"grants system-admin to no group"},
-		{"scim on without provider_client needs no identity URL", externalAuthArgs("--set", "auth.scim.enabled=true"), ""},
-		{"scim and provider_client without an identity URL", externalAuthArgs("--set", "auth.scim.enabled=true", "--set", "auth.provider_client=true"),
-			"auth.scim.identity_url cannot be resolved"},
-		{"scim and provider_client with an identity URL", externalAuthArgs("--set", "auth.scim.enabled=true", "--set", "auth.provider_client=true",
-			"--set-string", "auth.scim.identity_url=https://idp.example"), ""},
-		{"scim and provider_client with an introspection URL", externalAuthArgs("--set", "auth.scim.enabled=true", "--set", "auth.provider_client=true",
-			"--set", "auth.authenticators[1].type=introspection", "--set-string", "auth.authenticators[1].url=https://idp.example/oauth/introspect"), ""},
+		{"scim without an identity URL does not block the render", externalAuthArgs("--set", "auth.scim.enabled=true"), ""},
+		{"scim with an identity URL", externalAuthArgs("--set", "auth.scim.enabled=true", "--set-string", "auth.scim.identity_url=https://idp.example"), ""},
+		{"provider_client was removed", externalAuthArgs("--set", "auth.provider_client=true"), "auth.provider_client has been removed"},
 		{"sso.login with no oidc entry for the console", externalAuthArgs("--set", "sso.login.enable=true"), ""},
 		{"sso.login with the default client id as an oidc audience", externalAuthArgs(append([]string{"--set", "sso.login.enable=true"}, oidcConsole...)...),
 			`auth.authenticators[1] is an oidc entry for audience "safe-console", which is sso.login.client_id`},
