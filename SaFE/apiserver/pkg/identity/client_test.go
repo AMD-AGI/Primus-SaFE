@@ -113,3 +113,30 @@ func TestHTTPClientIsShared(t *testing.T) {
 	_, err = httpClient()
 	require.Error(t, err)
 }
+
+// CheckRegistration needs what RegisterTarget needs: the identity base and an introspection client, read
+// from the configuration without opening the secret file.
+func TestCheckRegistration(t *testing.T) {
+	t.Cleanup(viper.Reset)
+	var cfg *ConfigError
+
+	require.ErrorAs(t, CheckRegistration(), &cfg, "no base")
+
+	viper.Set("auth.scim.identity_url", "https://idp.example")
+	require.ErrorAs(t, CheckRegistration(), &cfg, "no introspection client")
+
+	viper.Set("auth.authenticators", []map[string]any{{"type": "introspection", "client_id": "svc"}})
+	require.ErrorAs(t, CheckRegistration(), &cfg, "no client secret file")
+
+	viper.Set("auth.authenticators", []map[string]any{{"type": "oidc", "client_id": "svc", "client_secret_file": "/s"}})
+	require.ErrorAs(t, CheckRegistration(), &cfg, "only an introspection entry counts")
+
+	viper.Set("auth.authenticators", []map[string]any{{"type": "introspection", "client_id": "svc", "client_secret_file": "/s"}})
+	require.NoError(t, CheckRegistration())
+
+	viper.Set("auth.authenticators", []map[string]any{{"type": "introspection", "client_id_file": "/id", "client_secret_file": "/s"}})
+	require.NoError(t, CheckRegistration(), "a client id file counts")
+
+	viper.Set("auth.scim.identity_url", "")
+	require.ErrorAs(t, CheckRegistration(), &cfg, "the base is gone")
+}

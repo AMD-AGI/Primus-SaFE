@@ -191,6 +191,9 @@ data:
       # OTLP exporter endpoint (e.g., localhost:4317 for gRPC)
       otlp_endpoint: {{ default "otel-collector-collector.primus-safe.svc.cluster.local:4317" (default dict .Values.tracing).otlp_endpoint }}
     {{- if .Values.auth }}
+    {{- if .Values.auth.provider_client }}
+    {{- fail "auth.provider_client has been removed and has no effect; remove it from the values" }}
+    {{- end }}
     {{- $apiKeysURL := default "" .Values.auth.api_keys_url }}
     {{- if .Values.auth.api_keys_upstream }}
     {{- /* the path the console's nginx routes to that upstream */}}
@@ -234,19 +237,26 @@ data:
     {{- end }}
     {{- end }}
     {{- end }}
-    {{- /* Only auth.provider_client calls the identity service, so only it needs the SCIM identity URL. */}}
+    {{- /* The apiserver registers its SCIM target with the identity service: the SCIM identity URL must resolve and an introspection client must be there to sign in with. */}}
     {{- $scimOn := default dict .Values.auth.scim }}
-    {{- if and (ne ($scimOn.enabled | toString) "false") .Values.auth.provider_client }}
+    {{- if ne ($scimOn.enabled | toString) "false" }}
     {{- $idBase := $scimOn.identity_url | default "" | toString }}
-    {{- if not $idBase }}
+    {{- $idClient := false }}
     {{- range $a := default (list) .Values.auth.authenticators }}
-    {{- if and (not $idBase) (eq (lower (default "" $a.type)) "introspection") }}
+    {{- if eq (lower (default "" $a.type)) "introspection" }}
+    {{- if not $idBase }}
     {{- $idBase = $a.url | default $a.issuer | default "" | toString }}
     {{- end }}
+    {{- if and (or $a.client_id $a.client_id_file) $a.client_secret_file }}
+    {{- $idClient = true }}
+    {{- end }}
     {{- end }}
     {{- end }}
     {{- if not $idBase }}
-    {{- fail "auth.scim and auth.provider_client are enabled but auth.scim.identity_url cannot be resolved from an introspection authenticator" }}
+    {{- fail "auth.scim is enabled but auth.scim.identity_url cannot be resolved from an introspection authenticator" }}
+    {{- end }}
+    {{- if not $idClient }}
+    {{- fail "auth.scim is enabled but no introspection authenticator has client_id (or client_id_file) and client_secret_file, which the SCIM target registration signs in with" }}
     {{- end }}
     {{- end }}
     {{- end }}
@@ -265,7 +275,6 @@ data:
       # Where the console ends the identity provider's session at sign-out, a path on the console host.
       logout_url: {{ default "/identity/api/v1/logout" .Values.auth.logout_url | quote }}
       allow_oidc_only: {{ default false .Values.auth.allow_oidc_only }}
-      provider_client: {{ default false .Values.auth.provider_client }}
       connection: {{ default "okta-amd" .Values.auth.connection | quote }}
       accounts_url: {{ default "/identity/#accounts" .Values.auth.accounts_url | quote }}
       keys_console_url: {{ default "/identity/#keys" .Values.auth.keys_console_url | quote }}

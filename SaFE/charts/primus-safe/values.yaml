@@ -351,9 +351,6 @@ auth:
   # Accept an authenticator list that is only oidc. Off by default: external mode then needs
   # an introspection or builtin entry.
   allow_oidc_only: false
-  # When true, the apiserver calls the identity service to register the SCIM target and to
-  # forward a restricted-type change. Off by default: configure the SCIM target on the provider.
-  provider_client: false
   # Identity connection the console names on the authorize request when sso.enable is on. Empty: okta-amd.
   connection: ""
   # Page the console opens for accounts when mode is external. Empty: /identity/#accounts.
