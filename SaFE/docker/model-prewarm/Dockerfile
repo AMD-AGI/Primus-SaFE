@@ -14,4 +14,4 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 CMD ["/bin/bash"]
 
 # Build:
-# docker build -t harbor.tas.primus-safe.amd.com/proxy/primussafe/model-prewarm:latest .
+# docker build -t docker.io/primussafe/model-prewarm:latest .

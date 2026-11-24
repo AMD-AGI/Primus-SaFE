@@ -54,7 +54,7 @@ jobs:
           echo "Manual dispatch (build_all): building all modules"
           for module in apiserver resource_manager job_manager preprocess \
             cicd_runner_proxy cicd_unified_job_proxy cicd_proxy_relay s3_downloader \
-            webhooks node_agent sync_image web; do
+            webhooks node_agent sync_image model_prewarm web; do
             echo "${module}_changed=true" >> $GITHUB_OUTPUT
           done
           exit 0
@@ -112,6 +112,13 @@ jobs:
           echo "preprocess_changed=true" >> $GITHUB_OUTPUT
         else
           echo "preprocess_changed=false" >> $GITHUB_OUTPUT
+        fi
+
+        # model_prewarm: SaFE/docker/model-prewarm/**
+        if echo "$CHANGED_FILES" | grep -qE '^SaFE/docker/model-prewarm/'; then
+          echo "model_prewarm_changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "model_prewarm_changed=false" >> $GITHUB_OUTPUT
         fi
         
         # # monarch: SaFE/docker/monarch/**
@@ -220,6 +227,9 @@ jobs:
         fi
         if [[ "${{ steps.detect-changes.outputs.preprocess_changed }}" == "true" ]]; then
           MATRIX+='{"name":"preprocess","basepath":"SaFE/docker/preprocess","dockerfile_path":"SaFE/docker/preprocess/Dockerfile"},'
+        fi
+        if [[ "${{ steps.detect-changes.outputs.model_prewarm_changed }}" == "true" ]]; then
+          MATRIX+='{"name":"model-prewarm","basepath":"SaFE/docker/model-prewarm","dockerfile_path":"SaFE/docker/model-prewarm/Dockerfile"},'
         fi
         # if [[ "${{ steps.detect-changes.outputs.monarch_changed }}" == "true" ]]; then
         #   MATRIX+='{"name":"monarch","basepath":"SaFE/docker/monarch","dockerfile_path":"SaFE/docker/monarch/Dockerfile"},'
