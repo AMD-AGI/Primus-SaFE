@@ -27,6 +27,8 @@ type UserSpecApplyConfiguration struct {
 	Resources map[string][]string `json:"resources,omitempty"`
 	// Per-user resource and runtime ceilings per workspace. Unset fields use the workspace Qos.
 	Qos *UserQosApplyConfiguration `json:"qos,omitempty"`
+	// Per-user low utilization settings per workspace. They take precedence over the workspace policy.
+	LowUtilization *UserLowUtilizationApplyConfiguration `json:"lowUtilization,omitempty"`
 }
 
 // UserSpecApplyConfiguration constructs a declarative configuration of the UserSpec type for use with
@@ -88,5 +90,13 @@ func (b *UserSpecApplyConfiguration) WithResources(entries map[string][]string) 
 // If called multiple times, the Qos field is set to the value of the last call.
 func (b *UserSpecApplyConfiguration) WithQos(value *UserQosApplyConfiguration) *UserSpecApplyConfiguration {
 	b.Qos = value
+	return b
+}
+
+// WithLowUtilization sets the LowUtilization field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the LowUtilization field is set to the value of the last call.
+func (b *UserSpecApplyConfiguration) WithLowUtilization(value *UserLowUtilizationApplyConfiguration) *UserSpecApplyConfiguration {
+	b.LowUtilization = value
 	return b
 }
