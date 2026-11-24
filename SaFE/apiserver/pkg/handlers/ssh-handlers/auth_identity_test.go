@@ -540,3 +540,16 @@ func TestAuthUserDefaultIsRestrictiveForANewCaller(t *testing.T) {
 }
 
 func clientKey(name string) client.ObjectKey { return client.ObjectKey{Name: name} }
+
+// With SCIM off the endpoint is not served, so a recorded group set can no longer be updated or cleared:
+// SSH ignores it and a user the identity provider demoted keeps no grant from it.
+func TestSSHIgnoresRecordedGroupsWhenSCIMIsDisabled(t *testing.T) {
+	setAuthMode(t, "external")
+	viper.Set("auth.scim.enabled", false)
+	t.Cleanup(func() { viper.Set("auth.scim.enabled", nil) })
+	f := newAuthFixture(t)
+	for _, user := range []string{"scim-admin", "scim-team"} {
+		reached, _ := authPaths[1].run(t, f, authCase{user: user, identity: "builtin"}, "external")
+		require.False(t, reached, "%s keeps no grant from a record SCIM no longer maintains", user)
+	}
+}

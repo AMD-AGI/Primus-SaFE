@@ -38,11 +38,18 @@ func TestCheckExternalDeployment(t *testing.T) {
 
 	viper.Set("auth.scim.enabled", true)
 	viper.Set("auth.scim.identity_url", "https://idp.example")
+	require.ErrorContains(t, CheckExternalDeployment(), "client_secret_file", "the registration signs in with an introspection client")
+
+	creds := map[string]any{"type": "introspection", "client_id": "safe-apiserver", "client_secret_file": "/etc/secrets/auth/client-secret"}
+	viper.Set("auth.authenticators", []map[string]any{creds})
 	require.NoError(t, CheckExternalDeployment())
 
 	viper.Set("auth.scim.identity_url", "")
-	viper.Set("auth.authenticators", []map[string]any{{"type": "introspection", "url": "https://idp.example/oauth/introspect"}})
+	creds["url"] = "https://idp.example/oauth/introspect"
 	require.NoError(t, CheckExternalDeployment(), "the introspection URL is the identity service URL")
+
+	viper.Set("auth.authenticators", []map[string]any{{"type": "introspection", "url": "https://idp.example/oauth/introspect"}})
+	require.ErrorContains(t, CheckExternalDeployment(), "client_secret_file", "an introspection entry without a client cannot register")
 }
 
 // The console's ID token (audience sso.login.client_id) is never a credential, so an external chain with

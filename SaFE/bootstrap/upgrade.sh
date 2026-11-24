@@ -288,8 +288,8 @@ write_auth_values() {
 }
 
 # require_external_chain refuses an external auth object that has no fallback authenticator, no
-# group that is granted system-admin, or SCIM enabled without an identity service URL. An omitted
-# auth.login_url is filled by the chart from the cluster host.
+# group that is granted system-admin, or SCIM enabled without an identity service URL and an
+# introspection client. An omitted auth.login_url is filled by the chart from the cluster host.
 require_external_chain() {
   local file="$1" mode n base
   mode=$(jq -r '.auth.mode // "builtin"' "$file")
@@ -313,6 +313,10 @@ require_external_chain() {
     fi
     if [[ -z "$base" ]]; then
       echo "Error: auth.scim is enabled but auth_scim_identity_url cannot be resolved" >&2
+      return 1
+    fi
+    if ! jq -e '[.auth.authenticators[]? | select((.type | ascii_downcase) == "introspection" and (((.client_id // "") != "") or ((.client_id_file // "") != "")) and ((.client_secret_file // "") != ""))] | length > 0' "$file" &> /dev/null; then
+      echo "Error: auth.scim is enabled but no introspection authenticator in auth_authenticators has client_id (or client_id_file) and client_secret_file" >&2
       return 1
     fi
   fi

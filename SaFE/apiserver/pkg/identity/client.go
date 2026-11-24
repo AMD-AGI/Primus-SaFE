@@ -231,27 +231,46 @@ func userURL(userID string, extra ...string) (string, error) {
 	return url.JoinPath(parts[0], parts[1:]...)
 }
 
-// introspectionSecret reads the client id and secret of the first introspection authenticator.
-func introspectionSecret() (string, string, error) {
+// introspectionClient returns the first introspection authenticator that names a client id (or a
+// client id file) and a client secret file.
+func introspectionClient() (commonconfig.AuthenticatorConfig, error) {
 	cfgs, err := commonconfig.GetAuthenticators()
 	if err != nil {
-		return "", "", &ConfigError{Msg: "cannot read auth.authenticators"}
+		return commonconfig.AuthenticatorConfig{}, &ConfigError{Msg: "cannot read auth.authenticators"}
 	}
 	for _, c := range cfgs {
-		if !strings.EqualFold(c.Type, "introspection") || (c.ClientID == "" && c.ClientIDFile == "") || c.ClientSecretFile == "" {
-			continue
+		if strings.EqualFold(c.Type, "introspection") && (c.ClientID != "" || c.ClientIDFile != "") && c.ClientSecretFile != "" {
+			return c, nil
 		}
-		id, rerr := extauth.ResolveClientID(c.ClientID, c.ClientIDFile)
-		if rerr != nil {
-			return "", "", rerr
-		}
-		secret, rerr := extauth.ReadClientSecret(c.ClientSecretFile)
-		if rerr != nil {
-			return "", "", rerr
-		}
-		return id, secret, nil
 	}
-	return "", "", &ConfigError{Msg: "no introspection client_id and client_secret_file are configured"}
+	return commonconfig.AuthenticatorConfig{}, &ConfigError{Msg: "no introspection client_id and client_secret_file are configured"}
+}
+
+// introspectionSecret reads the client id and secret of the first introspection authenticator.
+func introspectionSecret() (string, string, error) {
+	c, err := introspectionClient()
+	if err != nil {
+		return "", "", err
+	}
+	id, rerr := extauth.ResolveClientID(c.ClientID, c.ClientIDFile)
+	if rerr != nil {
+		return "", "", rerr
+	}
+	secret, rerr := extauth.ReadClientSecret(c.ClientSecretFile)
+	if rerr != nil {
+		return "", "", rerr
+	}
+	return id, secret, nil
+}
+
+// CheckRegistration reports whether the configuration holds what RegisterTarget needs: the identity
+// service base URL and an introspection client to sign in with. It opens no file.
+func CheckRegistration() error {
+	if _, err := ResolveBase(); err != nil {
+		return err
+	}
+	_, err := introspectionClient()
+	return err
 }
 
 // bearerAuth sets Authorization to the forwarded bearer token.

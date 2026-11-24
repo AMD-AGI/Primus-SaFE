@@ -72,12 +72,16 @@ func WithoutIdentity(ctx context.Context, userId string) context.Context {
 // WithRecordedGroups returns ctx for a user authenticated by a credential the apiserver accepts on
 // its own (an SSH public key) whose groups the identity service pushed by SCIM. The overlay is the
 // one those groups map to, so a platform role or workspace the identity grants applies and a role
-// only the user object stores does not. A user with no recorded groups gets the overlay of
-// WithoutIdentity. In builtin mode it returns ctx as it is.
+// only the user object stores does not. A user with no recorded groups, or any user while SCIM is
+// disabled (the record is no longer maintained), gets the overlay of WithoutIdentity. In builtin
+// mode it returns ctx as it is.
 func WithRecordedGroups(ctx context.Context, user *v1.User) context.Context {
 	st := externalState.Load()
 	if st == nil || user == nil {
 		return ctx
+	}
+	if !commonconfig.IsSCIMEnabled() {
+		return WithoutIdentity(ctx, user.Name)
 	}
 	return extauth.WithOverlay(ctx, extauth.MapGroups(user.Name, identity.RecordedGroups(user), st.mappings, false))
 }

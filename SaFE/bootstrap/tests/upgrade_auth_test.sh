@@ -308,7 +308,8 @@ expect "break-glass with nothing else in .env: applied" applied
 expect "break-glass with nothing else in .env: builtin" rendered 'mode: "builtin"'
 
 # Higress: external with SCIM renders the console /scim/v2 route in this namespace. builtin deletes it.
-SCIM_ON="$(sed -e 's/^auth_scim_enabled=false/auth_scim_enabled=true/' -e 's|^auth_scim_identity_url=.*|auth_scim_identity_url=https://idp.example.com|' <<<"$AUTH_ENV")"
+SCIM_CHAIN='[{"type":"oidc","issuer":"https://idp.example.com","audience":"primus-safe"},{"type":"introspection","url":"https://idp.example.com/oauth/introspect","client_id":"safe-apiserver","client_secret_file":"/etc/secrets/auth/client-secret"},{"type":"builtin"}]'
+SCIM_ON="$(sed -e 's/^auth_scim_enabled=false/auth_scim_enabled=true/' -e 's|^auth_scim_identity_url=.*|auth_scim_identity_url=https://idp.example.com|' -e "s|^auth_authenticators=.*|auth_authenticators='$SCIM_CHAIN'|" <<<"$AUTH_ENV")"
 run_upgrade "$LIVE_EXTERNAL" "$AUTH_ENV"$'\ningress=higress'
 expect "higress external: applied" applied
 expect "higress external: no identity namespace" bash -c '! grep -q "namespace: primus-identity" "$1"' _ "$OUT/rendered.yaml"
@@ -394,8 +395,11 @@ run_upgrade "$LIVE_BUILTIN" "$(sed 's/^auth_scim_enabled=false/auth_scim_enabled
 expect "external with scim and no identity url: refused" refused
 expect "external with scim and no identity url: says why" grep -q 'auth_scim_identity_url cannot be resolved' "$OUT/log"
 run_upgrade "$LIVE_BUILTIN" "$(sed -e 's/^auth_scim_enabled=false/auth_scim_enabled=true/' -e 's|^auth_scim_identity_url=.*|auth_scim_identity_url=https://idp.example.com|' <<<"$AUTH_ENV")"
-expect "external with scim and an identity url: applied" applied
-expect "external with scim and an identity url: rendered" grep -qF 'identity_url: "https://idp.example.com"' "$OUT/rendered.yaml"
+expect "external with scim, an identity url and no introspection client: refused" refused
+expect "external with scim, an identity url and no introspection client: says why" grep -q 'no introspection authenticator in auth_authenticators has client_id' "$OUT/log"
+run_upgrade "$LIVE_BUILTIN" "$(sed -e 's/^auth_scim_enabled=false/auth_scim_enabled=true/' -e 's|^auth_scim_identity_url=.*|auth_scim_identity_url=https://idp.example.com|' -e "s|^auth_authenticators=.*|auth_authenticators='$SCIM_CHAIN'|" <<<"$AUTH_ENV")"
+expect "external with scim, an identity url and an introspection client: applied" applied
+expect "external with scim, an identity url and an introspection client: rendered" grep -qF 'identity_url: "https://idp.example.com"' "$OUT/rendered.yaml"
 run_upgrade "$LIVE_BUILTIN" "$AUTH_ENV
 auth_provider_client=true"
 expect "auth_provider_client in .env: refused" refused
