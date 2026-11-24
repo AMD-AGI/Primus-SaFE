@@ -272,6 +272,7 @@ func TestAuthorizeAdoptedWorkersUsesControlPlane(t *testing.T) {
 	cluster.Spec.ControlPlane.Nodes = []string{"cp"}
 	cluster.Spec.ControlPlane.SSHSecret = &corev1.ObjectReference{Name: "ccs-root", Namespace: "primus-safe"}
 	cp := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "cp"}, Spec: v1.NodeSpec{PrivateIP: "10.0.0.1", Port: pointer.Int32(22)}}
+	cp.Status.MachineStatus.Phase = v1.NodeReady
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "ccs-root", Namespace: "primus-safe"},
 		Data: map[string][]byte{utils.AuthorizePub: []byte("ssh-ed25519 AAAA ccs")}}
 	r := newPlaneReconciler(t, cluster, cp, secret)
@@ -299,6 +300,7 @@ func TestAuthorizeAdoptedWorkersSkipsExistingNodes(t *testing.T) {
 	cluster.Spec.ControlPlane.Nodes = []string{"cp"}
 	cluster.Spec.ControlPlane.SSHSecret = &corev1.ObjectReference{Name: "ccs-root", Namespace: "primus-safe"}
 	cp := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "cp"}}
+	cp.Status.MachineStatus.Phase = v1.NodeReady
 	worker := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "gpu9458"}}
 	worker.Status.MachineStatus.Phase = v1.NodeReady
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "ccs-root", Namespace: "primus-safe"},
@@ -412,6 +414,21 @@ func TestPendingAdoptedWorkerIPsRetriesUnreadyNodes(t *testing.T) {
 		[]corev1.Node{workerNode("w1", "10.0.0.11"), workerNode("w2", "10.0.0.12"), workerNode("w3", "10.0.0.13")})
 	assert.NoError(t, err)
 	assert.Equal(t, []string{"10.0.0.11", "10.0.0.13"}, ips)
+}
+
+func TestPendingAdoptedWorkerIPsIncludesUnreadyControlPlanes(t *testing.T) {
+	ready := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "cp2"}}
+	ready.Status.MachineStatus.Phase = v1.NodeReady
+	unready := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "cp3"}}
+	unready.Status.MachineStatus.Phase = v1.NodeSSHFailed
+	r, cluster := adoptAuthorizeFixture(t, nil, ready, unready)
+	cluster.Spec.ControlPlane.Nodes = []string{"cp", "cp2", "cp3"}
+	cp3 := workerNode("cp3", "10.0.0.3")
+	cp3.Labels = map[string]string{"node-role.kubernetes.io/control-plane": ""}
+	ips, err := r.pendingAdoptedWorkerIPs(context.Background(), cluster,
+		[]corev1.Node{workerNode("cp2", "10.0.0.2"), cp3})
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"10.0.0.3"}, ips)
 }
 
 func TestAdoptClusterContentsRegistersNodesWhenAuthorizeFails(t *testing.T) {

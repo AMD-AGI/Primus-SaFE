@@ -914,6 +914,8 @@ func (r *NodeReconciler) syncControlPlaneNodeStatus(ctx context.Context, adminNo
 }
 
 // syncLabelsToK8sNode synchronizes labels from the admin Node to the Kubernetes Node.
+// Disk and subnet annotations are written only when the admin Node has a value, and no patch
+// is sent when nothing differs.
 func (r *NodeReconciler) syncLabelsToK8sNode(ctx context.Context,
 	clientSet kubernetes.Interface, adminNode *v1.Node, k8sNode *corev1.Node) error {
 	labels := map[string]string{}
@@ -933,14 +935,21 @@ func (r *NodeReconciler) syncLabelsToK8sNode(ctx context.Context,
 	if v != adminNode.Name {
 		labels[v1.NodeIdLabel] = adminNode.Name
 	}
-	annotations := map[string]string{
-		v1.NodeDiskAnnotation:   v1.GetAnnotation(adminNode, v1.NodeDiskAnnotation),
-		v1.NodeSubnetAnnotation: v1.GetAnnotation(adminNode, v1.NodeSubnetAnnotation),
+	annotations := map[string]string{}
+	for _, key := range []string{v1.NodeDiskAnnotation, v1.NodeSubnetAnnotation} {
+		if val := v1.GetAnnotation(adminNode, key); val != "" && val != k8sNode.Annotations[key] {
+			annotations[key] = val
+		}
+	}
+	if len(labels) == 0 && len(annotations) == 0 {
+		return nil
 	}
 
 	metadata := map[string]interface{}{
 		"resourceVersion": k8sNode.ResourceVersion,
-		"annotations":     annotations,
+	}
+	if len(annotations) > 0 {
+		metadata["annotations"] = annotations
 	}
 	if len(labels) > 0 {
 		metadata["labels"] = labels

@@ -82,7 +82,7 @@ func (r *ClusterReconciler) adoptClusterContents(ctx context.Context, cluster *v
 	return authorizeErr
 }
 
-// authorizeAdoptedWorkers appends the management public key to the SSH user of each pending worker.
+// authorizeAdoptedWorkers appends the management public key to the SSH user of each pending node.
 // The command runs on a control plane node, which already holds a key the workers accept.
 // A secret with only a password has no key to install, so the step is skipped.
 func (r *ClusterReconciler) authorizeAdoptedWorkers(ctx context.Context, cluster *v1.Cluster, nodes []corev1.Node) error {
@@ -606,21 +606,12 @@ func volumesFromPVCs(pvcs []corev1.PersistentVolumeClaim) []v1.WorkspaceVolume {
 	return volumes
 }
 
-// pendingAdoptedWorkerIPs returns worker addresses whose admin Node is missing or not machine-ready.
-// Machine-ready workers and workers of another cluster are left alone, so later reconciles only
-// repeat the SSH fan-out for workers that still cannot be reached.
+// pendingAdoptedWorkerIPs returns addresses of data plane nodes, control planes included, whose
+// admin Node is missing or not machine-ready. Machine-ready nodes and nodes of another cluster
+// are left alone, so later reconciles only repeat the SSH fan-out for nodes that still cannot be reached.
 func (r *ClusterReconciler) pendingAdoptedWorkerIPs(ctx context.Context, cluster *v1.Cluster, nodes []corev1.Node) ([]string, error) {
-	controlPlanes := map[string]bool{}
-	if cluster != nil {
-		for _, name := range cluster.Spec.ControlPlane.Nodes {
-			controlPlanes[name] = true
-		}
-	}
 	ips := make([]string, 0)
 	for i := range nodes {
-		if controlPlanes[nodes[i].Name] || isK8sControlPlaneNode(&nodes[i]) {
-			continue
-		}
 		ip := internalIP(&nodes[i])
 		if net.ParseIP(ip) == nil {
 			continue

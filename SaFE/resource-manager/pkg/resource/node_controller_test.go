@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/pointer"
 	"k8s.io/utils/ptr"
@@ -1492,6 +1493,43 @@ func TestSyncLabelsToK8sNode(t *testing.T) {
 	testifyassert.NoError(t, err)
 	updated, _ := cs.CoreV1().Nodes().Get(context.Background(), "n1", metav1.GetOptions{})
 	assert.Equal(t, "v", updated.Labels["custom"])
+}
+
+func TestSyncLabelsToK8sNodeKeepsAnnotationsMissingOnAdminNode(t *testing.T) {
+	cs := k8sfakeClientset()
+	k8sNode := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1", Annotations: map[string]string{
+		v1.NodeDiskAnnotation: `{"ephemeralStorage":1}`, v1.NodeSubnetAnnotation: "172.16.0.0/12"}}}
+	_, _ = cs.CoreV1().Nodes().Create(context.Background(), k8sNode, metav1.CreateOptions{})
+	scheme, _ := genMockScheme()
+	r := newMockNodeReconciler(ctrlfakeNewClient(scheme))
+	adminNode := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1", Labels: map[string]string{"custom": "v"}}}
+	adminNode.Spec.Cluster = ptrString("c1")
+	testifyassert.NoError(t, r.syncLabelsToK8sNode(context.Background(), cs, adminNode, k8sNode))
+	updated, _ := cs.CoreV1().Nodes().Get(context.Background(), "n1", metav1.GetOptions{})
+	assert.Equal(t, "v", updated.Labels["custom"])
+	assert.Equal(t, `{"ephemeralStorage":1}`, updated.Annotations[v1.NodeDiskAnnotation])
+	assert.Equal(t, "172.16.0.0/12", updated.Annotations[v1.NodeSubnetAnnotation])
+}
+
+func TestSyncLabelsToK8sNodeSkipsUnchangedNode(t *testing.T) {
+	k8sNode := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1",
+		Labels:      map[string]string{v1.ClusterIdLabel: "c1", v1.NodeIdLabel: "n1", "custom": "v"},
+		Annotations: map[string]string{v1.NodeSubnetAnnotation: "172.16.0.0/12"}}}
+	cs := k8sfakeClientset()
+	_, _ = cs.CoreV1().Nodes().Create(context.Background(), k8sNode, metav1.CreateOptions{})
+	patched := false
+	cs.PrependReactor("patch", "nodes", func(k8stesting.Action) (bool, runtime.Object, error) {
+		patched = true
+		return false, nil, nil
+	})
+	scheme, _ := genMockScheme()
+	r := newMockNodeReconciler(ctrlfakeNewClient(scheme))
+	adminNode := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1",
+		Labels:      map[string]string{"custom": "v"},
+		Annotations: map[string]string{v1.NodeSubnetAnnotation: "172.16.0.0/12"}}}
+	adminNode.Spec.Cluster = ptrString("c1")
+	testifyassert.NoError(t, r.syncLabelsToK8sNode(context.Background(), cs, adminNode, k8sNode))
+	testifyassert.False(t, patched)
 }
 
 // --- merged from node_reconcile_extra_test.go ---
