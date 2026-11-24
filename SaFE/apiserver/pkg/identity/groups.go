@@ -35,6 +35,11 @@ func RecordedGroups(user *v1.User) []string {
 	return groups
 }
 
+// ForgetGroups removes the recorded groups and reports whether there were any.
+func ForgetGroups(user *v1.User) bool {
+	return v1.RemoveAnnotation(user, GroupsAnnotation)
+}
+
 // RecordGroups stores groups on the user, sorted and without duplicates, and reports whether the
 // recorded set changed.
 func RecordGroups(user *v1.User, groups []string) bool {
