@@ -220,6 +220,19 @@ func TestOpsJobHasDuplicateInput(t *testing.T) {
 	assert.False(t, v.hasDuplicateInput(a, c, v1.ParameterNode))
 }
 
+// TestOpsJobHasDuplicateInputChecksEveryNode verifies that any node of the first list is compared, not only the last.
+func TestOpsJobHasDuplicateInputChecksEveryNode(t *testing.T) {
+	v := &OpsJobValidator{}
+	a := []v1.Parameter{
+		{Name: v1.ParameterNode, Value: "n1"},
+		{Name: v1.ParameterNode, Value: "n2"},
+		{Name: v1.ParameterNode, Value: "n3"},
+	}
+	assert.True(t, v.hasDuplicateInput(a, []v1.Parameter{{Name: v1.ParameterNode, Value: "n1"}}, v1.ParameterNode))
+	assert.True(t, v.hasDuplicateInput(a, []v1.Parameter{{Name: v1.ParameterNode, Value: "n2"}}, v1.ParameterNode))
+	assert.False(t, v.hasDuplicateInput(a, []v1.Parameter{{Name: v1.ParameterNode, Value: "n4"}}, v1.ParameterNode))
+}
+
 // TestOpsJobMutateMeta verifies labels and finalizer assignment.
 func TestOpsJobMutateMeta(t *testing.T) {
 	scheme := runtime.NewScheme()

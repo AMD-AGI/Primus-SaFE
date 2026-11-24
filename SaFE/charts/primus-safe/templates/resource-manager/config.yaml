@@ -98,6 +98,14 @@ data:
       download_image: {{ printf "%s/primussafe/%s" (default "docker.io" .Values.global.image_registry) (default "s3-downloader:latest" (default .Values.ops_job).download_image) }}
       # Opsjob evalscope image version. Used for model evaluation
       evalscope_image: {{ printf "%s/primussafe/%s" (default "docker.io" .Values.global.image_registry) (default "evalscope:latest" (default .Values.ops_job).evalscope_image) }}
+      model_prewarm:
+        # The image of the pod that prewarms a model on a node without node-agent.
+        # It must provide bash, find, xargs, stat and awk.
+        image: {{ printf "%s/primussafe/%s" (default "docker.io" .Values.global.image_registry) (default "model-prewarm:latest" (default (default .Values.ops_job).model_prewarm).image) }}
+        # How many nodes of one model prewarm job may be prewarmed by pods at the same time. 0 means no limit.
+        max_concurrent: {{ default 4 (default (default .Values.ops_job).model_prewarm).max_concurrent }}
+        # How long a prewarm pod may stay unscheduled before its node is reported as failed, in seconds.
+        pending_timeout_second: {{ default 300 (default (default .Values.ops_job).model_prewarm).pending_timeout_second }}
       prewarm:
         # The timeout for prewarm jobs, in seconds. Default is 900 (15 min).
         timeout_second: {{ default 900 (default (default .Values.ops_job).prewarm).timeout_second }}

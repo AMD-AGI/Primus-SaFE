@@ -144,6 +144,68 @@ func ValidateGlob(glob string) error {
 	return nil
 }
 
+// PreloadScript returns a bash script that reads all weight files under modelPath
+// matching glob with the given parallelism. The last line of its stdout is the total
+// number of bytes read.
+func PreloadScript(modelPath, glob string, parallelism int) string {
+	return fmt.Sprintf(
+		`set -o pipefail;
+MODEL_PATH=%s; GLOB=%s; PAR=%d;
+if [ ! -d "$MODEL_PATH" ]; then echo "model path not found: $MODEL_PATH"; exit 1; fi;
+FILE_COUNT=$(find "$MODEL_PATH" -type f -name "$GLOB" | wc -l);
+if [ "$FILE_COUNT" -eq 0 ]; then echo "no matching regular weight files under $MODEL_PATH (glob=$GLOB; symlinks excluded)"; exit 1; fi;
+BYTES=$(find "$MODEL_PATH" -type f -name "$GLOB" -print0 | xargs -0 -r stat -c%%s | awk '{s+=$1} END {printf "%%.0f\n", s+0}');
+find "$MODEL_PATH" -type f -name "$GLOB" -print0 | sort -z | xargs -0 -n 1 -P"$PAR" -r cat >/dev/null;
+rc=$?;
+echo "$BYTES";
+exit $rc`,
+		shellSingleQuote(modelPath), shellSingleQuote(glob), parallelism,
+	)
+}
+
+// PodEntryScript returns the entry script of a prewarm pod. It runs PreloadScript and reports the
+// outcome as a JSON termination message (see TerminationMessage); the exit code is that of the preload.
+func PodEntryScript(modelPath, glob string, parallelism int) string {
+	return fmt.Sprintf(
+		`START=$(date +%%s);
+OUT=$( (
+%s
+) 2>&1 );
+rc=$?;
+END=$(date +%%s);
+if [ "$rc" -eq 0 ]; then
+  printf '{"bytesRead":%%s,"durationSeconds":%%d}' "$(printf '%%s\n' "$OUT" | tail -n 1)" "$((END-START))" > /dev/termination-log;
+else
+  MSG=$(printf '%%s' "$OUT" | tail -c 2000 | tr '\n\r\t"\\' '     ');
+  printf '{"error":"%%s"}' "$MSG" > /dev/termination-log;
+fi;
+printf '%%s\n' "$OUT";
+exit "$rc"`,
+		PreloadScript(modelPath, glob, parallelism),
+	)
+}
+
+// TerminationMessage is the outcome a prewarm pod writes to its termination message.
+type TerminationMessage struct {
+	BytesRead       int64  `json:"bytesRead,omitempty"`
+	DurationSeconds int64  `json:"durationSeconds,omitempty"`
+	Error           string `json:"error,omitempty"`
+}
+
+// ParseTerminationMessage decodes the termination message of a prewarm pod.
+func ParseTerminationMessage(raw string) (*TerminationMessage, error) {
+	msg := &TerminationMessage{}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), msg); err != nil {
+		return nil, err
+	}
+	return msg, nil
+}
+
+// shellSingleQuote quotes value as a single shell word.
+func shellSingleQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+}
+
 // ParseRequest decodes a model prewarm request annotation value.
 func ParseRequest(raw string) (*Request, error) {
 	req := &Request{}

@@ -232,6 +232,11 @@ func (n *Node) CheckAvailable(ignoreTaint bool) (bool, string) {
 	return true, ""
 }
 
+// IsIgnorableTaint reports whether the taint is ignored when judging the availability of the node.
+func (n *Node) IsIgnorableTaint(key string) bool {
+	return isIgnorableAvailabilityTaint(n, key)
+}
+
 // isIgnorableAvailabilityTaint reports taints that select pods but do not mean the node is
 // unhealthy. Provider identity taints (current and legacy) are ignored only on an
 // external node. The sticky-nodes monitor is ignored on every node.

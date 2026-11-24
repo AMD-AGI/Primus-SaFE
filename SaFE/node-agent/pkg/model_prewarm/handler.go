@@ -181,12 +181,7 @@ func (h *Handler) execute(ctx context.Context, jobUID string, req *modelprewarm.
 }
 
 func (h *Handler) prewarmOnHost(ctx context.Context, req *modelprewarm.Request) (int64, error) {
-	parallelism := req.Parallelism
-	if parallelism <= 0 {
-		parallelism = modelprewarm.DefaultParallelism
-	}
-	script := preloadScript(req.ModelPath, req.Glob, parallelism)
-	cmd := fmt.Sprintf("%s bash -c %s", nsenterPrefix, shellSingleQuote(script))
+	cmd := enterHost(readFiles(req))
 	timeout := modelprewarm.RequestTimeout(req)
 	statusCode, output := utils.ExecuteCommandContext(ctx, cmd, timeout)
 	if ctx.Err() != nil {
@@ -266,20 +261,24 @@ func jsonPointerEscape(value string) string {
 
 const nsenterPrefix = "nsenter --target 1 --mount --uts --ipc --net --pid --"
 
+// enterHost wraps a shell command so that it runs in the namespaces of the host.
+func enterHost(command string) string {
+	return fmt.Sprintf("%s bash -c %s", nsenterPrefix, shellSingleQuote(command))
+}
+
+// readFiles returns the command that reads the weight files of a request into the page cache.
+// It does not depend on the host namespaces, so a prewarm pod runs it on its own.
+func readFiles(req *modelprewarm.Request) string {
+	parallelism := req.Parallelism
+	if parallelism <= 0 {
+		parallelism = modelprewarm.DefaultParallelism
+	}
+	return preloadScript(req.ModelPath, req.Glob, parallelism)
+}
+
+// preloadScript builds the host-side preload script shared with the control plane.
 func preloadScript(modelPath, glob string, parallelism int) string {
-	return fmt.Sprintf(
-		`set -o pipefail;
-MODEL_PATH=%s; GLOB=%s; PAR=%d;
-if [ ! -d "$MODEL_PATH" ]; then echo "model path not found: $MODEL_PATH"; exit 1; fi;
-FILE_COUNT=$(find "$MODEL_PATH" -type f -name "$GLOB" | wc -l);
-if [ "$FILE_COUNT" -eq 0 ]; then echo "no matching regular weight files under $MODEL_PATH (glob=$GLOB; symlinks excluded)"; exit 1; fi;
-BYTES=$(find "$MODEL_PATH" -type f -name "$GLOB" -print0 | xargs -0 -r stat -c%%s | awk '{s+=$1} END {printf "%%.0f\n", s+0}');
-find "$MODEL_PATH" -type f -name "$GLOB" -print0 | sort -z | xargs -0 -n 1 -P"$PAR" -r cat >/dev/null;
-rc=$?;
-echo "$BYTES";
-exit $rc`,
-		shellSingleQuote(modelPath), shellSingleQuote(glob), parallelism,
-	)
+	return modelprewarm.PreloadScript(modelPath, glob, parallelism)
 }
 
 func shellSingleQuote(value string) string {

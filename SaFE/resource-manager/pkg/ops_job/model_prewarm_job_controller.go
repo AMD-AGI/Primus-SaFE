@@ -55,7 +55,7 @@ func SetupModelPrewarmJobController(mgr manager.Manager) error {
 
 // Reconcile is the main control loop for model prewarm OpsJob resources.
 func (r *ModelPrewarmJobReconciler) Reconcile(ctx context.Context, req ctrlruntime.Request) (ctrlruntime.Result, error) {
-	clearFuncs := []ClearFunc{r.cleanupAnnotations}
+	clearFuncs := []ClearFunc{r.cleanupAnnotations, r.cleanupExternalWorkloads}
 	return r.OpsJobBaseReconciler.Reconcile(ctx, req, r, clearFuncs...)
 }
 
@@ -161,6 +161,10 @@ func (r *ModelPrewarmJobReconciler) ensureDispatched(ctx context.Context, job *v
 		if err != nil {
 			return err
 		}
+		if adminNode.IsExternal() {
+			// Handled by syncExternalWorkloads.
+			continue
+		}
 		if adminNode.Annotations == nil || adminNode.Annotations[reqKey] == "" {
 			if err := r.patchAdminNodeAnnotation(ctx, adminNode, reqKey, reqValue); err != nil {
 				return err
@@ -205,6 +209,7 @@ func (r *ModelPrewarmJobReconciler) checkAndUpdateJobStatus(ctx context.Context,
 		failures  []string
 	)
 
+	externalResults := r.syncExternalWorkloads(ctx, job, k8sClients, r.getExternalNodes(ctx, targets))
 	for _, adminNodeName := range targets {
 		adminNode, err := r.getAdminNode(ctx, adminNodeName)
 		if err != nil {
@@ -218,7 +223,12 @@ func (r *ModelPrewarmJobReconciler) checkAndUpdateJobStatus(ctx context.Context,
 			continue
 		}
 		k8sNodeName := adminNode.GetK8sNodeName()
-		result, err := r.readK8sNodeResult(ctx, k8sClients, k8sNodeName, string(job.UID))
+		var result *modelprewarm.Result
+		if adminNode.IsExternal() {
+			result = externalResults[adminNode.Name]
+		} else {
+			result, err = r.readK8sNodeResult(ctx, k8sClients, k8sNodeName, string(job.UID))
+		}
 		detail := modelprewarm.NodeDetail{
 			Node:        k8sNodeName,
 			AdminNodeId: adminNodeName,
@@ -271,8 +281,8 @@ func (r *ModelPrewarmJobReconciler) checkAndUpdateJobStatus(ctx context.Context,
 		if err := r.setJobCompleted(ctx, job, v1.OpsJobFailed, message, outputs); err != nil {
 			return ctrlruntime.Result{}, err
 		}
-		if err := r.cleanupAnnotations(ctx, job); err != nil {
-			klog.ErrorS(err, "failed to cleanup model prewarm annotations", "job", job.Name)
+		if err := r.cleanupJobResources(ctx, job); err != nil {
+			klog.ErrorS(err, "failed to cleanup model prewarm resources", "job", job.Name)
 		}
 		return ctrlruntime.Result{}, nil
 	}
@@ -282,8 +292,8 @@ func (r *ModelPrewarmJobReconciler) checkAndUpdateJobStatus(ctx context.Context,
 		if err := r.setJobCompleted(ctx, job, v1.OpsJobSucceeded, message, outputs); err != nil {
 			return ctrlruntime.Result{}, err
 		}
-		if err := r.cleanupAnnotations(ctx, job); err != nil {
-			klog.ErrorS(err, "failed to cleanup model prewarm annotations", "job", job.Name)
+		if err := r.cleanupJobResources(ctx, job); err != nil {
+			klog.ErrorS(err, "failed to cleanup model prewarm resources", "job", job.Name)
 		}
 		return ctrlruntime.Result{}, nil
 	}

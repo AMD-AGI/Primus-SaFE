@@ -3722,6 +3722,17 @@ func updateContainers(adminWorkload *v1.Workload,
 			limits[string(corev1.ResourceEphemeralStorage)] = q.String()
 		}
 	}
+	// A prewarm pod reads the model into the page cache, which the kernel charges to the memory of the
+	// container. A memory limit below the model size would reclaim the pages while they are read.
+	if commonworkload.IsModelPrewarm(adminWorkload) {
+		withoutMemory := make(map[string]interface{}, len(limits))
+		for key, val := range limits {
+			if key != string(corev1.ResourceMemory) {
+				withoutMemory[key] = val
+			}
+		}
+		limits = withoutMemory
+	}
 
 	for i := range containers {
 		container := containers[i].(map[string]interface{})
@@ -4036,6 +4047,11 @@ func stripExternalContainerPrivileges(obj *unstructured.Unstructured, workload *
 		sc["privileged"] = false
 		delete(sc, "runAsUser")
 		delete(sc, "runAsGroup")
+		// A prewarm pod reads model files that the submitter account may not be able to read.
+		// Whether the provider allows the identity is up to the provider.
+		if field == "containers" && commonworkload.IsModelPrewarm(workload) {
+			sc["runAsUser"] = int64(0)
+		}
 		if caps, _ := sc["capabilities"].(map[string]interface{}); caps != nil {
 			delete(caps, "add")
 			if len(caps) == 0 {
