@@ -24,6 +24,8 @@ type ControlPlaneStatusApplyConfiguration struct {
 	// CAData takes precedence over CAFile
 	CAData    *string  `json:"CAData,omitempty"`
 	Endpoints []string `json:"endpoints,omitempty"`
+	// Message describes the latest data plane access or adoption failure; empty when healthy.
+	Message *string `json:"message,omitempty"`
 }
 
 // ControlPlaneStatusApplyConfiguration constructs a declarative configuration of the ControlPlaneStatus type for use with
@@ -71,5 +73,13 @@ func (b *ControlPlaneStatusApplyConfiguration) WithEndpoints(values ...string) *
 	for i := range values {
 		b.Endpoints = append(b.Endpoints, values[i])
 	}
+	return b
+}
+
+// WithMessage sets the Message field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Message field is set to the value of the last call.
+func (b *ControlPlaneStatusApplyConfiguration) WithMessage(value string) *ControlPlaneStatusApplyConfiguration {
+	b.Message = &value
 	return b
 }

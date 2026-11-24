@@ -282,6 +282,9 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reque
 	if err != nil {
 		return ctrlruntime.Result{}, client.IgnoreNotFound(err)
 	}
+	if !cluster.GetDeletionTimestamp().IsZero() && v1.IsAdoptedCluster(cluster) {
+		return r.releaseAdoptedCluster(ctx, cluster)
+	}
 	if !cluster.GetDeletionTimestamp().IsZero() && !cluster.IsInDeletion() {
 		if err = r.cleanupClusterResources(ctx, cluster); err != nil {
 			return ctrlruntime.Result{}, err
@@ -300,7 +303,11 @@ func (r *ClusterReconciler) Reconcile(ctx context.Context, req ctrlruntime.Reque
 		rmmetrics.ClusterReconcileErrorsTotal.WithLabelValues("control_plane_endpoints").Inc()
 		return ctrlruntime.Result{}, err
 	}
-	if err = r.guaranteeClientFactory(ctx, cluster); err != nil {
+	err = r.guaranteeClientFactory(ctx, cluster)
+	if msgErr := r.setClusterMessage(ctx, cluster, dataPlaneUnreachableMessage, err); msgErr != nil {
+		klog.ErrorS(msgErr, "failed to update cluster message", "cluster", cluster.Name)
+	}
+	if err != nil {
 		klog.ErrorS(err, "failed to guarantee client factory", "cluster", cluster.Name)
 		rmmetrics.ClusterReconcileErrorsTotal.WithLabelValues("client_factory").Inc()
 		return ctrlruntime.Result{}, err
@@ -487,6 +494,36 @@ func (r *ClusterReconciler) guaranteeClientFactory(ctx context.Context, cluster 
 	return nil
 }
 
+const (
+	// dataPlaneUnreachableMessage prefixes the status message written when no data plane client can be built.
+	dataPlaneUnreachableMessage = "data plane apiserver is unreachable: "
+	// adoptFailedMessage prefixes the status message written when adopting cluster contents fails.
+	adoptFailedMessage = "adoption failed: "
+	// maxClusterMessageLength bounds the status message size.
+	maxClusterMessageLength = 1024
+)
+
+// setClusterMessage records prefix plus cause in the cluster status message. A nil cause clears
+// the message only when it carries the same prefix, so messages owned by other steps are kept.
+func (r *ClusterReconciler) setClusterMessage(ctx context.Context, cluster *v1.Cluster, prefix string, cause error) error {
+	current := cluster.Status.ControlPlaneStatus.Message
+	message := ""
+	if cause != nil {
+		message = prefix + cause.Error()
+		if len(message) > maxClusterMessageLength {
+			message = message[:maxClusterMessageLength]
+		}
+	} else if !strings.HasPrefix(current, prefix) {
+		return nil
+	}
+	if message == current {
+		return nil
+	}
+	patch := client.MergeFrom(cluster.DeepCopy())
+	cluster.Status.ControlPlaneStatus.Message = message
+	return r.Status().Patch(ctx, cluster, patch)
+}
+
 // markClusterClientFactoryStale invalidates the cached data-plane client after backend pool changes.
 func (r *ClusterReconciler) markClusterClientFactoryStale(clusterName, reason string) {
 	clearNodeInformerForCluster(clusterName)
@@ -522,6 +559,10 @@ func (r *ClusterReconciler) guaranteePriorityClass(ctx context.Context, cluster 
 	for _, pc := range allPriorityClass {
 		existing, getErr := clientSet.SchedulingV1().PriorityClasses().Get(ctx, pc.name, metav1.GetOptions{})
 		if getErr == nil {
+			// An adopted cluster keeps its existing PriorityClass.
+			if v1.IsAdoptedCluster(cluster) {
+				continue
+			}
 			if err = ensurePriorityClassMatches(ctx, clientSet, existing, pc); err != nil {
 				return ctrlruntime.Result{}, err
 			}
@@ -708,7 +749,8 @@ func (r *ClusterReconciler) guaranteeImageSecret(ctx context.Context, cluster *v
 
 	dataPlaneSecret, err := clientSet.CoreV1().Secrets(targetNamespace).Get(ctx, targetName, metav1.GetOptions{})
 	if err == nil {
-		if dataPlaneSecret.UID == adminPlaneSecret.UID {
+		// An adopted cluster keeps its existing secret.
+		if dataPlaneSecret.UID == adminPlaneSecret.UID || v1.IsAdoptedCluster(cluster) {
 			return nil
 		}
 		dataPlaneSecret.Type = adminPlaneSecret.Type
@@ -1093,7 +1135,8 @@ func (r *ClusterReconciler) guaranteeDataPlaneClusterRole(ctx context.Context,
 	// Try to get the role in the target/data-plane cluster
 	dataPlaneCR, err := clientSet.RbacV1().ClusterRoles().Get(ctx, adminClusterRoleName, metav1.GetOptions{})
 	if err == nil {
-		if dataPlaneCR.UID == adminClusterRole.UID {
+		// An adopted cluster keeps its existing ClusterRole.
+		if dataPlaneCR.UID == adminClusterRole.UID || v1.IsAdoptedCluster(cluster) {
 			return nil
 		}
 		// Update existing role to match admin-plane definition

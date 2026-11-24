@@ -20,8 +20,25 @@
         <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
         <span class="fs-subtitle font-medium">Basic Information</span>
       </div>
+      <el-text v-if="isAdopt" size="small" type="info" class="block m-b-4">
+        Registers an existing Kubernetes cluster. Kubernetes is not installed again. Enter the
+        control plane IPs. SaFE reads the kubeconfig from them and registers all nodes.
+      </el-text>
 
       <el-form-item label="Name" prop="name">
+        <template v-if="isAdopt" #label>
+          <span class="inline-flex items-center gap-1">
+            Name
+            <el-tooltip
+              content="If the cluster was created by SaFE, the name must be the SaFE cluster name."
+              placement="top"
+            >
+              <el-icon size="14" color="#909399">
+                <QuestionFilled />
+              </el-icon>
+            </el-tooltip>
+          </span>
+        </template>
         <el-input v-model="form.name" :disabled="isUpgrade" />
       </el-form-item>
 
@@ -39,7 +56,7 @@
         </el-select>
       </el-form-item>
 
-      <el-form-item label="Image Secret" prop="imageSecretId">
+      <el-form-item v-if="!isAdopt" label="Image Secret" prop="imageSecretId">
         <el-select
           v-model="form.imageSecretId"
           placeholder="please select image secret"
@@ -58,17 +75,69 @@
         <el-switch v-model="form.isProtected" :disabled="isUpgrade" />
       </el-form-item>
 
-      <el-form-item label="Managed Cluster">
+      <el-form-item v-if="!isAdopt" label="Managed Cluster">
         <el-switch v-model="form.isManagedCluster" :disabled="isUpgrade" />
       </el-form-item>
 
-      <el-form-item label="Kube Network Plugin" prop="kubeNetworkPlugin">
+      <el-form-item v-if="!isAdopt" label="Kube Network Plugin" prop="kubeNetworkPlugin">
         <el-select v-model="form.kubeNetworkPlugin" :disabled="isUpgrade">
           <el-option v-for="p in state.pluginOptions" :key="p" :label="p" :value="p" />
         </el-select>
       </el-form-item>
 
-      <el-form-item label="Nodes" prop="nodes">
+      <el-form-item v-if="isAdopt" label="Control Plane IPs" prop="controlPlaneIps">
+        <el-select
+          v-model="form.controlPlaneIps"
+          multiple
+          filterable
+          allow-create
+          default-first-option
+          :reserve-keyword="false"
+          collapse-tags
+          collapse-tags-tooltip
+          :max-collapse-tags="5"
+          placeholder="Enter one or more control plane IPs (required)"
+          :disabled="isUpgrade"
+        />
+      </el-form-item>
+
+      <el-form-item v-if="isAdopt" label="Apiserver Port" prop="apiserverPort">
+        <el-input-number
+          v-model="form.apiserverPort"
+          :min="1"
+          :max="65535"
+          :step="1"
+          step-strictly
+          controls-position="right"
+        />
+      </el-form-item>
+
+      <el-form-item v-if="isAdopt" label="Apiserver Server Name" prop="apiserverServerName">
+        <el-input
+          v-model="form.apiserverServerName"
+          placeholder="Optional, e.g. lb-apiserver.kubernetes.local"
+        />
+        <el-text size="small" type="info">
+          TLS server name (SNI) sent to the apiserver. Set it when the apiserver is reached through
+          a gateway with TLS passthrough.
+        </el-text>
+      </el-form-item>
+
+      <el-form-item v-if="isAdopt" label="Node Template" prop="nodeTemplateId">
+        <el-select v-model="form.nodeTemplateId" clearable placeholder="None">
+          <el-option
+            v-for="item in state.templateOptions"
+            :key="item"
+            :label="item"
+            :value="item"
+          />
+        </el-select>
+        <el-text size="small" type="info">
+          Addons of this template are installed once on each adopted node. Leave empty to skip.
+        </el-text>
+      </el-form-item>
+
+      <el-form-item v-if="!isAdopt" label="Nodes" prop="nodes">
         <el-select
           v-model="form.nodes"
           multiple
@@ -88,7 +157,7 @@
         </el-select>
       </el-form-item>
 
-      <el-form-item label="Kube Spray Image" prop="kubeSprayImage">
+      <el-form-item v-if="!isAdopt" label="Kube Spray Image" prop="kubeSprayImage">
         <el-select
           v-model="form.kubeSprayImage"
           filterable
@@ -104,14 +173,14 @@
         </el-text>
       </el-form-item>
 
-      <el-form-item label="Kubernetes Version" prop="kubernetesVersion">
+      <el-form-item v-if="!isAdopt" label="Kubernetes Version" prop="kubernetesVersion">
         <el-input v-model="form.kubernetesVersion" :disabled="isVersionDerived" />
         <el-text v-if="isVersionDerived" size="small" type="info">
           Installed by the selected KubeSpray image.
         </el-text>
       </el-form-item>
 
-      <el-form-item label="Max Pods per Node" prop="kubeletMaxPods">
+      <el-form-item v-if="!isAdopt" label="Max Pods per Node" prop="kubeletMaxPods">
         <el-input-number
           v-model="form.kubeletMaxPods"
           :min="1"
@@ -124,7 +193,7 @@
         </el-text>
       </el-form-item>
 
-      <el-form-item label="Kube Apiserver Args">
+      <el-form-item v-if="!isAdopt" label="Kube Apiserver Args">
         <KeyValueList
           v-model="form.kubeApiServerArgsList"
           keyMode="input"
@@ -135,18 +204,18 @@
       </el-form-item>
 
       <!-- Network Settings -->
-      <div class="flex items-center m-b-4 mt-4">
+      <div v-if="!isAdopt" class="flex items-center m-b-4 mt-4">
         <div class="w-1 hx-16 bg-[var(--safe-primary)] mr-2 rounded-sm"></div>
         <span class="fs-subtitle font-medium">Network Settings</span>
       </div>
 
       <!-- CidrPicker has no disabled state, and a subnet cannot be changed after the
            cluster is installed anyway, so an upgrade shows the stored value as text. -->
-      <el-form-item label="Kube Pods Subnet" prop="kubePodsSubnet">
+      <el-form-item v-if="!isAdopt" label="Kube Pods Subnet" prop="kubePodsSubnet">
         <el-input v-if="isUpgrade" :model-value="form.kubePodsSubnet" disabled />
         <CidrPicker v-else v-model="form.kubePodsSubnet" />
       </el-form-item>
-      <el-form-item label="Kube Service Address" prop="kubeServiceAddress">
+      <el-form-item v-if="!isAdopt" label="Kube Service Address" prop="kubeServiceAddress">
         <el-input v-if="isUpgrade" :model-value="form.kubeServiceAddress" disabled />
         <CidrPicker v-else v-model="form.kubeServiceAddress" />
       </el-form-item>
@@ -166,6 +235,7 @@
 <script setup lang="ts">
 import { reactive, ref, computed } from 'vue'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
+import { QuestionFilled } from '@element-plus/icons-vue'
 import KeyValueList from '@/components/Base/KeyValueList.vue'
 import {
   getSecrets,
@@ -173,13 +243,15 @@ import {
   addCluster,
   getClusterDetail,
   patchCluster,
+  getNodeTemps,
 } from '@/services/nodes'
+import type { TemplateOptionsType } from '@/services/nodes/type'
 import { useUserStore } from '@/stores/user'
 import CidrPicker from './CidrPicker.vue'
 
 // ====== props & emits ======
 const props = withDefaults(
-  defineProps<{ visible: boolean; action?: 'Create' | 'Upgrade'; clusterId?: string }>(),
+  defineProps<{ visible: boolean; action?: 'Create' | 'Upgrade' | 'Adopt'; clusterId?: string }>(),
   { action: 'Create', clusterId: '' },
 )
 const emit = defineEmits<{
@@ -189,6 +261,7 @@ const emit = defineEmits<{
 
 const userStore = useUserStore()
 const isUpgrade = computed(() => props.action === 'Upgrade')
+const isAdopt = computed(() => props.action === 'Adopt')
 
 // ====== state ======
 const state = reactive({
@@ -196,7 +269,10 @@ const state = reactive({
   imageSecretOptions: [] as string[],
   pluginOptions: ['cilium', 'flannel'],
   nodeOptions: [] as Array<{ label: string; value: string }>,
+  templateOptions: [] as string[],
 })
+
+const DEFAULT_NODE_TEMPLATE = 'node-template'
 
 // The API owns which KubeSpray images exist and which Kubernetes version each one
 // installs, so the pair is read from /envs rather than pinned in the frontend.
@@ -217,6 +293,10 @@ const initialForm = () => ({
   imageSecretId: '',
   kubeNetworkPlugin: 'cilium',
   nodes: [] as string[],
+  controlPlaneIps: [] as string[],
+  apiserverPort: 6443,
+  apiserverServerName: '',
+  nodeTemplateId: '',
   kubeSprayImage: '',
   kubePodsSubnet: '',
   kubeServiceAddress: '',
@@ -266,9 +346,57 @@ const isValidCIDR = (cidr: string) => {
   })
 }
 
-const rules: FormRules = {
-  name: [{ required: true, message: 'Please input name', trigger: 'blur' }],
-  sshSecretId: [{ required: true, message: 'Please select SSH secret', trigger: 'change' }],
+const isValidIPv4 = (ip: string) => {
+  const m = /^(\d{1,3}(?:\.\d{1,3}){3})$/.exec(ip || '')
+  if (!m) return false
+  return m[1].split('.').every((n) => Number(n) <= 255)
+}
+
+// Matches a lowercase DNS-1123 subdomain, the format accepted by the backend.
+const isValidDNSName = (name: string) =>
+  name.length <= 253 &&
+  /^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$/.test(name)
+
+const adoptRules: FormRules = {
+  controlPlaneIps: [
+    {
+      type: 'array',
+      required: true,
+      message: 'Please input at least one control plane IP',
+      trigger: 'change',
+    },
+    {
+      validator: (_r, v: string[], cb) =>
+        cb(v.every(isValidIPv4) ? undefined : new Error('Invalid IPv4 address')),
+      trigger: 'change',
+    },
+  ],
+  apiserverPort: [
+    { required: true, message: 'Please input apiserver port', trigger: 'change' },
+    {
+      validator: (_r, v, cb) =>
+        cb(
+          Number.isInteger(Number(v)) && Number(v) >= 1 && Number(v) <= 65535
+            ? undefined
+            : new Error('Port must be between 1 and 65535'),
+        ),
+      trigger: 'change',
+    },
+  ],
+  apiserverServerName: [
+    {
+      validator: (_r, v: string, cb) =>
+        cb(
+          !v?.trim() || isValidDNSName(v.trim())
+            ? undefined
+            : new Error('Invalid DNS name, e.g. lb-apiserver.kubernetes.local'),
+        ),
+      trigger: 'blur',
+    },
+  ],
+}
+
+const installRules: FormRules = {
   imageSecretId: [{ required: true, message: 'Please select Image secret', trigger: 'change' }],
   kubeNetworkPlugin: [
     { required: true, message: 'Please select network plugin', trigger: 'change' },
@@ -310,6 +438,11 @@ const rules: FormRules = {
     },
   ],
 }
+const rules = computed<FormRules>(() => ({
+  name: [{ required: true, message: 'Please input name', trigger: 'blur' }],
+  sshSecretId: [{ required: true, message: 'Please select SSH secret', trigger: 'change' }],
+  ...(isAdopt.value ? adoptRules : installRules),
+}))
 
 // ====== lifecycle ======
 const fetchNodes = async () => {
@@ -320,6 +453,14 @@ const fetchNodes = async () => {
     label: n.hostname ?? n.nodeName ?? n.nodeId ?? n.name,
     value: n.nodeId ?? n.name ?? n.hostname,
   }))
+}
+// Default to the standard node template when it exists.
+const fetchNodeTemplates = async () => {
+  const temps = await getNodeTemps().catch(() => ({ items: [] }))
+  state.templateOptions = (temps?.items ?? []).map((t: TemplateOptionsType) => t.templateId)
+  if (state.templateOptions.includes(DEFAULT_NODE_TEMPLATE)) {
+    form.nodeTemplateId = DEFAULT_NODE_TEMPLATE
+  }
 }
 const fetchSecretsOnce = async () => {
   const secrets = await getSecrets({ type: 'ssh' }).catch(() => ({ items: [] }))
@@ -364,6 +505,7 @@ const onOpen = async () => {
   formRef.value?.clearValidate()
   fetchSecretsOnce()
   fetchNodes()
+  if (isAdopt.value) fetchNodeTemplates()
   // envs is fetched once per session, so a session that started against an API build
   // without the mapping would never see it. Retry on the mapping itself rather than on
   // envs being absent, which is what makes the dialog pick it up after a backend roll.
@@ -419,26 +561,38 @@ const onSubmit = async (el?: FormInstance) => {
       (form.kubeApiServerArgsList || []).filter((kv) => kv.key).map((kv) => [kv.key, kv.value]),
     )
 
-    // Assemble payload
-    const payload = {
-      name: form.name,
-      description: form.description || undefined,
-      sshSecretId: form.sshSecretId,
-      imageSecretId: form.imageSecretId,
-      isProtected: form.isProtected,
-      kubeNetworkPlugin: form.kubeNetworkPlugin,
-      nodes: form.nodes,
-      kubeSprayImage: form.kubeSprayImage,
-      kubePodsSubnet: form.kubePodsSubnet,
-      kubeServiceAddress: form.kubeServiceAddress,
-      kubernetesVersion: form.kubernetesVersion,
-      kubeletMaxPods: form.kubeletMaxPods,
-      kubeApiServerArgs: Object.keys(kubeApiServerArgs).length ? kubeApiServerArgs : undefined,
-      ...(form.isManagedCluster ? { labels: { 'primus-safe.cluster.control-plane': '' } } : {}),
-    }
+    // Adoption only records how to reach the cluster. Install settings stay on the cluster.
+    const payload = isAdopt.value
+      ? {
+          name: form.name,
+          description: form.description || undefined,
+          sshSecretId: form.sshSecretId,
+          isProtected: form.isProtected,
+          controlPlaneIps: form.controlPlaneIps,
+          apiserverPort: form.apiserverPort,
+          apiserverServerName: form.apiserverServerName.trim() || undefined,
+          nodeTemplateId: form.nodeTemplateId || undefined,
+          adopt: true,
+        }
+      : {
+          name: form.name,
+          description: form.description || undefined,
+          sshSecretId: form.sshSecretId,
+          imageSecretId: form.imageSecretId,
+          isProtected: form.isProtected,
+          kubeNetworkPlugin: form.kubeNetworkPlugin,
+          nodes: form.nodes,
+          kubeSprayImage: form.kubeSprayImage,
+          kubePodsSubnet: form.kubePodsSubnet,
+          kubeServiceAddress: form.kubeServiceAddress,
+          kubernetesVersion: form.kubernetesVersion,
+          kubeletMaxPods: form.kubeletMaxPods,
+          kubeApiServerArgs: Object.keys(kubeApiServerArgs).length ? kubeApiServerArgs : undefined,
+          ...(form.isManagedCluster ? { labels: { 'primus-safe.cluster.control-plane': '' } } : {}),
+        }
 
     await addCluster(payload)
-    ElMessage.success('Cluster created')
+    ElMessage.success(isAdopt.value ? 'Cluster adoption started' : 'Cluster created')
     emit('update:visible', false)
     emit('success')
   } catch (e: any) {

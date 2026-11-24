@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	testifyassert "github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
@@ -149,6 +150,86 @@ func TestFetchConfigFromControlPlaneAllNodesFail(t *testing.T) {
 	testifyassert.Error(t, err)
 }
 
+// An adopted cluster whose kubeconfig cannot be read must not get a cluster-create worker pod.
+func TestAdoptedClusterUnreadableKubeConfigDoesNotInstall(t *testing.T) {
+	cluster, r := planeClusterWithNode(t)
+	v1.SetAnnotation(cluster, v1.ClusterAdoptAnnotation, v1.TrueStr)
+	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(&ClusterReconciler{}), "fetchConfigFromSSH",
+		func(_ *ClusterReconciler, _ context.Context, _ *v1.Node) (*rest.Config, error) {
+			return nil, nil
+		})
+	defer patches.Reset()
+
+	testifyassert.Error(t, r.guaranteeClusterControlPlane(context.Background(), cluster))
+	pods := &corev1.PodList{}
+	testifyassert.NoError(t, r.List(context.Background(), pods, client.InNamespace(common.PrimusSafeNamespace)))
+	testifyassert.Empty(t, pods.Items)
+}
+
+// Deleting an adopted cluster must not be blocked by a missing kubeconfig.
+func TestAdoptedClusterDeletionSkipsKubeConfigCheck(t *testing.T) {
+	cluster, r := planeClusterWithNode(t)
+	v1.SetAnnotation(cluster, v1.ClusterAdoptAnnotation, v1.TrueStr)
+	now := metav1.Now()
+	cluster.DeletionTimestamp = &now
+	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(&ClusterReconciler{}), "fetchConfigFromSSH",
+		func(_ *ClusterReconciler, _ context.Context, _ *v1.Node) (*rest.Config, error) {
+			return nil, nil
+		})
+	defer patches.Reset()
+
+	testifyassert.NoError(t, r.fetchProvisionedClusterKubeConfig(context.Background(), cluster))
+}
+
+// ipBootstrapCluster returns an adopted cluster declared only by control plane IPs.
+func ipBootstrapCluster(t *testing.T) (*v1.Cluster, *ClusterReconciler) {
+	t.Helper()
+	cluster, r := planeClusterWithNode(t)
+	cluster.Spec.ControlPlane.Nodes = nil
+	cluster.Spec.ControlPlane.SSHSecret = &corev1.ObjectReference{Name: "c1", Namespace: common.PrimusSafeNamespace}
+	v1.SetAnnotation(cluster, v1.ClusterAdoptAnnotation, v1.TrueStr)
+	v1.SetAnnotation(cluster, v1.ClusterAdoptControlPlaneIPsAnnotation, "10.0.0.9, 10.0.0.10")
+	testifyassert.NoError(t, r.Update(context.Background(), cluster))
+	r.clientSet = k8sfake.NewSimpleClientset()
+	return cluster, r
+}
+
+// An adopted cluster declared only by IPs reads its kubeconfig from those addresses and becomes ready.
+func TestAdoptedClusterBootstrapsFromControlPlaneIPs(t *testing.T) {
+	cluster, r := ipBootstrapCluster(t)
+	var dialed []string
+	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(&ClusterReconciler{}), "fetchConfigFromSSH",
+		func(_ *ClusterReconciler, _ context.Context, node *v1.Node) (*rest.Config, error) {
+			dialed = append(dialed, node.Spec.PrivateIP)
+			return &rest.Config{Host: "https://10.0.0.9:6443", TLSClientConfig: rest.TLSClientConfig{
+				CAData: []byte("ca"), CertData: []byte("cert"), KeyData: []byte("key"),
+			}}, nil
+		})
+	defer patches.Reset()
+
+	testifyassert.NoError(t, r.fetchProvisionedClusterKubeConfig(context.Background(), cluster))
+	testifyassert.Equal(t, []string{"10.0.0.9"}, dialed)
+	testifyassert.Equal(t, v1.ReadyPhase, cluster.Status.ControlPlaneStatus.Phase)
+	testifyassert.Len(t, cluster.Status.ControlPlaneStatus.Endpoints, 2)
+	testifyassert.Empty(t, cluster.Spec.ControlPlane.Nodes)
+}
+
+// An IP-declared adopted cluster whose kubeconfig cannot be read stays pending and never installs.
+func TestAdoptedClusterBootstrapUnreadableKubeConfigStaysPending(t *testing.T) {
+	cluster, r := ipBootstrapCluster(t)
+	patches := gomonkey.ApplyPrivateMethod(reflect.TypeOf(&ClusterReconciler{}), "fetchConfigFromSSH",
+		func(_ *ClusterReconciler, _ context.Context, _ *v1.Node) (*rest.Config, error) {
+			return nil, nil
+		})
+	defer patches.Reset()
+
+	testifyassert.Error(t, r.guaranteeClusterControlPlane(context.Background(), cluster))
+	testifyassert.NotEqual(t, v1.ReadyPhase, cluster.Status.ControlPlaneStatus.Phase)
+	pods := &corev1.PodList{}
+	testifyassert.NoError(t, r.List(context.Background(), pods, client.InNamespace(common.PrimusSafeNamespace)))
+	testifyassert.Empty(t, pods.Items)
+}
+
 func newPlaneReconciler(t *testing.T, objs ...client.Object) *ClusterReconciler {
 	t.Helper()
 	scheme, err := genMockScheme()
@@ -176,6 +257,27 @@ func TestGetControllerPlaneNodes(t *testing.T) {
 	testifyassert.Error(t, err)
 }
 
+func TestGetControllerPlaneNodesAdoptedFallsBackToBootstrap(t *testing.T) {
+	node := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1"}, Spec: v1.NodeSpec{PrivateIP: "10.0.0.1"}}
+	r := newPlaneReconciler(t, node)
+	cluster := testCluster("c1")
+	v1.SetAnnotation(cluster, v1.ClusterAdoptAnnotation, v1.TrueStr)
+	v1.SetAnnotation(cluster, v1.ClusterAdoptControlPlaneIPsAnnotation, "10.0.0.8,10.0.0.9")
+	cluster.Spec.ControlPlane.SSHSecret = &corev1.ObjectReference{Name: "ssh", Namespace: common.PrimusSafeNamespace}
+
+	cluster.Spec.ControlPlane.Nodes = []string{"missing1", "missing2"}
+	nodes, err := r.getControllerPlaneNodes(context.Background(), cluster)
+	testifyassert.NoError(t, err)
+	testifyassert.Len(t, nodes, 2)
+	testifyassert.Equal(t, "10.0.0.8", nodes[0].Spec.PrivateIP)
+
+	cluster.Spec.ControlPlane.Nodes = []string{"n1", "missing1"}
+	nodes, err = r.getControllerPlaneNodes(context.Background(), cluster)
+	testifyassert.NoError(t, err)
+	testifyassert.Len(t, nodes, 1)
+	testifyassert.Equal(t, "n1", nodes[0].Name)
+}
+
 func TestGuaranteeNamespace(t *testing.T) {
 	cs := k8sfake.NewSimpleClientset()
 	r := newPlaneReconciler(t)
@@ -196,6 +298,18 @@ func TestGuaranteeEndpoints(t *testing.T) {
 	testifyassert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "c1", Namespace: common.PrimusSafeNamespace}, ep))
 	// Already exists -> no-op.
 	testifyassert.NoError(t, r.guaranteeEndpoints(context.Background(), cluster, nodes))
+	testifyassert.Equal(t, int32(v1.DefaultApiserverPort), ep.Subsets[0].Ports[0].Port)
+}
+
+func TestGuaranteeEndpointsUsesApiserverPort(t *testing.T) {
+	cluster := testCluster("c1")
+	v1.SetAnnotation(cluster, v1.ClusterApiserverPortAnnotation, "443")
+	r := newPlaneReconciler(t, cluster)
+	nodes := []*v1.Node{{ObjectMeta: metav1.ObjectMeta{Name: "n1"}, Spec: v1.NodeSpec{PrivateIP: "10.0.0.1"}}}
+	testifyassert.NoError(t, r.guaranteeEndpoints(context.Background(), cluster, nodes))
+	ep := &corev1.Endpoints{}
+	testifyassert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "c1", Namespace: common.PrimusSafeNamespace}, ep))
+	testifyassert.Equal(t, int32(443), ep.Subsets[0].Ports[0].Port)
 }
 
 func TestGuaranteeServiceResource(t *testing.T) {
@@ -365,6 +479,26 @@ func TestGuaranteeDefaultAddonCreatesAddon(t *testing.T) {
 	assert.Equal(t, "from-template", addon.Labels["primus-safe.kept"])
 }
 
+func TestGuaranteeDefaultAddonSkipsListedClusters(t *testing.T) {
+	skipped := testCluster("ccs300")
+	other := testCluster("c1")
+	template := &v1.AddonTemplate{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "csi-wekafs.2.7.7",
+			Labels:      map[string]string{v1.AddonDefaultLabel: ""},
+			Annotations: map[string]string{v1.AddonDefaultSkipClustersAnnotation: " c0 , ccs300 "},
+		},
+	}
+	r := newPlaneReconciler(t, skipped, other, template)
+	for _, cluster := range []*v1.Cluster{skipped, other} {
+		_, err := r.guaranteeDefaultAddon(context.Background(), cluster)
+		testifyassert.NoError(t, err)
+	}
+	testifyassert.True(t, apierrors.IsNotFound(
+		r.Get(context.Background(), client.ObjectKey{Name: "ccs300-csi-wekafs"}, &v1.Addon{})))
+	testifyassert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "c1-csi-wekafs"}, &v1.Addon{}))
+}
+
 func TestGuaranteeDefaultAddonDeletesLegacyAutoNginx(t *testing.T) {
 	cluster := testCluster("c1")
 	cluster.UID = "uid-c1"
@@ -486,6 +620,21 @@ func TestHandleControlPlaneCreation(t *testing.T) {
 	testifyassert.NoError(t, r.Get(context.Background(), client.ObjectKey{
 		Name: "c1-" + string(v1.ClusterCreateAction), Namespace: common.PrimusSafeNamespace,
 	}, pod))
+}
+
+func TestHandleControlPlaneCreationSkipsAdoptedCluster(t *testing.T) {
+	for _, phase := range []v1.ClusterPhase{"", v1.PendingPhase, v1.CreationFailed} {
+		t.Run(string(phase), func(t *testing.T) {
+			cluster, r := planeClusterWithNode(t)
+			v1.SetAnnotation(cluster, v1.ClusterAdoptAnnotation, v1.TrueStr)
+			cluster.Status.ControlPlaneStatus.Phase = phase
+			testifyassert.NoError(t, r.handleControlPlaneCreation(context.Background(), cluster))
+			err := r.Get(context.Background(), client.ObjectKey{
+				Name: "c1-" + string(v1.ClusterCreateAction), Namespace: common.PrimusSafeNamespace,
+			}, &corev1.Pod{})
+			testifyassert.True(t, apierrors.IsNotFound(err))
+		})
+	}
 }
 
 func TestCreateControlPlanePod(t *testing.T) {
@@ -647,6 +796,18 @@ func TestGuaranteeClusterUpgradeCreatesPod(t *testing.T) {
 		Namespace: common.PrimusSafeNamespace,
 		Name:      cluster.Name,
 	}, new(corev1.ConfigMap)))
+}
+
+func TestGuaranteeClusterUpgradeSkipsAdoptedCluster(t *testing.T) {
+	cluster, r := readyUpgradeCluster(t)
+	v1.SetAnnotation(cluster, v1.ClusterAdoptAnnotation, v1.TrueStr)
+	cluster.Spec.ControlPlane.KubeVersion = pointer.String("1.33.7")
+	cluster.Spec.ControlPlane.KubeSprayImage = pointer.String("primussafe/kubespray:v2.29.1")
+	testifyassert.NoError(t, r.Update(context.Background(), cluster))
+	testifyassert.NoError(t, r.guaranteeClusterUpgrade(context.Background(), cluster))
+	podList := &corev1.PodList{}
+	testifyassert.NoError(t, r.List(context.Background(), podList))
+	assert.Equal(t, 0, len(podList.Items))
 }
 
 func TestGuaranteeClusterUpgradeAppliesMaxPodsOnly(t *testing.T) {

@@ -475,11 +475,30 @@ func (r *WorkspaceReconciler) delete(ctx context.Context, workspace *v1.Workspac
 	// goroutines by now, so nothing is left to write the entry back; a late Node event finds
 	// no entry and settles nothing.
 	r.removeExpectations(workspace.Name)
-	if err = r.deleteDataPlaneResources(ctx, workspace); err != nil {
-		klog.ErrorS(err, "failed to delete data plane resources for workspace", "name", workspace.Name)
+	// Adopted workspaces, and workspaces of an adopted cluster being released, keep their namespaces and volumes.
+	keepDataPlane, err := r.keepsDataPlane(ctx, workspace)
+	if err != nil {
 		return err
 	}
+	if !keepDataPlane {
+		if err = r.deleteDataPlaneResources(ctx, workspace); err != nil {
+			klog.ErrorS(err, "failed to delete data plane resources for workspace", "name", workspace.Name)
+			return err
+		}
+	}
 	return utils.RemoveFinalizer(ctx, r.Client, workspace, v1.WorkspaceFinalizer)
+}
+
+// keepsDataPlane reports whether the workspace is adopted or belongs to an adopted cluster that is being released.
+func (r *WorkspaceReconciler) keepsDataPlane(ctx context.Context, workspace *v1.Workspace) (bool, error) {
+	if v1.IsAdoptedWorkspace(workspace) {
+		return true, nil
+	}
+	cluster, err := getAdminCluster(ctx, r.Client, workspace.Spec.Cluster)
+	if err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+	return v1.IsReleasingAdoptedCluster(cluster), nil
 }
 
 // updatePhase updates the phase of a Workspace resource.

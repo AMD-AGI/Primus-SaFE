@@ -16,6 +16,19 @@
     >
       Create Cluster
     </el-button>
+    <el-button
+      round
+      class="m-t-4 ml-3"
+      @click="
+        () => {
+          curAction = 'Adopt'
+          curClusterId = ''
+          addVisible = true
+        }
+      "
+    >
+      Adopt Cluster
+    </el-button>
   </div>
   <el-card class="mt-6 safe-card" shadow="never">
     <el-table
@@ -34,6 +47,11 @@
       <el-table-column prop="phase" label="Phase">
         <template #default="{ row }">
           <el-tag :type="clusterPhaseTagType(row.phase)">{{ row.phase }}</el-tag>
+          <el-tooltip v-if="row.message" :content="row.message" placement="top">
+            <el-icon class="ml-1 align-middle" color="var(--el-color-warning)">
+              <WarningFilled />
+            </el-icon>
+          </el-tooltip>
         </template>
       </el-table-column>
 
@@ -171,7 +189,17 @@ import { useUserStore } from '@/stores/user'
 import { getNodesList, patchCluster, deleteCluster, getClusterDetail } from '@/services'
 import { getSecrets } from '@/services'
 import ManageDialog from './Components/ManageDialog.vue'
-import { Check, Close, Plus, Minus, Edit, Top, Delete, MoreFilled } from '@element-plus/icons-vue'
+import {
+  Check,
+  Close,
+  Plus,
+  Minus,
+  Edit,
+  Top,
+  Delete,
+  MoreFilled,
+  WarningFilled,
+} from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import AddDialog from './Components/AddDialog.vue'
 import { useRouter } from 'vue-router'
@@ -180,6 +208,7 @@ import dayjs from 'dayjs'
 interface ClusterRowItem {
   clusterId: string
   phase: string
+  message?: string
   endpoint: string
   storage: unknown
   isProtected: boolean
@@ -205,7 +234,7 @@ const editState = reactive({
 const selectedSecretId = ref('')
 
 const addVisible = ref(false)
-const curAction = ref<'Create' | 'Upgrade'>('Create')
+const curAction = ref<'Create' | 'Upgrade' | 'Adopt'>('Create')
 const curClusterId = ref('')
 const clusterStore = useClusterStore()
 const loading = ref(false)

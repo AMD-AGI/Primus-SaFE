@@ -76,6 +76,23 @@ func TestNewClientSetInsecureAndWithCA(t *testing.T) {
 	assert.NotEmpty(t, restCfg.TLSClientConfig.CAData)
 }
 
+func TestNewClientSetWithServerName(t *testing.T) {
+	certData, keyData := testClientCert(t)
+
+	_, restCfg, err := NewClientSet("10.0.0.1:443", certData, keyData, "", true, WithServerName("lb-apiserver.kubernetes.local"))
+	assert.NoError(t, err)
+	assert.Equal(t, "lb-apiserver.kubernetes.local", restCfg.TLSClientConfig.ServerName)
+
+	_, restCfg, err = NewClientSet("10.0.0.1:443", certData, keyData, "", true, WithServerName(""))
+	assert.NoError(t, err)
+	assert.Empty(t, restCfg.TLSClientConfig.ServerName)
+
+	f, err := NewClientFactory(context.Background(), "c1", "10.0.0.1:443", certData, keyData, "", DisableInformer,
+		WithServerName("lb-apiserver.kubernetes.local"))
+	assert.NoError(t, err)
+	assert.Equal(t, "lb-apiserver.kubernetes.local", f.restConfig.TLSClientConfig.ServerName)
+}
+
 func TestProbeTimeoutHonoursDeadline(t *testing.T) {
 	// No deadline: fall back to the package default.
 	assert.Equal(t, DefaultAPIServerProbeTimeout, probeTimeout(context.Background()))
