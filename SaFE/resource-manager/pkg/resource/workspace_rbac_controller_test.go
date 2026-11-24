@@ -8,6 +8,7 @@ package resource
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -253,4 +254,86 @@ func TestUserAndRBACEventsEnqueue(t *testing.T) {
 	now := metav1.Now()
 	newWS.DeletionTimestamp = &now
 	require.True(t, pred.Update(event.UpdateEvent{ObjectOld: oldWS, ObjectNew: newWS}))
+}
+
+// pendingWorkspace builds a stored workspace that carries the grants the admission left for it.
+func pendingWorkspace(name string, isDefault bool, managers []string, grants ...string) *v1.Workspace {
+	ws := workspaceObject(name)
+	ws.Spec.IsDefault = isDefault
+	ws.Spec.Managers = managers
+	v1.SetAnnotation(ws, v1.WorkspaceGrantPending, strings.Join(grants, ","))
+	return ws
+}
+
+// The pending grants of a stored workspace reach every user when it is default and its managers, the mark
+// is cleared, and a second pass changes nothing.
+func TestReconcileWorkspaceAppliesPendingGrants(t *testing.T) {
+	ctx := context.Background()
+	ws := pendingWorkspace("lab", true, []string{"alice", "gone"}, v1.WorkspaceGrantDefault, v1.WorkspaceGrantManagers)
+	r := testReconciler(t, ws, memberUser("alice", "prod", v1.DefaultRole), memberUser("bob", "", v1.DefaultRole))
+
+	for i := 0; i < 2; i++ {
+		_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "lab"}})
+		require.NoError(t, err)
+	}
+
+	alice, bob := &v1.User{}, &v1.User{}
+	require.NoError(t, r.Get(ctx, client.ObjectKey{Name: "alice"}, alice))
+	require.NoError(t, r.Get(ctx, client.ObjectKey{Name: "bob"}, bob))
+	require.ElementsMatch(t, []string{"prod", "lab"}, commonuser.GetWorkspace(alice))
+	require.Equal(t, []string{"lab"}, commonuser.GetManagedWorkspace(alice))
+	require.Equal(t, []string{"lab"}, commonuser.GetWorkspace(bob))
+	require.Empty(t, commonuser.GetManagedWorkspace(bob))
+
+	stored := &v1.Workspace{}
+	require.NoError(t, r.Get(ctx, client.ObjectKey{Name: "lab"}, stored))
+	require.False(t, v1.HasAnnotation(stored, v1.WorkspaceGrantPending))
+}
+
+// A pending grant to every user is applied only to a workspace that is default, so the mark cannot widen
+// access past the spec.
+func TestReconcileWorkspaceDoesNotGrantEveryoneUnlessDefault(t *testing.T) {
+	ctx := context.Background()
+	ws := pendingWorkspace("lab", false, nil, v1.WorkspaceGrantDefault)
+	r := testReconciler(t, ws, memberUser("bob", "", v1.DefaultRole))
+
+	_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "lab"}})
+	require.NoError(t, err)
+
+	bob := &v1.User{}
+	require.NoError(t, r.Get(ctx, client.ObjectKey{Name: "bob"}, bob))
+	require.Empty(t, commonuser.GetWorkspace(bob))
+	stored := &v1.Workspace{}
+	require.NoError(t, r.Get(ctx, client.ObjectKey{Name: "lab"}, stored))
+	require.False(t, v1.HasAnnotation(stored, v1.WorkspaceGrantPending))
+}
+
+// A failed grant keeps the mark, so the next pass applies it.
+func TestReconcileWorkspaceKeepsPendingGrantsOnFailure(t *testing.T) {
+	ctx := context.Background()
+	ws := pendingWorkspace("lab", true, nil, v1.WorkspaceGrantDefault)
+	failing := true
+	r := testReconciler(t, ws, memberUser("bob", "", v1.DefaultRole))
+	r.Client = interceptor.NewClient(r.Client.(client.WithWatch), interceptor.Funcs{
+		Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+			if _, ok := obj.(*v1.User); ok && failing {
+				return fmt.Errorf("update failed")
+			}
+			return c.Update(ctx, obj, opts...)
+		},
+	})
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "lab"}}
+
+	_, err := r.Reconcile(ctx, req)
+	require.Error(t, err)
+	stored := &v1.Workspace{}
+	require.NoError(t, r.Get(ctx, client.ObjectKey{Name: "lab"}, stored))
+	require.True(t, v1.HasAnnotation(stored, v1.WorkspaceGrantPending))
+
+	failing = false
+	_, err = r.Reconcile(ctx, req)
+	require.NoError(t, err)
+	bob := &v1.User{}
+	require.NoError(t, r.Get(ctx, client.ObjectKey{Name: "bob"}, bob))
+	require.Equal(t, []string{"lab"}, commonuser.GetWorkspace(bob))
 }

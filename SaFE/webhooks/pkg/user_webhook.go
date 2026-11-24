@@ -9,10 +9,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	admissionv1 "k8s.io/api/admission/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -31,8 +34,9 @@ import (
 // AddUserWebhook registers the user validation and mutation webhooks.
 func AddUserWebhook(mgr ctrlruntime.Manager, server *webhook.Server, decoder admission.Decoder) {
 	(*server).Register(generateMutatePath(v1.UserKind), &webhook.Admission{Handler: &UserMutator{
-		Client:  mgr.GetClient(),
-		decoder: decoder,
+		Client:    mgr.GetClient(),
+		apiReader: mgr.GetAPIReader(),
+		decoder:   decoder,
 	}})
 	(*server).Register(generateValidatePath(v1.UserKind), &webhook.Admission{Handler: &UserValidator{
 		Client:  mgr.GetClient(),
@@ -43,7 +47,10 @@ func AddUserWebhook(mgr ctrlruntime.Manager, server *webhook.Server, decoder adm
 // UserMutator handles mutation logic for User resources.
 type UserMutator struct {
 	client.Client
-	decoder admission.Decoder
+	// apiReader reads without the cache. It confirms that a workspace is gone before the
+	// workspace is removed from a user. It may be nil, in which case the cache alone decides.
+	apiReader client.Reader
+	decoder   admission.Decoder
 }
 
 // Handle processes user creation requests and applies default values and normalizations.
@@ -143,7 +150,7 @@ func (m *UserMutator) mutateRoles(user *v1.User) {
 }
 
 // mutateWorkspace removes duplicate and non-existent workspaces from the user's workspace list.
-// It ensures that each workspace appears only once and that all workspaces actually exist.
+// A workspace is removed only when its lookup returns NotFound; any other lookup error keeps it.
 func (m *UserMutator) mutateWorkspace(ctx context.Context, user *v1.User) {
 	workspaceSet := sets.NewSet()
 	currentWorkspaces := commonuser.GetWorkspace(user)
@@ -153,15 +160,17 @@ func (m *UserMutator) mutateWorkspace(ctx context.Context, user *v1.User) {
 			continue
 		}
 		workspaceSet.Insert(w)
-		if _, err := getWorkspace(ctx, m.Client, w); err == nil {
-			workspaces = append(workspaces, w)
+		if m.isWorkspaceMissing(ctx, user.Name, w) {
+			klog.Infof("remove the non-existent workspace %s from user %s", w, user.Name)
+			continue
 		}
+		workspaces = append(workspaces, w)
 	}
 
 	// adds default workspaces to users' workspace lists, unless the deployment keeps a new user out
 	// of them until an administrator adds the user (users.join_default_workspaces).
 	if !commonconfig.IsUserJoinDefaultWorkspaces() {
-		if len(currentWorkspaces) != len(workspaces) {
+		if !slices.Equal(currentWorkspaces, workspaces) {
 			commonuser.AssignWorkspace(user, workspaces...)
 		}
 		return
@@ -180,7 +189,7 @@ func (m *UserMutator) mutateWorkspace(ctx context.Context, user *v1.User) {
 		}
 		workspaces = append(workspaces, w.Name)
 	}
-	if len(currentWorkspaces) != len(workspaces) {
+	if !slices.Equal(currentWorkspaces, workspaces) {
 		commonuser.AssignWorkspace(user, workspaces...)
 	}
 }
@@ -199,11 +208,35 @@ func (m *UserMutator) mutateManagedWorkspaces(ctx context.Context, user *v1.User
 		if isCheckAccessRight && !commonuser.HasWorkspaceRight(user, w) {
 			continue
 		}
-		if _, err := getWorkspace(ctx, m.Client, w); err == nil {
-			validWorkspaces = append(validWorkspaces, w)
+		if m.isWorkspaceMissing(ctx, user.Name, w) {
+			klog.Infof("remove the non-existent managed workspace %s from user %s", w, user.Name)
+			continue
 		}
+		validWorkspaces = append(validWorkspaces, w)
 	}
 	commonuser.AssignManagedWorkspace(user, validWorkspaces...)
+}
+
+// isWorkspaceMissing reports whether the workspace is confirmed not to exist. The cached lookup must
+// return NotFound and, when a live reader is set, so must a read that bypasses the cache: the cache of
+// this process can trail a workspace that was just stored. A lookup that fails any other way does not
+// confirm anything, so the workspace is kept.
+func (m *UserMutator) isWorkspaceMissing(ctx context.Context, userName, workspaceName string) bool {
+	readers := []client.Reader{m.Client}
+	if m.apiReader != nil {
+		readers = append(readers, m.apiReader)
+	}
+	for _, reader := range readers {
+		_, err := getWorkspace(ctx, reader, workspaceName)
+		if err == nil {
+			return false
+		}
+		if !apierrors.IsNotFound(err) {
+			klog.ErrorS(err, "failed to get workspace, keep it for user", "user", userName, "workspace", workspaceName)
+			return false
+		}
+	}
+	return true
 }
 
 // UserValidator validates User resources on create and update operations.

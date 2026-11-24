@@ -7,12 +7,15 @@ package webhooks
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"gotest.tools/assert"
 	admissionv1 "k8s.io/api/admission/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -241,6 +244,73 @@ func TestUserMutateWorkspaceDedup(t *testing.T) {
 	m.mutateWorkspace(context.Background(), user)
 	assert.Assert(t, commonuser.HasWorkspaceRight(user, "ws1"))
 	assert.Assert(t, !commonuser.HasWorkspaceRight(user, "missing"))
+}
+
+// TestUserMutateWorkspaceKeepsOnLookupError keeps a workspace whose lookup fails with an error other than NotFound.
+func TestUserMutateWorkspaceKeepsOnLookupError(t *testing.T) {
+	scheme := newScheme(t)
+	cpu := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "global-cpu"}}
+	burst := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "crusoe-amd-burst"}, Spec: v1.WorkspaceSpec{IsDefault: true}}
+	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cpu, burst).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if key.Name == "global-cpu" {
+					return errors.New("transient lookup failure")
+				}
+				return c.Get(ctx, key, obj, opts...)
+			},
+		}).Build()
+	m := &UserMutator{Client: k8sClient}
+	user := validUser("u1")
+	commonuser.AssignWorkspace(user, "global-cpu", "crusoe-amd-burst")
+	m.mutateWorkspace(context.Background(), user)
+	assert.DeepEqual(t, commonuser.GetWorkspace(user), []string{"global-cpu", "crusoe-amd-burst"})
+}
+
+// TestUserMutateWorkspaceRemoveAndAdd removes a missing workspace even when a default one is added in its place.
+func TestUserMutateWorkspaceRemoveAndAdd(t *testing.T) {
+	scheme := newScheme(t)
+	defaultWs := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws-default"}, Spec: v1.WorkspaceSpec{IsDefault: true}}
+	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(defaultWs).Build()
+	m := &UserMutator{Client: k8sClient}
+	user := validUser("u1")
+	commonuser.AssignWorkspace(user, "missing")
+	m.mutateWorkspace(context.Background(), user)
+	assert.DeepEqual(t, commonuser.GetWorkspace(user), []string{"ws-default"})
+}
+
+// TestUserMutateWorkspaceConfirmsMissingWithLiveRead keeps a workspace the cache does not know yet but the
+// live read finds, and removes one that neither finds, in the access list and in the managed list.
+func TestUserMutateWorkspaceConfirmsMissingWithLiveRead(t *testing.T) {
+	ctx := context.Background()
+	scheme := newScheme(t)
+	stored := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws-new"}}
+	live := fake.NewClientBuilder().WithScheme(scheme).WithObjects(stored).Build()
+	cache := fake.NewClientBuilder().WithScheme(scheme).Build()
+
+	user := validUser("u1")
+	commonuser.AssignWorkspace(user, "ws-new", "missing")
+	commonuser.AssignManagedWorkspace(user, "ws-new", "missing")
+	m := &UserMutator{Client: cache, apiReader: live}
+	m.mutateWorkspace(ctx, user)
+	m.mutateManagedWorkspaces(ctx, user, false)
+	assert.DeepEqual(t, commonuser.GetWorkspace(user), []string{"ws-new"})
+	assert.DeepEqual(t, commonuser.GetManagedWorkspace(user), []string{"ws-new"})
+}
+
+// TestUserMutateManagedWorkspacesKeepsOnLookupError keeps a managed workspace whose lookup fails with an
+// error other than NotFound.
+func TestUserMutateManagedWorkspacesKeepsOnLookupError(t *testing.T) {
+	cli := fake.NewClientBuilder().WithScheme(newScheme(t)).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(context.Context, client.WithWatch, client.ObjectKey, client.Object, ...client.GetOption) error {
+				return errors.New("transient lookup failure")
+			},
+		}).Build()
+	user := validUser("u1")
+	commonuser.AssignManagedWorkspace(user, "ws1")
+	(&UserMutator{Client: cli}).mutateManagedWorkspaces(context.Background(), user, false)
+	assert.DeepEqual(t, commonuser.GetManagedWorkspace(user), []string{"ws1"})
 }
 
 // TestUserMutateManagedWorkspacesNoRight covers managed workspace access filtering.
