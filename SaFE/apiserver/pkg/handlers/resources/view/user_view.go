@@ -6,10 +6,15 @@
 package view
 
 import (
+	"fmt"
 	"strings"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 )
+
+// MaxUserLowUtilizationWorkspaces caps the workspace entries of a user's low utilization settings.
+const MaxUserLowUtilizationWorkspaces = 200
 
 type CreateUserRequest struct {
 	// The username, required
@@ -67,6 +72,8 @@ type UserResponseItem struct {
 	AvatarUrl string `json:"avatarUrl,omitempty"`
 	// Per-user resource and runtime ceilings.
 	Qos *v1.UserQos `json:"qos,omitempty"`
+	// Per-user low utilization settings per workspace.
+	LowUtilization *v1.UserLowUtilization `json:"lowUtilization,omitempty"`
 }
 
 // UserWorkspacesResponse is the answer of GET /users/self/workspaces: the same two lists
@@ -98,6 +105,26 @@ type PatchUserRequest struct {
 	Email *string `json:"email,omitempty"`
 	// Per-user resource and runtime ceilings. System administrators only.
 	Qos *v1.UserQos `json:"qos,omitempty"`
+	// Per-user low utilization settings per workspace, replacing the stored ones. System administrators only.
+	LowUtilization *v1.UserLowUtilization `json:"lowUtilization,omitempty"`
+}
+
+// ValidateUserLowUtilization checks the workspace ids of a user's low utilization settings.
+// A workspace does not have to exist.
+func ValidateUserLowUtilization(settings *v1.UserLowUtilization) error {
+	if settings == nil {
+		return nil
+	}
+	if len(settings.Workspaces) > MaxUserLowUtilizationWorkspaces {
+		return commonerrors.NewBadRequest(fmt.Sprintf("lowUtilization holds at most %d workspaces",
+			MaxUserLowUtilizationWorkspaces))
+	}
+	for workspaceID := range settings.Workspaces {
+		if strings.TrimSpace(workspaceID) == "" {
+			return commonerrors.NewBadRequest("lowUtilization workspace id is required")
+		}
+	}
+	return nil
 }
 
 type UserSettingsResponse struct {

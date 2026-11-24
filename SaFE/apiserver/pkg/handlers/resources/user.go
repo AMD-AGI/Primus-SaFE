@@ -312,6 +312,7 @@ func (h *Handler) listUser(c *gin.Context) (interface{}, error) {
 		resp := h.cvtToUserResponseItem(c.Request.Context(), &item)
 		if !adminView && item.Name != requestUser.Name {
 			resp.Qos = nil
+			resp.LowUtilization = nil
 		}
 		result.Items = append(result.Items, resp)
 	}
@@ -378,12 +379,13 @@ func (h *Handler) getUser(c *gin.Context) (interface{}, error) {
 	resp := h.cvtToUserResponseItem(c.Request.Context(), targetUser)
 	if !h.isSystemAdminRequest(c.Request.Context(), requestUser) && targetUser.Name != requestUser.Name {
 		resp.Qos = nil
+		resp.LowUtilization = nil
 	}
 	return resp, nil
 }
 
 // isSystemAdminRequest reports whether the request user is a system administrator.
-// Only system administrators may read other users' personal qos.
+// Only system administrators may read other users' personal qos and low utilization settings.
 func (h *Handler) isSystemAdminRequest(ctx context.Context, requestUser *v1.User) bool {
 	if requestUser == nil {
 		return false
@@ -493,6 +495,24 @@ func workspaceOnlyQos(qos *v1.UserQos) *v1.UserQos {
 	return copied
 }
 
+// exemptOnlyLowUtilization stores the workspaces where the user is exempt. Settings without
+// one clear the user's low utilization settings.
+func exemptOnlyLowUtilization(settings *v1.UserLowUtilization) *v1.UserLowUtilization {
+	if settings == nil {
+		return nil
+	}
+	kept := make(map[string]v1.UserLowUtilizationScope)
+	for id, scope := range settings.Workspaces {
+		if scope.Exempt {
+			kept[id] = scope
+		}
+	}
+	if len(kept) == 0 {
+		return nil
+	}
+	return &v1.UserLowUtilization{Workspaces: kept}
+}
+
 // applyUserPatch updates the target user with values from the patch request.
 // Only modifies fields that are present in the request.
 func applyUserPatch(targetUser *v1.User, req *view.PatchUserRequest) {
@@ -528,6 +548,9 @@ func applyUserPatch(targetUser *v1.User, req *view.PatchUserRequest) {
 	}
 	if req.Qos != nil {
 		targetUser.Spec.Qos = workspaceOnlyQos(req.Qos)
+	}
+	if req.LowUtilization != nil {
+		targetUser.Spec.LowUtilization = exemptOnlyLowUtilization(req.LowUtilization)
 	}
 }
 
@@ -583,6 +606,16 @@ func (h *Handler) authUserUpdate(c *gin.Context, targetUser *v1.User, req *view.
 			return false, err
 		}
 		if err = view.ValidateUserQos(req.Qos); err != nil {
+			return false, err
+		}
+		isChanged = true
+	}
+
+	if req.LowUtilization != nil {
+		if err = h.requireSystemAdmin(c); err != nil {
+			return false, err
+		}
+		if err = view.ValidateUserLowUtilization(req.LowUtilization); err != nil {
 			return false, err
 		}
 		isChanged = true
@@ -890,6 +923,7 @@ func (h *Handler) cvtToUserResponseItem(ctx context.Context, user *v1.User) view
 		RestrictedType: user.Spec.RestrictedType,
 		AvatarUrl:      v1.GetUserAvatarUrl(user),
 		Qos:            user.Spec.Qos,
+		LowUtilization: user.Spec.LowUtilization,
 	}
 	result.Workspaces, result.ManagedWorkspaces = h.userWorkspaces(ctx, user)
 	return result

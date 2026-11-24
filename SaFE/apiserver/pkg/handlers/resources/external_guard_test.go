@@ -62,7 +62,7 @@ var (
 
 // guardTargets are the users the patch tests change, one per test so that they do not meet.
 var guardTargets = []string{"t-grant", "t-revoke", "t-echo", "t-local", "t-local-rev", "t-workspaces", "t-builtin",
-	"t-password-local", "t-password-idp", "t-builtin-password", "t-swap"}
+	"t-password-local", "t-password-idp", "t-builtin-password", "t-swap", "t-lowutil"}
 
 // targetPassword is the password the targets that have one start with.
 const targetPassword = "original-password"
@@ -359,6 +359,23 @@ func TestExternalModeAllowsRemovingStoredPlatformRoles(t *testing.T) {
 			assert.Equal(t, []v1.UserRole{v1.DefaultRole}, storedRoles(t, target))
 		})
 	}
+}
+
+// The low utilization exemption is a field of the stored record, not of the overlay: an
+// administrator sets and reads it in external mode as in builtin mode.
+func TestExternalModeKeepsLowUtilizationExemption(t *testing.T) {
+	e := guardEngine(t, true)
+	w := guardRequest{method: http.MethodPatch, path: "/api/v1/users/t-lowutil",
+		body: `{"lowUtilization":{"workspaces":{"ws1":{"exempt":true},"ws2":{}}}}`, bearer: "idp-admin"}.serve(e)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	u := &v1.User{}
+	require.NoError(t, guardCluster.Get(context.Background(), client.ObjectKey{Name: "t-lowutil"}, u))
+	assert.Equal(t, &v1.UserLowUtilization{Workspaces: map[string]v1.UserLowUtilizationScope{"ws1": {Exempt: true}}},
+		u.Spec.LowUtilization)
+
+	w = guardRequest{method: http.MethodGet, path: "/api/v1/users/t-lowutil", bearer: "idp-admin"}.serve(e)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.Contains(t, w.Body.String(), `"lowUtilization":{"workspaces":{"ws1":{"exempt":true}}}`)
 }
 
 // External mode refuses creating an API key and keeps deleting one issued before the switch.
