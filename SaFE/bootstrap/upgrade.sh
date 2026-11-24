@@ -275,8 +275,8 @@ write_auth_values() {
 }
 
 # require_external_chain refuses an external auth object that has no fallback authenticator, no
-# group that is granted system-admin, or SCIM and auth.provider_client enabled without an identity
-# service URL. An omitted auth.login_url is filled by the chart from the cluster host.
+# group that is granted system-admin, or SCIM enabled without an identity service URL. An omitted
+# auth.login_url is filled by the chart from the cluster host.
 require_external_chain() {
   local file="$1" mode n base
   mode=$(jq -r '.auth.mode // "builtin"' "$file")
@@ -293,14 +293,13 @@ require_external_chain() {
     echo "Error: auth_mode=external needs a group_mapping whose roles include system-admin" >&2
     return 1
   fi
-  if [[ "$(jq -r 'if .auth.scim.enabled == false then "false" else "true" end' "$file")" != "false" &&
-    "$(jq -r '.auth.provider_client // false' "$file")" == "true" ]]; then
+  if [[ "$(jq -r 'if .auth.scim.enabled == false then "false" else "true" end' "$file")" != "false" ]]; then
     base=$(jq -r '.auth.scim.identity_url // empty' "$file")
     if [[ -z "$base" ]]; then
       base=$(jq -r '[.auth.authenticators[]? | select((.type | ascii_downcase) == "introspection") | (.url // .issuer // empty)] | map(select(length > 0)) | .[0] // empty' "$file")
     fi
     if [[ -z "$base" ]]; then
-      echo "Error: auth.scim and auth.provider_client are enabled but auth_scim_identity_url cannot be resolved" >&2
+      echo "Error: auth.scim is enabled but auth_scim_identity_url cannot be resolved" >&2
       return 1
     fi
   fi
