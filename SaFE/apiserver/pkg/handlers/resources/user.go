@@ -453,9 +453,6 @@ func (h *Handler) patchUser(c *gin.Context) (interface{}, error) {
 	if !isChanged || err != nil {
 		return nil, err
 	}
-	if err = forwardIdentityStatus(c, targetUser, req); err != nil {
-		return nil, err
-	}
 
 	if err = backoff.ConflictRetry(func() error {
 		applyUserPatch(targetUser, req)
@@ -723,34 +720,6 @@ func (h *Handler) deleteUser(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	return nil, nil
-}
-
-// forwardIdentityStatus asks the identity service to disable or activate the user before the local
-// restricted type changes. Builtin mode does nothing. Only a credential an identity provider accepted
-// is forwarded; any other credential gets a conflict. The local user is not updated when this returns an error.
-func forwardIdentityStatus(c *gin.Context, user *v1.User, req *view.PatchUserRequest) error {
-	if commonconfig.GetAuthMode() != commonconfig.AuthModeExternal || req.RestrictedType == nil || !commonconfig.ProviderClientEnabled() {
-		return nil
-	}
-	status, ok := identityStatus(*req.RestrictedType, user.Spec.RestrictedType)
-	if !ok {
-		return nil
-	}
-	if userType := c.GetString(common.UserType); userType != authority.UserTypeExternal && userType != authority.UserTypeDelegated {
-		return commonerrors.NewConflict("changing the user status needs an identity provider sign-in; use the identity console")
-	}
-	return identity.SetStatus(c.Request.Context(), user.Name, status, authority.CallerBearer(c))
-}
-
-// identityStatus returns the identity status for a change into or out of the frozen restriction.
-func identityStatus(next, prev v1.UserRestrictedType) (string, bool) {
-	if (next == v1.UserFrozen) == (prev == v1.UserFrozen) {
-		return "", false
-	}
-	if next == v1.UserFrozen {
-		return "disabled", true
-	}
-	return "active", true
 }
 
 // getAdminUser retrieves a user resource by ID from the admin data plane.

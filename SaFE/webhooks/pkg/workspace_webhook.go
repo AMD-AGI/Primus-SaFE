@@ -679,11 +679,17 @@ func (m *WorkspaceMutator) mutateWorkloadsOfWorkspace(ctx context.Context, works
 // (users.join_default_workspaces=false): the same setting the user webhook honours when a user is
 // created or updated, so marking a workspace as default does not hand a user the access that
 // setting withholds.
+// A workspace that is being created is not stored yet, and the user admission would not find it, so
+// the grant is recorded on the workspace (WorkspaceGrantPending) and applied once it is stored.
 func (m *WorkspaceMutator) mutateDefaultWorkspaceUsers(ctx context.Context, oldWorkspace, newWorkspace *v1.Workspace) error {
 	if !newWorkspace.Spec.IsDefault || !commonconfig.IsUserJoinDefaultWorkspaces() {
 		return nil
 	}
-	if oldWorkspace != nil && oldWorkspace.Spec.IsDefault {
+	if oldWorkspace == nil {
+		newWorkspace.AddPendingGrant(v1.WorkspaceGrantDefault)
+		return nil
+	}
+	if oldWorkspace.Spec.IsDefault {
 		return nil
 	}
 	userList := &v1.UserList{}
@@ -705,6 +711,7 @@ func (m *WorkspaceMutator) mutateDefaultWorkspaceUsers(ctx context.Context, oldW
 // For removed managers: validates user exists, removes workspace from user's managed list, and updates user.
 // If user not found during add/remove, removes user ID from workspace managers list
 // Note: Granting a user as a workspace manager also grants the user access to the workspace automatically.
+// On creation the grant is recorded on the workspace (WorkspaceGrantPending) and applied once it is stored.
 func (m *WorkspaceMutator) mutateManagers(ctx context.Context, oldWorkspace, newWorkspace *v1.Workspace) error {
 	var currentManagers []string
 	if oldWorkspace != nil {
@@ -719,6 +726,10 @@ func (m *WorkspaceMutator) mutateManagers(ctx context.Context, oldWorkspace, new
 				continue
 			}
 			return err
+		}
+		if oldWorkspace == nil {
+			newWorkspace.AddPendingGrant(v1.WorkspaceGrantManagers)
+			continue
 		}
 		isChanged := false
 		if commonuser.AddWorkspace(user, newWorkspace.Name) {
@@ -1517,7 +1528,7 @@ func (v *WorkspaceValidator) validateNodesRemoved(ctx context.Context, workspace
 }
 
 // getWorkspace retrieves a workspace by ID, returning nil for default or empty workspace IDs.
-func getWorkspace(ctx context.Context, cli client.Client, workspaceId string) (*v1.Workspace, error) {
+func getWorkspace(ctx context.Context, cli client.Reader, workspaceId string) (*v1.Workspace, error) {
 	if workspaceId == corev1.NamespaceDefault || workspaceId == "" {
 		return nil, nil
 	}

@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 
@@ -228,6 +229,9 @@ func (r *WorkspaceRBACReconciler) reconcileWorkspace(ctx context.Context, name s
 		}
 		return r.deleteRBACObjects(ctx, roleName, bindingName)
 	}
+	if err := r.applyPendingGrants(ctx, workspace); err != nil {
+		return err
+	}
 	users, err := r.listUsers(ctx)
 	if err != nil {
 		return err
@@ -260,6 +264,57 @@ func (r *WorkspaceRBACReconciler) reconcileWorkspace(ctx context.Context, name s
 		return err
 	}
 	return r.applyClusterRoleBinding(ctx, managerBinding, managerRole, r.managerSubjects(name, users), owner)
+}
+
+// applyPendingGrants applies the user grants the admission left on a workspace that was being created
+// (WorkspaceGrantPending), then clears the mark. The spec bounds what is granted: every user receives the
+// workspace only when it is default, and its managers are the ones it lists. Applying them again changes
+// nothing, so a failed pass is retried as a whole.
+func (r *WorkspaceRBACReconciler) applyPendingGrants(ctx context.Context, workspace *v1.Workspace) error {
+	grants := workspace.PendingGrants()
+	if len(grants) == 0 {
+		return nil
+	}
+	if slices.Contains(grants, v1.WorkspaceGrantDefault) && workspace.Spec.IsDefault {
+		users, err := r.listUsers(ctx)
+		if err != nil {
+			return err
+		}
+		for i := range users {
+			if commonuser.AddWorkspace(&users[i], workspace.Name) {
+				if err = r.Update(ctx, &users[i]); err != nil && !apierrors.IsNotFound(err) {
+					return fmt.Errorf("failed to grant workspace %s to user %s: %v", workspace.Name, users[i].Name, err)
+				}
+			}
+		}
+	}
+	if slices.Contains(grants, v1.WorkspaceGrantManagers) {
+		for _, userId := range workspace.Spec.Managers {
+			user := &v1.User{}
+			if err := r.Get(ctx, client.ObjectKey{Name: userId}, user); err != nil {
+				if apierrors.IsNotFound(err) {
+					continue
+				}
+				return err
+			}
+			changed := commonuser.AddWorkspace(user, workspace.Name)
+			if commonuser.AddManagedWorkspace(user, workspace.Name) {
+				changed = true
+			}
+			if changed {
+				if err := r.Update(ctx, user); err != nil && !apierrors.IsNotFound(err) {
+					return fmt.Errorf("failed to grant workspace %s to manager %s: %v", workspace.Name, userId, err)
+				}
+			}
+		}
+	}
+	base := workspace.DeepCopy()
+	if v1.RemoveAnnotation(workspace, v1.WorkspaceGrantPending) {
+		if err := r.Patch(ctx, workspace, client.MergeFrom(base)); err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("failed to clear the pending grants of workspace %s: %v", workspace.Name, err)
+		}
+	}
+	return nil
 }
 
 // reconcilePlatform converges the platform system-admin ClusterRole and ClusterRoleBinding.

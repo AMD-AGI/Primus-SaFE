@@ -158,8 +158,17 @@ const (
 	// nodes.action annotation that is not shrinking, or leaving it off one that is, changes
 	// what a workspace ends up asking for.
 	WorkspaceNodesActionError = WorkspacePrefix + "nodes.action.error"
-	WorkspaceIdsAnnotation    = WorkspacePrefix + "ids"
-	SourceWorkloadIdLabel     = "source.workload.id"
+	// WorkspaceGrantPending lists, comma separated, the user grants of a newly created workspace
+	// that are applied once the workspace is stored: the workspace does not exist yet while its
+	// admission runs, so the users are updated afterwards. Set by the mutating webhook on
+	// creation, cleared by resource-manager when the grants are applied.
+	WorkspaceGrantPending = WorkspacePrefix + "grant.pending"
+	// WorkspaceGrantDefault is a pending grant of the workspace to every user.
+	WorkspaceGrantDefault = "default"
+	// WorkspaceGrantManagers is a pending grant of the workspace to its managers.
+	WorkspaceGrantManagers = "managers"
+	WorkspaceIdsAnnotation = WorkspacePrefix + "ids"
+	SourceWorkloadIdLabel  = "source.workload.id"
 
 	// WorkspaceSelectorAnnotation, on a Secret in the primus-safe namespace, is a label
 	// selector in kubectl -l syntax over Workspace labels. resource-manager mirrors the Secret

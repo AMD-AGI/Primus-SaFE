@@ -15,6 +15,7 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/extauth"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/identity"
 	apimetrics "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/metrics"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
@@ -57,7 +58,7 @@ func ParseToken(c *gin.Context) error {
 
 // WithoutIdentity returns ctx for a user that no identity provider vouched for, the rule of
 // every credential the apiserver accepts on its own in external mode (a built-in session or
-// API key, an SSH session): the user adds nothing to the record and holds no platform role,
+// API key): the user adds nothing to the record and holds no platform role,
 // whatever the user object stores (extauth.PlatformRoles). In builtin mode, the default, it
 // returns ctx as it is: the stored roles are the roles.
 func WithoutIdentity(ctx context.Context, userId string) context.Context {
@@ -66,6 +67,23 @@ func WithoutIdentity(ctx context.Context, userId string) context.Context {
 		return ctx
 	}
 	return extauth.WithOverlay(ctx, builtinOverlay(st, userId))
+}
+
+// WithRecordedGroups returns ctx for a user authenticated by a credential the apiserver accepts on
+// its own (an SSH public key) whose groups the identity service pushed by SCIM. The overlay is the
+// one those groups map to, so a platform role or workspace the identity grants applies and a role
+// only the user object stores does not. A user with no recorded groups, or any user while SCIM is
+// disabled (the record is no longer maintained), gets the overlay of WithoutIdentity. In builtin
+// mode it returns ctx as it is.
+func WithRecordedGroups(ctx context.Context, user *v1.User) context.Context {
+	st := externalState.Load()
+	if st == nil || user == nil {
+		return ctx
+	}
+	if !commonconfig.IsSCIMEnabled() {
+		return WithoutIdentity(ctx, user.Name)
+	}
+	return extauth.WithOverlay(ctx, extauth.MapGroups(user.Name, identity.RecordedGroups(user), st.mappings, false))
 }
 
 // builtinOverlay is the overlay of a user a built-in credential authenticated in external mode:

@@ -7,6 +7,7 @@ package webhooks
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"gotest.tools/assert"
@@ -48,7 +49,7 @@ func legacyMutateRoles(user *v1.User) {
 	}
 }
 
-// legacyMutateWorkspace is mutateWorkspace as it was before users.join_default_workspaces existed.
+// legacyMutateWorkspace is mutateWorkspace without the users.join_default_workspaces switch.
 func legacyMutateWorkspace(ctx context.Context, m *UserMutator, user *v1.User) {
 	workspaceSet := sets.NewSet()
 	currentWorkspaces := commonuser.GetWorkspace(user)
@@ -76,7 +77,7 @@ func legacyMutateWorkspace(ctx context.Context, m *UserMutator, user *v1.User) {
 		}
 		workspaces = append(workspaces, w.Name)
 	}
-	if len(currentWorkspaces) != len(workspaces) {
+	if !slices.Equal(currentWorkspaces, workspaces) {
 		commonuser.AssignWorkspace(user, workspaces...)
 	}
 }
@@ -236,12 +237,15 @@ func TestMarkingAWorkspaceAsDefaultFollowsJoinDefaultWorkspaces(t *testing.T) {
 		old, new *v1.Workspace
 		// joinsOnDefault is what the users hold afterwards when the setting is unset or true.
 		joinsOnDefault bool
+		// pendingOnDefault is whether the grant is left to be applied once the workspace is stored,
+		// when the setting is unset or true: a workspace that is being created is not stored yet.
+		pendingOnDefault bool
 	}{
-		{"a workspace created as default", nil, isDefault(), true},
-		{"a workspace marked as default", notDefault(), isDefault(), true},
-		{"a workspace that already was default", isDefault(), isDefault(), false},
-		{"a workspace that is not default", nil, notDefault(), false},
-		{"a workspace that stops being default", isDefault(), notDefault(), false},
+		{"a workspace created as default", nil, isDefault(), false, true},
+		{"a workspace marked as default", notDefault(), isDefault(), true, false},
+		{"a workspace that already was default", isDefault(), isDefault(), false, false},
+		{"a workspace that is not default", nil, notDefault(), false, false},
+		{"a workspace that stops being default", isDefault(), notDefault(), false, false},
 	} {
 		for _, join := range []string{"unset", "true", "false"} {
 			t.Run(tt.name+", join "+join, func(t *testing.T) {
@@ -250,7 +254,10 @@ func TestMarkingAWorkspaceAsDefaultFollowsJoinDefaultWorkspaces(t *testing.T) {
 				u1, u2 := &v1.User{ObjectMeta: metav1.ObjectMeta{Name: "u1"}}, &v1.User{ObjectMeta: metav1.ObjectMeta{Name: "u2"}}
 				cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(u1, u2).Build()
 				m := &WorkspaceMutator{Client: cli}
-				assert.NilError(t, m.mutateDefaultWorkspaceUsers(context.Background(), tt.old, tt.new))
+				created := tt.new.DeepCopy()
+				assert.NilError(t, m.mutateDefaultWorkspaceUsers(context.Background(), tt.old, created))
+				assert.Equal(t, sliceutil.Contains(created.PendingGrants(), v1.WorkspaceGrantDefault),
+					tt.pendingOnDefault && join != "false")
 				for _, name := range []string{"u1", "u2"} {
 					got := &v1.User{}
 					assert.NilError(t, cli.Get(context.Background(), client.ObjectKey{Name: name}, got))
