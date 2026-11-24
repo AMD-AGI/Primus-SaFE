@@ -1315,6 +1315,11 @@ const DefaultSCIMTokenSecret = "primus-safe-scim-token"
 // IsSCIMEnabled reports auth.scim.enabled. A missing value is enabled.
 func IsSCIMEnabled() bool { return getBool(authSCIMEnabled, true) }
 
+// SCIMRegisterEnabled reports auth.scim.register: whether the apiserver registers its SCIM target
+// with the identity service. A missing value is enabled. It applies only in external mode and
+// does not depend on auth.provider_client.
+func SCIMRegisterEnabled() bool { return getBool(authSCIMRegister, true) }
+
 // GetSCIMIdentityURL returns auth.scim.identity_url with no trailing slash.
 // Empty means the identity base is derived from the introspection authenticator.
 func GetSCIMIdentityURL() string { return trimURL(getString(authSCIMIdentityURL, "")) }

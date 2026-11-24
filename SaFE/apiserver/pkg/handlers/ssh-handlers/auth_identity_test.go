@@ -32,6 +32,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/extauth"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/identity"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
@@ -141,12 +142,22 @@ func newAuthFixture(t *testing.T) *authFixture {
 		ObjectMeta: metav1.ObjectMeta{Name: "wl-1", Labels: map[string]string{v1.UserIdLabel: "owner"}},
 		Spec:       v1.WorkloadSpec{Workspace: authTestWorkspace},
 	}
+	// recorded is a user whose groups the identity service pushed by SCIM.
+	recorded := func(name string, groups []string, roles ...v1.UserRole) *v1.User {
+		u := user(name, roles...)
+		identity.RecordGroups(u, groups)
+		return u
+	}
 	cli := ctrlfake.NewClientBuilder().WithScheme(sshScheme(t)).WithObjects(
 		workspace, workload, defaultRole, adminRole,
 		user("stored-admin", v1.SystemAdminRole),
 		user("owner", v1.DefaultRole),
 		user("member", v1.DefaultRole),
 		user("nobody", v1.DefaultRole),
+		recorded("scim-admin", []string{"admins"}, v1.DefaultRole),
+		recorded("scim-team", []string{"team-a"}, v1.DefaultRole),
+		recorded("scim-revoked", []string{}, v1.SystemAdminRole),
+		recorded("scim-other-group", []string{"unmapped"}, v1.SystemAdminRole),
 	).Build()
 
 	ctrl := gomock.NewController(t)
@@ -220,10 +231,15 @@ func setAuthMode(t *testing.T, mode string) {
 	}
 	viper.Set("auth.mode", "external")
 	viper.Set("auth.authenticators", []map[string]any{{"type": "builtin"}})
+	viper.Set("auth.group_mappings", []map[string]any{
+		{"group": "team-a", "roles": []string{string(v1.DefaultRole)}, "workspaces": []string{authTestWorkspace}},
+		{"group": "admins", "roles": []string{string(v1.SystemAdminRole)}},
+	})
 	require.NoError(t, authority.InitExternalAuth(nil))
 	t.Cleanup(func() {
 		viper.Set("auth.mode", nil)
 		viper.Set("auth.authenticators", nil)
+		viper.Set("auth.group_mappings", nil)
 	})
 }
 
@@ -272,6 +288,27 @@ var authCases = []authCase{
 	},
 	{
 		name: "unrelated user", user: "nobody", identity: "idp", groups: []string{},
+		want: [2]bool{false, false},
+	},
+	{
+		// The identity pushed the admin group by SCIM: SSH honours it, though a built-in web
+		// credential, which no identity vouched for, still does not.
+		name: "system-admin group recorded from the identity", user: "scim-admin", identity: "builtin",
+		want: [2]bool{false, true},
+	},
+	{
+		// A group that grants a workspace carries over to SSH the same way.
+		name: "workspace group recorded from the identity", user: "scim-team", identity: "builtin",
+		want: [2]bool{false, true},
+	},
+	{
+		// The identity pushed an empty group set: the stored system-admin does not come back.
+		name: "stored system-admin whose recorded groups are empty", user: "scim-revoked", identity: "builtin",
+		want: [2]bool{false, false},
+	},
+	{
+		// Recorded groups that no mapping grants system-admin add nothing to a stored role.
+		name: "stored system-admin whose recorded groups grant nothing", user: "scim-other-group", identity: "builtin",
 		want: [2]bool{false, false},
 	},
 }

@@ -53,7 +53,7 @@ install_or_upgrade_helm_chart() {
 #   auth_allow_oidc_only true | false. true allows a chain without an
 #                        introspection or builtin authenticator              -> auth.allow_oidc_only
 #   auth_provider_client true | false. true lets the apiserver call the
-#                        identity service (status changes, SCIM registration)  -> auth.provider_client
+#                        identity service (status changes)  -> auth.provider_client
 #   auth_client_secret   name of the Secret holding the client secret of an
 #                        introspection authenticator (a name, not the secret) -> auth.client_secret
 #   auth_identity_service_account  <namespace>/<name> of the identity service's

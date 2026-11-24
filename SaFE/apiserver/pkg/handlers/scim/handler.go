@@ -160,7 +160,8 @@ func (s *server) getUser(c *gin.Context) {
 }
 
 // patchUser applies replace operations on active and on groups.
-// groups is the identity's platform groups; spec.roles is rewritten from auth.group_mappings.
+// groups is the identity's platform groups; spec.roles is rewritten from auth.group_mappings and
+// the groups are recorded on the user (identity.GroupsAnnotation).
 func (s *server) patchUser(c *gin.Context) {
 	plan, err := parsePatch(c)
 	if err != nil {
@@ -186,6 +187,9 @@ func (s *server) patchUser(c *gin.Context) {
 				return rerr
 			}
 			if rolesChanged {
+				changed = true
+			}
+			if identity.RecordGroups(user, *plan.groups) {
 				changed = true
 			}
 		}
