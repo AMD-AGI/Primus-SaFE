@@ -1175,7 +1175,7 @@ func (h *Handler) generateWorkload(ctx context.Context,
 		if req.NodesAffinity == nil {
 			req.NodesAffinity = pointer.String(common.NodesAffinityRequired)
 		}
-	} else {
+	} else if len(req.ExcludedNodes) == 0 {
 		req.NodesAffinity = nil
 	}
 	v1.SetLabel(workload, v1.WorkloadKindLabel, workload.SpecKind())

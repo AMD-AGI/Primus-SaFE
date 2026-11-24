@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -3568,6 +3569,254 @@ func TestRequiredAffinityWorkspaceHoldsAcrossInjectedTerms(t *testing.T) {
 			assert.Assert(t, schedulable(t, terms, node("node-a", "ws-1", p, "200", extra)), p)
 			assert.Assert(t, !schedulable(t, terms, node("node-a", "", p, "200", extra)), p)
 			assert.Assert(t, !schedulable(t, terms, node("node-a", "ws-2", p, "200", extra)), p)
+		}
+	}
+}
+
+var preferredAffinityTestPath = []string{"spec", "template", "spec", "affinity", "nodeAffinity",
+	"preferredDuringSchedulingIgnoredDuringExecution"}
+
+// describeExprs flattens the matchExpressions of terms into sorted "key operator values" lines.
+func describeExprs(terms []interface{}) []string {
+	var out []string
+	for _, raw := range terms {
+		exprs, _ := raw.(map[string]interface{})["matchExpressions"].([]interface{})
+		for _, e := range exprs {
+			m := e.(map[string]interface{})
+			out = append(out, fmt.Sprintf("%v %v %v", m["key"], m["operator"], m["values"]))
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// describePreferred renders preferred terms as "weight key operator values" lines in order.
+func describePreferred(terms []interface{}) []string {
+	var out []string
+	for _, raw := range terms {
+		m := raw.(map[string]interface{})
+		exprs, _ := m["preference"].(map[string]interface{})["matchExpressions"].([]interface{})
+		for _, e := range exprs {
+			expression := e.(map[string]interface{})
+			out = append(out, fmt.Sprintf("%v %v %v %v", m["weight"],
+				expression["key"], expression["operator"], expression["values"]))
+		}
+	}
+	return out
+}
+
+// Excluded nodes are a required NotIn term unless the workload asks for preferred affinity, in
+// which case they become a preferred NotIn term and no required term is built for them.
+func TestNodeAffinityExcludedNodes(t *testing.T) {
+	required, empty, preferred, unknown := common.NodesAffinityRequired, "", common.NodesAffinityPreferred, "other"
+	const (
+		native        = ""
+		claimPath     = "claim"
+		schedulerPath = v1.ExternalPlacementKubeScheduler
+	)
+	hostname := v1.K8sHostName
+	excludedHard := hostname + " NotIn [node-a node-b]"
+	excludedSoft := "100 " + hostname + " NotIn [node-a node-b]"
+	tests := []struct {
+		name          string
+		affinity      *string // nil: annotation absent
+		labels        map[string]string
+		placement     string
+		wantRequired  []string
+		wantPreferred []string
+	}{
+		{
+			name:         "annotation absent keeps the hard term",
+			labels:       map[string]string{common.ExcludedNodes: "node-a node-b"},
+			wantRequired: []string{excludedHard},
+		},
+		{
+			name:         "required keeps the hard term",
+			affinity:     &required,
+			labels:       map[string]string{common.ExcludedNodes: "node-a node-b"},
+			wantRequired: []string{excludedHard},
+		},
+		{
+			// The API writes an empty annotation when no nodesAffinity was requested.
+			name:         "empty annotation keeps the hard term",
+			affinity:     &empty,
+			labels:       map[string]string{common.ExcludedNodes: "node-a node-b"},
+			wantRequired: []string{excludedHard},
+		},
+		{
+			name:         "unrecognised value keeps the hard term",
+			affinity:     &unknown,
+			labels:       map[string]string{common.ExcludedNodes: "node-a node-b"},
+			wantRequired: []string{excludedHard},
+		},
+		{
+			name:          "preferred turns excluded nodes into a preferred term",
+			affinity:      &preferred,
+			labels:        map[string]string{common.ExcludedNodes: "node-a node-b"},
+			wantPreferred: []string{excludedSoft},
+		},
+		{
+			name:          "preferred with one hostname",
+			affinity:      &preferred,
+			labels:        map[string]string{common.ExcludedNodes: "node-a"},
+			wantPreferred: []string{"100 " + hostname + " NotIn [node-a]"},
+		},
+		{
+			name:          "preferred with several hostnames keeps all of them",
+			affinity:      &preferred,
+			labels:        map[string]string{common.ExcludedNodes: "node-a node-b node-c"},
+			wantPreferred: []string{"100 " + hostname + " NotIn [node-a node-b node-c]"},
+		},
+		{
+			name:         "preferred does not soften other customer labels",
+			affinity:     &preferred,
+			labels:       map[string]string{common.ExcludedNodes: "node-a node-b", "example.com/gpu-model": "model-a"},
+			wantRequired: []string{"example.com/gpu-model In [model-a]"},
+			wantPreferred: []string{
+				excludedSoft,
+			},
+		},
+		{
+			name:     "preferred with specified and excluded nodes",
+			affinity: &preferred,
+			labels: map[string]string{
+				common.SpecifiedNodes: "node-c node-d",
+				common.ExcludedNodes:  "node-a node-b",
+			},
+			wantPreferred: []string{"100 " + hostname + " In [node-c node-d]", excludedSoft},
+		},
+		{
+			name:     "required with specified and excluded nodes keeps both hard terms",
+			affinity: &required,
+			labels: map[string]string{
+				common.SpecifiedNodes: "node-c node-d",
+				common.ExcludedNodes:  "node-a node-b",
+			},
+			wantRequired: []string{hostname + " In [node-c node-d]", excludedHard},
+		},
+		{
+			name:          "preferred on the kube-scheduler path",
+			affinity:      &preferred,
+			labels:        map[string]string{common.ExcludedNodes: "node-a node-b"},
+			placement:     schedulerPath,
+			wantPreferred: []string{excludedSoft},
+		},
+		{
+			name:         "absent on the kube-scheduler path keeps the hard term",
+			labels:       map[string]string{common.ExcludedNodes: "node-a node-b"},
+			placement:    schedulerPath,
+			wantRequired: []string{excludedHard},
+		},
+		{
+			name:         "required on the kube-scheduler path keeps the hard term",
+			affinity:     &required,
+			labels:       map[string]string{common.ExcludedNodes: "node-a node-b"},
+			placement:    schedulerPath,
+			wantRequired: []string{excludedHard},
+		},
+		{
+			// Only the provider-approved nodes constrain the pod; user hostnames are dropped.
+			name:         "preferred on the claim path adds no user hostname term",
+			affinity:     &preferred,
+			labels:       map[string]string{common.ExcludedNodes: "node-a node-b"},
+			placement:    claimPath,
+			wantRequired: []string{hostname + " In [vk-approved]"},
+		},
+		{
+			name:         "absent on the claim path drops the user hostname term",
+			labels:       map[string]string{common.ExcludedNodes: "node-a node-b"},
+			placement:    claimPath,
+			wantRequired: []string{hostname + " In [vk-approved]"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := affinityWorkload(corev1.NamespaceDefault, tt.labels)
+			if tt.affinity != nil {
+				w.Annotations[v1.NodesAffinityAnnotation] = *tt.affinity
+			}
+			switch tt.placement {
+			case claimPath:
+				w.Status.ExternalExecution = &v1.WorkloadExternalExecution{ClaimId: "claim-1",
+					Placements: []v1.WorkloadExternalPlacement{{NodeName: "vk-approved"}}}
+			case schedulerPath:
+				w.Status.ExternalExecution = &v1.WorkloadExternalExecution{PlacementMode: schedulerPath}
+			}
+			obj := affinityObject(nil)
+			assert.NilError(t, modifyRequiredNodeAffinity(obj, w, affinityTestPath))
+			// The same condition initializeObject uses to build the preferred terms.
+			if v1.IsRetryingOnOriginal(w) || v1.GetNodesAffinity(w) == common.NodesAffinityPreferred {
+				assert.NilError(t, modifyPreferredNodeAffinity(obj, w, preferredAffinityTestPath))
+			}
+			assert.DeepEqual(t, describeExprs(renderedTerms(t, obj)), tt.wantRequired)
+			gotPreferred, _, err := jobutils.NestedSlice(obj.Object, preferredAffinityTestPath)
+			assert.NilError(t, err)
+			assert.DeepEqual(t, describePreferred(gotPreferred), tt.wantPreferred)
+		})
+	}
+}
+
+// A retry on the original nodes prefers the previous nodes; without preferred affinity it
+// neither makes the excluded nodes soft nor adds a preferred term for them.
+func TestNodeAffinityExcludedNodesWithRetryOnOriginal(t *testing.T) {
+	for _, affinity := range []string{"", common.NodesAffinityRequired} {
+		w := affinityWorkload(corev1.NamespaceDefault, map[string]string{common.ExcludedNodes: "node-a node-b"})
+		w.Annotations[v1.RetryOnOriginalNodesAnnotation] = v1.TrueStr
+		w.Annotations[v1.NodesAffinityAnnotation] = affinity
+		v1.SetLabel(w, v1.WorkloadDispatchCntLabel, "1")
+		w.Status.Nodes = [][]string{{"node-p", "node-q"}}
+		obj := affinityObject(nil)
+		assert.NilError(t, modifyRequiredNodeAffinity(obj, w, affinityTestPath))
+		assert.NilError(t, modifyPreferredNodeAffinity(obj, w, preferredAffinityTestPath))
+		assert.DeepEqual(t, describeExprs(renderedTerms(t, obj)),
+			[]string{v1.K8sHostName + " NotIn [node-a node-b]"})
+		got, _, err := jobutils.NestedSlice(obj.Object, preferredAffinityTestPath)
+		assert.NilError(t, err)
+		assert.DeepEqual(t, describePreferred(got), []string{"100 " + v1.K8sHostName + " In [node-p node-q]"})
+	}
+}
+
+// The preferred excluded-node term reaches the generated object through the whole dispatch
+// path, not only through the two affinity helpers.
+func TestCreatePytorchJobWithPreferredExcludedNodes(t *testing.T) {
+	for _, affinity := range []string{"", common.NodesAffinityRequired, common.NodesAffinityPreferred} {
+		workspace := jobutils.TestWorkspaceData.DeepCopy()
+		workload := jobutils.TestWorkloadData.DeepCopy()
+		workload.Spec.Workspace = workspace.Name
+		workload.Spec.CustomerLabels = map[string]string{common.ExcludedNodes: "node1 node2"}
+		if affinity != "" {
+			v1.SetAnnotation(workload, v1.NodesAffinityAnnotation, affinity)
+		}
+
+		configmap, err := parseConfigmap(TestPytorchJobTemplateConfig)
+		assert.NilError(t, err)
+		metav1.SetMetaDataAnnotation(&workload.ObjectMeta, v1.MainContainerAnnotation, v1.GetMainContainer(configmap))
+		scheme, err := genMockScheme()
+		assert.NilError(t, err)
+		adminClient := fake.NewClientBuilder().WithObjects(configmap,
+			jobutils.TestPytorchResourceTemplate, workspace).WithScheme(scheme).Build()
+
+		r := DispatcherReconciler{Client: adminClient}
+		obj, err := r.generateK8sObject(context.Background(), workload, nil)
+		assert.NilError(t, err)
+
+		spec := &jobutils.TestPytorchResourceTemplate.Spec.ResourceSpecs[0]
+		requiredPath := commonworkload.ResolvePodSpecPath(spec, workload.SpecKind(), "affinity", "nodeAffinity",
+			"requiredDuringSchedulingIgnoredDuringExecution", "nodeSelectorTerms")
+		preferredPath := commonworkload.ResolvePodSpecPath(spec, workload.SpecKind(), "affinity", "nodeAffinity",
+			"preferredDuringSchedulingIgnoredDuringExecution")
+		required, _, err := jobutils.NestedSlice(obj.Object, requiredPath)
+		assert.NilError(t, err)
+		preferred, _, err := jobutils.NestedSlice(obj.Object, preferredPath)
+		assert.NilError(t, err)
+
+		hardTerm := v1.K8sHostName + " NotIn [node1 node2]"
+		if affinity == common.NodesAffinityPreferred {
+			assert.Assert(t, !containsString(describeExprs(required), hardTerm), "affinity %q", affinity)
+			assert.DeepEqual(t, describePreferred(preferred), []string{"100 " + v1.K8sHostName + " NotIn [node1 node2]"})
+		} else {
+			assert.Assert(t, containsString(describeExprs(required), hardTerm), "affinity %q", affinity)
+			assert.Equal(t, len(preferred), 0, "affinity %q", affinity)
 		}
 	}
 }

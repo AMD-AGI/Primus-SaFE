@@ -222,6 +222,97 @@ func Test_genCustomerLabelsByNodes(t *testing.T) {
 	assert.Equal(t, workload3.Spec.CustomerLabels[common.ExcludedNodes], "bad-node1 bad-node2")
 }
 
+// Test_generateWorkloadNodesAffinity tests which nodesAffinity value reaches the workload annotation
+// and which node lists reach the customer labels.
+func Test_generateWorkloadNodesAffinity(t *testing.T) {
+	controlPlane := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "control-plane", Labels: map[string]string{common.KubernetesControlPlane: ""}},
+		Status: corev1.NodeStatus{Addresses: []corev1.NodeAddress{
+			{Type: corev1.NodeInternalIP, Address: "10.0.0.1"}}},
+	}
+	h := &Handler{Client: ctrlruntimefake.NewClientBuilder().WithObjects(controlPlane).Build()}
+
+	required, preferred := common.NodesAffinityRequired, common.NodesAffinityPreferred
+	tests := []struct {
+		name         string
+		specified    []string
+		excluded     []string
+		affinity     *string
+		wantAffinity string
+		wantLabels   map[string]string
+	}{
+		{
+			name:         "no node lists: the value is ignored",
+			affinity:     &preferred,
+			wantAffinity: "",
+		},
+		{
+			name:         "specified nodes default to required",
+			specified:    []string{"node-c"},
+			wantAffinity: common.NodesAffinityRequired,
+			wantLabels:   map[string]string{common.SpecifiedNodes: "node-c"},
+		},
+		{
+			name:         "specified nodes preferred",
+			specified:    []string{"node-c"},
+			affinity:     &preferred,
+			wantAffinity: common.NodesAffinityPreferred,
+			wantLabels:   map[string]string{common.SpecifiedNodes: "node-c"},
+		},
+		{
+			name:         "excluded nodes alone without a value stay hard",
+			excluded:     []string{"node-a", "node-b"},
+			wantAffinity: "",
+			wantLabels:   map[string]string{common.ExcludedNodes: "node-a node-b"},
+		},
+		{
+			name:         "excluded nodes alone required",
+			excluded:     []string{"node-a", "node-b"},
+			affinity:     &required,
+			wantAffinity: common.NodesAffinityRequired,
+			wantLabels:   map[string]string{common.ExcludedNodes: "node-a node-b"},
+		},
+		{
+			name:         "excluded nodes alone preferred",
+			excluded:     []string{"node-a", "node-b"},
+			affinity:     &preferred,
+			wantAffinity: common.NodesAffinityPreferred,
+			wantLabels:   map[string]string{common.ExcludedNodes: "node-a node-b"},
+		},
+		{
+			name:         "required specified nodes ignore excluded nodes",
+			specified:    []string{"node-c"},
+			excluded:     []string{"node-a"},
+			wantAffinity: common.NodesAffinityRequired,
+			wantLabels:   map[string]string{common.SpecifiedNodes: "node-c"},
+		},
+		{
+			name:         "preferred specified nodes keep excluded nodes",
+			specified:    []string{"node-c"},
+			excluded:     []string{"node-a"},
+			affinity:     &preferred,
+			wantAffinity: common.NodesAffinityPreferred,
+			wantLabels:   map[string]string{common.SpecifiedNodes: "node-c", common.ExcludedNodes: "node-a"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := &view.CreateWorkloadRequest{
+				DisplayName:    "w",
+				SpecifiedNodes: tt.specified,
+				ExcludedNodes:  tt.excluded,
+				NodesAffinity:  tt.affinity,
+			}
+			workload, err := h.generateWorkload(context.Background(), req, []byte("{}"), nil)
+			assert.NilError(t, err)
+			got, ok := workload.Annotations[v1.NodesAffinityAnnotation]
+			assert.Equal(t, ok, true)
+			assert.Equal(t, got, tt.wantAffinity)
+			assert.DeepEqual(t, workload.Spec.CustomerLabels, tt.wantLabels)
+		})
+	}
+}
+
 // Test_deleteWorkload tests deleting a workload through handler
 func Test_deleteWorkload(t *testing.T) {
 	ctrl := gomock.NewController(t)

@@ -61,6 +61,11 @@ func ExternalCustomerMatchExpressions(workload *v1.Workload) []interface{} {
 		operator := "In"
 		switch key {
 		case common.ExcludedNodes:
+			// With preferred affinity the excluded nodes are not a required term, as for the
+			// pods themselves (the dispatcher turns them into a preferred term).
+			if v1.GetNodesAffinity(workload) == common.NodesAffinityPreferred {
+				continue
+			}
 			key = v1.K8sHostName
 			operator = "NotIn"
 		case v1.K8sHostName, common.SpecifiedNodes:
