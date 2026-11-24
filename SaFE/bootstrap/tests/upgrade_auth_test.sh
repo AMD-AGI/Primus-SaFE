@@ -142,7 +142,6 @@ AUTH_ENV="auth_mode=external
 auth_login_url=https://idp.example.com/sign-in/start
 auth_logout_url=/idp/api/v1/logout
 auth_allow_oidc_only=false
-auth_provider_client=false
 auth_client_secret=safe-introspection
 auth_identity_service_account=primus-identity/primus-identity
 auth_authenticators='[{\"type\":\"oidc\",\"issuer\":\"https://idp.example.com\",\"audience\":\"primus-safe\"},{\"type\":\"builtin\"}]'
@@ -394,21 +393,19 @@ expect "external without a system-admin group: says why" grep -q 'roles include 
 run_upgrade "$LIVE_BUILTIN" "$(sed 's/^auth_scim_enabled=false/auth_scim_enabled=true/' <<<"$AUTH_ENV")"
 expect "external with scim and no identity url: refused" refused
 expect "external with scim and no identity url: says why" grep -q 'auth_scim_identity_url cannot be resolved' "$OUT/log"
-run_upgrade "$LIVE_BUILTIN" "$(sed -e 's/^auth_scim_enabled=false/auth_scim_enabled=true/' -e 's/^auth_provider_client=false/auth_provider_client=true/' <<<"$AUTH_ENV")"
-expect "external with scim and no identity url, provider_client on: refused" refused
-expect "external with scim and no identity url, provider_client on: says why" grep -q 'auth_scim_identity_url cannot be resolved' "$OUT/log"
-run_upgrade "$LIVE_BUILTIN" "$(sed -e 's/^auth_provider_client=false/auth_provider_client=true/' -e 's|^auth_scim_identity_url=.*|auth_scim_identity_url=https://idp.example.com|' <<<"$AUTH_ENV")"
-expect "external, provider_client on: applied" applied
-expect "external, provider_client on: rendered" rendered 'provider_client: true'
-run_upgrade "$LIVE_BUILTIN" "$(sed 's/^auth_provider_client=false/auth_provider_client=yes/' <<<"$AUTH_ENV")"
-expect "provider_client that is not a boolean: refused" refused
-expect "provider_client that is not a boolean: says so" grep -q 'auth_provider_client in .env must be true or false' "$OUT/log"
+run_upgrade "$LIVE_BUILTIN" "$(sed -e 's/^auth_scim_enabled=false/auth_scim_enabled=true/' -e 's|^auth_scim_identity_url=.*|auth_scim_identity_url=https://idp.example.com|' <<<"$AUTH_ENV")"
+expect "external with scim and an identity url: applied" applied
+expect "external with scim and an identity url: rendered" grep -qF 'identity_url: "https://idp.example.com"' "$OUT/rendered.yaml"
+run_upgrade "$LIVE_BUILTIN" "$AUTH_ENV
+auth_provider_client=true"
+expect "auth_provider_client in .env: refused" refused
+expect "auth_provider_client in .env: says it was removed" grep -q 'auth_provider_client was removed' "$OUT/log"
 run_upgrade "$LIVE_BUILTIN" "$(sed -e 's/^auth_allow_oidc_only=false/auth_allow_oidc_only=true/' -e 's|^auth_authenticators=.*|auth_authenticators='"'"'[{"type":"oidc","issuer":"https://idp.example.com","audience":"primus-safe"}]'"'"'|' <<<"$AUTH_ENV")"
 expect "external with an oidc-only chain, allow_oidc_only on: applied" applied
 expect "external with an oidc-only chain, allow_oidc_only on: rendered" rendered 'allow_oidc_only: true'
-run_upgrade '{"auth":{"mode":"external","login_url":"https://idp.example.com/sign-in/start","authenticators":[{"type":"builtin"}],"group_mappings":[{"group":"admins","roles":["system-admin"]}],"provider_client":true}}' "$(grep -v '^auth_provider_client' <<<"$AUTH_ENV")"
-expect "live external, provider_client on and omitted: refused" refused
-expect "live external, provider_client on and omitted: names it" grep -q 'does not set:.*auth_provider_client' "$OUT/log"
+run_upgrade '{"auth":{"mode":"external","login_url":"https://idp.example.com/sign-in/start","authenticators":[{"type":"builtin"}],"group_mappings":[{"group":"admins","roles":["system-admin"]}],"provider_client":true}}' "$(grep -v '^auth_key_actors' <<<"$AUTH_ENV")"
+expect "live external, provider_client true on the release: refused" refused
+expect "live external, provider_client true on the release: names it" grep -q 'auth.provider_client=true, which was removed' "$OUT/log"
 CONSOLE_LOGIN="oidc_login_enable=true
 oidc_login_issuer=https://idp.example.com
 oidc_login_client_id=console

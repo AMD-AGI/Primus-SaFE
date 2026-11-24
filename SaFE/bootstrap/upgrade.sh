@@ -52,8 +52,8 @@ install_or_upgrade_helm_chart() {
 #                        provider's session. Omitted: /identity/api/v1/logout  -> auth.logout_url
 #   auth_allow_oidc_only true | false. true allows a chain without an
 #                        introspection or builtin authenticator              -> auth.allow_oidc_only
-#   auth_provider_client true | false. true lets the apiserver call the
-#                        identity service (status changes)  -> auth.provider_client
+#   auth_provider_client removed. Setting it in .env is an error; a release that
+#                        has it true is refused until it is turned off
 #   auth_client_secret   name of the Secret holding the client secret of an
 #                        introspection authenticator (a name, not the secret) -> auth.client_secret
 #   auth_identity_service_account  <namespace>/<name> of the identity service's
@@ -85,7 +85,7 @@ install_or_upgrade_helm_chart() {
 #                        running release already uses that name. A different stored
 #                        name is kept only when .env sets it.                    -> auth.scim.token_secret
 # JSON values are single-quoted in .env, e.g. auth_key_actors='["client-a"]'.
-AUTH_ENV_KEYS=(auth_mode auth_login_url auth_logout_url auth_allow_oidc_only auth_provider_client auth_client_secret auth_identity_service_account auth_authenticators auth_group_mappings auth_key_actors auth_api_keys_url auth_api_keys_upstream auth_connection auth_accounts_url auth_keys_console_url auth_scim_enabled auth_scim_identity_url auth_scim_public_url auth_scim_token_secret)
+AUTH_ENV_KEYS=(auth_mode auth_login_url auth_logout_url auth_allow_oidc_only auth_client_secret auth_identity_service_account auth_authenticators auth_group_mappings auth_key_actors auth_api_keys_url auth_api_keys_upstream auth_connection auth_accounts_url auth_keys_console_url auth_scim_enabled auth_scim_identity_url auth_scim_public_url auth_scim_token_secret)
 
 # check_live_auth refuses an upgrade that would drop the external authentication of a release.
 # helm renders every value from the chart defaults and the files it is given, so a release that
@@ -149,6 +149,15 @@ check_live_auth() {
     echo "       to the built-in authentication on purpose." >&2
     return 1
   fi
+  # auth.provider_client was removed: a release that still has it on would lose the setting, so refuse it.
+  if ! removed=$(jq -r '.auth.provider_client // false' <<<"$live"); then
+    echo "Error: cannot read .auth.provider_client from the values of release $chart_name" >&2
+    return 1
+  fi
+  if [[ "$removed" == "true" ]]; then
+    echo "Error: release $chart_name sets auth.provider_client=true, which was removed; set it to false in the release before upgrading" >&2
+    return 1
+  fi
   for var in $unset_keys; do
     # These have a chart value when .env omits them. A stored login URL, SCIM callback or identity
     # service account is not kept.
@@ -171,7 +180,7 @@ check_live_auth() {
     case "$var" in
       auth_scim_identity_url) expr='.auth.scim.identity_url' ;;
       auth_scim_token_secret) expr='.auth.scim.token_secret' ;;
-      auth_allow_oidc_only|auth_provider_client) expr=".auth.${var#auth_}"; test_expr='(. == true)' ;;
+      auth_allow_oidc_only) expr=".auth.${var#auth_}"; test_expr='(. == true)' ;;
       *) expr=".auth.${var#auth_}" ;;
     esac
     if ! present=$(jq -r "$expr | $test_expr" <<<"$live"); then
@@ -198,6 +207,10 @@ check_live_auth() {
 write_auth_values() {
   local out="$1" json='{}' var key val any=false
   AUTH_VALUES_FILE=""
+  if [[ -n "${auth_provider_client+x}" ]]; then
+    echo "Error: auth_provider_client was removed; delete it from .env" >&2
+    return 1
+  fi
   for var in "${AUTH_ENV_KEYS[@]}"; do
     if [[ -n "${!var+x}" ]]; then
       any=true
@@ -247,7 +260,7 @@ write_auth_values() {
         fi
         json=$(jq -c --argjson v "$val" '.scim.enabled = $v' <<<"$json")
         ;;
-      auth_allow_oidc_only|auth_provider_client)
+      auth_allow_oidc_only)
         if [[ "$val" != "true" && "$val" != "false" ]]; then
           echo "Error: $var in .env must be true or false" >&2
           return 1
