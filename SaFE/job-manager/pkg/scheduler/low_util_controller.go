@@ -40,6 +40,8 @@ const (
 	lowUtilReasonRecovered = "Recovered_"
 	// A dry-run policy switched to enforcement during the episode.
 	lowUtilReasonEnforced = "Enforced_"
+	// The owner was exempted in the workspace during the episode.
+	lowUtilReasonExempted = "Exempted_"
 )
 
 var errLowUtilNoClient = errors.New("no Robust client for the cluster")
@@ -183,6 +185,7 @@ func (r *LowUtilizationController) collectCandidates(ctx context.Context) ([]low
 	if err := r.List(ctx, workloads); err != nil {
 		return nil, err
 	}
+	exempt := r.listUserExemptions(ctx)
 
 	var candidates []lowUtilCandidate
 	for i := range workloads.Items {
@@ -194,7 +197,15 @@ func (r *LowUtilizationController) collectCandidates(ctx context.Context) ([]low
 		if ws := byName[w.Spec.Workspace]; ws != nil {
 			policy = ws.GetLowUtilization(commonworkload.GetScope(w))
 		}
-		if policy == nil || v1.GetAnnotation(w, v1.WorkloadLowUtilExemptAnnotation) == v1.TrueStr {
+		annotated := v1.GetAnnotation(w, v1.WorkloadLowUtilExemptAnnotation) == v1.TrueStr
+		userExempt := !annotated && exempt[v1.GetUserId(w)][w.Spec.Workspace]
+		if policy == nil || annotated || userExempt {
+			if policy != nil && userExempt {
+				if err := r.addExemptedCondition(ctx, w); err != nil {
+					klog.ErrorS(err, "[low-util] failed to record the owner exemption", "workload", w.Name)
+					continue
+				}
+			}
 			if err := r.clearDetected(ctx, w); err != nil {
 				klog.ErrorS(err, "[low-util] failed to clear the detected mark", "workload", w.Name)
 			}
@@ -210,6 +221,48 @@ func (r *LowUtilizationController) collectCandidates(ctx context.Context) ([]low
 		candidates = append(candidates, lowUtilCandidate{workload: w, policy: policy, cluster: cluster})
 	}
 	return candidates, nil
+}
+
+// listUserExemptions returns, per user id, the workspaces where the user is exempt from the
+// low utilization policy. A failed list exempts nobody for the round.
+func (r *LowUtilizationController) listUserExemptions(ctx context.Context) map[string]map[string]bool {
+	users := &v1.UserList{}
+	if err := r.List(ctx, users); err != nil {
+		klog.ErrorS(err, "[low-util] failed to list users, no owner is exempt this round")
+		return nil
+	}
+	exempt := make(map[string]map[string]bool)
+	for i := range users.Items {
+		u := &users.Items[i]
+		if u.Spec.LowUtilization == nil {
+			continue
+		}
+		for workspace, scope := range u.Spec.LowUtilization.Workspaces {
+			if !scope.Exempt {
+				continue
+			}
+			if exempt[u.Name] == nil {
+				exempt[u.Name] = make(map[string]bool)
+			}
+			exempt[u.Name][workspace] = true
+		}
+	}
+	return exempt
+}
+
+// addExemptedCondition closes the open episode of a detected workload whose owner is exempt
+// in its workspace. A workload without an open episode gets nothing.
+func (r *LowUtilizationController) addExemptedCondition(ctx context.Context, w *v1.Workload) error {
+	if _, ok := w.GetAnnotations()[v1.WorkloadLowUtilDetectedAtAnnotation]; !ok {
+		return nil
+	}
+	episode, open := lowUtilEpisode(w)
+	if !open {
+		return nil
+	}
+	return client.IgnoreNotFound(r.addLowUtilCondition(ctx, w, lowUtilReasonExempted, episode,
+		fmt.Sprintf("the owner %s is exempt from the low utilization policy in workspace %s; the workload is no longer checked",
+			v1.GetUserId(w), w.Spec.Workspace)))
 }
 
 // queryGPUWindows asks Robust once per cluster and distinct rule window for the
