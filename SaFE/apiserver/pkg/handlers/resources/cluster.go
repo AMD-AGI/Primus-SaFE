@@ -154,8 +154,33 @@ func (h *Handler) generateCluster(ctx context.Context,
 	if req.IsProtected {
 		v1.SetLabel(cluster, v1.ProtectLabel, "")
 	}
-	if req.IsControlPlane {
-		v1.SetLabel(cluster, v1.ClusterControlPlaneLabel, "")
+	// An adopted cluster is an existing data plane, so it is never marked as the management cluster.
+	if req.Adopt {
+		v1.SetAnnotation(cluster, v1.ClusterAdoptAnnotation, v1.TrueStr)
+		v1.SetAnnotation(cluster, v1.ClusterAdoptWorkloadsAnnotation, v1.TrueStr)
+		if len(req.ControlPlaneIPs) > 0 {
+			v1.SetAnnotation(cluster, v1.ClusterAdoptControlPlaneIPsAnnotation, strings.Join(req.ControlPlaneIPs, ","))
+		}
+		if req.ApiserverPort != 0 && req.ApiserverPort != v1.DefaultApiserverPort {
+			v1.SetAnnotation(cluster, v1.ClusterApiserverPortAnnotation, strconv.Itoa(req.ApiserverPort))
+		}
+		if name := strings.TrimSpace(req.ApiserverServerName); name != "" {
+			v1.SetAnnotation(cluster, v1.ClusterApiserverServerNameAnnotation, name)
+		}
+		if name := strings.TrimSpace(req.NodeTemplateId); name != "" {
+			v1.SetAnnotation(cluster, v1.ClusterAdoptNodeTemplateAnnotation, name)
+		}
+		// Nodes are discovered after the kubeconfig is read. A nil slice encodes as null and the CRD rejects it.
+		if cluster.Spec.ControlPlane.Nodes == nil {
+			cluster.Spec.ControlPlane.Nodes = []string{}
+		}
+	} else {
+		if req.ApiserverPort != 0 || req.ApiserverServerName != "" || req.NodeTemplateId != "" {
+			return nil, commonerrors.NewBadRequest("apiserverPort, apiserverServerName and nodeTemplateId are only supported when adopting a cluster")
+		}
+		if req.IsControlPlane {
+			v1.SetLabel(cluster, v1.ClusterControlPlaneLabel, "")
+		}
 	}
 
 	if cluster.Spec.ControlPlane.ImageSecret == nil && commonconfig.GetImageSecret() != "" {
@@ -823,6 +848,7 @@ func cvtToClusterResponseItem(cluster *v1.Cluster) view.ClusterResponseItem {
 		ClusterId:      cluster.Name,
 		UserId:         v1.GetUserId(cluster),
 		Phase:          string(cluster.Status.ControlPlaneStatus.Phase),
+		Message:        cluster.Status.ControlPlaneStatus.Message,
 		IsProtected:    v1.IsProtected(cluster),
 		IsControlPlane: v1.HasLabel(cluster, v1.ClusterControlPlaneLabel),
 		CreationTime:   timeutil.FormatRFC3339(cluster.CreationTimestamp.Time),
@@ -848,6 +874,9 @@ func cvtToGetClusterResponse(ctx context.Context, client client.Client, cluster 
 		KubeVersion:           cluster.Spec.ControlPlane.KubeVersion,
 		KubeletMaxPods:        cluster.Spec.ControlPlane.KubeletMaxPods,
 		KubeApiServerArgs:     cluster.Spec.ControlPlane.KubeApiServerArgs,
+		ApiserverPort:         v1.GetApiserverPort(cluster),
+		ApiserverServerName:   v1.GetApiserverServerName(cluster),
+		NodeTemplateId:        v1.GetAnnotation(cluster, v1.ClusterAdoptNodeTemplateAnnotation),
 	}
 	if cluster.Spec.ControlPlane.ImageSecret != nil {
 		result.ImageSecretId = cluster.Spec.ControlPlane.ImageSecret.Name

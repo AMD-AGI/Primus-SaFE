@@ -267,6 +267,10 @@ spec:
                       KeyData holds PEM-encoded bytes (typically read from a client certificate key file).
                       KeyData takes precedence over KeyFile
                     type: string
+                  message:
+                    description: Message describes the latest data plane access or
+                      adoption failure; empty when healthy.
+                    type: string
                   phase:
                     type: string
                 type: object

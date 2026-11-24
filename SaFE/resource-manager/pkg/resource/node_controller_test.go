@@ -7,6 +7,11 @@ package resource
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
+	"math/big"
 	"testing"
 	"time"
 
@@ -17,11 +22,13 @@ import (
 	"gotest.tools/assert"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/pointer"
 	"k8s.io/utils/ptr"
@@ -687,6 +694,75 @@ func TestDeleteK8sNodeFull(t *testing.T) {
 	testifyassert.Error(t, err)
 }
 
+func TestReleasingAdoptedClusterKeepsK8sNode(t *testing.T) {
+	ctx := context.Background()
+	cluster := releasingAdoptedCluster("c1")
+	now := metav1.Now()
+	adminNode := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1", DeletionTimestamp: &now,
+		Finalizers: []string{v1.NodeFinalizer}, Labels: map[string]string{v1.ClusterIdLabel: "c1"}}}
+	adminNode.Status.MachineStatus.HostName = "kn1"
+	cs := k8sfake.NewSimpleClientset(&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "kn1"}})
+	r := newNodeReconcilerFull(t, cs, cluster, adminNode)
+
+	_, err := r.delete(ctx, adminNode)
+	testifyassert.NoError(t, err)
+	_, err = cs.CoreV1().Nodes().Get(ctx, "kn1", metav1.GetOptions{})
+	testifyassert.NoError(t, err)
+	testifyassert.True(t, apierrors.IsNotFound(r.Get(ctx, ctrlclient.ObjectKey{Name: "n1"}, &v1.Node{})))
+}
+
+// adoptedManagedNode returns an adopted cluster and a machine-ready node of it.
+func adoptedManagedNode() (*v1.Cluster, *v1.Node) {
+	cluster := &v1.Cluster{ObjectMeta: metav1.ObjectMeta{Name: "c1",
+		Annotations: map[string]string{v1.ClusterAdoptAnnotation: v1.TrueStr}}}
+	node := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1", Labels: map[string]string{v1.ClusterIdLabel: "c1"}}}
+	node.Spec.Cluster = pointer.String("c1")
+	node.Spec.Hostname = pointer.String("ip-10-0-0-5.ec2.internal")
+	node.Status.MachineStatus.Phase = v1.NodeReady
+	node.Status.ClusterStatus.Phase = v1.NodeManaged
+	return cluster, node
+}
+
+func TestSyncHostnameKeepsAdoptedHost(t *testing.T) {
+	cluster, node := adoptedManagedNode()
+	r := newNodeReconcilerFull(t, k8sfake.NewSimpleClientset(), cluster, node)
+	var hostname string
+	var err error
+	testifyassert.NotPanics(t, func() { hostname, err = r.syncHostname(context.Background(), node, nil) })
+	testifyassert.NoError(t, err)
+	testifyassert.Equal(t, "ip-10-0-0-5.ec2.internal", hostname)
+}
+
+func TestManageAdoptedNodeInstallsAddonsOnly(t *testing.T) {
+	cluster, node := adoptedManagedNode()
+	k8sNode := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "ip-10-0-0-5.ec2.internal"}}
+	cs := k8sfake.NewSimpleClientset(k8sNode)
+	r := newNodeReconcilerFull(t, cs, cluster, node)
+	called := []string{}
+	patches := gomonkey.NewPatches()
+	defer patches.Reset()
+	for _, name := range []string{"modifyResolvConf", "installAddons"} {
+		name := name
+		patches.ApplyPrivateMethod(r, name, func(_ *NodeReconciler, _ context.Context, _ *v1.Node) error {
+			called = append(called, name)
+			return nil
+		})
+	}
+	patches.ApplyPrivateMethod(r, "syncOrCreateScaleUpPod", func(_ *NodeReconciler, _ context.Context, _ *v1.Node) (ctrlruntime.Result, error) {
+		called = append(called, "syncOrCreateScaleUpPod")
+		return ctrlruntime.Result{}, nil
+	})
+
+	_, err := r.manage(context.Background(), node, k8sNode)
+	testifyassert.NoError(t, err)
+	testifyassert.Equal(t, v1.NodeManaged, node.Status.ClusterStatus.Phase)
+
+	result, err := r.manage(context.Background(), node, nil)
+	testifyassert.NoError(t, err)
+	testifyassert.Positive(t, result.RequeueAfter)
+	testifyassert.Equal(t, []string{"installAddons"}, called)
+}
+
 // --- merged from node_predicate_test.go ---
 
 func ptrString(s string) *string { return &s }
@@ -825,7 +901,7 @@ func TestNodeInstallHarborCertNoSecret(t *testing.T) {
 	sshClient, cleanup := startInMemorySSHServer(t)
 	defer cleanup()
 	// No harbor-tls secret -> returns false, nil.
-	ok, err := r.installHarborCert(context.Background(), sshClient)
+	ok, err := r.installHarborCert(context.Background(), sshClient, false)
 	testifyassert.NoError(t, err)
 	testifyassert.False(t, ok)
 }
@@ -1195,9 +1271,36 @@ func TestInstallHarborCertSuccess(t *testing.T) {
 		Data:       map[string][]byte{"ca.crt": []byte("cacert")},
 	}
 	r := newMockNodeReconciler(ctrlfakeNewClient(scheme, secret))
-	ok, err := r.installHarborCert(context.Background(), sshClient)
+	ok, err := r.installHarborCert(context.Background(), sshClient, false)
 	testifyassert.NoError(t, err)
 	testifyassert.True(t, ok)
+}
+
+func TestHarborCertCommandAdoptedKeepsClusterCA(t *testing.T) {
+	cmd := harborCertCommand([]byte("cacert"), []string{"harbor.global.primus-safe.amd.com", "bad;host"}, true)
+	testifyassert.NotContains(t, cmd, harborCACertPathUbuntu)
+	testifyassert.NotContains(t, cmd, harborCACertPathCentOS)
+	testifyassert.Contains(t, cmd, adoptedHarborCACertPathUbuntu)
+	testifyassert.Contains(t, cmd, "/etc/containerd/certs.d/harbor.global.primus-safe.amd.com/hosts.toml")
+	testifyassert.NotContains(t, cmd, "bad;host")
+}
+
+func TestHarborCertCommandManagedUsesDefaultPath(t *testing.T) {
+	cmd := harborCertCommand([]byte("cacert"), []string{"harbor.global.primus-safe.amd.com"}, false)
+	testifyassert.Contains(t, cmd, harborCACertPathUbuntu)
+	testifyassert.NotContains(t, cmd, "certs.d")
+}
+
+func TestHarborHostsFromCertificate(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	testifyassert.NoError(t, err)
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(1), DNSNames: []string{"harbor.global.primus-safe.amd.com"},
+		NotBefore: time.Now(), NotAfter: time.Now().Add(time.Hour)}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	testifyassert.NoError(t, err)
+	pemCert := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	testifyassert.Equal(t, []string{"harbor.global.primus-safe.amd.com"}, harborHosts(pemCert))
+	testifyassert.Empty(t, harborHosts([]byte("not a cert")))
 }
 
 func TestInstallHarborCertNoCAKey(t *testing.T) {
@@ -1209,7 +1312,7 @@ func TestInstallHarborCertNoCAKey(t *testing.T) {
 		Data:       map[string][]byte{},
 	}
 	r := newMockNodeReconciler(ctrlfakeNewClient(scheme, secret))
-	ok, err := r.installHarborCert(context.Background(), sshClient)
+	ok, err := r.installHarborCert(context.Background(), sshClient, false)
 	testifyassert.NoError(t, err)
 	testifyassert.False(t, ok)
 }
@@ -1422,6 +1525,43 @@ func TestSyncLabelsToK8sNode(t *testing.T) {
 	testifyassert.NoError(t, err)
 	updated, _ := cs.CoreV1().Nodes().Get(context.Background(), "n1", metav1.GetOptions{})
 	assert.Equal(t, "v", updated.Labels["custom"])
+}
+
+func TestSyncLabelsToK8sNodeKeepsAnnotationsMissingOnAdminNode(t *testing.T) {
+	cs := k8sfakeClientset()
+	k8sNode := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1", Annotations: map[string]string{
+		v1.NodeDiskAnnotation: `{"ephemeralStorage":1}`, v1.NodeSubnetAnnotation: "172.16.0.0/12"}}}
+	_, _ = cs.CoreV1().Nodes().Create(context.Background(), k8sNode, metav1.CreateOptions{})
+	scheme, _ := genMockScheme()
+	r := newMockNodeReconciler(ctrlfakeNewClient(scheme))
+	adminNode := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1", Labels: map[string]string{"custom": "v"}}}
+	adminNode.Spec.Cluster = ptrString("c1")
+	testifyassert.NoError(t, r.syncLabelsToK8sNode(context.Background(), cs, adminNode, k8sNode))
+	updated, _ := cs.CoreV1().Nodes().Get(context.Background(), "n1", metav1.GetOptions{})
+	assert.Equal(t, "v", updated.Labels["custom"])
+	assert.Equal(t, `{"ephemeralStorage":1}`, updated.Annotations[v1.NodeDiskAnnotation])
+	assert.Equal(t, "172.16.0.0/12", updated.Annotations[v1.NodeSubnetAnnotation])
+}
+
+func TestSyncLabelsToK8sNodeSkipsUnchangedNode(t *testing.T) {
+	k8sNode := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1",
+		Labels:      map[string]string{v1.ClusterIdLabel: "c1", v1.NodeIdLabel: "n1", "custom": "v"},
+		Annotations: map[string]string{v1.NodeSubnetAnnotation: "172.16.0.0/12"}}}
+	cs := k8sfakeClientset()
+	_, _ = cs.CoreV1().Nodes().Create(context.Background(), k8sNode, metav1.CreateOptions{})
+	patched := false
+	cs.PrependReactor("patch", "nodes", func(k8stesting.Action) (bool, runtime.Object, error) {
+		patched = true
+		return false, nil, nil
+	})
+	scheme, _ := genMockScheme()
+	r := newMockNodeReconciler(ctrlfakeNewClient(scheme))
+	adminNode := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "n1",
+		Labels:      map[string]string{"custom": "v"},
+		Annotations: map[string]string{v1.NodeSubnetAnnotation: "172.16.0.0/12"}}}
+	adminNode.Spec.Cluster = ptrString("c1")
+	testifyassert.NoError(t, r.syncLabelsToK8sNode(context.Background(), cs, adminNode, k8sNode))
+	testifyassert.False(t, patched)
 }
 
 // --- merged from node_reconcile_extra_test.go ---

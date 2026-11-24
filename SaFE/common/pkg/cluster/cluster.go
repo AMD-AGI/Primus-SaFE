@@ -126,9 +126,10 @@ func NewClientFactoryForCluster(ctx context.Context, adminClient client.Client, 
 		return nil, err
 	}
 	cps := &cluster.Status.ControlPlaneStatus
+	serverName := commonclient.WithServerName(v1.GetApiserverServerName(cluster))
 	if UsesServiceEndpoint(ctx, adminClient, cluster) {
 		factory, err := commonclient.NewClientFactory(ctx, cluster.Name, endpoint,
-			cps.CertData, cps.KeyData, cps.CAData, informerType)
+			cps.CertData, cps.KeyData, cps.CAData, informerType, serverName)
 		if err != nil {
 			return nil, err
 		}
@@ -145,7 +146,7 @@ func NewClientFactoryForCluster(ctx context.Context, adminClient client.Client, 
 		rest = fallbacks[1:]
 	}
 	factory, err := commonclient.NewClientFactoryWithFallbacks(ctx, cluster.Name, primary, rest,
-		cps.CertData, cps.KeyData, cps.CAData, informerType)
+		cps.CertData, cps.KeyData, cps.CAData, informerType, serverName)
 	if err != nil {
 		return nil, err
 	}

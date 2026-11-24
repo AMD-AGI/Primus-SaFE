@@ -8,9 +8,12 @@ package resource
 import (
 	"bytes"
 	"context"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -46,9 +49,15 @@ const (
 	harborCACertPathUbuntu = "/usr/local/share/ca-certificates/harbor-ca.crt"
 	harborCACertPathCentOS = "/etc/pki/ca-trust/source/anchors/harbor-ca.crt"
 
+	adoptedHarborCACertPathUbuntu = "/usr/local/share/ca-certificates/primus-global-harbor-ca.crt"
+	adoptedHarborCACertPathCentOS = "/etc/pki/ca-trust/source/anchors/primus-global-harbor-ca.crt"
+	containerdCertsDir            = "/etc/containerd/certs.d"
+
 	machineCheckInterval = time.Minute * 10
 	podManagementTimeout = 3600 * 2
 )
+
+var harborHostPattern = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$`)
 
 type NodeReconciler struct {
 	*ClusterBaseReconciler
@@ -172,13 +181,27 @@ func (r *NodeReconciler) delete(ctx context.Context, adminNode *v1.Node) (ctrlru
 	// part of releasing the allocation. Deleting that node object here would evict pods
 	// whose tasks the provider has not finished stopping, and the deletion would race the
 	// provider's own cleanup rather than replace it.
-	if !adminNode.DeclaresExternalLifecycle() {
+	// While an adopted cluster is released, its nodes stay in the data plane.
+	cluster, err := getAdminCluster(ctx, r.Client, getClusterId(adminNode))
+	if client.IgnoreNotFound(err) != nil {
+		return ctrlruntime.Result{}, err
+	}
+	if !adminNode.DeclaresExternalLifecycle() && !v1.IsReleasingAdoptedCluster(cluster) {
 		result, err := r.deleteK8sNode(ctx, adminNode)
 		if err != nil || result.RequeueAfter > 0 {
 			return result, err
 		}
 	}
 	return ctrlruntime.Result{}, utils.RemoveFinalizer(ctx, r.Client, adminNode, v1.NodeFinalizer)
+}
+
+// belongsToAdoptedCluster reports whether the admin node is bound to an adopted cluster.
+func (r *NodeReconciler) belongsToAdoptedCluster(ctx context.Context, adminNode *v1.Node) (bool, error) {
+	cluster, err := getAdminCluster(ctx, r.Client, getClusterId(adminNode))
+	if err != nil {
+		return false, client.IgnoreNotFound(err)
+	}
+	return v1.IsAdoptedCluster(cluster), nil
 }
 
 // getK8sNode retrieves the Kubernetes Node object in the data plane associated with the admin Node.
@@ -395,6 +418,16 @@ func (r *NodeReconciler) updateMachineStatus(ctx context.Context,
 func (r *NodeReconciler) syncHostname(ctx context.Context, node *v1.Node, sshClient *ssh.Client) (string, error) {
 	if node.Status.MachineStatus.HostName != "" && node.Status.MachineStatus.HostName == node.GetSpecHostName() {
 		return node.Status.MachineStatus.HostName, nil
+	}
+	// A node of an adopted cluster keeps the name its kubelet registered; the host is never renamed.
+	if specHostname := node.GetSpecHostName(); specHostname != "" {
+		adopted, err := r.belongsToAdoptedCluster(ctx, node)
+		if err != nil {
+			return "", err
+		}
+		if adopted {
+			return specHostname, nil
+		}
 	}
 	hostname, err := getHostname(sshClient)
 	if err != nil {
@@ -750,7 +783,11 @@ func (r *NodeReconciler) handleHarborCertificate(ctx context.Context, node *v1.N
 	}
 	defer sshClient.Close()
 
-	ok, err := r.installHarborCert(ctx, sshClient)
+	adopted, err := r.belongsToAdoptedCluster(ctx, node)
+	if err != nil {
+		return err
+	}
+	ok, err := r.installHarborCert(ctx, sshClient, adopted)
 	if err != nil {
 		klog.ErrorS(err, "failed to install harbor cert", "node", node.Name)
 		node.Status.ClusterStatus.CommandStatus =
@@ -817,6 +854,12 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 	if r.syncClusterStatus(ctx, adminNode) != nil {
 		return ctrlruntime.Result{RequeueAfter: time.Second * 30}, nil
 	}
+	// A node of an adopted cluster is already part of its data plane: the host resolv.conf is not
+	// modified and the host is not rebooted or provisioned. Node template addons are still installed.
+	adopted, err := r.belongsToAdoptedCluster(ctx, adminNode)
+	if err != nil {
+		return ctrlruntime.Result{}, err
+	}
 
 	// if the Kubernetes node is already present, it means the node has been successfully managed.
 	if k8sNode != nil {
@@ -827,8 +870,10 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 		if err = r.syncLabelsToK8sNode(ctx, k8sClients.ClientSet(), adminNode, k8sNode); err != nil {
 			return ctrlruntime.Result{}, err
 		}
-		if err = r.modifyResolvConf(ctx, adminNode); err != nil {
-			return ctrlruntime.Result{}, err
+		if !adopted {
+			if err = r.modifyResolvConf(ctx, adminNode); err != nil {
+				return ctrlruntime.Result{}, err
+			}
 		}
 		if err = r.installAddons(ctx, adminNode); err != nil {
 			return ctrlruntime.Result{}, err
@@ -849,7 +894,7 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 		adminNode.Status.ClusterStatus.Cluster = adminNode.Spec.Cluster
 		adminNode.Status.ClusterStatus.Phase = v1.NodeManaged
 		klog.Infof("managed node %s", k8sNode.Name)
-		if stringutil.StrCaseEqual(v1.GetLabel(adminNode, v1.NodeManageRebootLabel), v1.TrueStr) {
+		if !adopted && stringutil.StrCaseEqual(v1.GetLabel(adminNode, v1.NodeManageRebootLabel), v1.TrueStr) {
 			r.rebootNode(ctx, adminNode)
 			return ctrlruntime.Result{RequeueAfter: time.Second * 20}, nil
 		}
@@ -857,6 +902,9 @@ func (r *NodeReconciler) manage(ctx context.Context, adminNode *v1.Node, k8sNode
 	}
 	if isControlPlaneNode(adminNode) {
 		return ctrlruntime.Result{}, r.syncControlPlaneNodeStatus(ctx, adminNode)
+	}
+	if adopted {
+		return ctrlruntime.Result{RequeueAfter: time.Second * 30}, nil
 	}
 	return r.syncOrCreateScaleUpPod(ctx, adminNode)
 }
@@ -879,6 +927,8 @@ func (r *NodeReconciler) syncControlPlaneNodeStatus(ctx context.Context, adminNo
 }
 
 // syncLabelsToK8sNode synchronizes labels from the admin Node to the Kubernetes Node.
+// Disk and subnet annotations are written only when the admin Node has a value, and no patch
+// is sent when nothing differs.
 func (r *NodeReconciler) syncLabelsToK8sNode(ctx context.Context,
 	clientSet kubernetes.Interface, adminNode *v1.Node, k8sNode *corev1.Node) error {
 	labels := map[string]string{}
@@ -898,14 +948,21 @@ func (r *NodeReconciler) syncLabelsToK8sNode(ctx context.Context,
 	if v != adminNode.Name {
 		labels[v1.NodeIdLabel] = adminNode.Name
 	}
-	annotations := map[string]string{
-		v1.NodeDiskAnnotation:   v1.GetAnnotation(adminNode, v1.NodeDiskAnnotation),
-		v1.NodeSubnetAnnotation: v1.GetAnnotation(adminNode, v1.NodeSubnetAnnotation),
+	annotations := map[string]string{}
+	for _, key := range []string{v1.NodeDiskAnnotation, v1.NodeSubnetAnnotation} {
+		if val := v1.GetAnnotation(adminNode, key); val != "" && val != k8sNode.Annotations[key] {
+			annotations[key] = val
+		}
+	}
+	if len(labels) == 0 && len(annotations) == 0 {
+		return nil
 	}
 
 	metadata := map[string]interface{}{
 		"resourceVersion": k8sNode.ResourceVersion,
-		"annotations":     annotations,
+	}
+	if len(annotations) > 0 {
+		metadata["annotations"] = annotations
 	}
 	if len(labels) > 0 {
 		metadata["labels"] = labels
@@ -1338,7 +1395,9 @@ func getClusterId(adminNode *v1.Node) string {
 }
 
 // installHarborCert installs the Harbor CA certificate on the Node.
-func (r *NodeReconciler) installHarborCert(ctx context.Context, sshClient *ssh.Client) (bool, error) {
+// On a node of an adopted cluster the CA goes to its own file, so the CA of the cluster's
+// Harbor is kept, and containerd is pointed at it for the Harbor hosts without a restart.
+func (r *NodeReconciler) installHarborCert(ctx context.Context, sshClient *ssh.Client, adopted bool) (bool, error) {
 	secret := new(corev1.Secret)
 	err := r.Get(ctx, types.NamespacedName{
 		Namespace: "harbor",
@@ -1354,15 +1413,52 @@ func (r *NodeReconciler) installHarborCert(ctx context.Context, sshClient *ssh.C
 	if !ok {
 		return false, nil
 	}
-	ubuntu := fmt.Sprintf("touch %s && chmod -R 666 %s && echo \"%s\" > %s && update-ca-certificates",
-		harborCACertPathUbuntu, harborCACertPathUbuntu, string(ca), harborCACertPathUbuntu)
-	centos := fmt.Sprintf("touch %s && chmod -R 666 %s && echo \"%s\" > %s && update-ca-trust",
-		harborCACertPathCentOS, harborCACertPathCentOS, string(ca), harborCACertPathCentOS)
-	cmd := fmt.Sprintf("command -v update-ca-certificates >/dev/null 2>&1 && (%s) || (%s)", ubuntu, centos)
+	cmd := harborCertCommand(ca, harborHosts(secret.Data["tls.crt"]), adopted)
 	if err = r.executeSSHCommand(sshClient, cmd); err != nil {
 		return false, err
 	}
 	return true, nil
+}
+
+// harborCertCommand builds the remote script that trusts the Harbor CA. For an adopted node the
+// CA is written to a separate file and a containerd hosts.toml is written for each Harbor host.
+func harborCertCommand(ca []byte, hosts []string, adopted bool) string {
+	ubuntuPath, centosPath := harborCACertPathUbuntu, harborCACertPathCentOS
+	if adopted {
+		ubuntuPath, centosPath = adoptedHarborCACertPathUbuntu, adoptedHarborCACertPathCentOS
+	}
+	ubuntu := fmt.Sprintf("touch %s && chmod -R 666 %s && echo \"%s\" > %s && update-ca-certificates",
+		ubuntuPath, ubuntuPath, string(ca), ubuntuPath)
+	centos := fmt.Sprintf("touch %s && chmod -R 666 %s && echo \"%s\" > %s && update-ca-trust",
+		centosPath, centosPath, string(ca), centosPath)
+	cmd := fmt.Sprintf("command -v update-ca-certificates >/dev/null 2>&1 && (%s) || (%s)", ubuntu, centos)
+	if !adopted {
+		return cmd
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "(%s) && if [ -f %s ]; then ca=%s; else ca=%s; fi", cmd, ubuntuPath, ubuntuPath, centosPath)
+	for _, host := range hosts {
+		if !harborHostPattern.MatchString(host) {
+			continue
+		}
+		dir := containerdCertsDir + "/" + host
+		fmt.Fprintf(&b, " && mkdir -p %s && printf 'server = \"https://%s\"\\n\\n[host.\"https://%s\"]\\n"+
+			"  capabilities = [\"pull\", \"resolve\"]\\n  ca = \"%%s\"\\n' \"$ca\" > %s/hosts.toml", dir, host, host, dir)
+	}
+	return b.String()
+}
+
+// harborHosts returns the DNS names of the Harbor serving certificate.
+func harborHosts(tlsCrt []byte) []string {
+	block, _ := pem.Decode(tlsCrt)
+	if block == nil {
+		return nil
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil
+	}
+	return cert.DNSNames
 }
 
 // installAddons installs addons on the Node by creating an OpsJob.

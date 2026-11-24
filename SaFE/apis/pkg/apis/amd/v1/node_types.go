@@ -89,8 +89,8 @@ type NodeSpec struct {
 	Workspace *string `json:"workspace,omitempty"`
 	// Node flavor reference, required
 	NodeFlavor *corev1.ObjectReference `json:"nodeFlavor"`
-	// Node template reference, required
-	NodeTemplate *corev1.ObjectReference `json:"nodeTemplate"`
+	// Node template reference, optional for nodes of an adopted cluster
+	NodeTemplate *corev1.ObjectReference `json:"nodeTemplate,omitempty"`
 	// Node hostname
 	Hostname *string `json:"hostname,omitempty"`
 	// Node private ip, required

@@ -59,7 +59,7 @@ const (
 func (r *ClusterReconciler) guaranteeClusterControlPlane(ctx context.Context, cluster *v1.Cluster) error {
 	klog.Infof("cluster %s, phase %s", cluster.Name, cluster.Status.ControlPlaneStatus.Phase)
 
-	if len(cluster.Spec.ControlPlane.Nodes) == 0 {
+	if len(cluster.Spec.ControlPlane.Nodes) == 0 && len(bootstrapAdoptedNodes(cluster)) == 0 {
 		return nil
 	}
 
@@ -84,7 +84,11 @@ func (r *ClusterReconciler) guaranteeClusterControlPlane(ctx context.Context, cl
 }
 
 // handleControlPlaneCreation manages the creation workflow for control plane.
+// An adopted cluster already has its control plane and is never installed or reset here.
 func (r *ClusterReconciler) handleControlPlaneCreation(ctx context.Context, cluster *v1.Cluster) error {
+	if v1.IsAdoptedCluster(cluster) {
+		return nil
+	}
 	hostsContent, err := r.generateHosts(ctx, cluster, nil)
 	if err != nil {
 		klog.ErrorS(err, "failed to generate hosts content", "cluster", cluster.Name)
@@ -355,8 +359,9 @@ func (r *ClusterReconciler) createResetPod(ctx context.Context, cluster *v1.Clus
 }
 
 // guaranteeClusterUpgrade runs upgrade-cluster.yml when the desired pair differs from the applied pair.
+// An adopted cluster was not installed by KubeSpray and is never upgraded by it.
 func (r *ClusterReconciler) guaranteeClusterUpgrade(ctx context.Context, cluster *v1.Cluster) error {
-	if !cluster.DeletionTimestamp.IsZero() {
+	if !cluster.DeletionTimestamp.IsZero() || v1.IsAdoptedCluster(cluster) {
 		return nil
 	}
 	phase := cluster.Status.ControlPlaneStatus.Phase
@@ -718,16 +723,25 @@ func retryCountBelongsToTarget(cluster *v1.Cluster) bool {
 
 // getControllerPlaneNodes retrieves all control plane nodes for the cluster.
 func (r *ClusterReconciler) getControllerPlaneNodes(ctx context.Context, cluster *v1.Cluster) ([]*v1.Node, error) {
+	if len(cluster.Spec.ControlPlane.Nodes) == 0 {
+		return bootstrapAdoptedNodes(cluster), nil
+	}
 	nodes := make([]*v1.Node, 0, len(cluster.Spec.ControlPlane.Nodes))
 
 	for _, v := range cluster.Spec.ControlPlane.Nodes {
 		node := new(v1.Node)
 		if err := r.Get(ctx, types.NamespacedName{Name: v}, node); err != nil {
+			// A pending adopted cluster may list control planes that are not registered yet.
+			if apierrors.IsNotFound(err) && isAdoptedClusterPending(cluster) {
+				continue
+			}
 			return nil, err
 		}
 		nodes = append(nodes, node.DeepCopy())
 	}
-
+	if len(nodes) == 0 {
+		return bootstrapAdoptedNodes(cluster), nil
+	}
 	return nodes, nil
 }
 
@@ -747,8 +761,18 @@ func (r *ClusterReconciler) fetchProvisionedClusterKubeConfig(ctx context.Contex
 	if err != nil {
 		return err
 	}
+	// An adopted cluster must never fall through to installation when its kubeconfig is unreadable.
+	if config == nil && isAdoptedClusterPending(cluster) {
+		return fmt.Errorf("kubeconfig of adopted cluster %s is not readable from control plane", cluster.Name)
+	}
 
 	return r.updateClusterKubeConfig(ctx, cluster, nodes, config)
+}
+
+// isAdoptedClusterPending reports whether an adopted cluster is still being brought under management.
+func isAdoptedClusterPending(cluster *v1.Cluster) bool {
+	return cluster.GetDeletionTimestamp().IsZero() &&
+		v1.GetAnnotation(cluster, v1.ClusterAdoptAnnotation) == v1.TrueStr
 }
 
 // fetchConfigFromControlPlane reads the provisioned kubeconfig from the first control plane that
@@ -853,7 +877,7 @@ func (r *ClusterReconciler) updateClusterKubeConfig(ctx context.Context, cluster
 
 	cluster.Status.ControlPlaneStatus.Endpoints = make([]string, 0, len(nodes))
 	for _, n := range nodes {
-		endpoint := fmt.Sprintf("https://%s:%d", n.Spec.PrivateIP, DefaultApiserverPort)
+		endpoint := fmt.Sprintf("https://%s:%d", n.Spec.PrivateIP, v1.GetApiserverPort(cluster))
 		cluster.Status.ControlPlaneStatus.Endpoints = append(cluster.Status.ControlPlaneStatus.Endpoints, endpoint)
 	}
 
@@ -1047,8 +1071,9 @@ func (r *ClusterReconciler) filterHealthyControlPlaneAddresses(ctx context.Conte
 			if probeCtx.Err() != nil {
 				return
 			}
-			endpoint := fmt.Sprintf("https://%s:%d", node.Spec.PrivateIP, DefaultApiserverPort)
-			_, restCfg, err := commonclient.NewClientSet(endpoint, cps.CertData, cps.KeyData, cps.CAData, true)
+			endpoint := fmt.Sprintf("https://%s:%d", node.Spec.PrivateIP, v1.GetApiserverPort(cluster))
+			_, restCfg, err := commonclient.NewClientSet(endpoint, cps.CertData, cps.KeyData, cps.CAData, true,
+				commonclient.WithServerName(v1.GetApiserverServerName(cluster)))
 			if err != nil {
 				return
 			}
@@ -1099,7 +1124,7 @@ func (r *ClusterReconciler) guaranteeEndpoints(ctx context.Context, cluster *v1.
 	addresses := r.filterHealthyControlPlaneAddresses(ctx, cluster, nodes)
 	desiredPorts := []corev1.EndpointPort{{
 		Name:     "https",
-		Port:     DefaultApiserverPort,
+		Port:     int32(v1.GetApiserverPort(cluster)),
 		Protocol: corev1.ProtocolTCP,
 	}}
 	desiredSubset := corev1.EndpointSubset{Addresses: addresses, Ports: desiredPorts}
@@ -1177,7 +1202,7 @@ func (r *ClusterReconciler) guaranteeServiceResource(ctx context.Context, cluste
 				Name:       "https",
 				Protocol:   "TCP",
 				Port:       DefaultHttpServiePort,
-				TargetPort: intstr.IntOrString{IntVal: DefaultApiserverPort},
+				TargetPort: intstr.IntOrString{IntVal: int32(v1.GetApiserverPort(cluster))},
 			}},
 			Type:            corev1.ServiceTypeClusterIP,
 			SessionAffinity: corev1.ServiceAffinityNone,
@@ -1239,6 +1264,9 @@ func (r *ClusterReconciler) guaranteeDefaultAddon(ctx context.Context, cluster *
 		return reconcile.Result{}, fmt.Errorf("list addon templates failed %+v", err)
 	}
 	for _, template := range templates.Items {
+		if isDefaultAddonSkipped(&template, cluster.Name) {
+			continue
+		}
 		component := getComponentName(template.Name)
 		name := fmt.Sprintf("%s-%s", cluster.Name, component)
 		addon := new(v1.Addon)
@@ -1330,6 +1358,16 @@ func (r *ClusterReconciler) guaranteeDefaultAddon(ctx context.Context, cluster *
 		}
 	}
 	return reconcile.Result{}, nil
+}
+
+// isDefaultAddonSkipped reports whether the template lists the cluster in its default skip annotation.
+func isDefaultAddonSkipped(template *v1.AddonTemplate, clusterName string) bool {
+	for _, name := range strings.Split(v1.GetAnnotation(template, v1.AddonDefaultSkipClustersAnnotation), ",") {
+		if strings.TrimSpace(name) == clusterName {
+			return true
+		}
+	}
+	return false
 }
 
 // cleanupDeprecatedDefaultNginxAddon removes the legacy nginx addon that older

@@ -186,6 +186,53 @@ func TestGenerateCluster(t *testing.T) {
 	assert.Equal(t, "infra", cluster.Labels["team"])
 	testifyassert.True(t, v1.IsProtected(cluster))
 	testifyassert.True(t, v1.HasLabel(cluster, v1.ClusterControlPlaneLabel))
+	assert.Empty(t, v1.GetAnnotation(cluster, v1.ClusterAdoptAnnotation))
+
+	req.Adopt = true
+	adopted, err := h.generateCluster(context.Background(), user, req, []byte(`{}`))
+	testifyassert.NoError(t, err)
+	assert.Equal(t, v1.TrueStr, v1.GetAnnotation(adopted, v1.ClusterAdoptAnnotation))
+	assert.Equal(t, v1.TrueStr, v1.GetAnnotation(adopted, v1.ClusterAdoptWorkloadsAnnotation))
+	testifyassert.False(t, v1.HasAnnotation(cluster, v1.ClusterAdoptWorkloadsAnnotation))
+	testifyassert.False(t, v1.HasLabel(adopted, v1.ClusterControlPlaneLabel))
+	testifyassert.Empty(t, v1.GetAdoptControlPlaneIPs(adopted))
+
+	req.ControlPlaneIPs = []string{"10.235.225.238", "10.235.225.239", "10.235.225.240"}
+	withIPs, err := h.generateCluster(context.Background(), user, req, []byte(`{}`))
+	testifyassert.NoError(t, err)
+	assert.Equal(t, []string{"10.235.225.238", "10.235.225.239", "10.235.225.240"}, v1.GetAdoptControlPlaneIPs(withIPs))
+	// A nil slice is encoded as null, which the Cluster CRD rejects. An adopted cluster has no nodes yet.
+	raw, err := json.Marshal(withIPs)
+	testifyassert.NoError(t, err)
+	testifyassert.Contains(t, string(raw), `"nodes":[]`)
+	testifyassert.NotContains(t, string(raw), `"nodes":null`)
+	assert.Empty(t, v1.GetAnnotation(withIPs, v1.ClusterApiserverPortAnnotation))
+	assert.Equal(t, v1.DefaultApiserverPort, v1.GetApiserverPort(withIPs))
+
+	req.ApiserverPort = 443
+	req.ApiserverServerName = "lb-apiserver.kubernetes.local"
+	gateway, err := h.generateCluster(context.Background(), user, req, []byte(`{}`))
+	testifyassert.NoError(t, err)
+	assert.Equal(t, 443, v1.GetApiserverPort(gateway))
+	assert.Equal(t, "lb-apiserver.kubernetes.local", v1.GetApiserverServerName(gateway))
+	detail := cvtToGetClusterResponse(context.Background(), h.Client, gateway)
+	assert.Equal(t, 443, detail.ApiserverPort)
+	assert.Equal(t, "lb-apiserver.kubernetes.local", detail.ApiserverServerName)
+	assert.Empty(t, detail.NodeTemplateId)
+
+	req.NodeTemplateId = "node-template"
+	withTemplate, err := h.generateCluster(context.Background(), user, req, []byte(`{}`))
+	testifyassert.NoError(t, err)
+	assert.Equal(t, "node-template", v1.GetAnnotation(withTemplate, v1.ClusterAdoptNodeTemplateAnnotation))
+	assert.Equal(t, "node-template", cvtToGetClusterResponse(context.Background(), h.Client, withTemplate).NodeTemplateId)
+
+	req.Adopt = false
+	_, err = h.generateCluster(context.Background(), user, req, []byte(`{}`))
+	testifyassert.Error(t, err)
+
+	req.ApiserverPort, req.ApiserverServerName = 0, ""
+	_, err = h.generateCluster(context.Background(), user, req, []byte(`{}`))
+	testifyassert.Error(t, err)
 }
 
 func TestCreateClusterHandler(t *testing.T) {

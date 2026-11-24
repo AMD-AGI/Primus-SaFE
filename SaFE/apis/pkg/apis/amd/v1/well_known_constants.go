@@ -101,6 +101,23 @@ const (
 	ClusterUpgradeRetryCountAnnotation = ClusterPrefix + "upgrade.retry.count"
 	// ClusterUpgradeRetryTargetAnnotation records the target the retry count belongs to.
 	ClusterUpgradeRetryTargetAnnotation = ClusterPrefix + "upgrade.retry.target"
+	// ClusterAdoptAnnotation marks an existing Kubernetes cluster that must be adopted, never installed.
+	ClusterAdoptAnnotation = ClusterPrefix + "adopt"
+	// ClusterAdoptNodeFlavorAnnotation names the NodeFlavor used for nodes that carry no flavor label.
+	ClusterAdoptNodeFlavorAnnotation = ClusterPrefix + "adopt.node-flavor"
+	// ClusterAdoptNodeTemplateAnnotation names the NodeTemplate whose addons are installed on adopted nodes.
+	ClusterAdoptNodeTemplateAnnotation = ClusterPrefix + "adopt.node-template"
+	// ClusterAdoptControlPlaneIPsAnnotation lists comma-separated control plane IPs used to read an adopted kubeconfig.
+	ClusterAdoptControlPlaneIPsAnnotation = ClusterPrefix + "adopt.control-plane-ips"
+	// ClusterAdoptWorkloadsAnnotation requests one import of the unfinished data plane Workloads of an adopted cluster.
+	// It is removed once the import pass completes.
+	ClusterAdoptWorkloadsAnnotation = ClusterPrefix + "adopt.workloads"
+	// ClusterApiserverPortAnnotation sets the port used to reach the data plane apiserver on each control plane IP.
+	ClusterApiserverPortAnnotation = ClusterPrefix + "apiserver.port"
+	// ClusterApiserverServerNameAnnotation sets the TLS server name (SNI) sent to the data plane apiserver.
+	ClusterApiserverServerNameAnnotation = ClusterPrefix + "apiserver.server-name"
+	// DefaultApiserverPort is the data plane apiserver port used when no port annotation is set.
+	DefaultApiserverPort = 6443
 
 	// storage
 	StoragePrefix              = PrimusSafePrefix + "storage."
@@ -116,6 +133,9 @@ const (
 	WorkspacePrefix    = PrimusSafePrefix + "workspace."
 	WorkspaceFinalizer = PrimusSafeDomain + "workspace.finalizer"
 	WorkspaceIdLabel   = WorkspacePrefix + "id"
+	// WorkspaceAdoptAnnotation marks a workspace that already exists on the data plane.
+	// The workspace controller records it and does not create or delete data plane resources.
+	WorkspaceAdoptAnnotation = WorkspacePrefix + "adopt"
 	// WorkspaceExternalLabel marks a workspace whose capacity is supplied by an external
 	// execution provider rather than by managed physical nodes. The value "true" selects the
 	// external path; any other value is native. It is immutable after creation, because flipping
@@ -318,6 +338,11 @@ const (
 	GroupIdLabel                      = WorkloadPrefix + "group.id"
 	RootWorkloadIdLabel               = WorkloadPrefix + "root.id"
 	K8sObjectIdLabel                  = PrimusSafePrefix + "k8s.object.id"
+	// WorkloadAdoptAnnotation marks a Workload imported from the SaFE of an adopted cluster.
+	WorkloadAdoptAnnotation = WorkloadPrefix + "adopt"
+	// WorkloadAdoptUidAnnotation records the UID of the imported Workload on the data plane SaFE,
+	// which the data plane objects it dispatched carry in their workload uid label.
+	WorkloadAdoptUidAnnotation = WorkloadPrefix + "adopt.uid"
 	// Set by the apiserver once the creator was authorized for workload/privileged in the workspace,
 	// so the workload may mount host paths its workspace does not declare. Requests cannot set it:
 	// the apiserver drops every primus-safe annotation a request carries.
@@ -391,6 +416,10 @@ const (
 	AddonPrefix       = PrimusSafePrefix + "addon."
 	AddonFinalizer    = AddonPrefix + "finalizer"
 	AddonDefaultLabel = AddonPrefix + "default"
+	// Comma-separated cluster names that do not receive a default AddonTemplate.
+	AddonDefaultSkipClustersAnnotation = AddonPrefix + "default.skip-clusters"
+	// Marks an Addon whose chart was already installed in an adopted cluster by another release.
+	AddonPreinstalledAnnotation = AddonPrefix + "preinstalled"
 
 	// model
 	ModelPrefix              = PrimusSafePrefix + "model."

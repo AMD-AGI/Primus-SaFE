@@ -23,6 +23,16 @@ type CreateClusterRequest struct {
 	IsProtected bool `json:"isProtected,omitempty"`
 	// Whether the cluster is a control plane
 	IsControlPlane bool `json:"isControlPlane"`
+	// Adopt reports that Kubernetes is already installed and must not be provisioned again.
+	Adopt bool `json:"adopt,omitempty"`
+	// Control plane IPs of an adopted cluster, used to read its kubeconfig before nodes are registered.
+	ControlPlaneIPs []string `json:"controlPlaneIps,omitempty"`
+	// Port used to reach the apiserver of an adopted cluster on each control plane IP. Default 6443.
+	ApiserverPort int `json:"apiserverPort,omitempty"`
+	// TLS server name (SNI) sent to the apiserver of an adopted cluster, e.g. for gateway passthrough.
+	ApiserverServerName string `json:"apiserverServerName,omitempty"`
+	// NodeTemplate whose addons are installed on the nodes of an adopted cluster. Empty means none.
+	NodeTemplateId string `json:"nodeTemplateId,omitempty"`
 }
 
 type CreateClusterResponse struct {
@@ -43,6 +53,8 @@ type ClusterResponseItem struct {
 	UserId string `json:"userId"`
 	// Cluster status, e.g. Ready,Creating,Failed,Deleting
 	Phase string `json:"phase"`
+	// Latest data plane access or adoption failure; empty when healthy
+	Message string `json:"message,omitempty"`
 	// Whether the cluster is under protection
 	IsProtected bool `json:"isProtected"`
 	// Whether the cluster is a control plane
@@ -81,6 +93,12 @@ type GetClusterResponse struct {
 	KubeApiServerArgs map[string]string `json:"kubeApiServerArgs,omitempty"`
 	// User-defined labels
 	Labels map[string]string `json:"labels,omitempty"`
+	// Port used to reach the data plane apiserver on each control plane IP
+	ApiserverPort int `json:"apiserverPort"`
+	// NodeTemplate whose addons are installed on the nodes of an adopted cluster.
+	NodeTemplateId string `json:"nodeTemplateId,omitempty"`
+	// TLS server name (SNI) sent to the data plane apiserver; empty when not set
+	ApiserverServerName string `json:"apiserverServerName,omitempty"`
 }
 
 type ProcessNodesRequest struct {

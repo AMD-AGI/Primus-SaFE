@@ -52,6 +52,7 @@ func TestSetupResourceControllersProbe(t *testing.T) {
 	}
 
 	run("cluster", func() error { return SetupClusterController(mgr) })
+	run("clusteradopt", func() error { return SetupClusterAdoptController(mgr) })
 	run("node", func() error { return SetupNodeController(mgr) })
 	run("nodek8s", func() error { return SetupNodeK8sController(ctx, mgr) })
 	run("workspace", func() error { return SetupWorkspaceController(mgr, &defaultWorkspaceOption) })

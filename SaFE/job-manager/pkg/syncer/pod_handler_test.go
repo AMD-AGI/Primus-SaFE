@@ -237,6 +237,14 @@ func TestIsStaleWorkloadGeneration(t *testing.T) {
 	assert.Equal(t, isStaleWorkloadGeneration(nil, "old-uid"), false)
 }
 
+func TestIsStaleWorkloadGenerationAcceptsAdoptedUid(t *testing.T) {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{UID: "admin-uid",
+		Annotations: map[string]string{v1.WorkloadAdoptUidAnnotation: "local-uid"}}}
+	assert.Equal(t, isStaleWorkloadGeneration(w, "local-uid"), false)
+	assert.Equal(t, isStaleWorkloadGeneration(w, "admin-uid"), false)
+	assert.Equal(t, isStaleWorkloadGeneration(w, "other-uid"), true)
+}
+
 func TestRemoveWorkloadPodIgnoresPreviousRun(t *testing.T) {
 	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
 		Name:              "w",

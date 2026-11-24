@@ -35,6 +35,8 @@ const (
 	helmDriver = "secrets"
 	// installedMsg is the error message when trying to reuse an existing Helm release name
 	installedMsg = "cannot re-use a name that is still in use"
+	// ownershipConflictMsg is part of the helm error for a resource owned by another release
+	ownershipConflictMsg = "exists and cannot be imported into the current release"
 	// Timeout specifies the timeout for Helm operations
 	Timeout = time.Minute * 5
 	// MaxHistory specifies the maximum number of Helm release versions to keep
