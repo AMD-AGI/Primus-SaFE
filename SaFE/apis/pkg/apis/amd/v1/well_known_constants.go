@@ -394,6 +394,8 @@ const (
 	AddonPrefix       = PrimusSafePrefix + "addon."
 	AddonFinalizer    = AddonPrefix + "finalizer"
 	AddonDefaultLabel = AddonPrefix + "default"
+	// Comma-separated cluster names that do not receive a default AddonTemplate.
+	AddonDefaultSkipClustersAnnotation = AddonPrefix + "default.skip-clusters"
 
 	// model
 	ModelPrefix              = PrimusSafePrefix + "model."

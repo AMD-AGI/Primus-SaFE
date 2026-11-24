@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	testifyassert "github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
@@ -476,6 +477,26 @@ func TestGuaranteeDefaultAddonCreatesAddon(t *testing.T) {
 	addon := &v1.Addon{}
 	testifyassert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "c1-infera-operator"}, addon))
 	assert.Equal(t, "from-template", addon.Labels["primus-safe.kept"])
+}
+
+func TestGuaranteeDefaultAddonSkipsListedClusters(t *testing.T) {
+	skipped := testCluster("ccs300")
+	other := testCluster("c1")
+	template := &v1.AddonTemplate{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "csi-wekafs.2.7.7",
+			Labels:      map[string]string{v1.AddonDefaultLabel: ""},
+			Annotations: map[string]string{v1.AddonDefaultSkipClustersAnnotation: " c0 , ccs300 "},
+		},
+	}
+	r := newPlaneReconciler(t, skipped, other, template)
+	for _, cluster := range []*v1.Cluster{skipped, other} {
+		_, err := r.guaranteeDefaultAddon(context.Background(), cluster)
+		testifyassert.NoError(t, err)
+	}
+	testifyassert.True(t, apierrors.IsNotFound(
+		r.Get(context.Background(), client.ObjectKey{Name: "ccs300-csi-wekafs"}, &v1.Addon{})))
+	testifyassert.NoError(t, r.Get(context.Background(), client.ObjectKey{Name: "c1-csi-wekafs"}, &v1.Addon{}))
 }
 
 func TestGuaranteeDefaultAddonDeletesLegacyAutoNginx(t *testing.T) {

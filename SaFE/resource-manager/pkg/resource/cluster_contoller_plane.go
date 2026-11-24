@@ -1260,6 +1260,9 @@ func (r *ClusterReconciler) guaranteeDefaultAddon(ctx context.Context, cluster *
 		return reconcile.Result{}, fmt.Errorf("list addon templates failed %+v", err)
 	}
 	for _, template := range templates.Items {
+		if isDefaultAddonSkipped(&template, cluster.Name) {
+			continue
+		}
 		component := getComponentName(template.Name)
 		name := fmt.Sprintf("%s-%s", cluster.Name, component)
 		addon := new(v1.Addon)
@@ -1351,6 +1354,16 @@ func (r *ClusterReconciler) guaranteeDefaultAddon(ctx context.Context, cluster *
 		}
 	}
 	return reconcile.Result{}, nil
+}
+
+// isDefaultAddonSkipped reports whether the template lists the cluster in its default skip annotation.
+func isDefaultAddonSkipped(template *v1.AddonTemplate, clusterName string) bool {
+	for _, name := range strings.Split(v1.GetAnnotation(template, v1.AddonDefaultSkipClustersAnnotation), ",") {
+		if strings.TrimSpace(name) == clusterName {
+			return true
+		}
+	}
+	return false
 }
 
 // cleanupDeprecatedDefaultNginxAddon removes the legacy nginx addon that older
