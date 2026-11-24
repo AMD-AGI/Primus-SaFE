@@ -693,6 +693,13 @@ func (h *Handler) authWorkloadUpdate(c *gin.Context, adminWorkload *v1.Workload,
 			return nil, err
 		}
 	}
+	// A change to a workload that mounts whole volumes changes what runs with them, so it takes
+	// the administrator its creation took.
+	if v1.GetAnnotation(adminWorkload, v1.WorkloadUserDirMountsOffAnnotation) == v1.TrueStr {
+		if err = h.requireUserDirMountsAdmin(c, requestUser, roles); err != nil {
+			return nil, err
+		}
+	}
 	return change, nil
 }
 
@@ -1143,6 +1150,15 @@ func (h *Handler) authWorkloadUserDirMounts(c *gin.Context,
 	if !wanted {
 		return nil
 	}
+	if err := h.requireUserDirMountsAdmin(c, requestUser, roles); err != nil {
+		return err
+	}
+	v1.SetAnnotation(workload, v1.WorkloadUserDirMountsOffAnnotation, v1.TrueStr)
+	return nil
+}
+
+// requireUserDirMountsAdmin requires a system administrator, with the userDirMounts reason on refusal.
+func (h *Handler) requireUserDirMountsAdmin(c *gin.Context, requestUser *v1.User, roles []*v1.Role) error {
 	if h.accessController == nil {
 		return commonerrors.NewForbidden(userDirMountsOffForbidden)
 	}
@@ -1158,7 +1174,6 @@ func (h *Handler) authWorkloadUserDirMounts(c *gin.Context,
 		}
 		return err
 	}
-	v1.SetAnnotation(workload, v1.WorkloadUserDirMountsOffAnnotation, v1.TrueStr)
 	return nil
 }
 
