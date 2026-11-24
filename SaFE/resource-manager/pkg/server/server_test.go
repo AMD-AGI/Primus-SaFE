@@ -18,6 +18,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/exporter"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/informer"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/ops_job"
+	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/posttraining"
 	"github.com/AMD-AIG-AIMA/SAFE/resource-manager/pkg/resource"
 	"github.com/agiledragon/gomonkey/v2"
 	testifyassert "github.com/stretchr/testify/assert"
@@ -71,6 +72,7 @@ func TestNewServerWithStubs(t *testing.T) {
 	})
 	patches.ApplyFunc(resource.SetupControllers, func(_ context.Context, _ manager.Manager) error { return nil })
 	patches.ApplyFunc(ops_job.SetupOpsJobs, func(_ context.Context, _ manager.Manager) error { return nil })
+	patches.ApplyFunc(posttraining.SetupPostTrainingController, func(_ context.Context, _ manager.Manager) error { return nil })
 	patches.ApplyFunc(exporter.SetupExporters, func(_ context.Context, _ manager.Manager) error { return nil })
 
 	s, err := NewServer()

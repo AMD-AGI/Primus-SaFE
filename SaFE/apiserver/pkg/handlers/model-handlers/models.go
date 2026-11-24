@@ -1145,6 +1145,8 @@ func (h *Handler) convertK8sModelToInfo(k8sModel *v1.Model) ModelInfo {
 		UpdatedAt:       formatMetaV1Time(k8sModel.Status.UpdateTime),
 		DeletionTime:    formatMetaV1Time(k8sModel.GetDeletionTimestamp()),
 		IsDeleted:       k8sModel.DeletionTimestamp != nil,
+
+		PostTrainingRunId: k8sModel.Spec.PostTrainingRunId,
 	}
 }
 
@@ -1827,6 +1829,8 @@ func cvtDBModelToInfo(dbModel *dbclient.Model) ModelInfo {
 		UpdatedAt:       formatNullTime(dbModel.UpdatedAt),
 		DeletionTime:    formatNullTime(dbModel.DeletionTime),
 		IsDeleted:       dbModel.IsDeleted,
+
+		PostTrainingRunId: dbModel.PostTrainingRunID,
 	}
 }
 

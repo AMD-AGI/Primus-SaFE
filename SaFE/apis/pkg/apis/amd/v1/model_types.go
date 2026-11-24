@@ -116,6 +116,9 @@ type (
 		// "<volume>/<subpath>/<dir>" when the subpath already contains a "models"
 		// segment. Empty = "<volume>/models/<dir>".
 		TargetSubpath string `json:"targetSubpath,omitempty"`
+		// PostTrainingRunId is the Post Training run that produced this model. Models produced by
+		// the older SFT and RL jobs use SftJobId instead and leave this empty.
+		PostTrainingRunId string `json:"postTrainingRunId,omitempty"`
 	}
 
 	// ModelSource describes the model storage location
@@ -174,6 +177,35 @@ type (
 		LocalPaths []ModelLocalPath `json:"localPaths,omitempty"`
 		// UpdateTime is the last update time
 		UpdateTime *metav1.Time `json:"updateTime,omitempty"`
+		// ModelConfig is the structure summary read from the model's config.json; unset until it
+		// has been read.
+		ModelConfig *ModelConfig `json:"modelConfig,omitempty"`
+	}
+
+	// ModelConfig holds the structure fields of a model's config.json that Post Training matches
+	// its model specs against.
+	ModelConfig struct {
+		// Architectures is config.json architectures, e.g. ["Qwen3ForCausalLM"]
+		Architectures []string `json:"architectures,omitempty"`
+		// ModelType is config.json model_type
+		ModelType string `json:"modelType,omitempty"`
+		// NumHiddenLayers is config.json num_hidden_layers
+		NumHiddenLayers int `json:"numHiddenLayers,omitempty"`
+		// HiddenSize is config.json hidden_size
+		HiddenSize int `json:"hiddenSize,omitempty"`
+		// NumAttentionHeads is config.json num_attention_heads
+		NumAttentionHeads int `json:"numAttentionHeads,omitempty"`
+		// NumKeyValueHeads is config.json num_key_value_heads
+		NumKeyValueHeads int `json:"numKeyValueHeads,omitempty"`
+		// NumExperts is the routed expert count (num_experts, n_routed_experts or
+		// num_local_experts); zero for dense models
+		NumExperts int `json:"numExperts,omitempty"`
+		// RopeTheta is config.json rope_theta as decimal text, since CRDs avoid floating-point fields
+		RopeTheta string `json:"ropeTheta,omitempty"`
+		// MaxPositionEmbeddings is config.json max_position_embeddings
+		MaxPositionEmbeddings int `json:"maxPositionEmbeddings,omitempty"`
+		// TorchDtype is config.json torch_dtype
+		TorchDtype string `json:"torchDtype,omitempty"`
 	}
 )
 

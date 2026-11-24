@@ -39,6 +39,7 @@ RUN mkdir -p ${APP_HOME}/scripts ${APP_HOME}/drivers ${APP_HOME}/apps \
 COPY ./SaFE/docker/preprocess/*.sh ${APP_HOME}/
 COPY ./SaFE/docker/preprocess/*.py ${APP_HOME}/
 COPY ./SaFE/docker/preprocess/scripts/*.sh ${APP_HOME}/scripts/
+COPY ./SaFE/docker/preprocess/safe_post_training ${APP_HOME}/safe_post_training
 COPY --from=save-image /out/save-image ${APP_HOME}/save-image
 
 # Copy bnxt driver if path is specified
@@ -79,8 +80,11 @@ RUN --mount=type=bind,source=.,target=/build_context \
     fi
 
 # World-readable tree: dirs 0755, files 0644, scripts 0755. Default process user is
-# non-root so the init matches PSA restricted / OpenShift SCC expectations.
-RUN find "${APP_HOME}" -type d -exec chmod 0755 {} + \
+# non-root so the init matches PSA restricted / OpenShift SCC expectations. Every
+# workload's init copies this tree, so tests and bytecode caches are left out.
+RUN rm -rf "${APP_HOME}/safe_post_training/tests" \
+    && find "${APP_HOME}" -name __pycache__ -type d -prune -exec rm -rf {} + \
+    && find "${APP_HOME}" -type d -exec chmod 0755 {} + \
     && find "${APP_HOME}" -type f -exec chmod 0644 {} + \
     && find "${APP_HOME}" -type f -name '*.sh' -exec chmod 0755 {} + \
     && chmod 0755 "${APP_HOME}/save-image" \

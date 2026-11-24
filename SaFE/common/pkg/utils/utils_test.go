@@ -72,6 +72,30 @@ func TestGenerateName(t *testing.T) {
 }
 
 // TestGetBaseFromName tests extracting base names from generated names
+// TestDNSDisplayName tests that DNSDisplayName returns names the workload webhook accepts
+func TestDNSDisplayName(t *testing.T) {
+	tests := []struct {
+		prefix, name string
+		maxLen       int
+		want         string
+	}{
+		{"pt-", "Qwen3 SFT demo", MaxRayJobNameLen, "pt-qwen3-sft-demo"},
+		{"eval-", "Llama_3.1 (8B)!", MaxDeploymentNameLen, "eval-llama-3-1-8b"},
+		{"pt-", "", MaxRayJobNameLen, "pt"},
+		{"pt-", "\u4e2d\u6587", MaxRayJobNameLen, "pt"},
+		{"export-20-", "a very long display name that keeps going past the limit", MaxRayJobNameLen,
+			"export-20-a-very-long-display-name-t"},
+		{"pt-", "abcdefghijklmnopqrstuvwxyz-abcdefghi-", 36, "pt-abcdefghijklmnopqrstuvwxyz-abcdef"},
+		{"pt-", "abcdefghijklmnopqrstuvwxyz abcde fg", 36, "pt-abcdefghijklmnopqrstuvwxyz-abcde"},
+	}
+	for _, tt := range tests {
+		got := DNSDisplayName(tt.prefix, tt.name, tt.maxLen)
+		assert.Equal(t, tt.want, got, tt.name)
+		assert.LessOrEqual(t, len(got), tt.maxLen)
+		assert.Regexp(t, "^[a-z]([-a-z0-9]*[a-z0-9])?$", got)
+	}
+}
+
 func TestGetBaseFromName(t *testing.T) {
 	tests := []struct {
 		name     string

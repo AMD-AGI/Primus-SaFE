@@ -402,6 +402,22 @@ const (
 	ModelS3SourceSecretAnn   = ModelPrefix + "s3-source-secret"   // annotation: Secret name in primus-safe namespace
 	ModelS3SourceEndpointAnn = ModelPrefix + "s3-source-endpoint" // annotation: user-provided HTTP(S) endpoint for the source bucket
 	SourceModelIdLabel       = PrimusSafePrefix + "source-model"
+	// ModelInspectAnnotation records that the model's config.json was read once: "done" or "failed".
+	ModelInspectAnnotation = ModelPrefix + "inspect"
+	// ModelInspectErrorAnnotation records why reading the model's config.json failed.
+	ModelInspectErrorAnnotation = ModelPrefix + "inspect-error"
+	// PostTrainingRegistryConfigMap is the ConfigMap of the Post Training registry; it exists only when Post
+	// Training is enabled.
+	PostTrainingRegistryConfigMap = "post-training-registry"
+
+	// post training: workloads and models of a Post Training run carry the run id;
+	// workloads also carry their role in the run.
+	PostTrainingPrefix     = PrimusSafePrefix + "post-training."
+	PostTrainingRunIdLabel = PostTrainingPrefix + "run-id"
+	PostTrainingRoleLabel  = PostTrainingPrefix + "role"
+	PostTrainingRoleTrain  = "train"
+	// PostTrainingConvertCacheLabel carries the id of the conversion cache a model-cleanup job removes.
+	PostTrainingConvertCacheLabel = PostTrainingPrefix + "convert-cache"
 
 	// dynamo (DynamoDeployment workload kind; see Phase 2 of the dynamo
 	// integration plan). Webhook/dispatcher read these to decide deployment

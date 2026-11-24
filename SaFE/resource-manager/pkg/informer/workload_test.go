@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
@@ -252,6 +253,27 @@ func TestOnUpdate(t *testing.T) {
 	oldW := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "wl1"}, Status: v1.WorkloadStatus{Phase: v1.WorkloadPending}}
 	newW := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "wl1"}, Status: v1.WorkloadStatus{Phase: v1.WorkloadRunning}}
 	w.OnUpdate(oldW, newW)
+}
+
+// The cleanup of a conversion cache sends no workload mail and looks up no user.
+func TestConversionCacheCleanupsGetNoNotification(t *testing.T) {
+	s := runtime.NewScheme()
+	assert.NoError(t, v1.AddToScheme(s))
+	lookups := 0
+	w := NewWorkloadInformer(ctrlfake.NewClientBuilder().WithScheme(s).WithInterceptorFuncs(interceptor.Funcs{
+		Get: func(ctx context.Context, c ctrlclient.WithWatch, key ctrlclient.ObjectKey, obj ctrlclient.Object,
+			opts ...ctrlclient.GetOption) error {
+			lookups++
+			return c.Get(ctx, key, obj, opts...)
+		},
+	}).Build())
+	running := v1.WorkloadStatus{Phase: v1.WorkloadRunning}
+	w.submitWorkloadNotification(&v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "wl1",
+		Labels: map[string]string{v1.PostTrainingConvertCacheLabel: "c1"}}, Status: running})
+	assert.Zero(t, lookups, "the cleanup stops before looking up whom to notify")
+	w.submitWorkloadNotification(&v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "wl1",
+		Labels: map[string]string{v1.PostTrainingRunIdLabel: "pt-1"}}, Status: running})
+	assert.Equal(t, 1, lookups, "other workloads, those of a Post Training run among them, look up their user")
 }
 
 func TestOnDelete(t *testing.T) {

@@ -228,6 +228,7 @@ import { useWorkspaceStore } from '@/stores/workspace'
 import { useDark } from '@vueuse/core'
 import { isLogEnabledForHost } from '@/utils'
 import { menuIcons } from './menuIcons'
+import { postTrainingIsOn } from '@/services/postTraining'
 import type { ScopesKeys } from '@/services/base/type'
 
 const isDark = useDark()
@@ -427,18 +428,32 @@ watchEffect(() => {
   workloadMenuItems.value = allWorkloadItems.filter((item) => item.canAccess !== false)
 })
 
-// Model Lab submenu config - static
-const modelLabMenuItems: MenuItem[] = [
+// Post Training takes the place of Post Train where it is on; the /posttrain pages stay reachable by URL, which
+// the lineage of models trained there links to.
+const postTrainingOn = ref(false)
+let postTrainingSeq = 0
+watch(
+  [() => wsStore.currentWorkspaceId, hasManagerAccess],
+  async ([workspace, manager]) => {
+    if (!workspace || !manager) return
+    const seq = ++postTrainingSeq
+    const on = await postTrainingIsOn(workspace)
+    // A slow answer for a workspace left meanwhile is dropped: the latest workspace's answer decides.
+    if (seq === postTrainingSeq) postTrainingOn.value = on
+  },
+  { immediate: true },
+)
+
+// Model Lab submenu config
+const modelLabMenuItems = computed<MenuItem[]>(() => [
   {
     index: '/model-square',
     name: 'Model Square',
     icon: menuIcons.modelSquare,
   },
-  {
-    index: '/posttrain',
-    name: 'Post Train',
-    icon: menuIcons.training,
-  },
+  postTrainingOn.value
+    ? { index: '/post-training', name: 'Post Training', icon: menuIcons.postTraining }
+    : { index: '/posttrain', name: 'Post Train', icon: menuIcons.training },
   {
     index: '/dataset',
     name: 'Dataset',
@@ -454,7 +469,7 @@ const modelLabMenuItems: MenuItem[] = [
     name: 'Optimization',
     icon: menuIcons.modelOptimization,
   },
-]
+])
 
 // Agent Infra submenu config - dynamic
 const agentInfraMenuItems = shallowRef<MenuItem[]>([])
@@ -637,7 +652,7 @@ const flattenNav = (items: MenuItem[], section: string): FlatNavItem[] => {
 const searchIndex = computed<FlatNavItem[]>(() => [
   ...staticNavItems,
   ...flattenNav(workloadMenuItems.value, 'Workloads'),
-  ...(hasManagerAccess.value ? flattenNav(modelLabMenuItems, 'Model Lab') : []),
+  ...(hasManagerAccess.value ? flattenNav(modelLabMenuItems.value, 'Model Lab') : []),
   ...flattenNav(agentInfraMenuItems.value, 'Agent Infra'),
   ...flattenNav(systemMenuItems.value, 'System'),
   ...(!hasManagerAccess.value ? flattenNav(memberMenuItems.value, '') : []),

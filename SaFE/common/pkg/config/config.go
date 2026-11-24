@@ -307,6 +307,12 @@ func GetOpenSearchIndexPrefix() string {
 	return getString(openSearchIndexPrefix, "")
 }
 
+// IsPostTrainingEnable returns whether Post Training is enabled. The chart sets it only when the database is
+// enabled too; code that uses the database still checks IsDBEnable.
+func IsPostTrainingEnable() bool {
+	return getBool(postTrainingEnable, false)
+}
+
 // IsDBEnable returns whether the database is enabled.
 func IsDBEnable() bool {
 	return getBool(dbEnable, false)

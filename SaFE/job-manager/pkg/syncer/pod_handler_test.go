@@ -637,6 +637,24 @@ func TestHandleRaySubmitterTimeoutNonRayJob(t *testing.T) {
 	assert.Equal(t, ok, false)
 }
 
+// A pod event long after a RayJob succeeded must not turn it into a failure.
+func TestHandleRaySubmitterTimeoutEndedWorkload(t *testing.T) {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+	w.Spec.GroupVersionKind.Kind = common.RayJobKind
+	w.Status.Phase = v1.WorkloadSucceeded
+	end := time.Now().UTC().Add(-2 * MaxRayJobWaitTime * time.Second).Format(timeutil.TimeRFC3339Short)
+	w.Status.Pods = []v1.WorkloadPod{{PodId: "submitter", EndTime: end}}
+	cl := ctrlfake.NewClientBuilder().WithScheme(syncerScheme(t)).WithObjects(w).WithStatusSubresource(w).Build()
+	r := &SyncerReconciler{Client: cl}
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "submitter"}}
+	ok, err := r.handleRaySubmitterTimeout(context.Background(), w, pod)
+	assert.NilError(t, err)
+	assert.Equal(t, ok, false)
+	got := &v1.Workload{}
+	assert.NilError(t, cl.Get(context.Background(), ctrlclient.ObjectKey{Name: "w"}, got))
+	assert.Equal(t, got.Status.Phase, v1.WorkloadSucceeded)
+}
+
 func TestBuildPodTerminatedInfoRunningNoop(t *testing.T) {
 	w := &v1.Workload{}
 	pod := &corev1.Pod{Status: corev1.PodStatus{Phase: corev1.PodRunning}}
@@ -723,6 +741,26 @@ func TestBuildPodTerminatedInfoCarriesOrdinaryReason(t *testing.T) {
 	wp := &v1.WorkloadPod{}
 	buildPodTerminatedInfo(context.Background(), nil, w, pod, wp, "main")
 	assert.Equal(t, wp.Containers[0].Reason, "Error")
+}
+
+// A Post Training submitter whose log holds no result of its run keeps its termination message.
+func TestBuildPodTerminatedInfoKeepsTheSubmitterMessageWithoutAResult(t *testing.T) {
+	w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w",
+		Labels: map[string]string{v1.PostTrainingRunIdLabel: "pt-run-abc12"}}}
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "w-sub", Namespace: "ws"}, Status: corev1.PodStatus{
+		Phase: corev1.PodFailed,
+		ContainerStatuses: []corev1.ContainerStatus{{
+			Name: common.RayJobSubmitterName,
+			State: corev1.ContainerState{
+				Terminated: &corev1.ContainerStateTerminated{Reason: "Error", ExitCode: 1, Message: "submit failed"},
+			},
+		}},
+	}}
+	wp := &v1.WorkloadPod{}
+	// The fake clientset serves "fake logs" for every pod: a log without any result line.
+	buildPodTerminatedInfo(context.Background(), k8sfake.NewSimpleClientset(), w, pod, wp, "")
+	assert.Equal(t, len(wp.Containers), 1)
+	assert.Equal(t, wp.Containers[0].Message, "submit failed")
 }
 
 func TestGenerateStickyFault(t *testing.T) {

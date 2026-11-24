@@ -673,8 +673,9 @@ func (h *Handler) authWorkloadUpdate(c *gin.Context, adminWorkload *v1.Workload,
 			}
 			change = &runtimeChange{
 				extendedBy: requestUser.Name,
-				condition: newRuntimeExtendedCondition(fmt.Sprintf("runtime extended from %s to %s by %s",
-					formatRuntime(adminWorkload.GetTimeout()), formatRuntime(*request.Timeout), requestUserName(c, requestUser))),
+				condition: commonworkload.NewRuntimeExtendedCondition(fmt.Sprintf(
+					"runtime extended from %s to %s by %s", commonworkload.FormatRuntime(adminWorkload.GetTimeout()),
+					commonworkload.FormatRuntime(*request.Timeout), requestUserName(c, requestUser))),
 			}
 		} else if ceiling > 0 {
 			change = &runtimeChange{}
@@ -730,19 +731,9 @@ func (h *Handler) authWorkloadCreateRuntime(c *gin.Context, workload *v1.Workloa
 		return nil, err
 	}
 	v1.SetAnnotation(workload, v1.WorkloadRuntimeExtendedByAnnotation, requestUser.Name)
-	return newRuntimeExtendedCondition(fmt.Sprintf("runtime set to %s by %s, above the qos limit %s",
-		formatRuntime(*workload.Spec.Timeout), requestUserName(c, requestUser), formatRuntime(ceiling))), nil
-}
-
-// newRuntimeExtendedCondition is the timeline entry of a timeout set above the runtime ceiling.
-func newRuntimeExtendedCondition(message string) *metav1.Condition {
-	return &metav1.Condition{
-		Type:               string(v1.RuntimeExtended),
-		Status:             metav1.ConditionTrue,
-		Reason:             "Extended",
-		Message:            message,
-		LastTransitionTime: metav1.NewTime(time.Now().UTC()),
-	}
+	return commonworkload.NewRuntimeExtendedCondition(fmt.Sprintf("runtime set to %s by %s, above the qos limit %s",
+		commonworkload.FormatRuntime(*workload.Spec.Timeout), requestUserName(c, requestUser),
+		commonworkload.FormatRuntime(ceiling))), nil
 }
 
 // requestUserName is the name of the requesting user for messages, or its id when it has none.
@@ -839,25 +830,10 @@ func (h *Handler) authWorkloadLongRuntime(c *gin.Context, workload *v1.Workload,
 	if err != nil && apierrors.IsForbidden(err) {
 		return commonerrors.NewForbidden(fmt.Sprintf("timeout %s is above the limit of %s for %s workloads "+
 			"in workspace %s; a longer or unlimited timeout requires the %s grant in the workspace",
-			formatRuntime(timeout), formatRuntime(ceiling), commonworkload.GetScope(workload),
-			workload.Spec.Workspace, authority.WorkloadLongRuntimeKind))
+			commonworkload.FormatRuntime(timeout), commonworkload.FormatRuntime(ceiling),
+			commonworkload.GetScope(workload), workload.Spec.Workspace, authority.WorkloadLongRuntimeKind))
 	}
 	return err
-}
-
-// formatRuntime renders a timeout in seconds such as 3h or 1h30m, and 0 or less as unlimited.
-func formatRuntime(seconds int) string {
-	if seconds <= 0 {
-		return "unlimited"
-	}
-	text := (time.Duration(seconds) * time.Second).String()
-	if strings.HasSuffix(text, "m0s") {
-		text = strings.TrimSuffix(text, "0s")
-	}
-	if strings.HasSuffix(text, "h0m") {
-		text = strings.TrimSuffix(text, "0m")
-	}
-	return text
 }
 
 // runtimeCeiling is the qos timeout, in seconds, for the workload's workspace scope. Zero means
