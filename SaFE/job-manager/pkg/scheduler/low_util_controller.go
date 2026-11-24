@@ -529,7 +529,8 @@ func describeLowUtil(policy *v1.LowUtilizationPolicy, d lowUtilDecision) string 
 }
 
 // lowUtilEpisode returns the index of the last idle episode on the timeline of
-// w, 0 for none, and whether that episode has not recovered yet. The highest
+// w, 0 for none, and whether that episode is still open: neither recovered nor
+// closed by an owner exemption. The highest
 // Detected index is used rather than a count, because the condition history
 // may be trimmed. Both Detected_<n> and Detected_<n>_<rule> carry the index.
 func lowUtilEpisode(w *v1.Workload) (int, bool) {
@@ -550,9 +551,13 @@ func lowUtilEpisode(w *v1.Workload) (int, bool) {
 	if episode == 0 {
 		return 0, false
 	}
-	recovered := jobutils.FindCondition(w, &metav1.Condition{
-		Type: string(v1.AdminLowUtilization), Reason: lowUtilReason(lowUtilReasonRecovered, episode)})
-	return episode, recovered == nil
+	for _, prefix := range []string{lowUtilReasonRecovered, lowUtilReasonExempted} {
+		if jobutils.FindCondition(w, &metav1.Condition{
+			Type: string(v1.AdminLowUtilization), Reason: lowUtilReason(prefix, episode)}) != nil {
+			return episode, false
+		}
+	}
+	return episode, true
 }
 
 func lowUtilReason(prefix string, episode int) string {

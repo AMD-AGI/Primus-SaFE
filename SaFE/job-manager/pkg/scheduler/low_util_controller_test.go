@@ -875,6 +875,45 @@ func TestLowUtilEpisodeSurvivesTrimmedHistory(t *testing.T) {
 	assert.DeepEqual(t, lowUtilReasons(lowUtilTimeline(t, cl, "w")), []string{"Detected_2", "Recovered_2", "Detected_3"})
 }
 
+// After the exemption is revoked, a detection whose mark was saved but whose entry was not
+// starts a new episode instead of reusing the exempted one.
+func TestLowUtilDetectionAfterExemptionRetriesNewEpisode(t *testing.T) {
+	for name, tc := range map[string]struct {
+		policy   v1.LowUtilizationPolicy
+		detected string
+		src      *fakeGPUWindow
+		want     string
+	}{
+		"legacy": {
+			policy:   lowUtilPolicy(v1.LowUtilizationAverage),
+			detected: "Detected_1",
+			src:      &fakeGPUWindow{windows: map[string]robustclient.WorkloadGPUWindow{"w-uid": gpuWindow("w-uid", 1, 60)}},
+			want:     "Detected_2",
+		},
+		"rules": {
+			policy:   lowUtilRulesPolicy(),
+			detected: "Detected_1_lt11_30m",
+			src:      lowUtilRulesSource(3, 60, 40, 60),
+			want:     "Detected_2_lt11_30m",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := lowUtilOwnedWorkload("w", "alice", "ws")
+			v1.SetAnnotation(w, v1.WorkloadLowUtilDetectedAtAnnotation, lowUtilTestNow.Format(time.RFC3339))
+			detected := lowUtilDetectedCondition()
+			detected.Reason = tc.detected
+			exempted := detected
+			exempted.Reason = "Exempted_1"
+			w.Status.Conditions = []metav1.Condition{detected, exempted}
+			r, cl, _ := newLowUtilTestController(t, tc.src, lowUtilTestWorkspace(tc.policy), lowUtilExemptUser("alice"), w)
+
+			r.runOnce(context.Background())
+
+			assert.DeepEqual(t, lowUtilReasons(lowUtilTimeline(t, cl, "w")), []string{tc.detected, "Exempted_1", tc.want})
+		})
+	}
+}
+
 // lowUtilRulesPolicy is the 11%/30m or 30%/1h policy.
 func lowUtilRulesPolicy() v1.LowUtilizationPolicy {
 	return v1.LowUtilizationPolicy{
