@@ -129,6 +129,7 @@ func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Wor
 	if err := m.mutateTimeout(ctx, workload, workspace); err != nil {
 		return err
 	}
+	m.mutateModelPrewarmDir(ctx, workload)
 	// Stamp the status-offload marker so only workloads created by this version
 	// store large status fields in DB; pre-existing workloads stay on etcd.
 	v1.SetAnnotation(workload, v1.WorkloadStatusOffloadAnnotation, v1.TrueStr)
@@ -144,6 +145,7 @@ func (m *WorkloadMutator) mutateOnUpdate(ctx context.Context, oldWorkload, newWo
 	if err := m.mutateCommon(ctx, oldWorkload, newWorkload, workspace); err != nil {
 		return err
 	}
+	keepModelPrewarmDir(oldWorkload, newWorkload)
 	rememberRunningResources(oldWorkload, newWorkload)
 	return nil
 }

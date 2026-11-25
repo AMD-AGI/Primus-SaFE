@@ -363,6 +363,9 @@ const (
 	// when external_execution.user_dir_mounts is on. Requests cannot set it: the apiserver drops every
 	// primus-safe annotation a request carries.
 	WorkloadUserDirMountsOffAnnotation = WorkloadPrefix + "user.dir.mounts.off"
+	// WorkloadModelPrewarmDirAnnotation marks the pod of a model prewarm job on an external node, which
+	// mounts its model directory below the declared root. Only the webhook sets it, for a verified job.
+	WorkloadModelPrewarmDirAnnotation = WorkloadPrefix + "model.prewarm.dir"
 	// Data-plane Kubernetes Service object name. Dispatcher and the service
 	// API read this label instead of treating Workload.Name as the Service name.
 	ServiceNameLabel              = PrimusSafePrefix + "service.name"
