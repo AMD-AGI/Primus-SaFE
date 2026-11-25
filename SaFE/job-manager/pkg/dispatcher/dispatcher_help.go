@@ -481,46 +481,63 @@ func dispatchNodesAt(workload *v1.Workload, idx int) []string {
 	return nil
 }
 
-// modifyPreferredNodeAffinity adds preferredDuringSchedulingIgnoredDuringExecution to prefer
-// nodes from the previous dispatch attempt. This helps workloads to be rescheduled on the same nodes.
+// modifyPreferredNodeAffinity adds preferredDuringSchedulingIgnoredDuringExecution terms: it prefers
+// the specified nodes or, when there are none, the nodes of the previous dispatch attempt, which
+// helps workloads to be rescheduled on the same nodes, and, when the workload asks for preferred
+// affinity, avoids the excluded nodes without making the exclusion a hard requirement.
 func modifyPreferredNodeAffinity(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
 	var nodes []string
-	if v1.GetNodesAffinity(workload) == common.NodesAffinityPreferred {
+	preferred := v1.GetNodesAffinity(workload) == common.NodesAffinityPreferred
+	if preferred {
 		nodes = commonworkload.GetSpecifiedNodes(workload)
-	} else if v1.IsRetryingOnOriginal(workload) {
+	}
+	if len(nodes) == 0 && v1.IsRetryingOnOriginal(workload) {
 		dispatchCnt := v1.GetWorkloadDispatchCnt(workload)
 		if dispatchCnt > 0 {
 			nodes = dispatchNodesAt(workload, dispatchCnt-1)
 		}
 	}
-	if len(nodes) == 0 {
+	var newTerms []interface{}
+	if len(nodes) > 0 {
+		newTerms = append(newTerms, buildPreferredHostnameTerm("In", nodes))
+	}
+	// Excluded nodes are hard unless preferred affinity is requested; see buildRequiredMatchExpression.
+	if preferred && !userHostnameConstraintsDropped(workload) {
+		if excluded := strings.Fields(workload.Spec.CustomerLabels[common.ExcludedNodes]); len(excluded) > 0 {
+			newTerms = append(newTerms, buildPreferredHostnameTerm("NotIn", excluded))
+		}
+	}
+	if len(newTerms) == 0 {
 		return nil
-	}
-
-	// Convert node names to interface slice
-	nodeValues := make([]interface{}, len(nodes))
-	for i, node := range nodes {
-		nodeValues[i] = node
-	}
-	preferredTerm := map[string]interface{}{
-		"weight": int64(100),
-		"preference": map[string]interface{}{
-			"matchExpressions": []interface{}{
-				map[string]interface{}{
-					"key":      v1.K8sHostName,
-					"operator": "In",
-					"values":   nodeValues,
-				},
-			},
-		},
 	}
 
 	preferredTerms, _, err := jobutils.NestedSlice(obj.Object, path)
 	if err != nil {
 		return err
 	}
-	preferredTerms = append(preferredTerms, preferredTerm)
+	preferredTerms = append(preferredTerms, newTerms...)
 	return jobutils.SetNestedField(obj.Object, preferredTerms, path)
+}
+
+// buildPreferredHostnameTerm creates a preferred node affinity term matching the given
+// hostnames with the given operator (In or NotIn).
+func buildPreferredHostnameTerm(operator string, nodes []string) map[string]interface{} {
+	nodeValues := make([]interface{}, len(nodes))
+	for i, node := range nodes {
+		nodeValues[i] = node
+	}
+	return map[string]interface{}{
+		"weight": int64(100),
+		"preference": map[string]interface{}{
+			"matchExpressions": []interface{}{
+				map[string]interface{}{
+					"key":      v1.K8sHostName,
+					"operator": operator,
+					"values":   nodeValues,
+				},
+			},
+		},
+	}
 }
 
 // modifyPodAntiAffinity adds pod anti-affinity configuration to spread pods across nodes.
@@ -1622,7 +1639,7 @@ func buildRequiredMatchExpression(workload *v1.Workload) []interface{} {
 	for key, val := range workload.Spec.CustomerLabels {
 		// On the claim path, user hostname constraints are dropped so they cannot AND with
 		// the provider-approved set. On the kube-scheduler path they are kept (R3).
-		if isExternalWorkload(workload) && !isKubeSchedulerPlacement(workload) && isHostNodeConstraint(key) {
+		if userHostnameConstraintsDropped(workload) && isHostNodeConstraint(key) {
 			continue
 		}
 		var values []interface{}
@@ -1632,6 +1649,12 @@ func buildRequiredMatchExpression(workload *v1.Workload) []interface{} {
 		}
 		operator := "In"
 		if key == common.ExcludedNodes {
+			// With preferred affinity the excluded nodes are a preferred term instead
+			// (see modifyPreferredNodeAffinity), so a node that is the only one with free
+			// capacity can still be used.
+			if v1.GetNodesAffinity(workload) == common.NodesAffinityPreferred {
+				continue
+			}
 			key = v1.K8sHostName
 			operator = "NotIn"
 		} else if key == v1.K8sHostName || key == common.SpecifiedNodes {
@@ -1670,6 +1693,13 @@ func buildRequiredMatchExpression(workload *v1.Workload) []interface{} {
 // isHostNodeConstraint reports customer labels that select or exclude nodes by hostname.
 func isHostNodeConstraint(key string) bool {
 	return key == common.ExcludedNodes || key == v1.K8sHostName || key == common.SpecifiedNodes
+}
+
+// userHostnameConstraintsDropped reports whether user hostname constraints are ignored for the
+// workload: on the external claim path the pod is confined to the provider-approved nodes, so a
+// user constraint must not AND with that set. The kube-scheduler path keeps them.
+func userHostnameConstraintsDropped(workload *v1.Workload) bool {
+	return isExternalWorkload(workload) && !isKubeSchedulerPlacement(workload)
 }
 
 // buildSharedMemoryVolume creates an emptyDir volume with memory medium for shared memory.

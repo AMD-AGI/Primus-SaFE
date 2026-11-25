@@ -938,3 +938,50 @@ func TestGetPodLimitList(t *testing.T) {
 	_, err = GetPodLimitList(res)
 	assert.Assert(t, err != nil)
 }
+
+// Excluded nodes are a required NotIn term of the gang PodTemplate unless the workload asks for
+// preferred affinity, in which case no required term is built for them.
+func TestExternalGangNodeSelectorTermsExcludedNodes(t *testing.T) {
+	hostnameTerms := func(w *v1.Workload) []string {
+		var got []string
+		for _, rawTerm := range ExternalGangNodeSelectorTerms(w) {
+			exprs, _ := rawTerm.(map[string]interface{})["matchExpressions"].([]interface{})
+			for _, e := range exprs {
+				m := e.(map[string]interface{})
+				if m["key"] == v1.K8sHostName {
+					got = append(got, fmt.Sprintf("%v %v", m["operator"], m["values"]))
+				}
+			}
+		}
+		return got
+	}
+	// The constraint is ANDed into each of the two ORed workspace terms (current and legacy label key).
+	bothWorkspaceTerms := []string{"NotIn [node-a node-b]", "NotIn [node-a node-b]"}
+	tests := []struct {
+		name     string
+		affinity string // empty: annotation absent
+		labels   map[string]string
+		want     []string
+	}{
+		{name: "annotation absent", labels: map[string]string{common.ExcludedNodes: "node-a node-b"},
+			want: bothWorkspaceTerms},
+		{name: "required", affinity: common.NodesAffinityRequired,
+			labels: map[string]string{common.ExcludedNodes: "node-a node-b"},
+			want:   bothWorkspaceTerms},
+		{name: "preferred", affinity: common.NodesAffinityPreferred,
+			labels: map[string]string{common.ExcludedNodes: "node-a node-b"}},
+		{name: "preferred with specified nodes adds no hostname term", affinity: common.NodesAffinityPreferred,
+			labels: map[string]string{common.SpecifiedNodes: "node-c", common.ExcludedNodes: "node-a"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{Name: "w"}}
+			w.Spec.Workspace = "ws-1"
+			w.Spec.CustomerLabels = tt.labels
+			if tt.affinity != "" {
+				v1.SetAnnotation(w, v1.NodesAffinityAnnotation, tt.affinity)
+			}
+			assert.DeepEqual(t, hostnameTerms(w), tt.want)
+		})
+	}
+}
