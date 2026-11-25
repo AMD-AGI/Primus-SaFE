@@ -230,6 +230,9 @@ func (r *ModelPrewarmJobReconciler) generateExternalWorkload(
 		return nil, err
 	}
 	workload.Spec.Hostpath = []string{hostPath}
+	if prewarmNeedsGrant(workspace, workload, hostPath) {
+		v1.SetAnnotation(workload, v1.WorkloadHostPathAuthzAnnotation, v1.TrueStr)
+	}
 
 	// A workload of an external workspace must be admitted by the scheduler like any other workload there.
 	if !v1.IsExternalWorkspace(workspace) {
@@ -244,16 +247,22 @@ func (r *ModelPrewarmJobReconciler) generateExternalWorkload(
 	return workload, nil
 }
 
-// prewarmHostPath returns the host path a prewarm pod mounts to read the model: the hostpath volume
-// root the workspace declares. The prewarm workload opts out of user directory mounts, so the model
-// path below the root is not mounted on its own.
+// prewarmHostPath returns the host path a prewarm pod mounts to read the model: the model directory
+// itself, so that no other directory of the volume, such as the user directories, is mounted.
 func prewarmHostPath(workspace *v1.Workspace, workload *v1.Workload, modelPath string) (string, error) {
 	root, _ := commonworkload.HostPathVolumeRoot(workspace, commonworkload.GetScope(workload), modelPath)
 	if root == "" {
 		return "", commonerrors.NewBadRequest(fmt.Sprintf(
 			"model path %s is not under a hostpath volume of workspace %s", modelPath, workspace.Name))
 	}
-	return filepath.Clean(root), nil
+	return filepath.Clean(modelPath), nil
+}
+
+// prewarmNeedsGrant reports whether the workspace does not declare the host path of the prewarm pod,
+// so that the workload needs the workload/privileged grant. The job is created only by a system
+// administrator, who holds the grant, so the generated workload is marked as granted in that case.
+func prewarmNeedsGrant(workspace *v1.Workspace, workload *v1.Workload, hostPath string) bool {
+	return len(commonworkload.UndeclaredHostPaths(workspace, commonworkload.GetScope(workload), []string{hostPath})) > 0
 }
 
 // externalWorkloadResult maps the prewarm workload of a node to a node result.

@@ -120,7 +120,7 @@ func TestExternalPrewarmFailsWithReasonOnMissingModelPath(t *testing.T) {
 	assert.Contains(t, result.Message, "model path not found")
 }
 
-func TestPrewarmHostPathMountsDeclaredRoot(t *testing.T) {
+func TestPrewarmHostPathMountsModelDir(t *testing.T) {
 	workspace := &v1.Workspace{
 		ObjectMeta: metav1.ObjectMeta{Name: "ws"},
 		Spec: v1.WorkspaceSpec{Volumes: []v1.WorkspaceVolume{
@@ -133,7 +133,7 @@ func TestPrewarmHostPathMountsDeclaredRoot(t *testing.T) {
 
 	path, err := prewarmHostPath(workspace, workload, "/data/models/glm")
 	require.NoError(t, err)
-	assert.Equal(t, "/data", path)
+	assert.Equal(t, "/data/models/glm", path)
 
 	path, err = prewarmHostPath(workspace, workload, "/data")
 	require.NoError(t, err)
@@ -143,8 +143,41 @@ func TestPrewarmHostPathMountsDeclaredRoot(t *testing.T) {
 	assert.Error(t, err)
 }
 
+// The prewarm pod mounts only the model directory, for the volume shapes the workspace declares as
+// well as for one that requires the privileged grant, and the generated workload is marked as granted
+// only when the workspace does not declare the model directory.
+func TestPrewarmHostPathOfVolumeShapes(t *testing.T) {
+	workload := &v1.Workload{Spec: v1.WorkloadSpec{
+		GroupVersionKind: v1.GroupVersionKind{Kind: "Job"},
+	}}
+	workspace := &v1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{Name: "ws"},
+		Spec: v1.WorkspaceSpec{Volumes: []v1.WorkspaceVolume{
+			{Id: 1, Type: v1.HOSTPATH, HostPath: "/data", MountPath: "/data", EnableUserDir: true},
+			{Id: 2, Type: v1.HOSTPATH, HostPath: "/nfs", SubPath: "models", MountPath: "/models"},
+			{Id: 3, Type: v1.HOSTPATH, HostPath: "/secret", MountPath: "/secret", RequiresPrivilegedGrant: true},
+		}},
+	}
+	cases := map[string]struct {
+		modelPath  string
+		needsGrant bool
+	}{
+		"user dir root":    {modelPath: "/data/models/glm"},
+		"subPath":          {modelPath: "/nfs/models/glm"},
+		"privileged grant": {modelPath: "/secret/glm", needsGrant: true},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			path, err := prewarmHostPath(workspace, workload, tc.modelPath)
+			require.NoError(t, err)
+			assert.Equal(t, tc.modelPath, path)
+			assert.Equal(t, tc.needsGrant, prewarmNeedsGrant(workspace, workload, path))
+		})
+	}
+}
+
 // The prewarm workload of an external node opts out of user directory mounts, so its pod mounts the
-// declared root even when external_execution.user_dir_mounts is on for the cluster.
+// model directory even when external_execution.user_dir_mounts is on for the cluster.
 func TestExternalPrewarmWorkloadOptsOutOfUserDirMounts(t *testing.T) {
 	const key = "external_execution.user_dir_mounts"
 	commonconfig.SetValue(key, "true")
@@ -172,7 +205,8 @@ func TestExternalPrewarmWorkloadOptsOutOfUserDirMounts(t *testing.T) {
 	workload, err := r.generateExternalWorkload(context.Background(), job, cfg, node, "j1-abc")
 	require.NoError(t, err)
 	assert.Equal(t, v1.TrueStr, v1.GetAnnotation(workload, v1.WorkloadUserDirMountsOffAnnotation))
-	assert.Equal(t, []string{"/data"}, workload.Spec.Hostpath)
+	assert.Equal(t, []string{"/data/models/glm"}, workload.Spec.Hostpath)
+	assert.False(t, v1.HasAnnotation(workload, v1.WorkloadHostPathAuthzAnnotation))
 }
 
 // The prewarm workload name must be a DNS label of at most MaxGeneratedNameLength characters, whatever
