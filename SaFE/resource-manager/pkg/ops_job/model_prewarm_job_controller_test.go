@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -239,9 +240,29 @@ func pendingResultReconciler(t *testing.T, objs []client.Object, pods ...*corev1
 	return &ModelPrewarmJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, objs...)}, clients
 }
 
+// setPendingTimeout configures the pending timeout of prewarm pods for the test.
+func setPendingTimeout(t *testing.T, seconds int) {
+	const key = "ops_job.model_prewarm.pending_timeout_second"
+	commonconfig.SetValue(key, strconv.Itoa(seconds))
+	t.Cleanup(func() { commonconfig.UnsetValue(key) })
+}
+
+// By default there is no pending timeout: a pod that stays unscheduled does not fail its node, and
+// its workload is kept, so the job timeout is what bounds the wait.
+func TestExternalPendingWithoutTimeoutWaitsIndefinitely(t *testing.T) {
+	job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: "j1"}}
+	workload := prewarmWorkloadOf(job, "admin-1", 24*time.Hour, v1.WorkloadPending)
+	pod := pendingPrewarmPod(workload.Name, 24*time.Hour, corev1.ConditionFalse, time.Now())
+	r, clients := pendingResultReconciler(t, []client.Object{workload}, pod)
+
+	assert.Nil(t, r.externalWorkloadResult(context.Background(), job, workload, clients))
+	assert.NoError(t, r.Get(context.Background(), client.ObjectKeyFromObject(workload), &v1.Workload{}))
+}
+
 // A pod that stays unscheduled past the pending timeout fails its node even when the workload reports
 // Running, because an active job with a pending pod is not running.
 func TestExternalPendingPodFailsWhileWorkloadReportsRunning(t *testing.T) {
+	setPendingTimeout(t, 300)
 	job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: "j1"}}
 	workload := prewarmWorkloadOf(job, "admin-1", 400*time.Second, v1.WorkloadRunning)
 	pod := pendingPrewarmPod(workload.Name, 400*time.Second, corev1.ConditionFalse, time.Now())
@@ -255,6 +276,7 @@ func TestExternalPendingPodFailsWhileWorkloadReportsRunning(t *testing.T) {
 
 // The pending timeout counts from the pod creation, so time a workload spends queued is not counted.
 func TestExternalPendingTimeoutCountsFromPodCreation(t *testing.T) {
+	setPendingTimeout(t, 300)
 	job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: "j1"}}
 	workload := prewarmWorkloadOf(job, "admin-1", 3600*time.Second, v1.WorkloadPending)
 	pod := pendingPrewarmPod(workload.Name, 10*time.Second, corev1.ConditionFalse, time.Now())
@@ -265,6 +287,7 @@ func TestExternalPendingTimeoutCountsFromPodCreation(t *testing.T) {
 
 // Once the pod is scheduled, a warning from before the scheduling is not the reason it is still pending.
 func TestExternalPendingEventsBeforeScheduleAreIgnored(t *testing.T) {
+	setPendingTimeout(t, 300)
 	job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: "j1"}}
 	workload := prewarmWorkloadOf(job, "admin-1", 400*time.Second, v1.WorkloadPending)
 	scheduledAt := time.Now().Add(-380 * time.Second)
@@ -286,6 +309,7 @@ func TestExternalPendingEventsBeforeScheduleAreIgnored(t *testing.T) {
 
 // A node whose pod timed out has its workload deleted, so the execution stops before the slot is released.
 func TestExternalPendingTimeoutDeletesWorkload(t *testing.T) {
+	setPendingTimeout(t, 300)
 	job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: "j1"}}
 	workload := prewarmWorkloadOf(job, "admin-1", 400*time.Second, v1.WorkloadPending)
 	pod := pendingPrewarmPod(workload.Name, 400*time.Second, corev1.ConditionFalse, time.Now())

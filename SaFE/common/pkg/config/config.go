@@ -449,9 +449,9 @@ func GetModelPrewarmMaxConcurrent() int {
 }
 
 // GetModelPrewarmPendingTimeoutSecond returns how long a prewarm pod may stay unscheduled
-// before its node is reported as failed.
+// before its node is reported as failed: 0 when unset or not positive, meaning no pending timeout.
 func GetModelPrewarmPendingTimeoutSecond() int {
-	return getInt(modelPrewarmPendingSecond, 300)
+	return getInt(modelPrewarmPendingSecond, 0)
 }
 
 // GetModelPrewarmTimeoutSecond returns the timeout in seconds for model prewarm jobs.
