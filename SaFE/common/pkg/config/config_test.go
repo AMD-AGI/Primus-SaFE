@@ -2149,3 +2149,18 @@ func TestChartRendersTheConsoleReturnPrefixes(t *testing.T) {
 	loadRendered(t, renderApiserverConfig(t, "--set-json", "console.return_prefixes=[]"))
 	testifyassert.Equal(t, []string{}, GetConsoleReturnPrefixes())
 }
+
+func TestModelPrewarmGettersDefaultsAndValues(t *testing.T) {
+	viper.Reset()
+	testifyassert.Equal(t, "docker.io/primussafe/model-prewarm:latest", GetModelPrewarmImage())
+	testifyassert.Equal(t, 4, GetModelPrewarmMaxConcurrent())
+	testifyassert.Equal(t, 0, GetModelPrewarmPendingTimeoutSecond())
+
+	viper.Set(modelPrewarmImage, "registry.example/prewarm:v1")
+	viper.Set(modelPrewarmMaxConcurrent, 0)
+	viper.Set(modelPrewarmPendingSecond, 300)
+	defer viper.Reset()
+	testifyassert.Equal(t, "registry.example/prewarm:v1", GetModelPrewarmImage())
+	testifyassert.Equal(t, 0, GetModelPrewarmMaxConcurrent())
+	testifyassert.Equal(t, 300, GetModelPrewarmPendingTimeoutSecond())
+}
