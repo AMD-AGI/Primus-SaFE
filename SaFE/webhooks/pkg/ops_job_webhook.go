@@ -214,7 +214,9 @@ func (m *OpsJobMutator) filterUnhealthyNodes(ctx context.Context, job *v1.OpsJob
 		isFiltered := false
 		if !job.Spec.IsTolerateAll {
 			for _, t := range node.Status.Taints {
-				if !commonfaults.IsSystemReservedTaint(t.Key) && !node.IsIgnorableTaint(t.Key) {
+				// Provider identity taints of external nodes are ignored for model prewarm only.
+				ignorable := job.Spec.Type == v1.OpsJobModelPrewarmType && node.IsIgnorableTaint(t.Key)
+				if !commonfaults.IsSystemReservedTaint(t.Key) && !ignorable {
 					isFiltered = true
 					break
 				}

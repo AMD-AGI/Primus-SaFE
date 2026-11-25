@@ -8,6 +8,7 @@ package webhooks
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	gtassert "gotest.tools/assert"
@@ -855,4 +856,49 @@ func TestOpsJobValidateModelInspect(t *testing.T) {
 	noWorkspace := inspect("/data/models/org--repo")
 	noWorkspace.Spec.Inputs = noWorkspace.Spec.Inputs[:1]
 	assert.Error(t, v.validateModelInspect(noWorkspace))
+}
+
+// Provider identity taints are ignored only for model prewarm: preflight and addon jobs keep dropping
+// the external node, and a node without the external lifecycle keeps being dropped for prewarm.
+func TestOpsJobFilterUnhealthyNodesProviderTaint(t *testing.T) {
+	scheme := newScheme(t)
+	taint := []corev1.Taint{{Key: v1.ExternalVirtualKubeletTaint, Effect: corev1.TaintEffectNoSchedule}}
+	now := time.Now().UTC()
+	external := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "ext", Annotations: map[string]string{
+			v1.ExternalObservedAtAnnotation: now.Format(time.RFC3339),
+			v1.ExternalValidUntilAnnotation: now.Add(time.Hour).Format(time.RFC3339),
+		}},
+		Spec: v1.NodeSpec{
+			LifecycleMode: v1.NodeLifecycleExternal,
+			ExternalRef:   &v1.NodeExternalRef{Provider: "autopilot", AllocationId: "alloc-ext"},
+		},
+		Status: v1.NodeStatus{
+			Conditions: []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}},
+			Taints:     taint,
+		},
+	}
+	regular := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "reg"},
+		Status:     v1.NodeStatus{MachineStatus: v1.MachineStatus{Phase: v1.NodeReady}, Taints: taint},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(external, regular).Build()
+	m := &OpsJobMutator{Client: c}
+	for _, tc := range []struct {
+		jobType v1.OpsJobType
+		node    string
+		kept    bool
+	}{
+		{v1.OpsJobPreflightType, "ext", false},
+		{v1.OpsJobAddonType, "ext", false},
+		{v1.OpsJobModelPrewarmType, "ext", true},
+		{v1.OpsJobModelPrewarmType, "reg", false},
+	} {
+		job := &v1.OpsJob{Spec: v1.OpsJobSpec{
+			Type:   tc.jobType,
+			Inputs: []v1.Parameter{{Name: v1.ParameterNode, Value: tc.node}},
+		}}
+		m.filterUnhealthyNodes(context.Background(), job)
+		gtassert.Equal(t, tc.kept, len(job.GetParameters(v1.ParameterNode)) == 1, "%s on %s", tc.jobType, tc.node)
+	}
 }
