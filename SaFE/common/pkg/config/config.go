@@ -436,6 +436,24 @@ func GetExportImageTimeoutSecond() int {
 	return getInt(exportImageTimeoutSecond, 43200)
 }
 
+// GetModelPrewarmImage returns the image of the pod that prewarms a model on a node without node-agent.
+// The image must provide bash, find, xargs, stat and awk.
+func GetModelPrewarmImage() string {
+	return getString(modelPrewarmImage, "docker.io/primussafe/model-prewarm:latest")
+}
+
+// GetModelPrewarmMaxConcurrent returns how many nodes of one model prewarm job may be prewarmed
+// by pods at the same time: 4 when unset; 0 or a negative value means no limit.
+func GetModelPrewarmMaxConcurrent() int {
+	return getInt(modelPrewarmMaxConcurrent, 4)
+}
+
+// GetModelPrewarmPendingTimeoutSecond returns how long a prewarm pod may stay unscheduled
+// before its node is reported as failed: 0 when unset or not positive, meaning no pending timeout.
+func GetModelPrewarmPendingTimeoutSecond() int {
+	return getInt(modelPrewarmPendingSecond, 0)
+}
+
 // GetModelPrewarmTimeoutSecond returns the timeout in seconds for model prewarm jobs.
 func GetModelPrewarmTimeoutSecond() int {
 	return getInt(modelPrewarmTimeoutSecond, 7200)

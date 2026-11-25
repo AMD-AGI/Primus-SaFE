@@ -18,6 +18,7 @@ import (
 
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/labels"
@@ -129,6 +130,7 @@ func (m *WorkloadMutator) mutateOnCreation(ctx context.Context, workload *v1.Wor
 	if err := m.mutateTimeout(ctx, workload, workspace); err != nil {
 		return err
 	}
+	m.mutateModelPrewarmDir(ctx, workload)
 	// Stamp the status-offload marker so only workloads created by this version
 	// store large status fields in DB; pre-existing workloads stay on etcd.
 	v1.SetAnnotation(workload, v1.WorkloadStatusOffloadAnnotation, v1.TrueStr)
@@ -144,6 +146,7 @@ func (m *WorkloadMutator) mutateOnUpdate(ctx context.Context, oldWorkload, newWo
 	if err := m.mutateCommon(ctx, oldWorkload, newWorkload, workspace); err != nil {
 		return err
 	}
+	keepModelPrewarmDir(oldWorkload, newWorkload)
 	rememberRunningResources(oldWorkload, newWorkload)
 	return nil
 }
@@ -415,13 +418,15 @@ func (m *WorkloadMutator) mutateResources(_ context.Context, workload *v1.Worklo
 // mutateHostPath removes hostPath duplicated by the workspace; workloads inherit workspace hostPath.
 // Only the workspace volumes mounted into the workload are inherited, so a hostPath that duplicates
 // a volume restricted to other scopes, or one that requires the workload/privileged grant the
-// workload was not marked with, is kept (and judged as any other entry).
+// workload was not marked with, is kept (and judged as any other entry). A workload that turns workspace
+// storage off mounts no workspace volume, so it inherits no hostPath.
 func (m *WorkloadMutator) mutateHostPath(workload *v1.Workload, workspace *v1.Workspace) {
 	if len(workload.Spec.Hostpath) == 0 {
 		return
 	}
 	hostPathSet := sets.NewSet()
-	if workspace != nil {
+	storageOff := v1.GetAnnotation(workload, v1.UseWorkspaceStorageAnnotation) == "false"
+	if workspace != nil && !storageOff {
 		for i := range workspace.Spec.Volumes {
 			vol := &workspace.Spec.Volumes[i]
 			if vol.Type == v1.HOSTPATH && commonworkload.WorkspaceVolumeMountedInto(vol, workload) {
@@ -2554,6 +2559,34 @@ func (v *WorkloadValidator) validateImmutableFields(newWorkload, oldWorkload *v1
 			return field.Forbidden(field.NewPath("spec").Key("env").Key(common.UnifiedJobEnable), "immutable")
 		}
 	}
+	if err := validatePrewarmExecutionUnchanged(newWorkload, oldWorkload); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validatePrewarmExecutionUnchanged keeps what a model prewarm workload runs, mounts and is placed on
+// as it was created. The root privilege of its pod is granted to the generated workload only, so an
+// update by its owner cannot change the image, the command, the environment, the hostPath or the node.
+func validatePrewarmExecutionUnchanged(newWorkload, oldWorkload *v1.Workload) error {
+	if !commonworkload.IsModelPrewarm(oldWorkload) {
+		return nil
+	}
+	checks := []struct {
+		name    string
+		changed bool
+	}{
+		{"images", !equality.Semantic.DeepEqual(newWorkload.Spec.Images, oldWorkload.Spec.Images)},
+		{"entryPoints", !equality.Semantic.DeepEqual(newWorkload.Spec.EntryPoints, oldWorkload.Spec.EntryPoints)},
+		{"env", !equality.Semantic.DeepEqual(newWorkload.Spec.Env, oldWorkload.Spec.Env)},
+		{"hostpath", !equality.Semantic.DeepEqual(newWorkload.Spec.Hostpath, oldWorkload.Spec.Hostpath)},
+		{"customerLabels", !equality.Semantic.DeepEqual(newWorkload.Spec.CustomerLabels, oldWorkload.Spec.CustomerLabels)},
+	}
+	for _, check := range checks {
+		if check.changed {
+			return field.Forbidden(field.NewPath("spec").Key(check.name), "immutable for model prewarm workloads")
+		}
+	}
 	return nil
 }
 
@@ -2635,10 +2668,10 @@ func (v *WorkloadValidator) validateSpecChanged(newWorkload, oldWorkload *v1.Wor
 		return false
 	}
 	if !reflect.DeepEqual(newWorkload.Spec.Resources, oldWorkload.Spec.Resources) ||
-		!reflect.DeepEqual(newWorkload.Spec.Images, oldWorkload.Spec.Images) ||
-		!reflect.DeepEqual(newWorkload.Spec.EntryPoints, oldWorkload.Spec.EntryPoints) ||
-		!reflect.DeepEqual(newWorkload.Spec.Env, oldWorkload.Spec.Env) ||
-		!reflect.DeepEqual(newWorkload.Spec.CustomerLabels, oldWorkload.Spec.CustomerLabels) ||
+		!equality.Semantic.DeepEqual(newWorkload.Spec.Images, oldWorkload.Spec.Images) ||
+		!equality.Semantic.DeepEqual(newWorkload.Spec.EntryPoints, oldWorkload.Spec.EntryPoints) ||
+		!equality.Semantic.DeepEqual(newWorkload.Spec.Env, oldWorkload.Spec.Env) ||
+		!equality.Semantic.DeepEqual(newWorkload.Spec.CustomerLabels, oldWorkload.Spec.CustomerLabels) ||
 		isServiceChanged(newWorkload, oldWorkload) {
 		return commonerrors.NewConflict("Cannot update resource for a dispatched workload")
 	}

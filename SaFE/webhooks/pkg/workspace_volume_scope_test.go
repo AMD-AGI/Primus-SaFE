@@ -141,3 +141,24 @@ func TestMutateHostPathRespectsVolumeScopes(t *testing.T) {
 	m.mutateHostPath(job, ws)
 	assert.DeepEqual(t, job.Spec.Hostpath, []string{})
 }
+
+// A hostpath duplicating a workspace volume is kept when the workload does not mount workspace storage,
+// because the dispatcher then mounts no workspace volume; with workspace storage it is dropped.
+func TestMutateHostPathKeepsHostPathWithoutWorkspaceStorage(t *testing.T) {
+	m := &WorkloadMutator{}
+	ws := &v1.Workspace{Spec: v1.WorkspaceSpec{Volumes: []v1.WorkspaceVolume{
+		{Id: 1, Type: v1.HOSTPATH, MountPath: "/shared_nfs", HostPath: "/shared_nfs"},
+	}}}
+
+	off := sandboxWorkload("/shared_nfs")
+	off.Spec.Kind = common.PytorchJobKind
+	v1.SetAnnotation(off, v1.UseWorkspaceStorageAnnotation, "false")
+	m.mutateHostPath(off, ws)
+	assert.DeepEqual(t, off.Spec.Hostpath, []string{"/shared_nfs"})
+
+	on := sandboxWorkload("/shared_nfs")
+	on.Spec.Kind = common.PytorchJobKind
+	v1.SetAnnotation(on, v1.UseWorkspaceStorageAnnotation, v1.TrueStr)
+	m.mutateHostPath(on, ws)
+	assert.DeepEqual(t, on.Spec.Hostpath, []string{})
+}

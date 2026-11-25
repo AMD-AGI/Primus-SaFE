@@ -886,7 +886,7 @@ func hostPathSource(workload *v1.Workload, workspace *v1.Workspace, hostpath str
 	case declared.Root == "":
 		return hostpath, "", false
 	case isExternalWorkload(workload):
-		return hostpath, "", declared.ReadOnly
+		return hostpath, "", declared.ReadOnly || prewarmModelDirMounted(workload)
 	default:
 		return declared.Root, declared.Sub, declared.ReadOnly
 	}
@@ -909,6 +909,13 @@ func checkPrivilegedVolumeHostPath(workload *v1.Workload, workspace *v1.Workspac
 	return nil
 }
 
+// prewarmModelDirMounted reports whether the workload is the pod of a model prewarm job on an external
+// node, which may mount its model directory below the declared root, read-only. The webhook sets the
+// mark only for a verified job, and no request can set it.
+func prewarmModelDirMounted(workload *v1.Workload) bool {
+	return v1.GetAnnotation(workload, v1.WorkloadModelPrewarmDirAnnotation) == v1.TrueStr
+}
+
 // checkExternalHostPath refuses an external workload's hostpath entry that lies below the hostPath
 // of a hostpath volume of its workspace (commonworkload.HostPathVolumeRoot, the root the provider
 // approves). The provider refuses subPath, so such an entry could only be mounted as its own
@@ -919,7 +926,7 @@ func checkPrivilegedVolumeHostPath(workload *v1.Workload, workspace *v1.Workspac
 // (read-only for a Sandbox or under a read-only volume); checkExternalPodHostPaths keeps it out of
 // the user directories.
 func checkExternalHostPath(workload *v1.Workload, workspace *v1.Workspace, hostpath string) error {
-	if !isExternalWorkload(workload) || userDirMountsEnabled(workload) {
+	if !isExternalWorkload(workload) || userDirMountsEnabled(workload) || prewarmModelDirMounted(workload) {
 		return nil
 	}
 	root, sub := commonworkload.HostPathVolumeRoot(workspace, commonworkload.GetScope(workload), hostpath)
@@ -3746,6 +3753,17 @@ func updateContainers(adminWorkload *v1.Workload,
 			limits[string(corev1.ResourceEphemeralStorage)] = q.String()
 		}
 	}
+	// A prewarm pod reads the model into the page cache, which the kernel charges to the memory of the
+	// container. A memory limit below the model size would reclaim the pages while they are read.
+	if commonworkload.IsModelPrewarm(adminWorkload) {
+		withoutMemory := make(map[string]interface{}, len(limits))
+		for key, val := range limits {
+			if key != string(corev1.ResourceMemory) {
+				withoutMemory[key] = val
+			}
+		}
+		limits = withoutMemory
+	}
 
 	for i := range containers {
 		container := containers[i].(map[string]interface{})
@@ -4060,6 +4078,11 @@ func stripExternalContainerPrivileges(obj *unstructured.Unstructured, workload *
 		sc["privileged"] = false
 		delete(sc, "runAsUser")
 		delete(sc, "runAsGroup")
+		// A prewarm pod reads model files that the submitter account may not be able to read.
+		// Whether the provider allows the identity is up to the provider.
+		if field == "containers" && commonworkload.IsModelPrewarm(workload) {
+			sc["runAsUser"] = int64(0)
+		}
 		if caps, _ := sc["capabilities"].(map[string]interface{}); caps != nil {
 			delete(caps, "add")
 			if len(caps) == 0 {

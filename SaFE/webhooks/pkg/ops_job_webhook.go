@@ -214,7 +214,9 @@ func (m *OpsJobMutator) filterUnhealthyNodes(ctx context.Context, job *v1.OpsJob
 		isFiltered := false
 		if !job.Spec.IsTolerateAll {
 			for _, t := range node.Status.Taints {
-				if !commonfaults.IsSystemReservedTaint(t.Key) {
+				// Provider identity taints of external nodes are ignored for model prewarm only.
+				ignorable := job.Spec.Type == v1.OpsJobModelPrewarmType && node.IsIgnorableTaint(t.Key)
+				if !commonfaults.IsSystemReservedTaint(t.Key) && !ignorable {
 					isFiltered = true
 					break
 				}
@@ -492,7 +494,28 @@ func (v *OpsJobValidator) validateModelPrewarm(ctx context.Context, job *v1.OpsJ
 			return commonerrors.NewBadRequest("parallelism must be a positive integer")
 		}
 	}
-	return v.validateNodes(ctx, job)
+	if err := v.validateNodes(ctx, job); err != nil {
+		return err
+	}
+	return v.validateModelPrewarmExternalNodes(ctx, job)
+}
+
+// validateModelPrewarmExternalNodes checks that each external target node belongs to a workspace,
+// because the prewarm workload of such a node runs in it.
+func (v *OpsJobValidator) validateModelPrewarmExternalNodes(ctx context.Context, job *v1.OpsJob) error {
+	for _, param := range job.GetParameters(v1.ParameterNode) {
+		node, err := getNode(ctx, v.Client, param.Value)
+		if err != nil {
+			return err
+		}
+		if !node.IsExternal() {
+			continue
+		}
+		if v1.GetWorkspaceId(node) == "" {
+			return commonerrors.NewBadRequest(fmt.Sprintf("external node %s does not belong to a workspace", node.Name))
+		}
+	}
+	return nil
 }
 
 // validateDownload checks if another download job is already running on the same input.
@@ -594,21 +617,20 @@ func (v *OpsJobValidator) validateImmutableFields(newJob, oldJob *v1.OpsJob) err
 	return nil
 }
 
-// hasDuplicateInput checks whether the given parameter name has the same value
+// hasDuplicateInput checks whether any value of the given parameter name appears
 // in both parameter lists.
 func (v *OpsJobValidator) hasDuplicateInput(params1, params2 []v1.Parameter, paramName string) bool {
-	params1Map := make(map[string]string)
+	values := make(map[string]struct{})
 	for _, p := range params1 {
-		if paramName == p.Name {
-			params1Map[p.Name] = p.Value
+		if p.Name == paramName {
+			values[p.Value] = struct{}{}
 		}
 	}
 	for _, p := range params2 {
 		if p.Name != paramName {
 			continue
 		}
-		value2, ok := params1Map[p.Name]
-		if ok && value2 == p.Value {
+		if _, ok := values[p.Value]; ok {
 			return true
 		}
 	}

@@ -846,6 +846,11 @@ func IsOpsJob(w *v1.Workload) bool {
 	return v1.GetOpsJobId(w) != ""
 }
 
+// IsModelPrewarm returns true if the workload is the prewarm pod of a model-prewarm ops job.
+func IsModelPrewarm(w *v1.Workload) bool {
+	return IsOpsJob(w) && v1.GetOpsJobType(w) == string(v1.OpsJobModelPrewarmType)
+}
+
 // IsPostTraining returns true if the workload belongs to a Post Training run.
 func IsPostTraining(w *v1.Workload) bool {
 	return v1.GetLabel(w, v1.PostTrainingRunIdLabel) != ""

@@ -118,6 +118,9 @@ const (
 
 	modelPrewarmPrefix        = opsJobPrefix + "model_prewarm."
 	modelPrewarmTimeoutSecond = modelPrewarmPrefix + "timeout_second"
+	modelPrewarmImage         = modelPrewarmPrefix + "image"
+	modelPrewarmMaxConcurrent = modelPrewarmPrefix + "max_concurrent"
+	modelPrewarmPendingSecond = modelPrewarmPrefix + "pending_timeout_second"
 
 	exportImageTimeoutSecond = opsJobPrefix + "export_image.timeout_second"
 
