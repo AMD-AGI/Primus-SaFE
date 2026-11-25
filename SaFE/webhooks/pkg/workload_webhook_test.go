@@ -2913,6 +2913,28 @@ func TestWorkloadValidateServiceTargetPort(t *testing.T) {
 		"a workload moved onto the host network is checked")
 }
 
+// The webhook runs the target port check on every workload it admits: a hostNetwork workload is refused on a
+// fixed host port and gets past the check on another.
+func TestWorkloadValidateCommonChecksServiceTargetPort(t *testing.T) {
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"},
+		Spec: v1.WorkspaceSpec{Cluster: "cluster1", Replica: 10}}
+	v := &WorkloadValidator{Client: fake.NewClientBuilder().WithScheme(newScheme(t)).WithObjects(ws).Build()}
+	workload := func(targetPort int) *v1.Workload {
+		w := validWorkload()
+		w.Spec.Images = []string{"img:1"}
+		w.Spec.EntryPoints = []string{"c2xlZXAgNjA="}
+		w.Spec.Resources[0].RdmaResource = "rdma/hca"
+		w.Spec.Service = &v1.Service{Port: 80, TargetPort: targetPort, Protocol: corev1.ProtocolTCP,
+			ServiceType: corev1.ServiceTypeClusterIP}
+		return w
+	}
+	err := v.validateCommon(context.Background(), workload(common.RayJobDashboardPort), nil)
+	assert.ErrorContains(t, err, fmt.Sprintf("targetPort %d", common.RayJobDashboardPort))
+	// Another port passes the check; a later check may still stop this minimal workload.
+	err = v.validateCommon(context.Background(), workload(9000), nil)
+	assert.Assert(t, err == nil || !strings.Contains(err.Error(), "targetPort"), "%v", err)
+}
+
 // TestWorkloadValidateWorkspaceQuota covers the quota-insufficient branch.
 func TestWorkloadValidateWorkspaceQuota(t *testing.T) {
 	scheme := newScheme(t)
