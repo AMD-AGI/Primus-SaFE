@@ -158,7 +158,7 @@ func (relevantChangePredicate) Update(e event.UpdateEvent) bool {
 		if !maps.EqualIgnoreOrder(oldWorkload.Spec.Env, newWorkload.Spec.Env) || len(v1.GetEnvToBeRemoved(newWorkload)) > 0 {
 			return true
 		}
-		if v1.IsWorkloadEnablePreempt(newWorkload) && oldWorkload.Spec.Priority != newWorkload.Spec.Priority {
+		if syncsPriority(newWorkload) && oldWorkload.Spec.Priority != newWorkload.Spec.Priority {
 			return true
 		}
 		if !reflect.DeepEqual(oldWorkload.Spec.Service, newWorkload.Spec.Service) {
@@ -825,10 +825,17 @@ func isSharedMemoryChanged(adminWorkload *v1.Workload, obj *unstructured.Unstruc
 	return false
 }
 
+// syncsPriority reports whether a priority change of a dispatched workload is synced to its object.
+// It is synced when preemption is enabled for the workload. A CICD scale set always syncs it,
+// since its priority is passed to the jobs its runners submit.
+func syncsPriority(w *v1.Workload) bool {
+	return v1.IsWorkloadEnablePreempt(w) || commonworkload.IsCICDScalingRunnerSet(w)
+}
+
 // isPriorityClassChanged checks if the priority of the workload has changed.
-// The priority class is only synced when preemption is enabled for the workload.
+// The priority class is only synced when syncsPriority holds for the workload.
 func isPriorityClassChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
-	if !v1.IsWorkloadEnablePreempt(adminWorkload) {
+	if !syncsPriority(adminWorkload) {
 		return false
 	}
 	priorityClassName, err := jobutils.GetPriorityClassName(obj, rt, len(adminWorkload.Spec.Resources))

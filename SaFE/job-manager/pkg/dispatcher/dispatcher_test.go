@@ -425,6 +425,37 @@ func TestIsPriorityClassChanged(t *testing.T) {
 	v1.RemoveAnnotation(adminWorkload, v1.WorkloadEnablePreemptAnnotation)
 	ok = isPriorityClassChanged(adminWorkload, workloadObj, jobutils.TestPytorchResourceTemplate)
 	assert.Equal(t, ok, false)
+
+	// A CICD scale set syncs a priority change without preemption.
+	adminWorkload.Spec.Kind = common.CICDScaleRunnerSetKind
+	ok = isPriorityClassChanged(adminWorkload, workloadObj, jobutils.TestPytorchResourceTemplate)
+	assert.Equal(t, ok, true)
+}
+
+func TestDispatcherPredicateUpdatePriority(t *testing.T) {
+	p := relevantChangePredicate{}
+	newDispatched := func(kind string, preempt bool, priority int) *v1.Workload {
+		w := &v1.Workload{ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{v1.WorkloadDispatchedAnnotation: "true"},
+		}}
+		w.Spec.Kind = kind
+		w.Spec.Priority = priority
+		if preempt {
+			v1.SetAnnotation(w, v1.WorkloadEnablePreemptAnnotation, v1.TrueStr)
+		}
+		return w
+	}
+	update := func(oldW, newW *v1.Workload) bool {
+		return p.Update(event.UpdateEvent{ObjectOld: oldW, ObjectNew: newW})
+	}
+
+	// Preemption disabled: a priority change alone is ignored.
+	assert.Equal(t, update(newDispatched(common.DeploymentKind, false, 0), newDispatched(common.DeploymentKind, false, 2)), false)
+	// Preemption enabled: a priority change triggers a sync.
+	assert.Equal(t, update(newDispatched(common.DeploymentKind, true, 0), newDispatched(common.DeploymentKind, true, 2)), true)
+	// CICD scale set: a priority change triggers a sync without preemption.
+	assert.Equal(t, update(newDispatched(common.CICDScaleRunnerSetKind, false, 0),
+		newDispatched(common.CICDScaleRunnerSetKind, false, 2)), true)
 }
 
 func TestIsCICDSecretChanged(t *testing.T) {
