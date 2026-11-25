@@ -3756,23 +3756,98 @@ func TestNodeAffinityExcludedNodes(t *testing.T) {
 	}
 }
 
-// A retry on the original nodes prefers the previous nodes; without preferred affinity it
-// neither makes the excluded nodes soft nor adds a preferred term for them.
+// A retry on the original nodes prefers the previous dispatch nodes unless specified nodes
+// are preferred instead. Without preferred affinity the excluded nodes stay a required term and
+// get no preferred term; with preferred affinity they become a preferred term next to the
+// previous-nodes preference rather than replacing it.
 func TestNodeAffinityExcludedNodesWithRetryOnOriginal(t *testing.T) {
-	for _, affinity := range []string{"", common.NodesAffinityRequired} {
-		w := affinityWorkload(corev1.NamespaceDefault, map[string]string{common.ExcludedNodes: "node-a node-b"})
-		w.Annotations[v1.RetryOnOriginalNodesAnnotation] = v1.TrueStr
-		w.Annotations[v1.NodesAffinityAnnotation] = affinity
-		v1.SetLabel(w, v1.WorkloadDispatchCntLabel, "1")
-		w.Status.Nodes = [][]string{{"node-p", "node-q"}}
-		obj := affinityObject(nil)
-		assert.NilError(t, modifyRequiredNodeAffinity(obj, w, affinityTestPath))
-		assert.NilError(t, modifyPreferredNodeAffinity(obj, w, preferredAffinityTestPath))
-		assert.DeepEqual(t, describeExprs(renderedTerms(t, obj)),
-			[]string{v1.K8sHostName + " NotIn [node-a node-b]"})
-		got, _, err := jobutils.NestedSlice(obj.Object, preferredAffinityTestPath)
-		assert.NilError(t, err)
-		assert.DeepEqual(t, describePreferred(got), []string{"100 " + v1.K8sHostName + " In [node-p node-q]"})
+	required, empty, preferred := common.NodesAffinityRequired, "", common.NodesAffinityPreferred
+	hostname := v1.K8sHostName
+	excludedHard := hostname + " NotIn [node-a node-b]"
+	excludedSoft := "100 " + hostname + " NotIn [node-a node-b]"
+	previous := "100 " + hostname + " In [node-p node-q]"
+	specified := "100 " + hostname + " In [node-c node-d]"
+	tests := []struct {
+		name          string
+		affinity      *string // nil: annotation absent
+		labels        map[string]string
+		dispatchCnt   string
+		wantRequired  []string
+		wantPreferred []string
+	}{
+		{
+			name:          "absent keeps the hard term and prefers the previous nodes",
+			labels:        map[string]string{common.ExcludedNodes: "node-a node-b"},
+			dispatchCnt:   "1",
+			wantRequired:  []string{excludedHard},
+			wantPreferred: []string{previous},
+		},
+		{
+			name:          "empty keeps the hard term and prefers the previous nodes",
+			affinity:      &empty,
+			labels:        map[string]string{common.ExcludedNodes: "node-a node-b"},
+			dispatchCnt:   "1",
+			wantRequired:  []string{excludedHard},
+			wantPreferred: []string{previous},
+		},
+		{
+			name:          "required keeps the hard term and prefers the previous nodes",
+			affinity:      &required,
+			labels:        map[string]string{common.ExcludedNodes: "node-a node-b"},
+			dispatchCnt:   "1",
+			wantRequired:  []string{excludedHard},
+			wantPreferred: []string{previous},
+		},
+		{
+			name:          "preferred with excluded nodes only keeps the previous-nodes preference",
+			affinity:      &preferred,
+			labels:        map[string]string{common.ExcludedNodes: "node-a node-b"},
+			dispatchCnt:   "1",
+			wantPreferred: []string{previous, excludedSoft},
+		},
+		{
+			name:          "preferred with excluded nodes only and no previous dispatch",
+			affinity:      &preferred,
+			labels:        map[string]string{common.ExcludedNodes: "node-a node-b"},
+			dispatchCnt:   "0",
+			wantPreferred: []string{excludedSoft},
+		},
+		{
+			// The specified nodes are what the workload asks to run on; they stay the preference.
+			name:     "preferred with specified and excluded nodes prefers the specified nodes",
+			affinity: &preferred,
+			labels: map[string]string{
+				common.SpecifiedNodes: "node-c node-d",
+				common.ExcludedNodes:  "node-a node-b",
+			},
+			dispatchCnt:   "1",
+			wantPreferred: []string{specified, excludedSoft},
+		},
+		{
+			name:          "preferred with specified nodes only prefers the specified nodes",
+			affinity:      &preferred,
+			labels:        map[string]string{common.SpecifiedNodes: "node-c node-d"},
+			dispatchCnt:   "1",
+			wantPreferred: []string{specified},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := affinityWorkload(corev1.NamespaceDefault, tt.labels)
+			w.Annotations[v1.RetryOnOriginalNodesAnnotation] = v1.TrueStr
+			if tt.affinity != nil {
+				w.Annotations[v1.NodesAffinityAnnotation] = *tt.affinity
+			}
+			v1.SetLabel(w, v1.WorkloadDispatchCntLabel, tt.dispatchCnt)
+			w.Status.Nodes = [][]string{{"node-p", "node-q"}}
+			obj := affinityObject(nil)
+			assert.NilError(t, modifyRequiredNodeAffinity(obj, w, affinityTestPath))
+			assert.NilError(t, modifyPreferredNodeAffinity(obj, w, preferredAffinityTestPath))
+			assert.DeepEqual(t, describeExprs(renderedTerms(t, obj)), tt.wantRequired)
+			got, _, err := jobutils.NestedSlice(obj.Object, preferredAffinityTestPath)
+			assert.NilError(t, err)
+			assert.DeepEqual(t, describePreferred(got), tt.wantPreferred)
+		})
 	}
 }
 

@@ -482,15 +482,16 @@ func dispatchNodesAt(workload *v1.Workload, idx int) []string {
 }
 
 // modifyPreferredNodeAffinity adds preferredDuringSchedulingIgnoredDuringExecution terms: it prefers
-// the specified nodes or the nodes of the previous dispatch attempt, which helps workloads to be
-// rescheduled on the same nodes, and, when the workload asks for preferred affinity, avoids the
-// excluded nodes without making the exclusion a hard requirement.
+// the specified nodes or, when there are none, the nodes of the previous dispatch attempt, which
+// helps workloads to be rescheduled on the same nodes, and, when the workload asks for preferred
+// affinity, avoids the excluded nodes without making the exclusion a hard requirement.
 func modifyPreferredNodeAffinity(obj *unstructured.Unstructured, workload *v1.Workload, path []string) error {
 	var nodes []string
 	preferred := v1.GetNodesAffinity(workload) == common.NodesAffinityPreferred
 	if preferred {
 		nodes = commonworkload.GetSpecifiedNodes(workload)
-	} else if v1.IsRetryingOnOriginal(workload) {
+	}
+	if len(nodes) == 0 && v1.IsRetryingOnOriginal(workload) {
 		dispatchCnt := v1.GetWorkloadDispatchCnt(workload)
 		if dispatchCnt > 0 {
 			nodes = dispatchNodesAt(workload, dispatchCnt-1)
