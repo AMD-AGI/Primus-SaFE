@@ -370,7 +370,12 @@ const (
 	// API read this label instead of treating Workload.Name as the Service name.
 	ServiceNameLabel              = PrimusSafePrefix + "service.name"
 	UseWorkspaceStorageAnnotation = WorkloadPrefix + "use.workspace.storage"
-	ForceHostNetworkAnnotation    = WorkloadPrefix + "force.host.network"
+	// WorkspaceStorageReadOnlyAnnotation set to "true" mounts every workspace volume into the
+	// workload read-only, whatever the volume's access mode, and keeps an external Pod's user
+	// directory out of it. It only takes write access away: a workload that does not use workspace
+	// storage mounts nothing either way.
+	WorkspaceStorageReadOnlyAnnotation = WorkloadPrefix + "workspace.storage.readonly"
+	ForceHostNetworkAnnotation         = WorkloadPrefix + "force.host.network"
 	// For full-GPU jobs with required affinity, the system reserves a node during retries to ensure reuse.
 	// Note: This feature is disabled when preemption is enabled
 	RetryOnOriginalNodesAnnotation = PrimusSafePrefix + "retry.on.original.nodes"

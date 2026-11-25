@@ -629,6 +629,11 @@ func IsEnableWorkspaceStorage(obj metav1.Object) bool {
 	return GetAnnotation(obj, UseWorkspaceStorageAnnotation) == TrueStr
 }
 
+// IsWorkspaceStorageReadOnly reports whether the workload mounts its workspace volumes read-only.
+func IsWorkspaceStorageReadOnly(obj metav1.Object) bool {
+	return GetAnnotation(obj, WorkspaceStorageReadOnlyAnnotation) == TrueStr
+}
+
 func IsForceHostNetwork(obj metav1.Object) bool {
 	return GetAnnotation(obj, ForceHostNetworkAnnotation) == TrueStr
 }

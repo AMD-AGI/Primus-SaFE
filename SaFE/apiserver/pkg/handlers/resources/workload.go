@@ -1277,6 +1277,9 @@ func (h *Handler) generateWorkload(ctx context.Context,
 	} else {
 		v1.SetAnnotation(workload, v1.UseWorkspaceStorageAnnotation, v1.TrueStr)
 	}
+	if req.WorkspaceStorageReadOnly {
+		v1.SetAnnotation(workload, v1.WorkspaceStorageReadOnlyAnnotation, v1.TrueStr)
+	}
 	if req.ForceHostNetwork != nil && *req.ForceHostNetwork {
 		v1.SetAnnotation(workload, v1.ForceHostNetworkAnnotation, strconv.FormatBool(*req.ForceHostNetwork))
 	}
