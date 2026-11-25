@@ -14,15 +14,21 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	k8sfake "k8s.io/client-go/kubernetes/fake"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	modelprewarm "github.com/AMD-AIG-AIMA/SAFE/common/pkg/model_prewarm"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
@@ -179,4 +185,171 @@ func TestExternalWorkloadNameIsDNSLabel(t *testing.T) {
 		assert.Regexp(t, nameRe, name, jobName)
 	}
 	assert.NotEqual(t, externalWorkloadName("a.b", node), externalWorkloadName("a-b", node))
+}
+
+// pendingPrewarmPod returns a pending prewarm pod of the workload, created age ago. An unscheduled pod
+// states why in its PodScheduled condition; a scheduled one has that condition true since schedAt.
+func pendingPrewarmPod(workloadName string, age time.Duration, scheduled corev1.ConditionStatus,
+	schedAt time.Time) *corev1.Pod {
+	message := ""
+	if scheduled == corev1.ConditionFalse {
+		message = "0/3 nodes are available: insufficient cpu"
+	}
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              workloadName + "-pod",
+			Namespace:         "ws1",
+			CreationTimestamp: metav1.NewTime(time.Now().Add(-age)),
+			Labels:            map[string]string{v1.WorkloadIdLabel: workloadName},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodPending,
+			Conditions: []corev1.PodCondition{{
+				Type: corev1.PodScheduled, Status: scheduled, Message: message,
+				LastTransitionTime: metav1.NewTime(schedAt),
+			}},
+		},
+	}
+}
+
+// prewarmWorkloadOf returns the prewarm workload of the node, created age ago in phase.
+func prewarmWorkloadOf(job *v1.OpsJob, node string, age time.Duration, phase v1.WorkloadPhase) *v1.Workload {
+	return &v1.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              externalWorkloadName(job.Name, node),
+			Namespace:         "ws1",
+			CreationTimestamp: metav1.NewTime(time.Now().Add(-age)),
+			Labels:            map[string]string{v1.OpsJobIdLabel: job.Name},
+		},
+		Spec:   v1.WorkloadSpec{Workspace: "ws1"},
+		Status: v1.WorkloadStatus{Phase: phase},
+	}
+}
+
+// pendingResultReconciler returns a reconciler and the cluster clients holding the pods and events.
+func pendingResultReconciler(t *testing.T, objs []client.Object, pods ...*corev1.Pod) (
+	*ModelPrewarmJobReconciler, *k8sclient.ClientFactory) {
+	t.Helper()
+	cs := k8sfake.NewSimpleClientset()
+	for _, pod := range pods {
+		_, err := cs.CoreV1().Pods("ws1").Create(context.Background(), pod, metav1.CreateOptions{})
+		require.NoError(t, err)
+	}
+	clients := k8sclient.NewClientFactoryWithOnlyClient(context.Background(), "c1", cs)
+	return &ModelPrewarmJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, objs...)}, clients
+}
+
+// A pod that stays unscheduled past the pending timeout fails its node even when the workload reports
+// Running, because an active job with a pending pod is not running.
+func TestExternalPendingPodFailsWhileWorkloadReportsRunning(t *testing.T) {
+	job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: "j1"}}
+	workload := prewarmWorkloadOf(job, "admin-1", 400*time.Second, v1.WorkloadRunning)
+	pod := pendingPrewarmPod(workload.Name, 400*time.Second, corev1.ConditionFalse, time.Now())
+	r, clients := pendingResultReconciler(t, []client.Object{workload}, pod)
+
+	result := r.externalWorkloadResult(context.Background(), job, workload, clients)
+	require.NotNil(t, result)
+	assert.Equal(t, modelprewarm.PhaseFailed, result.Phase)
+	assert.Contains(t, result.Message, "insufficient cpu")
+}
+
+// The pending timeout counts from the pod creation, so time a workload spends queued is not counted.
+func TestExternalPendingTimeoutCountsFromPodCreation(t *testing.T) {
+	job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: "j1"}}
+	workload := prewarmWorkloadOf(job, "admin-1", 3600*time.Second, v1.WorkloadPending)
+	pod := pendingPrewarmPod(workload.Name, 10*time.Second, corev1.ConditionFalse, time.Now())
+	r, clients := pendingResultReconciler(t, []client.Object{workload}, pod)
+
+	assert.Nil(t, r.externalWorkloadResult(context.Background(), job, workload, clients))
+}
+
+// Once the pod is scheduled, a warning from before the scheduling is not the reason it is still pending.
+func TestExternalPendingEventsBeforeScheduleAreIgnored(t *testing.T) {
+	job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: "j1"}}
+	workload := prewarmWorkloadOf(job, "admin-1", 400*time.Second, v1.WorkloadPending)
+	scheduledAt := time.Now().Add(-380 * time.Second)
+	pod := pendingPrewarmPod(workload.Name, 400*time.Second, corev1.ConditionTrue, scheduledAt)
+	event := &corev1.Event{
+		ObjectMeta:     metav1.ObjectMeta{Name: "old", Namespace: "ws1"},
+		InvolvedObject: corev1.ObjectReference{Name: pod.Name},
+		Type:           corev1.EventTypeWarning,
+		Message:        "0/3 nodes are available",
+		LastTimestamp:  metav1.NewTime(time.Now().Add(-390 * time.Second)),
+	}
+	r, clients := pendingResultReconciler(t, []client.Object{workload, event}, pod)
+	// Events are not in the workload objects; they are created in the clientset below.
+	_, err := clients.ClientSet().CoreV1().Events("ws1").Create(context.Background(), event, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	assert.Nil(t, r.externalWorkloadResult(context.Background(), job, workload, clients))
+}
+
+// A node whose pod timed out has its workload deleted, so the execution stops before the slot is released.
+func TestExternalPendingTimeoutDeletesWorkload(t *testing.T) {
+	job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: "j1"}}
+	workload := prewarmWorkloadOf(job, "admin-1", 400*time.Second, v1.WorkloadPending)
+	pod := pendingPrewarmPod(workload.Name, 400*time.Second, corev1.ConditionFalse, time.Now())
+	r, clients := pendingResultReconciler(t, []client.Object{workload}, pod)
+
+	result := r.externalWorkloadResult(context.Background(), job, workload, clients)
+	require.NotNil(t, result)
+	assert.Equal(t, modelprewarm.PhaseFailed, result.Phase)
+	err := r.Get(context.Background(), client.ObjectKeyFromObject(workload), &v1.Workload{})
+	assert.True(t, apierrors.IsNotFound(err), "%v", err)
+}
+
+// A node whose result is persisted on the job is neither redispatched nor recomputed, even after its
+// workload is gone.
+func TestExternalSyncDoesNotRedispatchPersistedResult(t *testing.T) {
+	job := &v1.OpsJob{
+		ObjectMeta: metav1.ObjectMeta{Name: "j1", Annotations: map[string]string{
+			v1.OpsJobModelPrewarmExternalResultsAnnotation: `{"admin-1":{"OpsJobId":"j1","Phase":"Failed","Message":"done"}}`,
+		}},
+		Spec: v1.OpsJobSpec{Inputs: []v1.Parameter{
+			{Name: v1.ParameterModelPath, Value: "/shared_nfs/models/m"},
+		}},
+	}
+	node := &v1.Node{ObjectMeta: metav1.ObjectMeta{Name: "admin-1"}}
+	r, clients := pendingResultReconciler(t, nil)
+
+	results := r.syncExternalWorkloads(context.Background(), job, clients, []*v1.Node{node})
+	require.NotNil(t, results["admin-1"])
+	assert.Equal(t, "done", results["admin-1"].Message)
+	workloads := &v1.WorkloadList{}
+	require.NoError(t, r.List(context.Background(), workloads))
+	assert.Empty(t, workloads.Items)
+}
+
+// Workloads of an ended job are deleted, so a timed-out job does not keep running its nodes.
+func TestExternalWorkloadsCleanedWhenJobEnds(t *testing.T) {
+	job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: "j1"}}
+	finished := metav1.NewTime(time.Now())
+	job.Status.Phase = v1.OpsJobFailed
+	job.Status.FinishedAt = &finished
+	workload := prewarmWorkloadOf(job, "admin-1", 100*time.Second, v1.WorkloadRunning)
+	r := &ModelPrewarmJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, workload)}
+
+	quit, err := r.observe(context.Background(), job)
+	require.NoError(t, err)
+	assert.True(t, quit)
+	err = r.Get(context.Background(), client.ObjectKeyFromObject(workload), &v1.Workload{})
+	assert.True(t, apierrors.IsNotFound(err), "%v", err)
+}
+
+// Only terminal node results are persisted on the job, and they read back as they were saved.
+func TestExternalResultsPersistOnlyTerminalPhases(t *testing.T) {
+	job := &v1.OpsJob{ObjectMeta: metav1.ObjectMeta{Name: "j1"}}
+	r := &ModelPrewarmJobReconciler{OpsJobBaseReconciler: newBaseWithObjs(t, job)}
+	results := map[string]*modelprewarm.Result{
+		"done":    {OpsJobId: "j1", Phase: modelprewarm.PhaseSucceeded, BytesRead: 7},
+		"running": {OpsJobId: "j1", Phase: modelprewarm.PhaseRunning},
+	}
+	require.NoError(t, r.saveExternalResults(context.Background(), job, results))
+
+	stored := &v1.OpsJob{}
+	require.NoError(t, r.Get(context.Background(), client.ObjectKeyFromObject(job), stored))
+	loaded := loadExternalResults(stored)
+	assert.Len(t, loaded, 1)
+	require.NotNil(t, loaded["done"])
+	assert.Equal(t, int64(7), loaded["done"].BytesRead)
 }

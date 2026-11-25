@@ -59,8 +59,16 @@ func (r *ModelPrewarmJobReconciler) Reconcile(ctx context.Context, req ctrlrunti
 	return r.OpsJobBaseReconciler.Reconcile(ctx, req, r, clearFuncs...)
 }
 
-func (r *ModelPrewarmJobReconciler) observe(_ context.Context, job *v1.OpsJob) (bool, error) {
-	return job.IsEnd(), nil
+// observe stops the reconcile of an ended job, after its external workloads are deleted. A timed-out job
+// is ended without its nodes finishing, so their workloads are deleted here too.
+func (r *ModelPrewarmJobReconciler) observe(ctx context.Context, job *v1.OpsJob) (bool, error) {
+	if !job.IsEnd() {
+		return false, nil
+	}
+	if err := r.cleanupExternalWorkloads(ctx, job); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (r *ModelPrewarmJobReconciler) filter(_ context.Context, job *v1.OpsJob) bool {
@@ -210,6 +218,9 @@ func (r *ModelPrewarmJobReconciler) checkAndUpdateJobStatus(ctx context.Context,
 	)
 
 	externalResults := r.syncExternalWorkloads(ctx, job, k8sClients, r.getExternalNodes(ctx, targets))
+	if err := r.saveExternalResults(ctx, job, externalResults); err != nil {
+		return ctrlruntime.Result{}, err
+	}
 	for _, adminNodeName := range targets {
 		adminNode, err := r.getAdminNode(ctx, adminNodeName)
 		if err != nil {

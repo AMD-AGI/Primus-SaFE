@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -28,7 +29,6 @@ import (
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/k8sclient"
 	modelprewarm "github.com/AMD-AIG-AIMA/SAFE/common/pkg/model_prewarm"
-	commonjob "github.com/AMD-AIG-AIMA/SAFE/common/pkg/ops_job"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
@@ -84,12 +84,22 @@ func (r *ModelPrewarmJobReconciler) getExternalNodes(ctx context.Context, target
 func (r *ModelPrewarmJobReconciler) syncExternalWorkloads(ctx context.Context, job *v1.OpsJob,
 	k8sClients *k8sclient.ClientFactory, nodes []*v1.Node) map[string]*modelprewarm.Result {
 	results := make(map[string]*modelprewarm.Result, len(nodes))
-	if len(nodes) == 0 {
+	// A node with a persisted terminal result keeps it, and is not dispatched again.
+	persisted := loadExternalResults(job)
+	var unsettled []*v1.Node
+	for _, node := range nodes {
+		if result := persisted[node.Name]; result != nil {
+			results[node.Name] = result
+			continue
+		}
+		unsettled = append(unsettled, node)
+	}
+	if len(unsettled) == 0 {
 		return results
 	}
 	cfg, err := r.parseConfig(job)
 	if err != nil {
-		for _, node := range nodes {
+		for _, node := range unsettled {
 			results[node.Name] = failedResult(job, err.Error())
 		}
 		return results
@@ -102,7 +112,7 @@ func (r *ModelPrewarmJobReconciler) syncExternalWorkloads(ctx context.Context, j
 
 	inFlight := 0
 	var missing []*v1.Node
-	for _, node := range nodes {
+	for _, node := range unsettled {
 		workload, ok := existing[externalWorkloadName(job.Name, node.Name)]
 		if !ok {
 			missing = append(missing, node)
@@ -247,17 +257,22 @@ func prewarmHostPath(workspace *v1.Workspace, workload *v1.Workload, modelPath s
 }
 
 // externalWorkloadResult maps the prewarm workload of a node to a node result.
-// It returns nil while the workload is waiting.
+// It returns nil while the workload is waiting. A pod that stays unscheduled past the pending timeout
+// fails the node, and its workload is deleted, so the execution stops before the node releases its slot.
 func (r *ModelPrewarmJobReconciler) externalWorkloadResult(ctx context.Context, job *v1.OpsJob,
 	workload *v1.Workload, k8sClients *k8sclient.ClientFactory) *modelprewarm.Result {
 	if workload.IsEnd() {
 		return r.endedWorkloadResult(ctx, job, workload)
 	}
+	if reason := r.unscheduledReason(ctx, workload, k8sClients); reason != "" {
+		if err := r.Delete(ctx, workload); client.IgnoreNotFound(err) != nil {
+			klog.ErrorS(err, "failed to stop the prewarm workload of a pending node", "workload", workload.Name)
+			return nil
+		}
+		return failedResult(job, reason)
+	}
 	if workload.IsRunning() {
 		return &modelprewarm.Result{OpsJobId: job.Name, Phase: modelprewarm.PhaseRunning}
-	}
-	if reason := r.unscheduledReason(ctx, workload, k8sClients); reason != "" {
-		return failedResult(job, reason)
 	}
 	return nil
 }
@@ -296,17 +311,17 @@ func (r *ModelPrewarmJobReconciler) endedWorkloadResult(
 }
 
 // unscheduledReason returns why a prewarm pod could not be placed or created, as the cluster states it,
-// once the workload has waited longer than the pending timeout. It returns "" while nothing is stated:
+// once the pod has waited longer than the pending timeout. It returns "" while nothing is stated:
 // a workload held in the queue of SaFE has no pod and no event.
 func (r *ModelPrewarmJobReconciler) unscheduledReason(
 	ctx context.Context, workload *v1.Workload, k8sClients *k8sclient.ClientFactory) string {
 	timeout := time.Duration(commonconfig.GetModelPrewarmPendingTimeoutSecond()) * time.Second
-	if timeout <= 0 || time.Since(workload.CreationTimestamp.Time) < timeout ||
-		k8sClients == nil || !k8sClients.IsValid() {
+	if timeout <= 0 || k8sClients == nil || !k8sClients.IsValid() {
 		return ""
 	}
 	clientSet := k8sClients.ClientSet()
 	namespace := workload.Spec.Workspace
+	events := clientSet.CoreV1().Events(namespace)
 	pods, err := clientSet.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: fmt.Sprintf("%s=%s", v1.WorkloadIdLabel, workload.Name),
 	})
@@ -314,31 +329,40 @@ func (r *ModelPrewarmJobReconciler) unscheduledReason(
 		klog.V(4).ErrorS(err, "failed to list prewarm pods", "workload", workload.Name)
 		return ""
 	}
-	for i := range pods.Items {
-		pod := &pods.Items[i]
-		if pod.Status.Phase != corev1.PodPending {
-			continue
-		}
-		for _, cond := range pod.Status.Conditions {
-			if cond.Type == corev1.PodScheduled && cond.Status == corev1.ConditionFalse && cond.Message != "" {
-				return cond.Message
-			}
-		}
-		if message := latestWarningEvent(ctx, clientSet.CoreV1().Events(namespace), pod.Name); message != "" {
-			return message
-		}
-	}
 	if len(pods.Items) == 0 {
 		// The pod was refused when its job tried to create it: the reason is an event of the job.
-		return latestWarningEvent(ctx, clientSet.CoreV1().Events(namespace), workload.Name)
+		return latestWarningEvent(ctx, events, workload.Name, time.Time{})
+	}
+	for i := range pods.Items {
+		pod := &pods.Items[i]
+		// The pending timeout counts from the pod creation, not from the queue of SaFE.
+		if pod.Status.Phase != corev1.PodPending || time.Since(pod.CreationTimestamp.Time) < timeout {
+			continue
+		}
+		var scheduledAt time.Time
+		for _, cond := range pod.Status.Conditions {
+			if cond.Type != corev1.PodScheduled {
+				continue
+			}
+			if cond.Status == corev1.ConditionFalse && cond.Message != "" {
+				return cond.Message
+			}
+			if cond.Status == corev1.ConditionTrue {
+				scheduledAt = cond.LastTransitionTime.Time
+			}
+		}
+		if message := latestWarningEvent(ctx, events, pod.Name, scheduledAt); message != "" {
+			return message
+		}
 	}
 	return ""
 }
 
 // latestWarningEvent returns the message of the newest warning event of the named object, or "".
+// Only events after since count when since is set.
 func latestWarningEvent(ctx context.Context, events interface {
 	List(ctx context.Context, opts metav1.ListOptions) (*corev1.EventList, error)
-}, objectName string) string {
+}, objectName string, since time.Time) string {
 	list, err := events.List(ctx, metav1.ListOptions{FieldSelector: "involvedObject.name=" + objectName})
 	if err != nil {
 		klog.V(4).ErrorS(err, "failed to list events", "object", objectName)
@@ -354,6 +378,9 @@ func latestWarningEvent(ctx context.Context, events interface {
 		at := event.LastTimestamp.Time
 		if at.IsZero() {
 			at = event.EventTime.Time
+		}
+		if !since.IsZero() && !at.After(since) {
+			continue
 		}
 		if message == "" || at.After(latest) {
 			latest, message = at, event.Message
@@ -372,6 +399,55 @@ func (r *ModelPrewarmJobReconciler) cleanupJobResources(ctx context.Context, job
 }
 
 // cleanupExternalWorkloads deletes the prewarm workloads created for the external nodes of the job.
+// An error is returned so that the caller retries the cleanup.
 func (r *ModelPrewarmJobReconciler) cleanupExternalWorkloads(ctx context.Context, job *v1.OpsJob) error {
-	return commonjob.CleanupJobRelatedResource(ctx, r.Client, job.Name)
+	list := &v1.WorkloadList{}
+	if err := r.List(ctx, list, client.MatchingLabels{v1.OpsJobIdLabel: job.Name}); err != nil {
+		return err
+	}
+	for i := range list.Items {
+		if err := r.Delete(ctx, &list.Items[i]); client.IgnoreNotFound(err) != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// loadExternalResults returns the results of the external nodes persisted on the job, by admin node name.
+func loadExternalResults(job *v1.OpsJob) map[string]*modelprewarm.Result {
+	results := map[string]*modelprewarm.Result{}
+	raw := v1.GetAnnotation(job, v1.OpsJobModelPrewarmExternalResultsAnnotation)
+	if raw == "" {
+		return results
+	}
+	if err := json.Unmarshal([]byte(raw), &results); err != nil {
+		klog.ErrorS(err, "failed to parse the persisted prewarm results", "job", job.Name)
+		return map[string]*modelprewarm.Result{}
+	}
+	return results
+}
+
+// saveExternalResults persists the terminal results of the external nodes on the job, so that a node
+// keeps its outcome after its workload is gone.
+func (r *ModelPrewarmJobReconciler) saveExternalResults(
+	ctx context.Context, job *v1.OpsJob, results map[string]*modelprewarm.Result) error {
+	terminal := make(map[string]*modelprewarm.Result, len(results))
+	for node, result := range results {
+		if result != nil && modelprewarm.IsTerminal(result.Phase) {
+			terminal[node] = result
+		}
+	}
+	if len(terminal) == 0 {
+		return nil
+	}
+	raw, err := json.Marshal(terminal)
+	if err != nil {
+		return err
+	}
+	if v1.GetAnnotation(job, v1.OpsJobModelPrewarmExternalResultsAnnotation) == string(raw) {
+		return nil
+	}
+	original := job.DeepCopy()
+	v1.SetAnnotation(job, v1.OpsJobModelPrewarmExternalResultsAnnotation, string(raw))
+	return r.Patch(ctx, job, client.MergeFrom(original))
 }

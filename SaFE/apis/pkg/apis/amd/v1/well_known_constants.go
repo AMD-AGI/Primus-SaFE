@@ -410,7 +410,9 @@ const (
 	OpsJobModelPrewarmPrefix            = OpsJobPrefix + "mp."
 	OpsJobModelPrewarmRequestAnnotation = OpsJobModelPrewarmPrefix + "r."
 	OpsJobModelPrewarmResultAnnotation  = OpsJobModelPrewarmPrefix + "s."
-	OpsJobFinalizer                     = PrimusSafeDomain + "ops.job.finalizer"
+	// Holds the terminal results of the external nodes of a model prewarm job, by admin node name.
+	OpsJobModelPrewarmExternalResultsAnnotation = OpsJobModelPrewarmPrefix + "e"
+	OpsJobFinalizer                             = PrimusSafeDomain + "ops.job.finalizer"
 
 	// addon
 	AddonPrefix       = PrimusSafePrefix + "addon."
