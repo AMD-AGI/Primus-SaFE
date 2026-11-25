@@ -158,7 +158,7 @@ func (relevantChangePredicate) Update(e event.UpdateEvent) bool {
 		if !maps.EqualIgnoreOrder(oldWorkload.Spec.Env, newWorkload.Spec.Env) || len(v1.GetEnvToBeRemoved(newWorkload)) > 0 {
 			return true
 		}
-		if oldWorkload.Spec.Priority != newWorkload.Spec.Priority {
+		if v1.IsWorkloadEnablePreempt(newWorkload) && oldWorkload.Spec.Priority != newWorkload.Spec.Priority {
 			return true
 		}
 		if !reflect.DeepEqual(oldWorkload.Spec.Service, newWorkload.Spec.Service) {
@@ -826,7 +826,11 @@ func isSharedMemoryChanged(adminWorkload *v1.Workload, obj *unstructured.Unstruc
 }
 
 // isPriorityClassChanged checks if the priority of the workload has changed.
+// The priority class is only synced when preemption is enabled for the workload.
 func isPriorityClassChanged(adminWorkload *v1.Workload, obj *unstructured.Unstructured, rt *v1.ResourceTemplate) bool {
+	if !v1.IsWorkloadEnablePreempt(adminWorkload) {
+		return false
+	}
 	priorityClassName, err := jobutils.GetPriorityClassName(obj, rt, len(adminWorkload.Spec.Resources))
 	if err != nil {
 		return true

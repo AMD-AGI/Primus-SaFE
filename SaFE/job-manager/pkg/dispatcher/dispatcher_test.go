@@ -413,12 +413,18 @@ func TestIsPriorityClassChanged(t *testing.T) {
 	adminWorkload := jobutils.TestWorkloadData.DeepCopy()
 	adminWorkload.Spec.Priority = common.MedPriorityInt
 	v1.SetLabel(adminWorkload, v1.ClusterIdLabel, "test")
+	v1.SetAnnotation(adminWorkload, v1.WorkloadEnablePreemptAnnotation, v1.TrueStr)
 	ok := isPriorityClassChanged(adminWorkload, workloadObj, jobutils.TestPytorchResourceTemplate)
 	assert.Equal(t, ok, false)
 
 	adminWorkload.Spec.Priority = common.HighPriorityInt
 	ok = isPriorityClassChanged(adminWorkload, workloadObj, jobutils.TestPytorchResourceTemplate)
 	assert.Equal(t, ok, true)
+
+	// A priority change is ignored when preemption is not enabled.
+	v1.RemoveAnnotation(adminWorkload, v1.WorkloadEnablePreemptAnnotation)
+	ok = isPriorityClassChanged(adminWorkload, workloadObj, jobutils.TestPytorchResourceTemplate)
+	assert.Equal(t, ok, false)
 }
 
 func TestIsCICDSecretChanged(t *testing.T) {
