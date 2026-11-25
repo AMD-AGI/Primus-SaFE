@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -26,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	yamlutil "k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -1880,21 +1882,51 @@ func TestSetInferaReadinessPortSkipsASlotWithoutAMainContainer(t *testing.T) {
 	assert.Equal(t, hasExtra, false)
 }
 
-// SaFE's fixed host ports (e.g. the RayJob metrics port 18080, inside the
-// readiness range) are held by other hostNetwork workloads on the node, so a
-// random readiness port must never land on one.
+// SaFE's fixed host ports, such as the RayJob metrics port, are held by other
+// hostNetwork workloads on the node, so the readiness ports start from them as
+// used.
 func TestInferaReadinessPortsStartWithSaFEFixedHostPorts(t *testing.T) {
 	used := inferaReservedHostPorts()
 	_, reserved := used[common.RayJobMetricsPort]
 	assert.Assert(t, reserved, "the RayJob metrics port must be reserved")
+}
 
-	for p := inferaReadinessPortMin; p < inferaReadinessPortMax; p++ {
-		if p != common.RayJobMetricsPort {
-			used[p] = struct{}{}
-		}
+// The chart's RayJob template exports Ray metrics on the port SaFE reserves: every group passes
+// common.RayJobMetricsPort to Ray as metrics-export-port and declares it as the metrics container port, so the
+// three cannot drift apart again.
+func TestRayJobTemplateExportsMetricsOnTheReservedPort(t *testing.T) {
+	data, err := os.ReadFile(primusSafeChart + "/templates/configmap/ray_job_template.yaml")
+	assert.NilError(t, err)
+	// The Helm expressions only fill in names, images and NCCL settings, so they are blanked out to parse it.
+	data = regexp.MustCompile(`\{\{[^}]*\}\}`).ReplaceAll(data, []byte("x"))
+	configmap := &corev1.ConfigMap{}
+	assert.NilError(t, yamlutil.Unmarshal(data, configmap))
+	rayJob := map[string]interface{}{}
+	assert.NilError(t, yamlutil.Unmarshal([]byte(configmap.Data["template"]), &rayJob))
+
+	head, found, err := unstructured.NestedMap(rayJob, "spec", "rayClusterSpec", "headGroupSpec")
+	assert.Assert(t, err == nil && found, "the template has no head group")
+	workers, found, err := unstructured.NestedSlice(rayJob, "spec", "rayClusterSpec", "workerGroupSpecs")
+	assert.Assert(t, err == nil && found && len(workers) > 0, "the template has no worker group")
+	groups := map[string]map[string]interface{}{"head": head}
+	for i, w := range workers {
+		groups[fmt.Sprintf("worker group %d", i)] = w.(map[string]interface{})
 	}
-	_, err := randomInferaReadinessPort(used)
-	assert.Assert(t, err != nil, "the only free port left is a reserved one")
+	want := strconv.Itoa(common.RayJobMetricsPort)
+	for name, group := range groups {
+		port, _, _ := unstructured.NestedString(group, "rayStartParams", "metrics-export-port")
+		assert.Equal(t, port, want, "%s: metrics-export-port", name)
+		containers, _, _ := unstructured.NestedSlice(group, "template", "spec", "containers")
+		assert.Assert(t, len(containers) > 0, "%s has no container", name)
+		declared := ""
+		ports, _, _ := unstructured.NestedSlice(containers[0].(map[string]interface{}), "ports")
+		for _, p := range ports {
+			if p := p.(map[string]interface{}); p["name"] == "metrics" {
+				declared = fmt.Sprint(p["containerPort"])
+			}
+		}
+		assert.Equal(t, declared, want, "%s: metrics container port", name)
+	}
 }
 
 // A range with no free port is an error, not an endless loop in reconcile.

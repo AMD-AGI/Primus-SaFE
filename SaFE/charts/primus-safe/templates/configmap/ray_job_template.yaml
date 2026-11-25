@@ -109,6 +109,12 @@ data:
           restartPolicy: Never
       rayClusterSpec:
         headGroupSpec:
+          # Ray exports metrics on metrics-export-port, which KubeRay sets to its default 8080 when it is not given;
+          # the container port named metrics only declares a port. Ray pods use the host network, so this is the
+          # port the job-manager reserves on the node (common.RayJobMetricsPort) rather than 8080, which node agents
+          # may hold. It stays outside Ray's worker port range (10002-19999) and SaFE's random host port ranges.
+          rayStartParams:
+            metrics-export-port: "8090"
           template:
             metadata:
               labels:
@@ -192,7 +198,7 @@ data:
                 - containerPort: 8265
                   name: dashboard
                   protocol: TCP
-                - containerPort: 18081      
+                - containerPort: 8090
                   name: metrics
                   protocol: TCP
                 imagePullPolicy: IfNotPresent
@@ -215,6 +221,8 @@ data:
               terminationGracePeriodSeconds: 15
         workerGroupSpecs:
         - groupName: "1"
+          rayStartParams:
+            metrics-export-port: "8090"
           template:
             spec:
               dnsPolicy: ClusterFirstWithHostNet
@@ -317,7 +325,7 @@ data:
                     mountPath: /etc/podinfo
                     readOnly: true
                 ports:
-                  - containerPort: 18081
+                  - containerPort: 8090
                     name: metrics
                     protocol: TCP
               schedulerName: kube-scheduler-plugins
@@ -332,6 +340,8 @@ data:
                         fieldPath: metadata.labels
               terminationGracePeriodSeconds: 10
         - groupName: "2"
+          rayStartParams:
+            metrics-export-port: "8090"
           template:
             spec:
               dnsPolicy: ClusterFirstWithHostNet
@@ -423,7 +433,7 @@ data:
                       apiVersion: v1
                       fieldPath: metadata.namespace
                 ports:
-                  - containerPort: 18081
+                  - containerPort: 8090
                     name: metrics
                     protocol: TCP
                 imagePullPolicy: IfNotPresent
