@@ -284,6 +284,9 @@ jobs:
           echo "Docker username length: ${#DOCKER_USERNAME}"
           buildah login -u "${{ secrets.DOCKER_USERNAME }}" -p "${{ secrets.DOCKER_PASSWORD }}" docker.io && echo "✅ Docker Hub login successful" || echo "❌ Docker Hub login failed"
           
+          echo "🔐 Logging in to Quay.io..."
+          buildah login -u "${{ secrets.QUAY_USERNAME }}" -p "${{ secrets.QUAY_PASSWORD }}" quay.io && echo "✅ Quay.io login successful" || echo "❌ Quay.io login failed"
+          
           if [ -n "${{ secrets.TASIMAGE_USERNAME }}" ]; then
             echo "🔐 Logging in to Docker Hub for tasimage..."
             buildah login -u "${{ secrets.TASIMAGE_USERNAME }}" -p "${{ secrets.TASIMAGE_PASSWORD }}" docker.io && echo "✅ tasimage login successful" || echo "❌ tasimage login failed"
@@ -295,6 +298,7 @@ jobs:
       - name: Build and push with Buildah
         env:
           DOCKERIO_REPOSITORY: docker.io/primussafe
+          QUAYIO_REPOSITORY: quay.io/primussafe
           IMAGE_VERSION: ${{ needs.detect-changes.outputs.image_version }}
           DATE_TIME: ${{ needs.detect-changes.outputs.date_time }}
           VITE_MCP_API_KEY: ${{ secrets.VITE_MCP_API_KEY }}
@@ -341,7 +345,7 @@ jobs:
             -t ${IMAGE_NAME}:${DATE_TIME} \
             -f ${{ matrix.dockerfile_path }} "$CONTEXT"
 
-          for repo in ${DOCKERIO_REPOSITORY}; do
+          for repo in ${DOCKERIO_REPOSITORY} ${QUAYIO_REPOSITORY}; do
             echo "🚀 Pushing ${IMAGE_NAME} to $repo..."
             buildah tag ${IMAGE_NAME}:${IMAGE_VERSION} ${repo}/${IMAGE_NAME}:${IMAGE_VERSION}
             buildah tag ${IMAGE_NAME}:${DATE_TIME} ${repo}/${IMAGE_NAME}:${DATE_TIME}
