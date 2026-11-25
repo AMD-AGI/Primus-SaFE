@@ -1557,6 +1557,9 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, old
 			return err
 		}
 	}
+	if err = validateWorkspaceStorageReadOnly(newWorkload); err != nil {
+		return err
+	}
 	if err = v.validateRequiredParams(newWorkload); err != nil {
 		return err
 	}
@@ -1591,6 +1594,24 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, old
 	}
 	if err = v.validateOwnerWorkload(ctx, newWorkload); err != nil {
 		return err
+	}
+	return nil
+}
+
+// validateWorkspaceStorageReadOnly accepts v1.WorkspaceStorageReadOnlyAnnotation only as "true" or
+// "false", and refuses it on a github runner, which keeps its state in a writable workspace volume.
+func validateWorkspaceStorageReadOnly(workload *v1.Workload) error {
+	if !v1.HasAnnotation(workload, v1.WorkspaceStorageReadOnlyAnnotation) {
+		return nil
+	}
+	switch val := v1.GetAnnotation(workload, v1.WorkspaceStorageReadOnlyAnnotation); val {
+	case v1.TrueStr, "false":
+	default:
+		return field.Invalid(field.NewPath("annotations").Key(v1.WorkspaceStorageReadOnlyAnnotation),
+			val, "must be \"true\" or \"false\"")
+	}
+	if v1.IsWorkspaceStorageReadOnly(workload) && commonworkload.IsCICDGithubRunner(workload) {
+		return fmt.Errorf("github runner must use writable workspace storage")
 	}
 	return nil
 }
@@ -2545,6 +2566,11 @@ func (v *WorkloadValidator) validateImmutableFields(newWorkload, oldWorkload *v1
 	}
 	if v1.GetUserAccount(newWorkload) != v1.GetUserAccount(oldWorkload) {
 		return field.Forbidden(field.NewPath("annotations").Key(v1.UserAccountAnnotation), "immutable")
+	}
+	// Turning read-only workspace storage off would give a running workload write access it was
+	// created without.
+	if v1.IsWorkspaceStorageReadOnly(newWorkload) != v1.IsWorkspaceStorageReadOnly(oldWorkload) {
+		return field.Forbidden(field.NewPath("annotations").Key(v1.WorkspaceStorageReadOnlyAnnotation), "immutable")
 	}
 	// The creator's id is what an external Pod's user id label carries, and with it the one user
 	// directory the provider lets the Pod mount; changing it would hand the workload another

@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strconv"
@@ -733,10 +734,7 @@ func buildPersistentVolumeMounts(workload *v1.Workload, workspace *v1.Workspace)
 	maxId := 0
 	if workspace != nil && v1.IsEnableWorkspaceStorage(workload) {
 		for _, vol := range workspace.Spec.Volumes {
-			readonly := false
-			if vol.AccessMode == corev1.ReadOnlyMany {
-				readonly = true
-			}
+			readonly := vol.AccessMode == corev1.ReadOnlyMany || v1.IsWorkspaceStorageReadOnly(workload)
 			if vol.Id > maxId {
 				maxId = vol.Id
 			}
@@ -767,12 +765,33 @@ func buildPersistentVolumeMounts(workload *v1.Workload, workspace *v1.Workspace)
 		maxId++
 		volumeName := v1.GenFullVolumeId(v1.HOSTPATH, maxId)
 		_, subPath, readOnly := hostPathSource(workload, workspace, hostpath)
-		volumeMount := buildVolumeMount(volumeName, hostpath, subPath, "",
-			commonworkload.IsSandBox(workload) || readOnly, false)
+		readOnly = readOnly || commonworkload.IsSandBox(workload) ||
+			(v1.IsWorkspaceStorageReadOnly(workload) && hostPathInWorkspaceVolume(workspace, hostpath))
+		volumeMount := buildVolumeMount(volumeName, hostpath, subPath, "", readOnly, false)
 		volumeMounts = append(volumeMounts, volumeMount)
 	}
 	sortVolumeMountsByDepth(volumeMounts)
 	return volumeMounts
+}
+
+// hostPathInWorkspaceVolume reports whether a spec.hostpath entry equals, lies under or contains the
+// directory a hostpath volume of the workspace mounts, whichever scopes the volume names. A workload
+// with read-only workspace storage mounts such an entry read-only, so that it cannot write the
+// workspace's shared filesystem through spec.hostpath either.
+func hostPathInWorkspaceVolume(workspace *v1.Workspace, hostpath string) bool {
+	if workspace == nil {
+		return false
+	}
+	cleaned := filepath.Clean(hostpath)
+	for _, vol := range workspace.Spec.Volumes {
+		if vol.Type != v1.HOSTPATH || strings.TrimSpace(vol.HostPath) == "" {
+			continue
+		}
+		if cleaned == "/" || pathsOverlap(cleaned, filepath.Clean(vol.HostPath)) {
+			return true
+		}
+	}
+	return false
 }
 
 // sortVolumeMountsByDepth orders mounts so that an ancestor mount path always
@@ -1526,6 +1545,9 @@ func buildEnvironment(workload *v1.Workload, workspace *v1.Workspace, resourceId
 	if workspace != nil && v1.IsEnableWorkspaceStorage(workload) {
 		for _, vol := range workspace.Spec.Volumes {
 			if vol.EnableUserDir && workspaceVolumeAppliesTo(vol, workload) {
+				if userDirLeftOut(workload, vol) {
+					break
+				}
 				userDir := vol.MountPath + "/" + generateUserDir(v1.GetUserId(workload))
 				result = addEnvVar(result, workload, jobutils.UserDataEnv, userDir)
 				break

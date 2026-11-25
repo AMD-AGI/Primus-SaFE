@@ -81,6 +81,9 @@ PV as well.
 When you submit a workload, the platform attaches the workspace's PVCs automatically
 (`useWorkspaceStorage` defaults to `true`), so your job sees the shared filesystem at its
 configured `mountPath`.
+Set `workspaceStorageReadOnly: true` to mount every workspace volume read-only instead (on
+external nodes the user directory is then left out and shared paths are read-only); the
+setting cannot be changed after the workload is created.
 
 :::note
 The platform's workspace PFS path is **WekaFS CSI** in the core install. JuiceFS appears only

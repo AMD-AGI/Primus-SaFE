@@ -52,6 +52,9 @@ type CreateWorkloadRequest struct {
 	UserEntity *UserEntity `json:"userEntity,omitempty"`
 	// Whether to use the workspace storage for workload. default true
 	UseWorkspaceStorage *bool `json:"useWorkspaceStorage,omitempty"`
+	// Whether to mount every workspace volume read-only, and leave the user directory out of a Pod
+	// on an external node. It only takes write access away. default false
+	WorkspaceStorageReadOnly bool `json:"workspaceStorageReadOnly,omitempty"`
 	// Whether to use host network forcibly.
 	// Default logic relies on task size: it triggers only for multi-node tasks using full GPU count
 	ForceHostNetwork *bool `json:"forceHostNetwork,omitempty"`

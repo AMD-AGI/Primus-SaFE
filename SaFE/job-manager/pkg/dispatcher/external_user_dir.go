@@ -35,6 +35,14 @@ func userDirMountsEnabled(workload *v1.Workload) bool {
 		v1.GetAnnotation(workload, v1.WorkloadUserDirMountsOffAnnotation) != v1.TrueStr
 }
 
+// userDirLeftOut reports whether the workload's user directory on vol is left out of its Pod: an
+// external Pod with read-only workspace storage gets only the volume's shared paths from a volume
+// whose user directories are mounted for external Pods (externalUserDirMounts).
+func userDirLeftOut(workload *v1.Workload, vol v1.WorkspaceVolume) bool {
+	return v1.IsWorkspaceStorageReadOnly(workload) && userDirMountsEnabled(workload) &&
+		isExternalWorkload(workload) && vol.Type == v1.HOSTPATH && vol.EnableUserDir
+}
+
 // externalUserDirMounts returns what replaces the whole-volume mount of vol in an external Pod, and
 // whether vol is replaced at all. With external_execution.user_dir_mounts on, a hostpath volume with
 // enableUserDir or sharedPaths is mounted as the Pod's own user directory (enableUserDir) and the
@@ -46,6 +54,9 @@ func userDirMountsEnabled(workload *v1.Workload) bool {
 // when the volume is. Without the flag, for Pods on the cluster's own nodes, and for other volumes,
 // nothing is replaced and the volume is mounted as before. checkExternalPodHostPaths then checks
 // every hostPath the Pod ends up with.
+//
+// A workload with read-only workspace storage (v1.WorkspaceStorageReadOnlyAnnotation) gets no user
+// directory and every shared path read-only.
 func externalUserDirMounts(workload *v1.Workload, vol v1.WorkspaceVolume) ([]userDirMount, bool, error) {
 	if !userDirMountsEnabled(workload) || !isExternalWorkload(workload) ||
 		vol.Type != v1.HOSTPATH || (!vol.EnableUserDir && len(vol.SharedPaths) == 0) {
@@ -56,9 +67,9 @@ func externalUserDirMounts(workload *v1.Workload, vol v1.WorkspaceVolume) ([]use
 			vol.GenFullVolumeId(), vol.SubPath)
 	}
 	root := filepath.Join(vol.HostPath, vol.SubPath)
-	volumeReadOnly := vol.AccessMode == corev1.ReadOnlyMany
+	volumeReadOnly := vol.AccessMode == corev1.ReadOnlyMany || v1.IsWorkspaceStorageReadOnly(workload)
 	var mounts []userDirMount
-	if vol.EnableUserDir {
+	if vol.EnableUserDir && !userDirLeftOut(workload, vol) {
 		userId := v1.GetUserId(workload)
 		if userId == "" || strings.Contains(userId, "/") || userId == "." || userId == ".." {
 			return nil, true, fmt.Errorf("workload %s has no user id that names a user directory: %q",
