@@ -1153,3 +1153,79 @@ func TestFaultValidateOnCreationDisplayName(t *testing.T) {
 	v1.SetLabel(fault, v1.DisplayNameLabel, "Bad_Name")
 	assert.Assert(t, v.validateOnCreation(fault) != nil)
 }
+
+// The execution of a model prewarm workload is fixed once it is created: its root privilege belongs to
+// the generated workload, so an update cannot change what runs with it. Priority stays editable.
+func TestPrewarmWorkloadExecutionImmutable(t *testing.T) {
+	v := &WorkloadValidator{}
+	prewarm := func() *v1.Workload {
+		w := validWorkload()
+		v1.SetLabel(w, v1.OpsJobIdLabel, "j1")
+		v1.SetLabel(w, v1.OpsJobTypeLabel, string(v1.OpsJobModelPrewarmType))
+		w.Spec.Images = []string{"img"}
+		w.Spec.EntryPoints = []string{"ep"}
+		w.Spec.Hostpath = []string{"/shared_nfs"}
+		return w
+	}
+	base := prewarm()
+
+	images := prewarm()
+	images.Spec.Images = []string{"evil"}
+	assert.Assert(t, v.validateImmutableFields(images, base) != nil)
+
+	entryPoints := prewarm()
+	entryPoints.Spec.EntryPoints = []string{"evil"}
+	assert.Assert(t, v.validateImmutableFields(entryPoints, base) != nil)
+
+	env := prewarm()
+	env.Spec.Env = map[string]string{"A": "1"}
+	assert.Assert(t, v.validateImmutableFields(env, base) != nil)
+
+	hostPath := prewarm()
+	hostPath.Spec.Hostpath = []string{"/"}
+	assert.Assert(t, v.validateImmutableFields(hostPath, base) != nil)
+
+	priority := prewarm()
+	priority.Spec.Priority = 2
+	assert.NilError(t, v.validateImmutableFields(priority, base))
+
+	// Other workloads keep their execution fields editable, as before.
+	plain := validWorkload()
+	plain.Spec.Images = []string{"evil"}
+	assert.NilError(t, v.validateImmutableFields(plain, validWorkload()))
+}
+
+// An update the mutating webhook makes on a model prewarm workload leaves its execution unchanged, so
+// the owner's update of the rest of the workload is not refused for what the system rewrote.
+func TestPrewarmWorkloadMutateOnUpdateKeepsExecution(t *testing.T) {
+	scheme := newScheme(t)
+	ws := &v1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{Name: "ws1"},
+		Spec: v1.WorkspaceSpec{Volumes: []v1.WorkspaceVolume{
+			{Id: 1, Type: v1.HOSTPATH, MountPath: "/shared_nfs", HostPath: "/shared_nfs"},
+		}},
+	}
+	m := &WorkloadMutator{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(ws).Build()}
+	v := &WorkloadValidator{}
+	// The stored workload has been through the mutator already, as it is when the update arrives.
+	oldW := prewarmWorkloadFixture()
+	assert.NilError(t, m.mutateOnUpdate(context.Background(), prewarmWorkloadFixture(), oldW))
+	newW := oldW.DeepCopy()
+	assert.NilError(t, m.mutateOnUpdate(context.Background(), oldW, newW))
+	assert.DeepEqual(t, newW.Spec, oldW.Spec)
+	assert.NilError(t, v.validateImmutableFields(newW, oldW))
+}
+
+// prewarmWorkloadFixture returns a model prewarm workload that opts out of workspace storage, as the
+// controller creates it.
+func prewarmWorkloadFixture() *v1.Workload {
+	w := validWorkload()
+	w.Spec.Workspace = "ws1"
+	v1.SetLabel(w, v1.OpsJobIdLabel, "j1")
+	v1.SetLabel(w, v1.OpsJobTypeLabel, string(v1.OpsJobModelPrewarmType))
+	v1.SetAnnotation(w, v1.UseWorkspaceStorageAnnotation, "false")
+	w.Spec.Images = []string{"img"}
+	w.Spec.EntryPoints = []string{"ep"}
+	w.Spec.Hostpath = []string{"/shared_nfs"}
+	return w
+}
