@@ -2864,6 +2864,77 @@ func TestWorkloadValidateServiceNodePort(t *testing.T) {
 	assert.Assert(t, v.validateService(context.Background(), badType) != nil)
 }
 
+// A hostNetwork workload's Service targetPort may not take a host port that SaFE's own hostNetwork workloads
+// bind, unless the workload is of a kind that binds it; the serving frontend port is left out, and an update
+// that keeps the port is not checked again.
+func TestWorkloadValidateServiceTargetPort(t *testing.T) {
+	workload := func(kind string, targetPort int, hostNetwork bool) *v1.Workload {
+		w := &v1.Workload{Spec: v1.WorkloadSpec{
+			GroupVersionKind: v1.GroupVersionKind{Version: common.DefaultVersion, Kind: kind},
+			Resources:        []v1.WorkloadResource{{Replica: 1}},
+			Service: &v1.Service{Port: 80, TargetPort: targetPort, Protocol: corev1.ProtocolTCP,
+				ServiceType: corev1.ServiceTypeClusterIP},
+		}}
+		if hostNetwork {
+			w.Spec.Resources[0].RdmaResource = "rdma/hca"
+		}
+		return w
+	}
+
+	for _, port := range []int{common.RayJobGcsServerPort, common.RayJobDashboardPort, common.RayJobMetricsPort,
+		common.MonarchMeshPortNum} {
+		err := validateServiceTargetPort(workload(common.PytorchJobKind, port, true), nil)
+		assert.ErrorContains(t, err, fmt.Sprintf("targetPort %d", port))
+	}
+	assert.ErrorContains(t, validateServiceTargetPort(workload(common.DeploymentKind, common.RayJobMetricsPort, true), nil),
+		common.RayJobKind)
+
+	for name, w := range map[string]*v1.Workload{
+		"another port":                  workload(common.PytorchJobKind, 9000, true),
+		"no host network":               workload(common.PytorchJobKind, common.RayJobMetricsPort, false),
+		"the serving frontend port":     workload(common.DeploymentKind, common.DynamoFrontendPort, true),
+		"a RayJob on its own port":      workload(common.RayJobKind, common.RayJobDashboardPort, true),
+		"a Monarch mesh on its port":    workload(common.MonarchMesh, common.MonarchMeshPortNum, true),
+		"a Monarch job on its own port": workload(common.MonarchJob, common.MonarchMeshPortNum, true),
+	} {
+		assert.NilError(t, validateServiceTargetPort(w, nil), name)
+	}
+	noService := workload(common.PytorchJobKind, 0, true)
+	noService.Spec.Service = nil
+	assert.NilError(t, validateServiceTargetPort(noService, nil))
+
+	// An update is checked only when it moves the workload onto the port or onto the host network.
+	existing := workload(common.PytorchJobKind, common.RayJobMetricsPort, true)
+	assert.NilError(t, validateServiceTargetPort(existing.DeepCopy(), existing), "an unchanged port stays editable")
+	assert.Assert(t, validateServiceTargetPort(existing.DeepCopy(), workload(common.PytorchJobKind, 9000, true)) != nil,
+		"a port changed onto a fixed one is refused")
+	assert.Assert(t, validateServiceTargetPort(existing.DeepCopy(),
+		workload(common.PytorchJobKind, common.RayJobMetricsPort, false)) != nil,
+		"a workload moved onto the host network is checked")
+}
+
+// The webhook runs the target port check on every workload it admits: a hostNetwork workload is refused on a
+// fixed host port and gets past the check on another.
+func TestWorkloadValidateCommonChecksServiceTargetPort(t *testing.T) {
+	ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: "ws1"},
+		Spec: v1.WorkspaceSpec{Cluster: "cluster1", Replica: 10}}
+	v := &WorkloadValidator{Client: fake.NewClientBuilder().WithScheme(newScheme(t)).WithObjects(ws).Build()}
+	workload := func(targetPort int) *v1.Workload {
+		w := validWorkload()
+		w.Spec.Images = []string{"img:1"}
+		w.Spec.EntryPoints = []string{"c2xlZXAgNjA="}
+		w.Spec.Resources[0].RdmaResource = "rdma/hca"
+		w.Spec.Service = &v1.Service{Port: 80, TargetPort: targetPort, Protocol: corev1.ProtocolTCP,
+			ServiceType: corev1.ServiceTypeClusterIP}
+		return w
+	}
+	err := v.validateCommon(context.Background(), workload(common.RayJobDashboardPort), nil)
+	assert.ErrorContains(t, err, fmt.Sprintf("targetPort %d", common.RayJobDashboardPort))
+	// Another port passes the check; a later check may still stop this minimal workload.
+	err = v.validateCommon(context.Background(), workload(9000), nil)
+	assert.Assert(t, err == nil || !strings.Contains(err.Error(), "targetPort"), "%v", err)
+}
+
 // TestWorkloadValidateWorkspaceQuota covers the quota-insufficient branch.
 func TestWorkloadValidateWorkspaceQuota(t *testing.T) {
 	scheme := newScheme(t)
