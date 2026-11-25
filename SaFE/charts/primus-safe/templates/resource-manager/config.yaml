@@ -103,9 +103,9 @@ data:
         # It must provide bash, find, xargs, stat and awk.
         image: {{ printf "%s/primussafe/%s" (default "docker.io" .Values.global.image_registry) (default "model-prewarm:latest" (default (default .Values.ops_job).model_prewarm).image) }}
         # How many nodes of one model prewarm job may be prewarmed by pods at the same time. 0 means no limit.
-        max_concurrent: {{ default 4 (default (default .Values.ops_job).model_prewarm).max_concurrent }}
+        max_concurrent: {{ $mp := default dict (default dict .Values.ops_job).model_prewarm }}{{ if hasKey $mp "max_concurrent" }}{{ $mp.max_concurrent }}{{ else }}4{{ end }}
         # How long a prewarm pod may stay unscheduled before its node is reported as failed, in seconds.
-        pending_timeout_second: {{ default 300 (default (default .Values.ops_job).model_prewarm).pending_timeout_second }}
+        pending_timeout_second: {{ $mp := default dict (default dict .Values.ops_job).model_prewarm }}{{ if hasKey $mp "pending_timeout_second" }}{{ $mp.pending_timeout_second }}{{ else }}300{{ end }}
       prewarm:
         # The timeout for prewarm jobs, in seconds. Default is 900 (15 min).
         timeout_second: {{ default 900 (default (default .Values.ops_job).prewarm).timeout_second }}
