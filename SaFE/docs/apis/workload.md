@@ -388,7 +388,7 @@ TorchFT is a fault-tolerant distributed training framework that supports elastic
 | service.protocol             | string   | No       | Service protocol, e.g. TCP/UDP, default TCP                                                                                                                                                               |
 | service.port                 | int      | No       | Service port for external access                                                                                                                                                                          |
 | service.nodePort             | int      | No       | Service NodePort (for NodePort type)                                                                                                                                                                      |
-| service.targetPort           | int      | No       | Target container port                                                                                                                                                                                     |
+| service.targetPort           | int      | No       | Target container port. On a hostNetwork workload it may not be a host port that SaFE's RayJob (GCS 6379, dashboard 8265, metrics) or Monarch (26600) workloads bind, unless the workload is of that kind |
 | service.serviceType          | string   | No       | Service type, e.g. ClusterIP/NodePort                                                                                                                                                                     |
 | service.extends              | object   | No       | Additional service fields (advanced)                                                                                                                                                                      |
 | dependencies                 | []string | No       | Dependent workload IDs that must complete first                                                                                                                                                           |
@@ -823,7 +823,7 @@ Partially update workload configuration (only when running).
 | service.protocol    | string    | No | Service protocol, e.g. TCP/UDP, default TCP                      |
 | service.port        | int       | No | Service port for external access                                 |
 | service.nodePort    | int       | No | Service NodePort (for NodePort type)                             |
-| service.targetPort  | int       | No | Target container port                                            |
+| service.targetPort  | int       | No | Target container port; a change on a hostNetwork workload is checked against the same reserved host ports as on creation |
 | service.serviceType | string    | No | Service type, e.g. ClusterIP/NodePort                            |
 
 **Response**: 200 OK with no response body

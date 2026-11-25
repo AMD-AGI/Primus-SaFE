@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -1551,6 +1552,9 @@ func (v *WorkloadValidator) validateCommon(ctx context.Context, newWorkload, old
 	if err = v.validateService(ctx, newWorkload); err != nil {
 		return err
 	}
+	if err = validateServiceTargetPort(newWorkload, oldWorkload); err != nil {
+		return err
+	}
 	if oldWorkload != nil && v1.IsWorkloadDispatched(newWorkload) &&
 		oldWorkload.Spec.Service != nil && newWorkload.Spec.Service != nil &&
 		commonworkload.GetK8sServiceName(oldWorkload) != commonworkload.GetK8sServiceName(newWorkload) {
@@ -2241,6 +2245,33 @@ func (v *WorkloadValidator) validateService(ctx context.Context, workload *v1.Wo
 
 // validateServiceNameUnique rejects a Service name already used by another
 // workload in the same workspace.
+// validateServiceTargetPort refuses a hostNetwork workload whose Service targetPort is a host port that SaFE's
+// own hostNetwork workloads always bind on their nodes: a RayJob's GCS, dashboard and metrics ports and a Monarch
+// job's mesh port. The dispatcher binds the target port on the node as the job port, so such a workload cannot
+// share a node with them, and one that does not declare the port fails to bind it. A workload of a kind that
+// binds the port itself may use it. The Dynamo, Infera and Atom frontend port is left out, as it is also the
+// default port of common serving engines. On an update the check runs only when the target port or the host
+// network changes, so a workload created before it stays editable.
+func validateServiceTargetPort(newWorkload, oldWorkload *v1.Workload) error {
+	if newWorkload.Spec.Service == nil || !newWorkload.HasHostNetwork() {
+		return nil
+	}
+	port := newWorkload.Spec.Service.TargetPort
+	if oldWorkload != nil && oldWorkload.Spec.Service != nil && oldWorkload.HasHostNetwork() &&
+		oldWorkload.Spec.Service.TargetPort == port {
+		return nil
+	}
+	if port == common.DynamoFrontendPort {
+		return nil
+	}
+	kinds := commonworkload.FixedHostPortKinds(port)
+	if len(kinds) == 0 || slices.Contains(kinds, newWorkload.SpecKind()) {
+		return nil
+	}
+	return fmt.Errorf("the service targetPort %d is a host port that %s workloads bind on their nodes, "+
+		"which a hostNetwork workload cannot share; choose another targetPort", port, strings.Join(kinds, " and "))
+}
+
 func (v *WorkloadValidator) validateServiceNameUnique(ctx context.Context, workload *v1.Workload, svcName string) error {
 	if v.Client == nil || workload.Spec.Workspace == "" {
 		return nil

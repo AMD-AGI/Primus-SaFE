@@ -2798,13 +2798,7 @@ func setInferaWorkerReadinessSkip(slot map[string]interface{}) {
 // hostNetwork workloads bind on the node, as the initial set of ports a
 // readiness port must avoid.
 func inferaReservedHostPorts() map[int]struct{} {
-	return map[int]struct{}{
-		common.RayJobGcsServerPort: {},
-		common.RayJobDashboardPort: {},
-		common.RayJobMetricsPort:   {},
-		common.MonarchMeshPortNum:  {},
-		common.DynamoFrontendPort:  {},
-	}
+	return commonworkload.FixedHostPorts()
 }
 
 // randomInferaReadinessPort picks a port in [inferaReadinessPortMin,
