@@ -414,13 +414,15 @@ func (m *WorkloadMutator) mutateResources(_ context.Context, workload *v1.Worklo
 // mutateHostPath removes hostPath duplicated by the workspace; workloads inherit workspace hostPath.
 // Only the workspace volumes mounted into the workload are inherited, so a hostPath that duplicates
 // a volume restricted to other scopes, or one that requires the workload/privileged grant the
-// workload was not marked with, is kept (and judged as any other entry).
+// workload was not marked with, is kept (and judged as any other entry). A workload that turns workspace
+// storage off mounts no workspace volume, so it inherits no hostPath.
 func (m *WorkloadMutator) mutateHostPath(workload *v1.Workload, workspace *v1.Workspace) {
 	if len(workload.Spec.Hostpath) == 0 {
 		return
 	}
 	hostPathSet := sets.NewSet()
-	if workspace != nil {
+	storageOff := v1.GetAnnotation(workload, v1.UseWorkspaceStorageAnnotation) == "false"
+	if workspace != nil && !storageOff {
 		for i := range workspace.Spec.Volumes {
 			vol := &workspace.Spec.Volumes[i]
 			if vol.Type == v1.HOSTPATH && commonworkload.WorkspaceVolumeMountedInto(vol, workload) {
