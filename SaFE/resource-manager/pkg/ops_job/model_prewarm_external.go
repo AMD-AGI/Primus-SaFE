@@ -36,14 +36,34 @@ import (
 )
 
 // externalWorkloadName returns the deterministic name of the prewarm workload of a job on one node.
+// The name is a DNS label, and the hash covers the job name so that names differing only in
+// separators do not collide.
 func externalWorkloadName(jobName, adminNodeName string) string {
-	sum := sha256.Sum256([]byte(adminNodeName))
+	sum := sha256.Sum256([]byte(jobName + "/" + adminNodeName))
 	suffix := hex.EncodeToString(sum[:4])
+	base := dnsLabelBase(jobName)
 	maxBase := utils.MaxGeneratedNameLength - len(suffix) - 1
-	if len(jobName) > maxBase {
-		jobName = strings.TrimRight(jobName[:maxBase], "-")
+	if len(base) > maxBase {
+		base = strings.TrimRight(base[:maxBase], "-")
 	}
-	return jobName + "-" + suffix
+	return base + "-" + suffix
+}
+
+// dnsLabelBase maps a name to lowercase letters, digits and dashes, starting with a letter.
+func dnsLabelBase(name string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(name) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('-')
+		}
+	}
+	base := strings.Trim(b.String(), "-")
+	if base == "" || base[0] < 'a' || base[0] > 'z' {
+		base = "job-" + base
+	}
+	return strings.TrimRight(base, "-")
 }
 
 // getExternalNodes returns the admin nodes among the targets that have no node-agent (external nodes).

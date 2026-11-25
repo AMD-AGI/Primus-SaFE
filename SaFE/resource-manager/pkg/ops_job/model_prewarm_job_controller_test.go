@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -23,6 +24,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	modelprewarm "github.com/AMD-AIG-AIMA/SAFE/common/pkg/model_prewarm"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 )
 
 func TestModelPrewarmReconcileEntry(t *testing.T) {
@@ -164,4 +166,17 @@ func TestExternalPrewarmWorkloadOptsOutOfUserDirMounts(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, v1.TrueStr, v1.GetAnnotation(workload, v1.WorkloadUserDirMountsOffAnnotation))
 	assert.Equal(t, []string{"/data"}, workload.Spec.Hostpath)
+}
+
+// The prewarm workload name must be a DNS label of at most MaxGeneratedNameLength characters, whatever
+// the OpsJob name is, and two job names that differ only in their separators must not share a name.
+func TestExternalWorkloadNameIsDNSLabel(t *testing.T) {
+	nameRe := regexp.MustCompile(`^[a-z]([-a-z0-9]*[a-z0-9])?$`)
+	const node = "autopilot-crsuse2-m2m-v3-027-c76cc2f0-g1"
+	for _, jobName := range []string{"prewarm-glm-5.3-l6llf", "A.B_c", "1abc", strings.Repeat("x.", 40)} {
+		name := externalWorkloadName(jobName, node)
+		assert.LessOrEqual(t, len(name), utils.MaxGeneratedNameLength, jobName)
+		assert.Regexp(t, nameRe, name, jobName)
+	}
+	assert.NotEqual(t, externalWorkloadName("a.b", node), externalWorkloadName("a-b", node))
 }
