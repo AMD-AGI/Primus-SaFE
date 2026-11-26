@@ -442,10 +442,14 @@ const router = createRouter({
           meta: { requiresSystemAdmin: true },
         },
         {
-          path: '/user-group',
-          name: 'UserGroup',
-          component: () => import('@/pages/UserGroup/index.vue'),
+          path: '/sso-access',
+          name: 'SsoAccess',
+          component: () => import('@/pages/SsoAccess/index.vue'),
           meta: { requiresSystemAdmin: true },
+        },
+        {
+          path: '/user-group',
+          redirect: '/sso-access',
         },
         {
           path: '/tools',
