@@ -1,6 +1,6 @@
 <template>
   <div>
-    <el-text class="block textx-18 font-500" tag="b">User Group</el-text>
+    <el-text class="block textx-18 font-500" tag="b">SSO Access</el-text>
   </div>
 
   <el-card class="mt-6 safe-card relative" shadow="never">
@@ -208,7 +208,7 @@ import {
   resetSession,
 } from '@/services/mcp'
 
-defineOptions({ name: 'UserGroupPage' })
+defineOptions({ name: 'SsoAccessPage' })
 
 const activeTab = ref('checkUser')
 const loading = ref(false)

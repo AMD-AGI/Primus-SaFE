@@ -552,8 +552,8 @@ watchEffect(() => {
       canAccess: isManager.value,
     },
     {
-      index: '/user-group',
-      name: 'User Group',
+      index: '/sso-access',
+      name: 'SSO Access',
       icon: menuIcons.usermanage,
       canAccess: hasManagerAccess.value, // Admin only
     },
