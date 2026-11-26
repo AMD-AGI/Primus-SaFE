@@ -313,6 +313,33 @@ func TestWorkspaceHostMemory(t *testing.T) {
 	require.Equal(t, 8, info.NodeGPUs)
 }
 
+// A workspace's GPU model is its node flavor's GPU product, or the workspace's gpu.product annotation when the
+// flavor has none.
+func TestWorkspaceGPUModel(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1.AddToScheme(scheme))
+	withProduct := flavor()
+	withProduct.Name = "mi355x"
+	noProduct := flavor()
+	noProduct.Name = "mi300x-no-product"
+	noProduct.Spec.Gpu.Product = ""
+	workspace := func(name, flavor, annotation string) *v1.Workspace {
+		ws := &v1.Workspace{ObjectMeta: metav1.ObjectMeta{Name: name}, Spec: v1.WorkspaceSpec{NodeFlavor: flavor}}
+		if annotation != "" {
+			v1.SetAnnotation(ws, v1.GpuProductAnnotation, annotation)
+		}
+		return ws
+	}
+	h := NewHandler(fake.NewClientBuilder().WithScheme(scheme).WithObjects(withProduct, noProduct,
+		workspace("flavor", withProduct.Name, "MI300X"), workspace("annotation", noProduct.Name, "MI300X"),
+		workspace("neither", noProduct.Name, "")).Build(), nil)
+	for ws, want := range map[string]string{"flavor": "MI355X", "annotation": "MI300X", "neither": ""} {
+		info, err := h.getWorkspace(context.Background(), ws)
+		require.NoError(t, err)
+		require.Equal(t, want, info.GPUModel, ws)
+	}
+}
+
 // A model is ready in a workspace only where its local path is ready.
 func TestModelPathIn(t *testing.T) {
 	m := &v1.Model{Spec: v1.ModelSpec{Source: v1.ModelSource{AccessMode: v1.AccessModeLocal}},

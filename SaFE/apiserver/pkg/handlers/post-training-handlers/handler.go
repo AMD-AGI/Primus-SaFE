@@ -246,6 +246,11 @@ func (h *Handler) getWorkspace(ctx context.Context, name string) (*workspaceInfo
 			return nil, err
 		}
 	}
+	// A node flavor without a GPU product, which the webhook keeps from being set later, leaves the GPU model to
+	// the workspace's gpu.product annotation.
+	if info.GPUModel == "" {
+		info.GPUModel = v1.GetAnnotation(ws, v1.GpuProductAnnotation)
+	}
 	return info, nil
 }
 
