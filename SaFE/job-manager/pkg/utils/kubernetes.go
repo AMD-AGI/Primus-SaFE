@@ -149,44 +149,23 @@ func ListObjectsByWorkload(ctx context.Context, adminClient client.Client,
 }
 
 // DeleteObjectsByWorkload deletes all Kubernetes objects associated with a specific workload
-// It retrieves all related objects in the data plane, and deletes each object of the
-// workload's current generation one by one. Objects of another generation are left in place.
-// Returns true if objects of the current generation were found, false if none were found.
+// It retrieves all related objects in the data plane, and deletes each object one by one
+// Returns true if objects were found and deleted, false if no objects were found.
 func DeleteObjectsByWorkload(ctx context.Context, adminClient client.Client,
 	k8sClientFactory *commonclient.ClientFactory, adminWorkload *v1.Workload) (bool, error) {
 	unstructuredObjs, err := ListObjectsByWorkload(ctx, adminClient, k8sClientFactory, adminWorkload)
 	if err != nil || len(unstructuredObjs) == 0 {
 		return false, err
 	}
-	found := false
-	for i := range unstructuredObjs {
-		obj := &unstructuredObjs[i]
-		if !isObjectOfWorkloadGeneration(obj, adminWorkload) {
-			continue
-		}
-		found = true
+	for _, obj := range unstructuredObjs {
 		// delete the related resource in data plane
-		if err = DeleteObject(ctx, k8sClientFactory, obj); err != nil && !apierrors.IsNotFound(err) {
+		if err = DeleteObject(ctx, k8sClientFactory, &obj); err != nil && !apierrors.IsNotFound(err) {
 			klog.ErrorS(err, "failed to delete k8s object")
 			return true, err
 		}
-	}
-	return found, nil
-}
 
-// isObjectOfWorkloadGeneration reports whether a data-plane object belongs to the current
-// generation of the workload. An object without a uid label is taken as current, and so is
-// one carrying the uid recorded on an adopted workload.
-func isObjectOfWorkloadGeneration(obj *unstructured.Unstructured, adminWorkload *v1.Workload) bool {
-	objUid := obj.GetLabels()[v1.WorkloadUidLabel]
-	if objUid == "" || adminWorkload.UID == "" {
-		return true
 	}
-	if objUid == string(adminWorkload.UID) {
-		return true
-	}
-	adopted := v1.GetAnnotation(adminWorkload, v1.WorkloadAdoptUidAnnotation)
-	return adopted != "" && objUid == adopted
+	return true, nil
 }
 
 // GetObjectByInformer retrieves an object from the informer cache.
