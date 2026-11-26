@@ -41,6 +41,7 @@ func (h *Handler) getEnvs(c *gin.Context) (interface{}, error) {
 		CDRequireApproval:     commonconfig.IsCDRequireApproval(),
 		AccessContact:         commonconfig.GetConsoleAccessContact(),
 		ConsoleReturnPrefixes: commonconfig.GetConsoleReturnPrefixes(),
+		IdentityConsoleURL:    commonconfig.GetIdentityConsoleURL(),
 		KubeSprayK8sVersions:  v1.KubeSprayK8sVersions(),
 	}
 	if commonconfig.GetAuthMode() == commonconfig.AuthModeExternal {

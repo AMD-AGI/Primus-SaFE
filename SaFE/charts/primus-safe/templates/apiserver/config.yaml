@@ -128,6 +128,9 @@ data:
       # Path prefixes on this host the console returns to after sign-in; unset is the apiserver's default list.
       return_prefixes: {{ toJson $returnPrefixes }}
       {{- end }}
+    identity:
+      # Address of the identity console, used to link to team pages: <console_url>/teams/<teamId>. Empty by default.
+      console_url: {{ default "" (default dict .Values.identity).console_url | quote }}
     tls:
       # Verify TLS certificates for outbound HTTPS calls to model endpoints and
       # third-party services (InferenceX). Default false keeps

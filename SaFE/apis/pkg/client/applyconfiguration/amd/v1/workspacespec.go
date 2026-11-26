@@ -46,6 +46,10 @@ type WorkspaceSpecApplyConfiguration struct {
 	IdleTime map[amdv1.WorkspaceScope]string `json:"idleTime,omitempty"`
 	// Stop running workloads whose GPU utilization stays low, per scope
 	LowUtilization map[amdv1.WorkspaceScope]LowUtilizationPolicyApplyConfiguration `json:"lowUtilization,omitempty"`
+	// Teams whose members access the workspace
+	Teams []WorkspaceTeamApplyConfiguration `json:"teams,omitempty"`
+	// Whether users may request direct access: closed (default) or approval
+	AccessPolicy *amdv1.WorkspaceAccessPolicy `json:"accessPolicy,omitempty"`
 }
 
 // WorkspaceSpecApplyConfiguration constructs a declarative configuration of the WorkspaceSpec type for use with
@@ -170,5 +174,26 @@ func (b *WorkspaceSpecApplyConfiguration) WithLowUtilization(entries map[amdv1.W
 	for k, v := range entries {
 		b.LowUtilization[k] = v
 	}
+	return b
+}
+
+// WithTeams adds the given value to the Teams field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Teams field.
+func (b *WorkspaceSpecApplyConfiguration) WithTeams(values ...*WorkspaceTeamApplyConfiguration) *WorkspaceSpecApplyConfiguration {
+	for i := range values {
+		if values[i] == nil {
+			panic("nil value passed to WithTeams")
+		}
+		b.Teams = append(b.Teams, *values[i])
+	}
+	return b
+}
+
+// WithAccessPolicy sets the AccessPolicy field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the AccessPolicy field is set to the value of the last call.
+func (b *WorkspaceSpecApplyConfiguration) WithAccessPolicy(value amdv1.WorkspaceAccessPolicy) *WorkspaceSpecApplyConfiguration {
+	b.AccessPolicy = &value
 	return b
 }

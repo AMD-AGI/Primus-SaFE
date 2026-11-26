@@ -562,6 +562,12 @@ func GetConsoleAccessContact() string {
 	return strings.TrimSpace(getString(consoleAccessContact, ""))
 }
 
+// GetIdentityConsoleURL returns identity.console_url without a trailing slash: the address of the identity
+// console, from which links to team pages are built. Only a path or an http(s) URL counts; empty by default.
+func GetIdentityConsoleURL() string {
+	return strings.TrimRight(consoleURL(getString(identityConsoleURL, "")), "/")
+}
+
 // DefaultConsoleReturnPrefixes are the web apps on the console's host that a sign-in returns to
 // when console.return_prefixes is not set.
 var DefaultConsoleReturnPrefixes = []string{"/dispatron", "/autopilot", "/binding", "/blog-drafts", "/identity"}
@@ -1166,6 +1172,7 @@ type AuthenticatorConfig struct {
 	UsernameClaim string `json:"username_claim" yaml:"username_claim" mapstructure:"username_claim"`
 	EmailClaim    string `json:"email_claim" yaml:"email_claim" mapstructure:"email_claim"`
 	GroupsClaim   string `json:"groups_claim" yaml:"groups_claim" mapstructure:"groups_claim"`
+	TeamsClaim    string `json:"teams_claim" yaml:"teams_claim" mapstructure:"teams_claim"`
 
 	// introspection: OAuth 2.0 token introspection (RFC 7662) at URL, authenticated with a client id
 	// and a client secret read from a file (a mounted Secret).

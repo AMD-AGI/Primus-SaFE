@@ -95,9 +95,10 @@ type IntrospectionConfig struct {
 // an API key's allow list). The answer is a JSON object. "active": false rejects the
 // credential. For an active one, "sub" is the SaFE user id; the identity is described by
 // username, name, email, groups, roles (both groups and roles are group names for the
-// configured group mappings), scope, jti, exp, an optional "restricted" flag, and "act",
-// the party a delegated credential acts through ({"client_id": ...} or {"sub": ...}). The
-// answer must also be about this apiserver: see IntrospectionConfig.Audience.
+// configured group mappings), teams (the ids of the teams the user belongs to), scope, jti,
+// exp, an optional "restricted" flag, and "act", the party a delegated credential acts
+// through ({"client_id": ...} or {"sub": ...}). The answer must also be about this
+// apiserver: see IntrospectionConfig.Audience.
 type IntrospectionAuthenticator struct {
 	cfg   IntrospectionConfig
 	group singleflight.Group
@@ -335,6 +336,7 @@ type introspectionAnswer struct {
 	UserType          string      `json:"user_type"`
 	Groups            []string    `json:"groups"`
 	Roles             []string    `json:"roles"`
+	Teams             []string    `json:"teams"`
 	Scope             string      `json:"scope"`
 	Jti               string      `json:"jti"`
 	Exp               json.Number `json:"exp"`
@@ -472,7 +474,8 @@ func (a *IntrospectionAuthenticator) identity(r *introspectionAnswer) (*Identity
 	}
 	id := &Identity{
 		ID: r.Sub, Name: r.Name, PreferredName: r.PreferredUsername, Email: r.Email, AccountType: r.UserType,
-		Jti: r.Jti, Restricted: r.Restricted, Groups: unionOf(r.Groups, r.Roles), Scopes: strings.Fields(r.Scope),
+		Jti: r.Jti, Restricted: r.Restricted, Groups: unionOf(r.Groups, r.Roles), Teams: unionOf(r.Teams),
+		Scopes: strings.Fields(r.Scope),
 	}
 	if id.Name == "" {
 		id.Name = r.Username

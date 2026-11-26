@@ -65,6 +65,9 @@ type GetEnvResponse struct {
 	// Path prefixes on this host the console returns to with a full-page navigation after sign-in
 	// (console.return_prefixes; its default when unset). Always a list, possibly empty.
 	ConsoleReturnPrefixes []string `json:"consoleReturnPrefixes"`
+	// Address of the identity console (identity.console_url), from which the console builds links to team
+	// pages. Absent when the deployment sets none.
+	IdentityConsoleURL string `json:"identityConsoleUrl,omitempty"`
 	// KubeSpray image tags mapped to the Kubernetes versions they install.
 	KubeSprayK8sVersions map[string]string `json:"kubeSprayK8sVersions"`
 }

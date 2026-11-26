@@ -30,6 +30,7 @@
 
       <div class="actions">
         <el-button type="primary" :loading="checking" @click="checkAgain">Check again</el-button>
+        <el-button v-if="teamsLink" @click="openTeams">View teams</el-button>
         <el-button :loading="signingOut" @click="signOut">Sign out</el-button>
       </div>
     </div>
@@ -47,10 +48,12 @@ const {
   id,
   rolesText,
   contact,
+  teamsLink,
   checking,
   signingOut,
   stillNoAccess,
   loadContact,
+  openTeams,
   copyId,
   checkAgain,
   signOut,

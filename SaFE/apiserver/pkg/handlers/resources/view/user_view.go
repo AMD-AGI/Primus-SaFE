@@ -74,6 +74,9 @@ type UserResponseItem struct {
 	Qos *v1.UserQos `json:"qos,omitempty"`
 	// Per-user low utilization settings per workspace.
 	LowUtilization *v1.UserLowUtilization `json:"lowUtilization,omitempty"`
+	// How the user reaches the queried workspace: direct and team:<id>. Only set when the list is
+	// filtered by workspace.
+	Sources []string `json:"sources,omitempty"`
 }
 
 // UserWorkspacesResponse is the answer of GET /users/self/workspaces: the same two lists

@@ -145,6 +145,11 @@ func TestForbiddenDelegatedCapabilities(t *testing.T) {
 		{http.MethodPost, "/api/v1/publickeys", CapabilityCredentialMint},
 		{http.MethodGet, "/api/v1/llm-gateway/binding", CapabilityCredentialRead},
 		{http.MethodPost, "/api/v1/auth/verify", CapabilityPlatformKey},
+		{http.MethodPut, "/api/v1/workspaces/ws1/teams", CapabilityUserManagement},
+		{http.MethodGet, "/api/v1/workspaces/ws1/members", CapabilityUserManagement},
+		{http.MethodPut, "/api/v1/teams/t1/workspaces", CapabilityUserManagement},
+		{http.MethodGet, "/api/v1/teams/t1/members", CapabilityUserManagement},
+		{http.MethodPut, "/api/v1/workspaces/ws1/teams/", CapabilityUserManagement},
 		// Path tricks do not get around it.
 		{http.MethodGet, "/api/v1//apikeys", CapabilityApiKey},
 		{http.MethodGet, "/api/v1/./secrets/s1", CapabilitySecret},
@@ -163,6 +168,10 @@ func TestForbiddenDelegatedCapabilities(t *testing.T) {
 		{http.MethodGet, "/api/v1/publickeys"},
 		{http.MethodGet, "/api/v1/llm-gateway/usage"},
 		{http.MethodGet, "/healthz"},
+		{http.MethodGet, "/api/v1/workspaces/ws1"},
+		{http.MethodPatch, "/api/v1/workspaces/ws1"},
+		{http.MethodGet, "/api/v1/teams"},
+		{http.MethodGet, "/api/v1/teams/t1/workspaces"},
 	} {
 		_, forbidden := Forbidden(tt.method, tt.path)
 		require.False(t, forbidden, "%s %s", tt.method, tt.path)

@@ -53,12 +53,16 @@ export interface LoginResp extends BaseUserResp {
 export interface Workspace {
   id: string
   name: string
+  // How the user reaches the workspace: direct, team:<id>, group:<name> or default
+  sources?: string[]
 }
 export interface UserSelfData extends BaseUserResp {
   workspaces: Workspace[]
   managedWorkspaces?: Workspace[]
   creationTime: string
   restrictedType: number
+  // Only set when the list is filtered by workspace: direct and team:<id>
+  sources?: string[]
   qos?: UserQos
   lowUtilization?: UserLowUtilization
 }
@@ -68,6 +72,9 @@ export interface SelfWorkspacesResp {
   workspaces: Workspace[]
   managedWorkspaces: Workspace[]
 }
+
+// GET /users/:name/workspaces: the workspaces a user reaches by any source, and the ones the user manages
+export type UserEffectiveWorkspacesResp = SelfWorkspacesResp
 
 export interface UsersItemResp {
   totalCount: number
@@ -116,6 +123,9 @@ export interface EnvsResp {
   consoleReturnPrefixes?: string[]
   // cd
   cdRequireApproval?: boolean
+  // Address of the identity console (path or http(s) URL), from which links to team pages are built.
+  // Absent when the deployment sets none.
+  identityConsoleUrl?: string
   // Whom a signed-in user without access should ask for it (plain text, may be empty or absent
   // on older servers). Never render it as HTML.
   accessContact?: string

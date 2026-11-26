@@ -73,6 +73,7 @@ type identityClaims struct {
 		Sub string `json:"sub"`
 	} `json:"act"`
 	Groups               []string         `json:"groups"`
+	Teams                []string         `json:"teams"`
 	AuthorizationDetails []map[string]any `json:"authorization_details"`
 }
 
@@ -314,13 +315,21 @@ func workloadGpuCount(workload *v1.Workload) (float64, error) {
 	return total, nil
 }
 
-// checkWorkspaceAccess asks the API server whether the asserted user, with the asserted groups, may use the
-// workspace. A denial is a forbidden error; a failed review is an internal error the caller may retry.
+// checkWorkspaceAccess asks the API server whether the asserted user, with the asserted groups and teams, may
+// use the workspace. A team is the group named v1.TeamGroupPrefix plus its id; an asserted group that carries
+// that prefix is left out. A denial is a forbidden error; a failed review is an internal error the caller may retry.
 func (v *WorkloadValidator) checkWorkspaceAccess(ctx context.Context, claims *identityClaims, workspace string) error {
 	prefix := commonconfig.GetRBACSubjectPrefix()
-	groups := make([]string, 0, len(claims.Groups))
+	groups := make([]string, 0, len(claims.Groups)+len(claims.Teams))
 	for _, g := range claims.Groups {
-		groups = append(groups, prefix+g)
+		if !strings.HasPrefix(g, v1.TeamGroupPrefix) {
+			groups = append(groups, prefix+g)
+		}
+	}
+	for _, t := range claims.Teams {
+		if t != "" {
+			groups = append(groups, prefix+v1.TeamGroupPrefix+t)
+		}
 	}
 	review := &authorizationv1.SubjectAccessReview{
 		Spec: authorizationv1.SubjectAccessReviewSpec{

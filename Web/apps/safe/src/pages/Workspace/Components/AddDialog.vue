@@ -80,6 +80,27 @@
             </el-col>
           </el-row>
 
+          <el-form-item label="Teams" v-if="!isEdit">
+            <el-select
+              v-model="form.teams"
+              multiple
+              filterable
+              :allow-create="!teamOptions.length"
+              :loading="teamsLoading"
+              placeholder="Teams whose members get access (optional)"
+            >
+              <el-option
+                v-for="t in teamOptions"
+                :key="t.id"
+                :label="t.displayName || t.id"
+                :value="t.id"
+              >
+                <span>{{ t.displayName || t.id }}</span>
+                <span class="ml-2 text-[13px] text-gray-400">{{ t.id }} · {{ t.memberCount }} members</span>
+              </el-option>
+            </el-select>
+          </el-form-item>
+
           <el-form-item label="Managers" v-if="isEdit">
             <el-select v-model="form.managers" filterable placeholder="please select managers" multiple>
               <el-option
@@ -465,6 +486,7 @@ import { getUserDataList } from '@/services/login'
 import { type FormInstance, type FormRules, ElMessage } from 'element-plus'
 import { InfoFilled } from '@element-plus/icons-vue'
 import { useClusterStore } from '@/stores/cluster'
+import { useTeams } from '@/composables/useTeams'
 
 const props = defineProps<{
   visible: boolean
@@ -475,6 +497,7 @@ const emit = defineEmits(['update:visible', 'success'])
 const isEdit = computed(() => props.action === 'Edit')
 
 const store = useClusterStore()
+const { teams: teamOptions, loading: teamsLoading, loadTeams } = useTeams()
 
 const state = reactive({
   flavorOptions: [] as string[],
@@ -494,6 +517,7 @@ const initialForm = reactive({
   external: false,
   isDefault: false,
   managers: [],
+  teams: [] as string[],
   volumes: [] as Volume[],
   scopes: ['Train', 'Infer', 'Authoring'],
   idleTime: {} as Record<string, number | undefined>,
@@ -600,18 +624,25 @@ const onSubmit = async (formEl: FormInstance | undefined) => {
 
     const lowUtilization = buildLowUtilization(form.lowUtilization, lowUtilConfiguredScopes.value)
 
-    const { managers, ...payload } = form
+    const { managers, teams, ...payload } = form
 
     if (!isEdit.value) {
+      // A team id is a DNS-1123 label; teams are bound with the member role here
+      const invalidTeam = teams.find((t) => !/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(t) || t.length > 63)
+      if (invalidTeam) {
+        ElMessage.error(`Invalid team id: ${invalidTeam}`)
+        return
+      }
       await addWorkspace({
         ...payload,
+        ...(teams.length ? { teams: teams.map((name) => ({ name, role: 'member' as const })) } : {}),
         volumes: volumesPayload,
         idleTime,
         lowUtilization,
       })
       ElMessage({ message: 'Create successful', type: 'success' })
     } else {
-      const { name: _n, lowUtilization: _l, ...payload } = form
+      const { name: _n, lowUtilization: _l, teams: _t, ...payload } = form
       if (!props.wsid) return
       const lowUtilTouched = JSON.stringify(form.lowUtilization) !== lowUtilBaseline.value
       await editWorkspace(props.wsid, {
@@ -782,7 +813,9 @@ const onOpen = async () => {
   } else {
     ruleFormRef.value?.resetFields()
     Object.assign(form, initialForm)
+    form.teams = []
     initSelectOptions()
+    loadTeams()
   }
   await nextTick()
 }

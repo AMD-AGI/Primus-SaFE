@@ -2183,3 +2183,16 @@ func TestS3TLSItemsOfTheSecret(t *testing.T) {
 		testifyassert.Equal(t, want, IsS3InsecureSkipVerify(), "%q", value)
 	}
 }
+
+func TestGetIdentityConsoleURL(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	testifyrequire.Equal(t, "", GetIdentityConsoleURL())
+	viper.Set("identity.console_url", " https://host.example/identity/ ")
+	testifyrequire.Equal(t, "https://host.example/identity", GetIdentityConsoleURL())
+	viper.Set("identity.console_url", "/identity")
+	testifyrequire.Equal(t, "/identity", GetIdentityConsoleURL())
+	viper.Set("identity.console_url", "javascript:alert(1)")
+	testifyrequire.Equal(t, "", GetIdentityConsoleURL())
+}

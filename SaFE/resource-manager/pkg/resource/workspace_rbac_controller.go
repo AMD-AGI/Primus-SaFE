@@ -95,14 +95,22 @@ func SetupWorkspaceRBACController(mgr manager.Manager) error {
 	return nil
 }
 
-// workspaceRBACPredicate passes Workspace creation, deletion and the start of deletion.
+// workspaceRBACPredicate passes Workspace creation, deletion, the start of deletion and team binding changes.
 type workspaceRBACPredicate struct {
 	predicate.Funcs
 }
 
-// Update passes a Workspace update only when its deletion starts.
+// Update passes a Workspace update when its deletion starts or its team bindings change.
 func (workspaceRBACPredicate) Update(e event.UpdateEvent) bool {
-	return e.ObjectOld.GetDeletionTimestamp().IsZero() && !e.ObjectNew.GetDeletionTimestamp().IsZero()
+	if e.ObjectOld.GetDeletionTimestamp().IsZero() && !e.ObjectNew.GetDeletionTimestamp().IsZero() {
+		return true
+	}
+	oldWorkspace, ok1 := e.ObjectOld.(*v1.Workspace)
+	newWorkspace, ok2 := e.ObjectNew.(*v1.Workspace)
+	if !ok1 || !ok2 {
+		return false
+	}
+	return !reflect.DeepEqual(oldWorkspace.Spec.Teams, newWorkspace.Spec.Teams)
 }
 
 // projectedGroupMappings returns auth.group_mappings in external mode. Builtin mode projects none.
@@ -251,7 +259,7 @@ func (r *WorkspaceRBACReconciler) reconcileWorkspace(ctx context.Context, name s
 	if err = r.applyClusterRole(ctx, roleName, rules, owner); err != nil {
 		return err
 	}
-	if err = r.applyClusterRoleBinding(ctx, bindingName, roleName, r.workspaceSubjects(name, users), owner); err != nil {
+	if err = r.applyClusterRoleBinding(ctx, bindingName, roleName, r.workspaceSubjects(workspace, users), owner); err != nil {
 		return err
 	}
 	managerRules := []rbacv1.PolicyRule{{
@@ -263,7 +271,7 @@ func (r *WorkspaceRBACReconciler) reconcileWorkspace(ctx context.Context, name s
 	if err = r.applyClusterRole(ctx, managerRole, managerRules, owner); err != nil {
 		return err
 	}
-	return r.applyClusterRoleBinding(ctx, managerBinding, managerRole, r.managerSubjects(name, users), owner)
+	return r.applyClusterRoleBinding(ctx, managerBinding, managerRole, r.managerSubjects(workspace, users), owner)
 }
 
 // applyPendingGrants applies the user grants the admission left on a workspace that was being created
@@ -346,34 +354,53 @@ func (r *WorkspaceRBACReconciler) listUsers(ctx context.Context) ([]v1.User, err
 	return userList.Items, nil
 }
 
-// workspaceSubjects returns the sorted subjects that are members of the workspace.
-func (r *WorkspaceRBACReconciler) workspaceSubjects(workspace string, users []v1.User) []rbacv1.Subject {
+// workspaceSubjects returns the sorted subjects that are members of the workspace: its users, the groups
+// mapped to it and every team bound to it.
+func (r *WorkspaceRBACReconciler) workspaceSubjects(workspace *v1.Workspace, users []v1.User) []rbacv1.Subject {
 	var userNames, groupNames []string
 	for i := range users {
 		if users[i].Spec.RestrictedType == v1.UserFrozen {
 			continue
 		}
-		if commonuser.HasWorkspaceRight(&users[i], workspace) {
+		if commonuser.HasWorkspaceRight(&users[i], workspace.Name) {
 			userNames = append(userNames, users[i].Name)
 		}
 	}
 	for _, m := range r.groupMappings {
-		if m.Group != "" && containsString(m.Workspaces, workspace) {
+		if isPlatformGroup(m.Group) && containsString(m.Workspaces, workspace.Name) {
 			groupNames = append(groupNames, m.Group)
 		}
 	}
+	groupNames = append(groupNames, r.teamGroups(workspace, false)...)
 	return r.buildSubjects(userNames, groupNames)
 }
 
-// managerSubjects returns the sorted users that are not frozen and manage the workspace.
-func (r *WorkspaceRBACReconciler) managerSubjects(workspace string, users []v1.User) []rbacv1.Subject {
+// managerSubjects returns the sorted subjects that manage the workspace: its users that are not frozen
+// and the teams bound to it with the manager role.
+func (r *WorkspaceRBACReconciler) managerSubjects(workspace *v1.Workspace, users []v1.User) []rbacv1.Subject {
 	var userNames []string
 	for i := range users {
-		if users[i].Spec.RestrictedType != v1.UserFrozen && commonuser.HasWorkspaceManagedRight(&users[i], workspace) {
+		if users[i].Spec.RestrictedType != v1.UserFrozen && commonuser.HasWorkspaceManagedRight(&users[i], workspace.Name) {
 			userNames = append(userNames, users[i].Name)
 		}
 	}
-	return r.buildSubjects(userNames, nil)
+	return r.buildSubjects(userNames, r.teamGroups(workspace, true))
+}
+
+// teamGroups returns the group names of the teams bound to the workspace, only those with the manager
+// role when managersOnly is set. Builtin mode projects none, as teams come only from the identity service.
+func (r *WorkspaceRBACReconciler) teamGroups(workspace *v1.Workspace, managersOnly bool) []string {
+	if r.storedRoles {
+		return nil
+	}
+	var groups []string
+	for _, t := range workspace.Spec.Teams {
+		if t.Name == "" || (managersOnly && t.EffectiveRole() != v1.WorkspaceTeamManager) {
+			continue
+		}
+		groups = append(groups, v1.TeamGroupPrefix+t.Name)
+	}
+	return groups
 }
 
 // platformSubjects returns the groups mapped to system-admin and, in builtin mode, the users that are
@@ -388,11 +415,17 @@ func (r *WorkspaceRBACReconciler) platformSubjects(users []v1.User) []rbacv1.Sub
 		}
 	}
 	for _, m := range r.groupMappings {
-		if m.Group != "" && containsString(m.Roles, string(v1.SystemAdminRole)) {
+		if isPlatformGroup(m.Group) && containsString(m.Roles, string(v1.SystemAdminRole)) {
 			groupNames = append(groupNames, m.Group)
 		}
 	}
 	return r.buildSubjects(userNames, groupNames)
+}
+
+// isPlatformGroup reports whether a mapped group name may be projected as a platform group: it is set
+// and does not carry v1.TeamGroupPrefix, which names the groups of teams.
+func isPlatformGroup(group string) bool {
+	return group != "" && !strings.HasPrefix(group, v1.TeamGroupPrefix)
 }
 
 // buildSubjects turns user and group names into prefixed, de-duplicated subjects, users first, each sorted by name.

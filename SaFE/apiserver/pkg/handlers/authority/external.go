@@ -27,6 +27,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	commonworkspace "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workspace"
 )
 
 const (
@@ -70,6 +71,12 @@ func InitExternalAuth(cli client.Client) error {
 	mappings, err := commonconfig.GetAuthGroupMappings()
 	if err != nil {
 		return err
+	}
+	for i, m := range mappings {
+		if strings.HasPrefix(m.Group, v1.TeamGroupPrefix) {
+			return fmt.Errorf("auth.group_mappings[%d]: the group %q carries the prefix %q, which is reserved for teams",
+				i, m.Group, v1.TeamGroupPrefix)
+		}
 	}
 	chain, err := buildChain(cfgs)
 	if err != nil {
@@ -180,6 +187,7 @@ func buildChain(cfgs []commonconfig.AuthenticatorConfig) (*extauth.Chain, error)
 				Name: c.Name, Issuer: c.Issuer, Audience: c.Audience, JWKSURL: c.JWKSURL,
 				JWKSCacheTTL: ttl, ClockSkew: skew,
 				IDClaim: c.IDClaim, UsernameClaim: c.UsernameClaim, EmailClaim: c.EmailClaim, GroupsClaim: c.GroupsClaim,
+				TeamsClaim: c.TeamsClaim,
 			})
 			if err != nil {
 				return nil, fmt.Errorf("auth.authenticators[%d]: %w", i, err)
@@ -257,7 +265,7 @@ func parseExternal(c *gin.Context, st *externalAuth) (handled bool, err error) {
 		return true, err
 	}
 
-	c.Request = c.Request.WithContext(extauth.WithOverlay(c.Request.Context(), st.overlay(id)))
+	c.Request = c.Request.WithContext(extauth.WithOverlay(c.Request.Context(), st.overlay(c.Request.Context(), id)))
 	userType := UserTypeExternal
 	if id.Delegated() {
 		userType = UserTypeDelegated
@@ -322,9 +330,27 @@ func (st *externalAuth) provision(ctx context.Context, id *extauth.Identity) (*v
 }
 
 // overlay is what the identity adds to its user record for the request: the roles and workspaces
-// its groups map to, and its restriction.
-func (st *externalAuth) overlay(id *extauth.Identity) *extauth.Overlay {
-	return extauth.MapGroups(id.ID, id.Groups, st.mappings, id.Restricted)
+// its groups map to, the workspaces its teams are bound to, and its restriction.
+func (st *externalAuth) overlay(ctx context.Context, id *extauth.Identity) *extauth.Overlay {
+	o := extauth.MapGroups(id.ID, id.Groups, st.mappings, id.Restricted)
+	extauth.AddTeams(o, id.Teams, st.teamLookup(ctx))
+	return o
+}
+
+// teamLookup returns the lookup of the workspaces bound to a team, read from the Workspace cache
+// through the commonworkspace.TeamIndex index. A team whose workspaces cannot be read grants none.
+func (st *externalAuth) teamLookup(ctx context.Context) extauth.TeamWorkspaceLookup {
+	if st.client == nil {
+		return nil
+	}
+	return func(team string) map[string]v1.WorkspaceTeamRole {
+		bound, err := commonworkspace.TeamWorkspaces(ctx, st.client, team)
+		if err != nil {
+			commonworkspace.LogTeamLookupError(err, team)
+			return nil
+		}
+		return bound
+	}
 }
 
 var errInvalidUserId = errors.New("the authenticated user id is not a valid resource name")

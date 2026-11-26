@@ -7,6 +7,7 @@ import type {
   UserSelfData,
   SelfWorkspacesResp,
   UsersItemResp,
+  UserEffectiveWorkspacesResp,
   EnvsResp,
   EditUserResp,
   UserSettings,
@@ -69,6 +70,10 @@ export const getSelfData = (): Promise<UserSelfData> =>
 // session teardown for it.
 export const getSelfWorkspaces = (): Promise<SelfWorkspacesResp> =>
   request.get(`/users/self/workspaces`, { skipErrorHandler: true })
+
+// The workspaces a user reaches by any source. Needs the update right on the user's workspaces.
+export const getUserEffectiveWorkspaces = (id: string): Promise<UserEffectiveWorkspacesResp> =>
+  request.get(`/users/${encodeURIComponent(id)}/workspaces`)
 
 export const getUserData = (id: string): Promise<UserSelfData> => request.get(`/users/${id}`)
 

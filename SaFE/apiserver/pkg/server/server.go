@@ -39,6 +39,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/options"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/robustclient"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/trace"
+	commonworkspace "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workspace"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/netutil"
 )
 
@@ -93,6 +94,10 @@ func (s *Server) init() error {
 	}
 	if s.ctrlManager, err = newCtrlManager(); err != nil {
 		klog.ErrorS(err, "failed to init controller manager")
+		return err
+	}
+	if err = commonworkspace.SetupTeamIndex(s.ctx, s.ctrlManager.GetFieldIndexer()); err != nil {
+		klog.ErrorS(err, "failed to set up the workspace team index")
 		return err
 	}
 	if err = controllers.SetupControllers(s.ctx, s.ctrlManager); err != nil {

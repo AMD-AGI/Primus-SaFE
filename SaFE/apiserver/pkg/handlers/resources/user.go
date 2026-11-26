@@ -300,9 +300,14 @@ func (h *Handler) listUser(c *gin.Context) (interface{}, error) {
 	}
 	roles := h.accessController.GetRoles(c.Request.Context(), requestUser)
 	adminView := h.isSystemAdminRequest(c.Request.Context(), requestUser)
+	var boundTeams []string
+	if query.WorkspaceId != "" {
+		boundTeams = h.boundTeamNames(c.Request.Context(), query.WorkspaceId)
+	}
 	for _, item := range userList.Items {
+		var sources []string
 		if query.WorkspaceId != "" {
-			if !commonuser.HasWorkspaceRight(&item, query.WorkspaceId) {
+			if sources = userWorkspaceSources(&item, query.WorkspaceId, boundTeams); len(sources) == 0 {
 				continue
 			}
 		}
@@ -310,6 +315,7 @@ func (h *Handler) listUser(c *gin.Context) (interface{}, error) {
 			continue
 		}
 		resp := h.cvtToUserResponseItem(c.Request.Context(), &item)
+		resp.Sources = sources
 		if !adminView && item.Name != requestUser.Name {
 			resp.Qos = nil
 			resp.LowUtilization = nil
@@ -318,6 +324,35 @@ func (h *Handler) listUser(c *gin.Context) (interface{}, error) {
 	}
 	result.TotalCount = len(result.Items)
 	return result, nil
+}
+
+// boundTeamNames returns the names of the teams bound to the workspace, none when it is not found
+// or when the recorded teams of users grant no access (recordedIdentityInUse).
+func (h *Handler) boundTeamNames(ctx context.Context, workspaceId string) []string {
+	if !recordedIdentityInUse() {
+		return nil
+	}
+	workspace := &v1.Workspace{}
+	if err := h.Get(ctx, client.ObjectKey{Name: workspaceId}, workspace); err != nil {
+		return nil
+	}
+	return teamNames(workspace)
+}
+
+// userWorkspaceSources returns how the stored user record reaches the workspace: direct when the
+// record lists it, and team:<id> for each recorded team of the user that is bound to it.
+func userWorkspaceSources(user *v1.User, workspaceId string, boundTeams []string) []string {
+	var sources []string
+	if commonuser.HasWorkspaceRight(user, workspaceId) {
+		sources = append(sources, sourceDirect)
+	}
+	recorded := identity.RecordedTeams(user)
+	for _, team := range boundTeams {
+		if slice.Contains(recorded, team) {
+			sources = append(sources, extauth.TeamSourcePrefix+team)
+		}
+	}
+	return sources
 }
 
 // authUserGet checks if requestUser has permission to list targetUser.
@@ -408,9 +443,14 @@ func (h *Handler) getSelfWorkspaces(c *gin.Context) (interface{}, error) {
 		return nil, commonerrors.NewUnauthorized("the request user is unknown")
 	}
 	// As in the user record: in external mode the lists include what the request's
-	// groups map to. The copy is only read here, never written back.
+	// groups and teams map to. The copy is only read here, never written back.
 	user := extauth.ApplyOverlay(c.Request.Context(), requestUser)
-	workspaces, managed := h.userWorkspaces(c.Request.Context(), user)
+	record, err := h.getAdminUser(c.Request.Context(), requestUser.Name)
+	if err != nil {
+		return nil, err
+	}
+	workspaces, managed := h.userWorkspacesWithSources(c.Request.Context(), user, record,
+		extauth.RequestOverlay(c.Request.Context(), requestUser))
 	// An empty list is [], not null, so a client can read it without a nil check.
 	resp := &view.UserWorkspacesResponse{
 		Workspaces:        []view.WorkspaceEntry{},
@@ -445,6 +485,9 @@ func (h *Handler) patchUser(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	if err = refuseExternalPasswordChange(req); err != nil {
+		return nil, err
+	}
+	if err = refuseExternalRestrictionChange(targetUser, req); err != nil {
 		return nil, err
 	}
 	if err = validateWorkspaceDelta(req); err != nil {

@@ -64,3 +64,22 @@ export async function openIdentityConsole(
   }
   window.location.assign(url)
 }
+
+/** The identity console address when it is a same-origin path or an http(s) URL, without a trailing slash; else ''. */
+function consoleBase(base: string | null | undefined): string {
+  const value = (base ?? '').trim().replace(/\/+$/, '')
+  if (value.startsWith('/') && !value.startsWith('//')) return value
+  return /^https?:\/\/[^\s/]+/i.test(value) ? value : ''
+}
+
+/** Link to the team list of the identity console, or '' when the console address is not set. */
+export function teamsUrl(base: string | null | undefined): string {
+  const root = consoleBase(base)
+  return root ? `${root}/teams` : ''
+}
+
+/** Link to one team page of the identity console, or '' when the console address is not set. */
+export function teamUrl(base: string | null | undefined, id: string): string {
+  const list = teamsUrl(base)
+  return list && id ? `${list}/${encodeURIComponent(id)}` : ''
+}

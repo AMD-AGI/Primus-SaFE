@@ -4,6 +4,7 @@ import { useClusterStore } from '@/stores/cluster'
 import { useUserStore } from '@/stores/user'
 import { copyText } from '@/utils'
 import { isNoAccess } from '@/utils/httpStatus'
+import { openIdentityConsole, teamsUrl } from '@/utils/identityConsole'
 
 /**
  * The logic of the "no access yet" page, kept apart from the template so it can be tested.
@@ -29,6 +30,9 @@ export function useNoAccess(router: Pick<Router, 'replace'>) {
     return typeof value === 'string' ? value.trim() : ''
   })
 
+  // The team page of the identity console. Empty when the deployment sets no console address.
+  const teamsLink = computed(() => teamsUrl(userStore.envs?.identityConsoleUrl))
+
   const checking = ref(false)
   const signingOut = ref(false)
   // True after "Check again" was answered with 403: the account still has no access.
@@ -45,6 +49,11 @@ export function useNoAccess(router: Pick<Router, 'replace'>) {
     } catch {
       // No contact line.
     }
+  }
+
+  /** Opens the team page of the identity console, signing in there first when needed. */
+  async function openTeams() {
+    if (teamsLink.value) await openIdentityConsole(userStore.envs, teamsLink.value)
   }
 
   async function copyId() {
@@ -97,10 +106,12 @@ export function useNoAccess(router: Pick<Router, 'replace'>) {
     id,
     rolesText,
     contact,
+    teamsLink,
     checking,
     signingOut,
     stillNoAccess,
     loadContact,
+    openTeams,
     copyId,
     checkAgain,
     signOut,

@@ -51,6 +51,10 @@ type CreateWorkspaceRequest struct {
 	// User-defined labels. Keys starting with "primus-safe." are ignored unless the
 	// caller is a system admin (used for reserved labels such as external).
 	Labels map[string]string `json:"labels,omitempty"`
+	// Teams whose members access the workspace. A manager binding needs a system administrator
+	Teams []v1.WorkspaceTeam `json:"teams,omitempty"`
+	// Whether users may request direct access: closed (default) or approval. approval needs a system administrator
+	AccessPolicy v1.WorkspaceAccessPolicy `json:"accessPolicy,omitempty"`
 }
 
 type CreateWorkspaceResponse struct {
@@ -114,6 +118,10 @@ type WorkspaceResponseItem struct {
 	GpuProduct string `json:"gpuProduct,omitempty"`
 	// External is true when the workspace is labeled primus-safe.workspace.external=true.
 	External bool `json:"external"`
+	// Teams whose members access the workspace
+	Teams []v1.WorkspaceTeam `json:"teams,omitempty"`
+	// Whether users may request direct access: closed (default) or approval
+	AccessPolicy v1.WorkspaceAccessPolicy `json:"accessPolicy,omitempty"`
 }
 
 type GetWorkspaceResponse struct {
@@ -159,6 +167,10 @@ type PatchWorkspaceRequest struct {
 	IdleTime *map[v1.WorkspaceScope]string `json:"idleTime,omitempty"`
 	// Stop running workloads whose GPU utilization stays low, per scope. An empty map removes every policy
 	LowUtilization *map[v1.WorkspaceScope]v1.LowUtilizationPolicy `json:"lowUtilization,omitempty"`
+	// Teams bound to the workspace, replacing the stored ones. A change to a manager binding needs a system administrator
+	Teams *[]v1.WorkspaceTeam `json:"teams,omitempty"`
+	// Whether users may request direct access. System administrators only
+	AccessPolicy *v1.WorkspaceAccessPolicy `json:"accessPolicy,omitempty"`
 }
 
 type WorkspaceEntry struct {
@@ -166,4 +178,6 @@ type WorkspaceEntry struct {
 	Id string `json:"id"`
 	// workspace name
 	Name string `json:"name"`
+	// How the user reaches the workspace: direct, team:<id>, group:<name> or default
+	Sources []string `json:"sources,omitempty"`
 }

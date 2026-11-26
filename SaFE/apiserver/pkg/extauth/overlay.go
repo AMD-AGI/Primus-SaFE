@@ -23,6 +23,10 @@ type Overlay struct {
 	Workspaces []string
 	Managed    []string
 	Restricted bool
+	// Sources lists, per workspace, the group:<name> and team:<id> sources of the access the
+	// overlay grants. ManagedSources does the same for the management the overlay grants.
+	Sources        map[string][]string
+	ManagedSources map[string][]string
 }
 
 type overlayKey struct{}
@@ -93,6 +97,32 @@ func ApplyOverlay(ctx context.Context, user *v1.User) *v1.User {
 	return u
 }
 
+// RequestOverlay returns the overlay of the request when it belongs to user, and nil otherwise.
+// The overlay is read only: it must not be modified.
+func RequestOverlay(ctx context.Context, user *v1.User) *Overlay {
+	if ctx == nil || user == nil {
+		return nil
+	}
+	o, _ := ctx.Value(overlayKey{}).(*Overlay)
+	if o == nil || user.Name != o.UserId {
+		return nil
+	}
+	return o
+}
+
+// addSource records source as one of the sources of the workspace in the map.
+func addSource(m *map[string][]string, workspace, source string) {
+	if *m == nil {
+		*m = map[string][]string{}
+	}
+	for _, s := range (*m)[workspace] {
+		if s == source {
+			return
+		}
+	}
+	(*m)[workspace] = append((*m)[workspace], source)
+}
+
 // GrantedWorkspaces returns the workspaces this request's identity grants user, which the
 // record does not have to store: they are the overlay's, and exist only while the groups do.
 // It is empty for a request without an overlay and for any user but the one the request is
@@ -122,9 +152,15 @@ func MapGroups(userId string, groups []string, mappings []commonconfig.AuthGroup
 		if m.Group == "" || !have[m.Group] {
 			continue
 		}
+		for _, ws := range m.Workspaces {
+			addSource(&o.Sources, ws, GroupSourcePrefix+m.Group)
+		}
 		for _, r := range m.Roles {
 			if r == string(v1.WorkspaceAdminRole) {
 				o.Managed = append(o.Managed, m.Workspaces...)
+				for _, ws := range m.Workspaces {
+					addSource(&o.ManagedSources, ws, GroupSourcePrefix+m.Group)
+				}
 				continue
 			}
 			roles[r] = true
@@ -137,6 +173,53 @@ func MapGroups(userId string, groups []string, mappings []commonconfig.AuthGroup
 	o.Workspaces, o.Managed = dedupe(o.Workspaces), dedupe(o.Managed)
 	sort.Slice(o.Roles, func(i, j int) bool { return o.Roles[i] < o.Roles[j] })
 	return o
+}
+
+// Prefixes of the sources an overlay records for a workspace.
+const (
+	GroupSourcePrefix = "group:"
+	TeamSourcePrefix  = "team:"
+)
+
+// TeamWorkspaceLookup returns the workspaces bound to a team and the role of its members in each.
+type TeamWorkspaceLookup func(team string) map[string]v1.WorkspaceTeamRole
+
+// AddTeams appends the workspaces bound to the given teams to the overlay.
+// A manager binding adds the workspace to both the accessible and the managed list.
+// When a team grants any workspace, the overlay also grants the default role, so that a user
+// whose base roles do not include it can use the workspace. Teams never grant a platform role.
+func AddTeams(o *Overlay, teams []string, lookup TeamWorkspaceLookup) {
+	if o == nil || lookup == nil {
+		return
+	}
+	granted := false
+	for _, t := range dedupe(teams) {
+		bound := lookup(t)
+		names := make([]string, 0, len(bound))
+		for ws := range bound {
+			if ws != "" {
+				names = append(names, ws)
+			}
+		}
+		sort.Strings(names)
+		for _, ws := range names {
+			granted = true
+			o.Workspaces = append(o.Workspaces, ws)
+			addSource(&o.Sources, ws, TeamSourcePrefix+t)
+			if bound[ws] == v1.WorkspaceTeamManager {
+				o.Managed = append(o.Managed, ws)
+				addSource(&o.ManagedSources, ws, TeamSourcePrefix+t)
+			}
+		}
+	}
+	if !granted {
+		return
+	}
+	if !v1.IsContainRole(o.Roles, v1.DefaultRole) {
+		o.Roles = append(o.Roles, v1.DefaultRole)
+		sort.Slice(o.Roles, func(i, j int) bool { return o.Roles[i] < o.Roles[j] })
+	}
+	o.Workspaces, o.Managed = dedupe(o.Workspaces), dedupe(o.Managed)
 }
 
 func dedupe(in []string) []string {

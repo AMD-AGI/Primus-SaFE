@@ -34,6 +34,9 @@ type Identity struct {
 	AccountType string
 	// Groups are mapped to roles on every request; they are never stored.
 	Groups []string
+	// Teams are the ids of the identity service teams the user belongs to. They grant the workspaces
+	// that bind them (Workspace.Spec.Teams) on every request; they are never stored.
+	Teams []string
 	// Actor is set when the credential is delegated: the party acting for ID
 	// (the "act" claim, RFC 8693). A delegated identity is subject to the
 	// capability exclusions in Forbidden.

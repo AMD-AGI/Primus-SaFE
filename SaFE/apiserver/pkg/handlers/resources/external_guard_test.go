@@ -8,6 +8,7 @@ package resources
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -28,12 +29,14 @@ import (
 	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/extauth"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority/authtest"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/identity"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
@@ -783,4 +786,47 @@ func TestExternalModePatchStoresNoGrantedWorkspaces(t *testing.T) {
 		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 		assert.ElementsMatch(t, []string{"ws-granted", "ws-new"}, storedWorkspaces("t-workspaces"))
 	})
+}
+
+// In external mode an echoed restricted type writes nothing: a freeze SCIM stores between the read of the
+// patch and its retry stays. In builtin mode the restricted type is still applied.
+func TestPatchUserEchoedRestrictionKeepsAConcurrentFreeze(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	froze := false
+	funcs := interceptor.Funcs{
+		Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+			if u, ok := obj.(*v1.User); ok && u.Name == "target" && !froze {
+				froze = true
+				current := &v1.User{}
+				require.NoError(t, c.Get(ctx, client.ObjectKeyFromObject(u), current))
+				current.Spec.RestrictedType = v1.UserFrozen
+				v1.SetAnnotation(current, identity.DeactivatedAnnotation, v1.TrueStr)
+				require.NoError(t, c.Update(ctx, current))
+				return apierrors.NewConflict(v1.SchemeGroupVersion.WithResource("users").GroupResource(), u.Name, errors.New("changed"))
+			}
+			return c.Update(ctx, obj, opts...)
+		},
+	}
+	h := newChartTeamsHandler(t, funcs, genUserFixture("target", []v1.UserRole{v1.DefaultRole}, nil, nil),
+		genUserFixture("admin", []v1.UserRole{v1.SystemAdminRole}, nil, nil))
+	stored := func() *v1.User {
+		u := &v1.User{}
+		require.NoError(t, h.Get(context.Background(), client.ObjectKey{Name: "target"}, u))
+		return u
+	}
+
+	setTeamsConfig(t, "auth.mode", "external")
+	rsp := callTeamsBody(context.Background(), h.PatchUser, "admin", "target",
+		`{"restrictedType":0,"avatarUrl":"http://avatar"}`, "")
+	require.Equal(t, http.StatusOK, rsp.Code, rsp.Body.String())
+	got := stored()
+	require.True(t, froze)
+	require.Equal(t, v1.UserFrozen, got.Spec.RestrictedType)
+	require.Equal(t, v1.TrueStr, v1.GetAnnotation(got, identity.DeactivatedAnnotation))
+	require.Equal(t, "http://avatar", v1.GetUserAvatarUrl(got))
+
+	setTeamsConfig(t, "auth.mode", "builtin")
+	rsp = callTeamsBody(context.Background(), h.PatchUser, "admin", "target", `{"restrictedType":0}`, "")
+	require.Equal(t, http.StatusOK, rsp.Code, rsp.Body.String())
+	require.Equal(t, v1.UserNormal, stored().Spec.RestrictedType)
 }
