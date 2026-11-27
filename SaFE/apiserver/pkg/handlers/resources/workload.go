@@ -143,6 +143,10 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+	if key, found := redactedEnvKey(req.Env); found {
+		return nil, commonerrors.NewBadRequest(fmt.Sprintf(
+			"env.%s holds the hidden value %q of the cloned workload; set its value", key, RedactedEnvValue))
+	}
 	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
 		return nil, err
@@ -437,8 +441,18 @@ func (h *Handler) getWorkload(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	adminWorkload := generateWorkloadForAuth(name, dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
-	if err = h.authWorkloadAction(c, adminWorkload, v1.GetVerb, v1.WorkloadKind, requestUser, roles); err != nil {
+	// A caller who may list the workloads of the workspace reads the spec to clone it. The response
+	// masks credential env values and omits secrets for anyone but the owner and system
+	// administrators; the get grant still guards logs, services and SSH.
+	allowed, err := h.workloadActionAllowed(c, adminWorkload, v1.GetVerb, requestUser, roles)
+	if err == nil && !allowed {
+		allowed, err = h.workloadActionAllowed(c, adminWorkload, v1.ListVerb, requestUser, roles)
+	}
+	if err != nil {
 		return nil, err
+	}
+	if !allowed {
+		return nil, h.authWorkloadAction(c, adminWorkload, v1.GetVerb, v1.WorkloadKind, requestUser, roles)
 	}
 	return h.cvtDBWorkloadToGetResponse(ctx, requestUser, roles, dbWorkload), nil
 }
@@ -1083,6 +1097,19 @@ func (h *Handler) getRunningWorkloads(ctx context.Context, clusterName string, w
 // Validates if the requesting user has permission to perform the specified action on the workload.
 func (h *Handler) authWorkloadAction(c *gin.Context,
 	adminWorkload *v1.Workload, verb v1.RoleVerb, resourceKind string, requestUser *v1.User, roles []*v1.Role) error {
+	return h.accessController.Authorize(workloadAccessInput(c, adminWorkload, verb, resourceKind, requestUser, roles))
+}
+
+// workloadActionAllowed reports whether the verb on the workload is granted, without logging or
+// counting a refusal.
+func (h *Handler) workloadActionAllowed(c *gin.Context,
+	adminWorkload *v1.Workload, verb v1.RoleVerb, requestUser *v1.User, roles []*v1.Role) (bool, error) {
+	return h.accessController.Allowed(workloadAccessInput(c, adminWorkload, verb, v1.WorkloadKind, requestUser, roles))
+}
+
+// workloadAccessInput builds the authorization input of a verb on a workload in its workspace.
+func workloadAccessInput(c *gin.Context,
+	adminWorkload *v1.Workload, verb v1.RoleVerb, resourceKind string, requestUser *v1.User, roles []*v1.Role) authority.AccessInput {
 	var workspaces []string
 	if adminWorkload.Spec.Workspace != "" {
 		workspaces = append(workspaces, adminWorkload.Spec.Workspace)
@@ -1091,7 +1118,7 @@ func (h *Handler) authWorkloadAction(c *gin.Context,
 	if verb == v1.CreateVerb {
 		resourceOwner = ""
 	}
-	if err := h.accessController.Authorize(authority.AccessInput{
+	return authority.AccessInput{
 		Context:       c.Request.Context(),
 		ResourceKind:  resourceKind,
 		ResourceOwner: resourceOwner,
@@ -1101,10 +1128,7 @@ func (h *Handler) authWorkloadAction(c *gin.Context,
 		User:          requestUser,
 		UserId:        c.GetString(common.UserId),
 		Roles:         roles,
-	}); err != nil {
-		return err
 	}
-	return nil
 }
 
 // authWorkloadStorage checks what the workload mounts from the node and its workspace: hostpath
@@ -2023,6 +2047,16 @@ func restoreRedactedEnv(env, stored map[string]string) {
 			env[k] = orig
 		}
 	}
+}
+
+// redactedEnvKey returns a key of env whose value is RedactedEnvValue, and whether there is one.
+func redactedEnvKey(env map[string]string) (string, bool) {
+	for k, v := range env {
+		if v == RedactedEnvValue {
+			return k, true
+		}
+	}
+	return "", false
 }
 
 // restoreRedactedResumeBody returns the resume request body with the env values masked for a
