@@ -189,7 +189,9 @@ The script performs the following steps after configuration:
   - `primus-safe-email-relay-submit`: created by the chart when the database is enabled, once, and kept across
     upgrades; key `token`. It authorizes only `POST /api/v1/email-relay/submit`, sent in the
     `X-Email-Relay-Token` header, and is the credential to give a service that submits e-mail through the relay
-    (such as the identity service). Delete it and run an upgrade to rotate it; the apiserver reads the new token
+    (such as the identity service). The apiserver reads it from the file named by `email_relay.submit_token_file`
+    (`/etc/secrets/email-relay-submit/token`, the mounted Secret) on every request, and does not accept it on any
+    other route. Delete it and run an upgrade to rotate it; the apiserver reads the new token
     once the kubelet has updated the mount.
 - `.env` file (in `bootstrap/`) with the following keys for future upgrades:
   - `ethernet_nic`, `rdma_nic`, `cluster_scale`, `storage_class`
