@@ -20,6 +20,8 @@
 # - copy-opensearch-secret reads from the release namespace. When opensearch.secret_namespace is
 #   another namespace, also grant this account there: get on that secret, and get/create/delete on
 #   roles and rolebindings (the hook Role secret-manager in that namespace).
+# - when notification.email_relay.identity_namespace is set, also grant this account in that namespace:
+#   get, create, patch and update on secrets, and get/create/delete on roles and rolebindings.
 # Enabling cicd or monarch on a running install creates a new ClusterRole; run that upgrade as an
 # administrator once. The first upgrade that adds ClusterRole primus-safe-resource-manager, its
 # bindings, and ValidatingAdmissionPolicy primus-safe-rbac-projection also needs an administrator:

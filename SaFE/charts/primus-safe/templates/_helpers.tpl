@@ -107,6 +107,19 @@ The hook RBAC then includes a Role secret-manager there.
 {{- end -}}
 
 {{/*
+The namespace that receives a copy of the e-mail relay submit Secret, or "" when there is none (no database,
+no notification.email_relay.identity_namespace, or the release namespace itself).
+*/}}
+{{- define "primus-safe.emailRelayCopyNamespace" -}}
+{{- if and .Values.db.enable .Values.notification .Values.notification.email_relay -}}
+{{- $ns := .Values.notification.email_relay.identity_namespace | default "" -}}
+{{- if and $ns (ne $ns .Release.Namespace) -}}
+{{- $ns -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 The name of the introspection client Secret in the release namespace, or "" when client_secret is empty.
 */}}
 {{- define "primus-safe.identityAuthSecret" -}}

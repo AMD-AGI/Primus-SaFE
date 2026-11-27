@@ -50,6 +50,7 @@ q() { jq -e "$2" "$W/$1.json" > /dev/null; }
 render default
 render crossns --set opensearch.secret_namespace=logging --set opensearch.secret=os-creds
 render nocopy --set opensearch.username=u --set opensearch.password=p
+render relayns --set notification.email_relay.identity_namespace=primus-identity
 yq ea -o=json -I=0 '[.] | map(select(. != null))' "$INSTALLER" > "$W/installer.json"
 
 # 1. The components' ClusterRoles. Workspace projection is written only by the resource-manager role.
@@ -73,7 +74,7 @@ q default '[.[] | select(.kind == "ValidatingAdmissionPolicy" and .metadata.name
   || fail "ValidatingAdmissionPolicy primus-safe-rbac-projection is not rendered"
 
 # 2. Hook RBAC: namespaced, scoped to the secrets of the jobs.
-for set in default crossns nocopy; do
+for set in default crossns nocopy relayns; do
   q "$set" '[.[] | select((.kind == "ClusterRole" or .kind == "ClusterRoleBinding") and .metadata.name == "secret-manager")] | length == 0' \
     && pass "$set: no cluster-wide secret-manager RBAC" || fail "$set: chart renders cluster-wide secret-manager RBAC"
   q "$set" '[.[] | select(.kind == "Role" and .metadata.name == "secret-manager" and .metadata.namespace == "primus-safe")] | length == 1' \
@@ -106,10 +107,20 @@ q crossns '[.[] | select(.kind == "RoleBinding" and .metadata.name == "secret-ma
 q default '[.[] | select(.metadata.namespace != null and .metadata.namespace != "primus-safe")] | length == 0' \
   || fail "default: objects rendered outside the release namespace"
 
+# E-mail relay token copy: a Role in the target namespace limited to that secret, and the job writes it.
+q relayns '[.[] | select(.kind == "Role" and .metadata.name == "secret-manager" and .metadata.namespace == "primus-identity") | .rules] == [[{"apiGroups": [""], "resources": ["secrets"], "resourceNames": ["primus-safe-email-relay-submit"], "verbs": ["get", "patch", "update"]}, {"apiGroups": [""], "resources": ["secrets"], "verbs": ["create"]}]]' \
+  && pass "relayns: Role in the copy namespace writes only the relay secret" || fail "relayns: copy-namespace Role wrong"
+q relayns '[.[] | select(.kind == "RoleBinding" and .metadata.name == "secret-manager" and .metadata.namespace == "primus-identity") | .subjects[0]] == [{"kind": "ServiceAccount", "name": "secret-manager", "namespace": "primus-safe"}]' \
+  || fail "relayns: copy-namespace RoleBinding wrong"
+q relayns '[.[] | select(.kind == "Job" and .metadata.name == "generate-email-relay-token") | .spec.template.spec.containers[0].command[2] | contains("namespace: primus-identity")] == [true]' \
+  || fail "relayns: generate-email-relay-token does not write the copy"
+q default '[.[] | select(.kind == "Job" and .metadata.name == "generate-email-relay-token") | .spec.template.spec.containers[0].command[2] | contains("copied email relay")] == [false]' \
+  || fail "default: generate-email-relay-token writes a copy without identity_namespace"
+
 # The cleanup job deletes exactly what the hook rendered (and the legacy cluster-wide objects).
 cleanup() { jq -r '.[] | select(.kind == "Job" and .metadata.name == "delete-preinstall-rbac") | .spec.template.spec.containers[0].command[2]' "$W/$1.json"; }
 CLEANUP_FAILED=$FAILED
-for set in default crossns; do
+for set in default crossns relayns; do
   script="$(cleanup "$set")"
   while IFS=$'\t' read -r kind ns; do
     lower="$(tr '[:upper:]' '[:lower:]' <<< "$kind")"

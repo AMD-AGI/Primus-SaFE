@@ -465,6 +465,10 @@ notification:
   email_relay:
     # Enable email relay mode
     enable: true
+    # Namespace that also receives a copy of the <release>-email-relay-submit Secret (key token), for a
+    # client such as the identity service. Every install and upgrade writes the current token there.
+    # The namespace must exist. Empty: no copy.
+    identity_namespace: ""
 grafana:
   # Enable Grafana for monitoring metrics display
   enable: false

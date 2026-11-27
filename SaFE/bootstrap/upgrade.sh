@@ -983,6 +983,16 @@ if [[ -n "${optimize_max_concurrent:-}" ]]; then
   sed -i '/^model_optimization:/,/^[a-z]/ s/max_concurrent: .*/max_concurrent: '"$optimize_max_concurrent"'/' "$values_yaml"
 fi
 
+# Namespace that receives a copy of the e-mail relay submit Secret (for example primus-identity).
+# Only set when email_relay_identity_namespace is in .env; the namespace must exist.
+if [[ -n "${email_relay_identity_namespace:-}" ]]; then
+  if [[ ! "$email_relay_identity_namespace" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ ]]; then
+    echo "Error: email_relay_identity_namespace in .env must be a namespace name" >&2
+    exit 1
+  fi
+  sed -i '/^notification:/,/^[a-z]/ s/identity_namespace: .*/identity_namespace: "'"$email_relay_identity_namespace"'"/' "$values_yaml"
+fi
+
 # Secret of extra CA certificates sandboxes must trust. Only set when
 # sandbox_extra_ca_secret is in .env, so a site without it keeps the chart
 # default and renders no extra CA.
