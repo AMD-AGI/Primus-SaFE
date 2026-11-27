@@ -12,7 +12,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strings"
 	"sync"
 	"time"
 
@@ -107,7 +106,8 @@ func ListTeamMembers(ctx context.Context, team string) ([]TeamMember, error) {
 }
 
 // cachedTeamsCall returns the cached entry of key, or calls the identity service at path and
-// stores what parse makes of the answer. A failure is cached for a shorter time than an answer.
+// stores what parse makes of the answer; an answer parse cannot read is a 502. A failure is cached
+// for a shorter time than an answer.
 func cachedTeamsCall(ctx context.Context, key, path string,
 	parse func(body []byte, e *teamsEntry) error) (*teamsEntry, error) {
 	teamsMu.Lock()
@@ -124,7 +124,9 @@ func cachedTeamsCall(ctx context.Context, key, path string,
 	entry := &teamsEntry{fetched: time.Now()}
 	body, err := getTeamsBody(ctx, path)
 	if err == nil {
-		err = parse(body, entry)
+		if perr := parse(body, entry); perr != nil {
+			err = badGateway(fmt.Sprintf("identity service answered GET %s with an unexpected body: %v", path, perr))
+		}
 	}
 	if err != nil {
 		entry.err = err
@@ -198,139 +200,71 @@ func callTeams(ctx context.Context, path string) ([]byte, int, error) {
 	return body, resp.StatusCode, nil
 }
 
-// rawTeam and rawMember are the answer shapes read leniently: ids and names accept the camel
-// case and snake case spellings, and a manager may be a bare user id.
-type rawTeam struct {
-	TeamId       string            `json:"teamId"`
-	TeamIdSnake  string            `json:"team_id"`
-	Id           string            `json:"id"`
-	DisplayName  string            `json:"displayName"`
-	DisplayNameS string            `json:"display_name"`
-	Description  string            `json:"description"`
-	MemberCount  *int              `json:"memberCount"`
-	MemberCountS *int              `json:"member_count"`
-	Managers     []json.RawMessage `json:"managers"`
-	Members      []json.RawMessage `json:"members"`
+// teamList and teamMemberList are the answers of GET /api/v1/teams and GET /api/v1/teams/{teamId}/members.
+type teamList struct {
+	Items *[]teamItem `json:"items"`
 }
 
-type rawMember struct {
-	UserId         string `json:"userId"`
-	UserIdSnake    string `json:"user_id"`
-	Id             string `json:"id"`
-	Email          string `json:"email"`
-	Name           string `json:"name"`
-	PreferredName  string `json:"preferredName"`
-	PreferredNameS string `json:"preferred_name"`
-	Role           string `json:"role"`
+type teamMemberList struct {
+	Items *[]TeamMember `json:"items"`
 }
 
-// parseTeams reads a team list: a JSON array, or an object holding the array as "teams" or "items".
+// teamItem is a team of GET /api/v1/teams; the managers are user ids.
+type teamItem struct {
+	TeamId      string   `json:"teamId"`
+	DisplayName string   `json:"displayName"`
+	Description string   `json:"description"`
+	MemberCount int      `json:"memberCount"`
+	Managers    []string `json:"managers"`
+}
+
+// parseTeams reads the team list, an object holding the teams as "items". Teams without an id
+// are left out.
 func parseTeams(body []byte) (map[string]TeamInfo, error) {
-	items, err := unwrapList(body, "teams", "items")
-	if err != nil {
+	var list teamList
+	if err := json.Unmarshal(body, &list); err != nil {
 		return nil, err
 	}
-	result := make(map[string]TeamInfo, len(items))
-	for _, item := range items {
-		var raw rawTeam
-		if json.Unmarshal(item, &raw) != nil {
+	if list.Items == nil {
+		return nil, fmt.Errorf("the team list has no items")
+	}
+	result := make(map[string]TeamInfo, len(*list.Items))
+	for _, item := range *list.Items {
+		if item.TeamId == "" {
 			continue
 		}
 		info := TeamInfo{
-			Id:          firstNonEmpty(raw.TeamId, raw.TeamIdSnake, raw.Id),
-			DisplayName: firstNonEmpty(raw.DisplayName, raw.DisplayNameS),
-			Description: raw.Description,
+			Id:          item.TeamId,
+			DisplayName: item.DisplayName,
+			Description: item.Description,
+			MemberCount: item.MemberCount,
 		}
-		if info.Id == "" {
-			continue
-		}
-		info.Managers = parseMembers(raw.Managers, "manager")
-		switch {
-		case raw.MemberCount != nil:
-			info.MemberCount = *raw.MemberCount
-		case raw.MemberCountS != nil:
-			info.MemberCount = *raw.MemberCountS
-		default:
-			info.MemberCount = len(raw.Members)
+		for _, id := range item.Managers {
+			if id != "" {
+				info.Managers = append(info.Managers, TeamMember{UserId: id, Role: "manager"})
+			}
 		}
 		result[info.Id] = info
 	}
 	return result, nil
 }
 
-// parseTeamMembers reads a member list: a JSON array, or an object holding it as "members" or "items".
+// parseTeamMembers reads the member list, an object holding the members as "items". Members
+// without a user id and an e-mail are left out.
 func parseTeamMembers(body []byte) ([]TeamMember, error) {
-	items, err := unwrapList(body, "members", "items")
-	if err != nil {
+	var list teamMemberList
+	if err := json.Unmarshal(body, &list); err != nil {
 		return nil, err
 	}
-	return parseMembers(items, ""), nil
-}
-
-// parseMembers reads members given as objects or as bare user ids. A member without a role gets
-// defaultRole.
-func parseMembers(items []json.RawMessage, defaultRole string) []TeamMember {
+	if list.Items == nil {
+		return nil, fmt.Errorf("the member list has no items")
+	}
 	var result []TeamMember
-	for _, item := range items {
-		var id string
-		if json.Unmarshal(item, &id) == nil {
-			if id != "" {
-				result = append(result, TeamMember{UserId: id, Role: defaultRole})
-			}
-			continue
-		}
-		var raw rawMember
-		if json.Unmarshal(item, &raw) != nil {
-			continue
-		}
-		member := TeamMember{
-			UserId:        firstNonEmpty(raw.UserId, raw.UserIdSnake, raw.Id),
-			Email:         raw.Email,
-			Name:          raw.Name,
-			PreferredName: firstNonEmpty(raw.PreferredName, raw.PreferredNameS),
-			Role:          firstNonEmpty(raw.Role, defaultRole),
-		}
+	for _, member := range *list.Items {
 		if member.UserId == "" && member.Email == "" {
 			continue
 		}
 		result = append(result, member)
 	}
-	return result
-}
-
-// unwrapList returns the elements of a JSON array body, or of the first of the named members of a
-// JSON object body that holds an array.
-func unwrapList(body []byte, names ...string) ([]json.RawMessage, error) {
-	trimmed := strings.TrimSpace(string(body))
-	if strings.HasPrefix(trimmed, "[") {
-		var items []json.RawMessage
-		if err := json.Unmarshal([]byte(trimmed), &items); err != nil {
-			return nil, err
-		}
-		return items, nil
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(trimmed), &object); err != nil {
-		return nil, err
-	}
-	for _, name := range names {
-		if raw, ok := object[name]; ok {
-			var items []json.RawMessage
-			if err := json.Unmarshal(raw, &items); err != nil {
-				return nil, err
-			}
-			return items, nil
-		}
-	}
-	return nil, nil
-}
-
-// firstNonEmpty returns the first value that is not empty.
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
+	return result, nil
 }
