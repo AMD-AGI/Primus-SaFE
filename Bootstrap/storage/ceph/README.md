@@ -55,3 +55,33 @@ kubectl -n ceph-csi-rbd get ds ceph-csi-rbd-nodeplugin
 The rollout that follows is serial (`maxUnavailable: 1`) and stalls while any
 node is unreachable, which is harmless: pods already running keep the old spec
 and work fine, and pods created from then on carry the tolerations.
+
+## Object store (RGW) networking
+
+`ceph-rgw.yaml` keeps the S3 gateway (RGW) off the host network with
+`gateway.hostNetwork: false`, although `cephcluster.yaml` turns host networking
+on for the other Ceph daemons. The Higress gateway
+(`Bootstrap/higress/values.yaml`) runs on the host network and binds ports 80
+and 443 on each node that runs one of its pods. A host-networked RGW would take
+port 80 on its node too, and because the RGW pod declares no ports the scheduler
+cannot keep the two apart: on a shared node, whichever starts second fails to
+bind.
+
+In the cluster, S3 is reachable through the gateway's Service on port 80 (Rook
+points it at RGW's internal port 8080):
+
+```text
+http://rook-ceph-rgw-object-store.rook-ceph.svc
+```
+
+RGW serves plain HTTP here, so keep the `http://` scheme when you give this
+endpoint to a client. Parts of SaFE assume `https://` when the scheme is left
+out.
+
+Nothing exposes S3 outside the cluster by default. If external clients need it,
+route to that Service through an Ingress on Higress, or add a separate
+`NodePort` or `LoadBalancer` Service that selects the RGW pods and targets port
+8080, as Rook's `deploy/examples/rgw-external.yaml` does. Don't change the type
+of `rook-ceph-rgw-object-store` itself, since Rook rewrites that Service's spec
+whenever it reconciles the object store, and don't move RGW back onto the host
+network.
