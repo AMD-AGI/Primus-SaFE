@@ -484,8 +484,9 @@ func (h *Handler) revertApproval(ctx context.Context, id int64) {
 	}
 }
 
-// grantWorkspaceAccess adds the workspace to the stored user record, reading the record again on a write
-// conflict.
+// grantWorkspaceAccess adds the workspace and the default role to the stored user record, reading the
+// record again on a write conflict. A record that stores the system-admin role holds that role alone, so
+// it is given the workspace only.
 func (h *Handler) grantWorkspaceAccess(ctx context.Context, userId, workspace string) error {
 	return backoff.ConflictRetry(func() error {
 		user := &v1.User{}
@@ -495,7 +496,12 @@ func (h *Handler) grantWorkspaceAccess(ctx context.Context, userId, workspace st
 			}
 			return err
 		}
-		if !commonuser.AddWorkspace(user, workspace) {
+		changed := commonuser.AddWorkspace(user, workspace)
+		if !user.IsSystemAdmin() && !v1.IsContainRole(user.Spec.Roles, v1.DefaultRole) {
+			user.Spec.Roles = append(user.Spec.Roles, v1.DefaultRole)
+			changed = true
+		}
+		if !changed {
 			return nil
 		}
 		return h.Update(ctx, user)

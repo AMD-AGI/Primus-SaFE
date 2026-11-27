@@ -273,6 +273,9 @@ users:
   # a user lacks when the user is created or updated, and in external authentication mode the
   # apiserver adds them to every request. The platform roles (system-admin, system-admin-readonly)
   # and workspace-admin are ignored here; an empty list is the default.
+  # A workspace on the user record grants no role by itself. An approved workspace access request
+  # writes the workspace and the `default` role to the requester's user record, in builtin and
+  # external mode alike; a team bound to a workspace grants the `default` role per request.
   # Every role named here must exist as a Role object (primus-safe-cr creates self-read) before
   # the webhook can create a user, so install or upgrade primus-safe-cr first.
   base_roles:

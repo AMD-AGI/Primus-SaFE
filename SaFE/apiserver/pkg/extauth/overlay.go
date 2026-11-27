@@ -7,7 +7,6 @@ package extauth
 
 import (
 	"context"
-	"slices"
 	"sort"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
@@ -51,8 +50,6 @@ var PlatformRoles = []v1.UserRole{v1.SystemAdminRole, v1.SystemAdminReadonlyRole
 //     identity provider removes it from the next request that is authenticated afresh, even
 //     if the object still lists it. A user left without one is an ordinary user, who holds
 //     the base roles (the default role unless users.base_roles says otherwise);
-//   - a user who is not a system administrator and whose record holds a direct workspace (one the
-//     overlay does not grant) also holds the default role, derived here and never stored;
 //   - every other role, the workspaces and the restriction are the record's united with the
 //     overlay's.
 //
@@ -91,9 +88,6 @@ func ApplyOverlay(ctx context.Context, user *v1.User) *v1.User {
 		if missing := commonuser.MissingBaseRoles(u.Spec.Roles); len(missing) > 0 {
 			u.Spec.Roles = append(missing, u.Spec.Roles...)
 		}
-		if hasDirectWorkspace(u, o) && !v1.IsContainRole(u.Spec.Roles, v1.DefaultRole) {
-			u.Spec.Roles = append(u.Spec.Roles, v1.DefaultRole)
-		}
 	}
 	commonuser.AddWorkspace(u, o.Workspaces...)
 	commonuser.AddManagedWorkspace(u, o.Managed...)
@@ -101,18 +95,6 @@ func ApplyOverlay(ctx context.Context, user *v1.User) *v1.User {
 		u.Spec.RestrictedType = v1.UserFrozen
 	}
 	return u
-}
-
-// hasDirectWorkspace reports whether the record holds a workspace the overlay does not grant: a direct grant,
-// such as an approved access request. Workspaces the overlay grants are left out, so that a user that
-// already carries them is judged as its record.
-func hasDirectWorkspace(user *v1.User, o *Overlay) bool {
-	for _, ws := range commonuser.GetWorkspace(user) {
-		if !slices.Contains(o.Workspaces, ws) {
-			return true
-		}
-	}
-	return false
 }
 
 // RequestOverlay returns the overlay of the request when it belongs to user, and nil otherwise.

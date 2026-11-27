@@ -381,7 +381,7 @@ func TestGetWorkspaceAccessRequestVisibility(t *testing.T) {
 	require.NotContains(t, outsider.Body.String(), "alice")
 }
 
-// An approval writes the workspace to the requester, once; the default role is not stored.
+// An approval writes the workspace and the default role to the requester, once.
 func TestApproveWorkspaceAccessRequest(t *testing.T) {
 	f := newAccessRequestFixture(t)
 	id := strconv.FormatInt(f.db.put("ws-open", "bob", dbclient.WorkspaceAccessPending), 10)
@@ -399,7 +399,7 @@ func TestApproveWorkspaceAccessRequest(t *testing.T) {
 	user := &v1.User{}
 	require.NoError(t, f.h.Get(context.Background(), client.ObjectKey{Name: "bob"}, user))
 	require.True(t, commonuser.HasWorkspaceRight(user, "ws-open"))
-	require.False(t, v1.IsContainRole(user.Spec.Roles, v1.DefaultRole))
+	require.True(t, v1.IsContainRole(user.Spec.Roles, v1.DefaultRole))
 	require.Equal(t, []string{"bob@example.com"}, f.db.recipients("approved"))
 
 	again := f.call(f.h.ApproveWorkspaceAccessRequest, http.MethodPost, "admin", id, "", `{}`)
@@ -706,4 +706,31 @@ func TestOverlayRestrictedUserIsRefusedOnAccessRequests(t *testing.T) {
 
 	rsp := f.callIn(context.Background(), f.h.ApproveWorkspaceAccessRequest, http.MethodPost, "mgr", id, "", `{}`)
 	require.Equal(t, http.StatusOK, rsp.Code, "without the restriction the manager approves: %s", rsp.Body.String())
+}
+
+// With users.base_roles [self-read], an approved requester holds the default role and the workspace: both are
+// written to the stored record, so the builtin mode and a request with an overlay see them alike.
+func TestApprovalGrantsTheDefaultRoleWithTheMinimalBaseRole(t *testing.T) {
+	f := newAccessRequestFixture(t, withEmail(genUserFixture("newbie", []v1.UserRole{v1.SelfReadRole}, nil, nil)))
+	viper.Set("users.base_roles", []string{string(v1.SelfReadRole)})
+	id := strconv.FormatInt(f.db.put("ws-open", "newbie", dbclient.WorkspaceAccessPending), 10)
+
+	rsp := f.call(f.h.ApproveWorkspaceAccessRequest, http.MethodPost, "mgr", id, "", `{}`)
+	require.Equal(t, http.StatusOK, rsp.Code, rsp.Body.String())
+
+	record := &v1.User{}
+	require.NoError(t, f.h.Get(context.Background(), client.ObjectKey{Name: "newbie"}, record))
+	require.Equal(t, []v1.UserRole{v1.SelfReadRole, v1.DefaultRole}, record.Spec.Roles)
+	require.True(t, commonuser.HasWorkspaceRight(record, "ws-open"))
+
+	builtin, err := f.h.accessController.GetRequestUser(context.Background(), "newbie")
+	require.NoError(t, err)
+	require.True(t, v1.IsContainRole(builtin.Spec.Roles, v1.DefaultRole))
+	require.True(t, commonuser.HasWorkspaceRight(builtin, "ws-open"))
+
+	ctx := extauth.WithOverlay(context.Background(), extauth.MapGroups("newbie", nil, nil, false))
+	external, err := f.h.accessController.GetRequestUser(ctx, "newbie")
+	require.NoError(t, err)
+	require.Equal(t, []v1.UserRole{v1.SelfReadRole, v1.DefaultRole}, external.Spec.Roles)
+	require.True(t, commonuser.HasWorkspaceRight(external, "ws-open"))
 }

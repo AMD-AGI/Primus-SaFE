@@ -319,10 +319,10 @@ func TestAuthenticateRequestFollowsTheBaseRolesInExternalMode(t *testing.T) {
 	}
 }
 
-// In external mode with the minimal base role, a user whose record holds a direct workspace (an approved
-// access request) holds access, and holds no access again once removed from the workspace. The default
-// role is derived per request and never stored.
-func TestAuthenticateRequestFollowsTheDirectWorkspacesOfTheRecord(t *testing.T) {
+// In external mode with the minimal base role, a direct workspace on the record grants no role: the user
+// holds access once the record stores the default role next to it, as an approved access request writes
+// them, and holds no access again once the role is removed.
+func TestAuthenticateRequestFollowsTheRolesOfTheRecord(t *testing.T) {
 	viper.Set("users.base_roles", []string{"self-read"})
 	t.Cleanup(func() { viper.Set("users.base_roles", nil) })
 	e := newExtEnv(t, nil, false)
@@ -349,9 +349,10 @@ func TestAuthenticateRequestFollowsTheDirectWorkspacesOfTheRecord(t *testing.T) 
 		engine.ServeHTTP(w, req)
 		return w
 	}
-	setWorkspaces := func(workspaces ...string) {
+	setRecord := func(roles []v1.UserRole, workspaces ...string) {
 		u := &v1.User{}
 		require.NoError(t, e.cli.Get(t.Context(), client.ObjectKey{Name: "approved"}, u))
+		u.Spec.Roles = roles
 		commonuser.AssignWorkspace(u, workspaces...)
 		require.NoError(t, e.cli.Update(t.Context(), u))
 	}
@@ -359,18 +360,19 @@ func TestAuthenticateRequestFollowsTheDirectWorkspacesOfTheRecord(t *testing.T) 
 	require.Equal(t, http.StatusOK, call("/api/v1/users/self").Code)
 	require.Equal(t, http.StatusForbidden, call("/api/v1/clusters").Code)
 
-	setWorkspaces("ws-a")
+	setRecord([]v1.UserRole{v1.SelfReadRole}, "ws-a")
 	w := call("/api/v1/clusters")
-	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-
-	setWorkspaces()
-	w = call("/api/v1/clusters")
 	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), commonerrors.NoAccess)
 
-	u := &v1.User{}
-	require.NoError(t, e.cli.Get(t.Context(), client.ObjectKey{Name: "approved"}, u))
-	require.False(t, v1.IsContainRole(u.Spec.Roles, v1.DefaultRole))
+	setRecord([]v1.UserRole{v1.SelfReadRole, v1.DefaultRole}, "ws-a")
+	w = call("/api/v1/clusters")
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	setRecord([]v1.UserRole{v1.SelfReadRole})
+	w = call("/api/v1/clusters")
+	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+	require.Contains(t, w.Body.String(), commonerrors.NoAccess)
 }
 
 // The exported route set is exactly the routes the design names: the own record routes and the

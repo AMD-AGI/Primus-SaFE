@@ -124,24 +124,20 @@ func TestApplyOverlayWithTheMinimalBaseRole(t *testing.T) {
 	}
 }
 
-// A user whose record holds a direct workspace holds the default role next to the base roles, and falls back to
-// the base roles once the record holds none.
-func TestApplyOverlayDerivesTheDefaultRoleFromADirectWorkspace(t *testing.T) {
+// A direct workspace on the record grants no role: the user holds the roles the record stores and the base
+// roles, and the default role only when the record stores it.
+func TestApplyOverlayDerivesNoRoleFromADirectWorkspace(t *testing.T) {
 	setBaseRoles(t, "self-read")
 	ctx := WithOverlay(context.Background(), MapGroups("alice-id", nil, overlayMappings, false))
 
 	member := overlayUser([]v1.UserRole{v1.SelfReadRole}, "ws-x")
 	got := ApplyOverlay(ctx, member)
-	require.Equal(t, []v1.UserRole{v1.SelfReadRole, v1.DefaultRole}, got.Spec.Roles)
-	require.Equal(t, []v1.UserRole{v1.SelfReadRole}, member.Spec.Roles, "the record is never modified")
+	require.Equal(t, []v1.UserRole{v1.SelfReadRole}, got.Spec.Roles)
+	require.Equal(t, []string{"ws-x"}, commonuser.GetWorkspace(got))
 	require.Equal(t, got, ApplyOverlay(ctx, got), "applying it twice gives the same user")
 
-	removed := overlayUser([]v1.UserRole{v1.SelfReadRole})
-	require.Equal(t, []v1.UserRole{v1.SelfReadRole}, ApplyOverlay(ctx, removed).Spec.Roles)
-
-	admin := overlayUser([]v1.UserRole{v1.SelfReadRole}, "ws-x")
-	adminCtx := WithOverlay(context.Background(), MapGroups("alice-id", []string{"platform-admins"}, overlayMappings, false))
-	require.Equal(t, []v1.UserRole{v1.SystemAdminRole}, ApplyOverlay(adminCtx, admin).Spec.Roles)
+	stored := overlayUser([]v1.UserRole{v1.SelfReadRole, v1.DefaultRole}, "ws-x")
+	require.Equal(t, []v1.UserRole{v1.SelfReadRole, v1.DefaultRole}, ApplyOverlay(ctx, stored).Spec.Roles)
 }
 
 // A user who is not the one the overlay is for, and a request with no overlay, are returned as they are: the
