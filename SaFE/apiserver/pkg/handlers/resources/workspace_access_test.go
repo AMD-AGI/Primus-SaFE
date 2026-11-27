@@ -749,8 +749,7 @@ func TestAccessRequestFallbackRecipientsAreTheEffectiveAdmins(t *testing.T) {
 	recorded := withEmail(genUserFixture("realadmin", []v1.UserRole{v1.DefaultRole}, nil, nil))
 	identity.RecordGroups(recorded, []string{"platform-admins"})
 	f := newAccessRequestFixture(t, recorded)
-	viper.Set("auth.group_mappings", adminMappings)
-	useRecordedIdentity(t, "external", true)
+	useExternalAuth(t, f.h, adminMappings)
 
 	require.Equal(t, http.StatusCreated, f.create("alice", "ws-other").Code)
 	require.Equal(t, []string{"realadmin@example.com"}, f.db.recipients("created"))
