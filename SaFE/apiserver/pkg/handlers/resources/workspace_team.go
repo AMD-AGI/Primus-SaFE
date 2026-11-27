@@ -7,6 +7,7 @@ package resources
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -49,7 +51,9 @@ func (h *Handler) UpdateWorkspaceTeams(c *gin.Context) {
 	handle(c, h.updateWorkspaceTeams)
 }
 
-// UpdateTeamWorkspaces binds a team to several workspaces at once, applying all entries or none.
+// UpdateTeamWorkspaces binds a team to several workspaces at once. Every entry is checked before any
+// is written; when a write fails, the bindings already written are undone where no other request
+// changed them since.
 func (h *Handler) UpdateTeamWorkspaces(c *gin.Context) {
 	handle(c, h.updateTeamWorkspaces)
 }
@@ -123,7 +127,8 @@ func (h *Handler) updateWorkspaceTeams(c *gin.Context) (interface{}, error) {
 }
 
 // updateTeamWorkspaces implements PUT /teams/:name/workspaces. Every entry is checked first, so a
-// refused entry leaves all workspaces untouched; entries that fail while being applied are undone.
+// refused entry leaves all workspaces untouched. When a write fails, undoTeamWorkspaces restores the
+// bindings this request wrote, and the error names the bindings that stayed.
 func (h *Handler) updateTeamWorkspaces(c *gin.Context) (interface{}, error) {
 	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
@@ -154,34 +159,21 @@ func (h *Handler) updateTeamWorkspaces(c *gin.Context) (interface{}, error) {
 		}
 	}
 
-	type appliedBinding struct {
-		workspace string
-		role      v1.WorkspaceTeamRole
-		bound     bool
-	}
-	var applied []appliedBinding
+	var applied []teamBindingWrite
 	result := &view.TeamWorkspacesResponse{TeamId: team, Items: []view.TeamWorkspaceItem{}}
 	for _, entry := range req {
 		updated, before, applyErr := h.updateWorkspaceTeamList(ctx, requestUser, entry.WorkspaceId, changeOf(entry))
 		if applyErr != nil {
 			klog.ErrorS(applyErr, "failed to bind team to workspace", "team", team, "workspace", entry.WorkspaceId)
-			undoCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), teamUndoTimeout)
-			for i := len(applied) - 1; i >= 0; i-- {
-				undo := applied[i]
-				_, _, undoErr := h.updateWorkspaceTeamList(undoCtx, requestUser, undo.workspace,
-					func(current []v1.WorkspaceTeam) ([]v1.WorkspaceTeam, error) {
-						return setTeamBinding(current, team, undo.role, undo.bound), nil
-					})
-				if undoErr != nil {
-					klog.ErrorS(undoErr, "failed to undo team binding", "team", team, "workspace", undo.workspace)
-				}
-			}
-			cancel()
-			return nil, applyErr
+			return nil, h.undoTeamWorkspaces(ctx, requestUser, team, applied, applyErr)
 		}
-		previous := &v1.Workspace{Spec: v1.WorkspaceSpec{Teams: before}}
-		role, bound := previous.TeamRole(team)
-		applied = append(applied, appliedBinding{workspace: entry.WorkspaceId, role: role, bound: bound})
+		if !slices.Equal(before, updated.Spec.Teams) {
+			previous := &v1.Workspace{Spec: v1.WorkspaceSpec{Teams: before}}
+			role, bound := previous.TeamRole(team)
+			applied = append(applied, teamBindingWrite{
+				workspace: entry.WorkspaceId, role: role, bound: bound, written: bindingRole(entry.Role),
+			})
+		}
 		result.Items = append(result.Items, view.TeamWorkspaceItem{
 			WorkspaceId:   updated.Name,
 			WorkspaceName: v1.GetDisplayName(updated),
@@ -191,6 +183,62 @@ func (h *Handler) updateTeamWorkspaces(c *gin.Context) (interface{}, error) {
 	result.TotalCount = len(result.Items)
 	klog.Infof("bind team to workspaces, team: %s, request: %s", team, string(jsonutils.MarshalSilently(req)))
 	return result, nil
+}
+
+// teamBindingWrite is a team binding a team to workspaces update wrote: the workspace, the binding
+// it had before (role and bound) and the role written.
+type teamBindingWrite struct {
+	workspace string
+	role      v1.WorkspaceTeamRole
+	bound     bool
+	written   v1.WorkspaceTeamRole
+}
+
+// undoTeamWorkspaces restores, newest first, the bindings the update wrote, each only while the
+// workspace still holds the binding as written; a binding another request changed since is left
+// as it is. It returns applyErr, naming the workspaces where the team stayed bound otherwise than
+// before the update.
+func (h *Handler) undoTeamWorkspaces(ctx context.Context, requestUser *v1.User, team string,
+	applied []teamBindingWrite, applyErr error) error {
+	undoCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), teamUndoTimeout)
+	defer cancel()
+	var stayed []string
+	for i := len(applied) - 1; i >= 0; i-- {
+		undo := applied[i]
+		var role v1.WorkspaceTeamRole
+		var bound bool
+		_, _, undoErr := h.updateWorkspaceTeamList(undoCtx, requestUser, undo.workspace,
+			func(current []v1.WorkspaceTeam) ([]v1.WorkspaceTeam, error) {
+				role, bound = (&v1.Workspace{Spec: v1.WorkspaceSpec{Teams: current}}).TeamRole(team)
+				if !bound || role != undo.written {
+					return current, nil
+				}
+				return setTeamBinding(current, team, undo.role, undo.bound), nil
+			})
+		switch {
+		case undoErr != nil:
+			klog.ErrorS(undoErr, "failed to undo team binding", "team", team, "workspace", undo.workspace)
+			stayed = append(stayed, fmt.Sprintf("%s (%s)", undo.workspace, undo.written))
+		case !bound || role != undo.written:
+			klog.InfoS("team binding changed by another request, left as it is", "team", team,
+				"workspace", undo.workspace, "bound", bound, "role", role)
+			if bound && (!undo.bound || role != undo.role) {
+				stayed = append(stayed, fmt.Sprintf("%s (%s)", undo.workspace, role))
+			}
+		}
+	}
+	if len(stayed) == 0 {
+		return applyErr
+	}
+	sort.Strings(stayed)
+	suffix := fmt.Sprintf("; the team %s stayed bound to: %s", team, strings.Join(stayed, ", "))
+	var status apierrors.APIStatus
+	if errors.As(applyErr, &status) {
+		s := status.Status()
+		s.Message += suffix
+		return &apierrors.StatusError{ErrStatus: s}
+	}
+	return commonerrors.NewInternalError(applyErr.Error() + suffix)
 }
 
 // listTeamWorkspaces implements GET /teams/:name/workspaces, listing the bound workspaces the caller may list.
