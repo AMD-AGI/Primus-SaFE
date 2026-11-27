@@ -82,7 +82,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import { Setting } from '@element-plus/icons-vue'
@@ -90,6 +90,7 @@ import { formatTimeStr } from '@/utils'
 
 const store = useUserStore()
 const router = useRouter()
+const route = useRoute()
 
 const displayName = computed(
   () => (store.profile as any)?.name || (store.profile as any)?.username || store.userId || 'Guest',
@@ -120,7 +121,8 @@ async function onLogout() {
       ElMessage({ type: 'error', message: 'Sign-out failed. Please try again.' })
       return
     }
-    router.replace('/login')
+    // The next sign-in comes back to the page signed out from.
+    router.replace({ path: '/login', query: { redirect: route.fullPath } })
     ElMessage({ type: 'success', message: 'Logout completed' })
   })
 }
