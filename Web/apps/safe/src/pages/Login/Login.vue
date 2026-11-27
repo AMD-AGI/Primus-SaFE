@@ -27,11 +27,11 @@
         <div class="flex items-center gapx-8">
           <div>
             <div class="textx-18 font-600 leading-tight">
-              {{ autoSSO || identityAuthorize || externalSignIn ? 'Redirecting...' : 'Sign in' }}
+              {{ autoSSO || externalSignIn ? 'Redirecting...' : 'Sign in' }}
             </div>
             <div class="text-[13px] opacity-80 mt-1">
               <span v-if="autoSSO"> Redirecting to single sign-on, please wait… </span>
-              <span v-else-if="identityAuthorize || externalSignIn"> Redirecting to sign in, please wait… </span>
+              <span v-else-if="externalSignIn"> Redirecting to sign in, please wait… </span>
               <span v-else> Access your account to continue </span>
             </div>
           </div>
@@ -52,16 +52,6 @@
               Having trouble?
               <RouterLink to="/login-admin" class="text-primary"> Use admin login </RouterLink>
             </div>
-          </div>
-        </template>
-
-        <!-- External mode names one identity connection on the authorize request. -->
-        <template v-else-if="identityAuthorize">
-          <div class="py-12 text-center text-[13px] opacity-80">
-            <el-icon class="mb-3">
-              <Loading />
-            </el-icon>
-            <div class="mb-4">Redirecting to sign in…</div>
           </div>
         </template>
 
@@ -168,7 +158,7 @@ import { useUserStore } from '@/stores/user'
 import { toggleDark } from '@/composables'
 import { randomState, getSafeRedirect } from '@/utils'
 import { buildSignInUrl, signInTarget } from '@/utils/ssoSignIn'
-import { externalLoginUrl } from '@/utils/authMode'
+import { externalLoginUrl, externalSignInHref } from '@/utils/authMode'
 import {
   leaveConsoleFor,
   outsideConsoleReturn,
@@ -213,9 +203,6 @@ const rules: FormRules = {
 
 const isAdminLogin = computed(() => route.name === 'LoginAdmin')
 const externalSignIn = computed(() => externalLoginUrl(userStore.envs))
-const identityAuthorize = computed(
-  () => userStore.isExternalAuth && !!signInTarget(userStore.envs),
-)
 const autoSSO = computed(
   () => !isAdminLogin.value && !userStore.isExternalAuth && !!userStore.envs?.ssoEnable,
 )
@@ -261,7 +248,11 @@ function clearSSOAttempts() {
 }
 
 function startExternalSignIn() {
-  const url = externalSignIn.value
+  const url = externalSignInHref(
+    userStore.envs,
+    getSafeRedirect(route.query.redirect),
+    window.location.origin,
+  )
   if (!url) return
   window.location.assign(url)
 }
@@ -284,12 +275,7 @@ async function startSSO() {
 
   // 2. Build SSO URL with a random state (security verification) and, when the provider needs it,
   // a PKCE code challenge; both are kept in sessionStorage for the callback
-  const url = await buildSignInUrl(
-    signIn.url,
-    randomState(),
-    signIn.pkce,
-    identityAuthorize.value ? userStore.envs?.connection : undefined,
-  )
+  const url = await buildSignInUrl(signIn.url, randomState(), signIn.pkce)
 
   // 3. Redirect
   window.location.assign(url)
@@ -402,11 +388,6 @@ onMounted(async () => {
 
     // ✅ Core: redirect to SSO
     startSSO() // 👈👈👈 This is the core! Redirect to SSO
-    return
-  }
-
-  if (identityAuthorize.value) {
-    startSSO()
     return
   }
 

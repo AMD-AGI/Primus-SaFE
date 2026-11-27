@@ -48,7 +48,9 @@ func InitHttpHandlers(_ context.Context, mgr ctrlruntime.Manager) (*gin.Engine, 
 	engine.NoRoute(func(c *gin.Context) {
 		apiutils.AbortWithApiError(c, commonerrors.NewNotFoundWithMessage(c.Request.RequestURI+" not found"))
 	})
-	if commonconfig.IsSSOEnable() || commonconfig.IsSSOLoginEnable() {
+	// External mode signs in at the identity provider and needs no SSO client here.
+	builtin := commonconfig.GetAuthMode() == commonconfig.AuthModeBuiltin
+	if builtin && (commonconfig.IsSSOEnable() || commonconfig.IsSSOLoginEnable()) {
 		if authority.NewSSOToken(mgr.GetClient()) == nil {
 			return nil, commonerrors.NewInternalError("failed to new sso token")
 		}

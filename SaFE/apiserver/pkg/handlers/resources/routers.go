@@ -218,8 +218,8 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 	// Public routes without authentication
 	noAuthGroup := e.Group(common.PrimusRouterCustomRootPath, middleware.Preprocess())
 	{
-		noAuthGroup.POST("/login", middleware.Audit("auth", "login"), h.Login)
 		if commonconfig.GetAuthMode() == commonconfig.AuthModeBuiltin {
+			noAuthGroup.POST("/login", middleware.Audit("auth", "login"), h.Login)
 			noAuthGroup.POST("/users", middleware.Audit("user", "register"), h.CreateUser)
 		}
 		noAuthGroup.GET("/envs", h.GetEnvs)

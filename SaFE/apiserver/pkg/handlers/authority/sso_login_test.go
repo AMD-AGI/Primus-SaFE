@@ -24,13 +24,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	jose "github.com/go-jose/go-jose/v4"
 	"github.com/go-jose/go-jose/v4/jwt"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -513,12 +511,6 @@ func newFakeSessions(t *testing.T) *fakeSessions {
 	return s
 }
 
-func (s *fakeSessions) add(sid, sub string) {
-	s.mu.Lock()
-	s.sessions[sid] = sub
-	s.mu.Unlock()
-}
-
 // withExternalLogin sets external mode with sso.login at the fake provider and the chain the identity
 // service is used with: its access tokens for the API audience, then the introspection of its sessions.
 // extra entries are appended to the chain.
@@ -539,88 +531,6 @@ func withExternalLogin(t *testing.T, f *fakeLoginProvider, s *fakeSessions, extr
 		externalState.Store(nil)
 	})
 	return InitExternalAuth(newLoginTestClient(t))
-}
-
-// probe authenticates a request that carries the cookies as ParseToken does in external mode.
-func probe(t *testing.T, cookies ...*http.Cookie) (string, error) {
-	gin.SetMode(gin.TestMode)
-	c, _ := gin.CreateTestContext(httptest.NewRecorder())
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/users/self", nil)
-	for _, ck := range cookies {
-		c.Request.AddCookie(ck)
-	}
-	handled, err := parseExternal(c, externalState.Load())
-	require.True(t, handled)
-	return c.GetString("userId"), err
-}
-
-// External mode: the console's sign-in leaves the browser with the identity provider's session. The code
-// is accepted only from the browser whose session belongs to the user the ID token names; the response
-// carries no credential and the ID token is never one.
-func TestExternalLoginKeepsTheIdentitySession(t *testing.T) {
-	f := newFakeLoginProvider(t)
-	s := newFakeSessions(t)
-	require.NoError(t, withExternalLogin(t, f, s))
-	cli := externalState.Load().client
-	inst, err := initializeSSOToken(cli)
-	require.NoError(t, err)
-	s.add("sid-alice", "u-1")
-	s.add("sid-bob", "u-2")
-	login := func(code string, in TokenInput) (*v1.User, *TokenResponse, error) {
-		f.issue(code, loginVerifier)
-		in.Code, in.CodeVerifier = code, loginVerifier
-		return inst.Login(context.Background(), in)
-	}
-	assertUnauthorized := func(err error, msg string) {
-		t.Helper()
-		var status *apierrors.StatusError
-		require.ErrorAs(t, err, &status)
-		assert.Equal(t, int32(http.StatusUnauthorized), status.ErrStatus.Code)
-		assert.Contains(t, err.Error(), msg)
-	}
-
-	// The browser holds another user's session: the code was not given to this browser's user.
-	_, _, err = login("code-other", TokenInput{SessionCookie: "sid-bob", SessionUserType: "sso"})
-	assertUnauthorized(err, "does not match this browser's session")
-	// The browser kept no session.
-	_, _, err = login("code-none", TokenInput{})
-	assertUnauthorized(err, "did not keep the sign-in session")
-	// The browser holds a session the identity provider does not know.
-	_, _, err = login("code-dead", TokenInput{SessionCookie: "sid-unknown", SessionUserType: "sso"})
-	assertUnauthorized(err, ErrInvalidToken)
-	assert.True(t, apierrors.IsNotFound(cli.Get(context.Background(), client.ObjectKey{Name: "u-1"}, &v1.User{})),
-		"a refused sign-in provisioned the user")
-
-	user, resp, err := login("code-ok", TokenInput{SessionCookie: "sid-alice", SessionUserType: "sso", ClientIP: "10.1.1.1"})
-	require.NoError(t, err)
-	assert.Equal(t, "u-1", user.Name)
-	assert.Empty(t, resp.Token, "no credential is handed out")
-	assert.Equal(t, s.exp.Unix(), resp.Expire, "the session's own end, not the ID token's")
-	require.NoError(t, cli.Get(context.Background(), client.ObjectKey{Name: "u-1"}, &v1.User{}))
-
-	// The session is the browser's credential at this apiserver too.
-	userID, err := probe(t, &http.Cookie{Name: CookieToken, Value: "sid-alice"}, &http.Cookie{Name: "userType", Value: "sso"})
-	require.NoError(t, err)
-	assert.Equal(t, "u-1", userID)
-
-	// The ID token is not a credential, in the cookie (what the browsers of earlier releases hold) or as a bearer.
-	idToken := f.idToken(nil)
-	require.Len(t, strings.Split(idToken, "."), 3)
-	_, err = probe(t, &http.Cookie{Name: CookieToken, Value: idToken}, &http.Cookie{Name: "userType", Value: "sso"})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), ErrInvalidToken)
-	_, _, err = login("code-legacy", TokenInput{SessionCookie: idToken, SessionUserType: "sso"})
-	assertUnauthorized(err, ErrInvalidToken)
-
-	// A delegated token of the same user, which the chain accepts as a credential, is not a sign-in: it acts
-	// for the user through another party and is not the identity provider's session in this browser.
-	delegated := f.idToken(map[string]any{"aud": "primus-safe", "act": map[string]any{"client_id": "agent-x"},
-		"scope": "safe.api"})
-	userID, err = probe(t, &http.Cookie{Name: CookieToken, Value: delegated}, &http.Cookie{Name: "userType", Value: "sso"})
-	require.NoError(t, err, "the chain must accept the delegated token, or the refusal below proves nothing")
-	assert.Equal(t, "u-1", userID)
-	_, _, err = login("code-delegated", TokenInput{SessionCookie: delegated, SessionUserType: "sso"})
-	assertUnauthorized(err, "does not hold a session of the identity provider")
 }
 
 // A chain that would take the console's ID token as a credential is refused at start-up.
