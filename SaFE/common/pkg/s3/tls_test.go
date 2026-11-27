@@ -13,6 +13,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -139,4 +140,40 @@ func TestAWSCLITLSSetup(t *testing.T) {
 	assert.Equal(t, "bundle=\n", run(""))
 	out := run("-----BEGIN CERTIFICATE-----\nline\n-----END CERTIFICATE-----")
 	assert.Equal(t, "bundle=/tmp/s3-ca-bundle.pem\nline\n-----END CERTIFICATE-----\n", out)
+}
+
+// The platform's S3 client is configured from the S3 secret, its optional CA bundle included.
+func TestNewConfigReadsThePlatformSecret(t *testing.T) {
+	t.Setenv("AWS_MAX_ATTEMPTS", "1")
+	server, cert := tlsBucketServer(t)
+	viper.Set("s3.enable", true)
+	t.Cleanup(func() { viper.Set("s3.enable", nil) })
+	connect := func() error {
+		conf, err := NewConfig()
+		require.NoError(t, err)
+		_, err = NewClientFromConfig(context.Background(), conf, Option{})
+		return err
+	}
+
+	keys := map[string]string{"endpoint": server.URL, "bucket": "bucket", "access_key": "ak", "secret_key": "sk"}
+	s3SecretDir(t, keys)
+	require.Error(t, connect(), "without a CA bundle the unknown authority is refused")
+
+	keys["ca_bundle"] = cert
+	s3SecretDir(t, keys)
+	assert.NoError(t, connect(), "the CA bundle of the secret is trusted")
+}
+
+// A CA bundle is still trusted where the system's authorities cannot be read.
+func TestCABundleWithoutASystemCertPool(t *testing.T) {
+	t.Setenv("AWS_MAX_ATTEMPTS", "1")
+	server, cert := tlsBucketServer(t)
+	original := systemCertPool
+	systemCertPool = func() (*x509.CertPool, error) { return nil, errors.New("no system pool") }
+	t.Cleanup(func() { systemCertPool = original })
+
+	conf, err := newConfigFromCredentials("ak", "sk", server.URL, "bucket", TLSOptions{CABundle: cert})
+	require.NoError(t, err)
+	_, err = NewClientFromConfig(context.Background(), conf, Option{})
+	assert.NoError(t, err)
 }

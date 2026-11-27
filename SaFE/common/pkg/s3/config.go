@@ -128,13 +128,16 @@ func newConfigFromCredentials(ak, sk, endpoint, bucket string, tlsOpts TLSOption
 	}, nil
 }
 
+// systemCertPool returns the system's certificate authorities; tests replace it.
+var systemCertPool = x509.SystemCertPool
+
 // newHTTPClient returns an HTTP client that verifies the endpoint's certificate as opts say: against the system's
 // authorities plus those of the CA bundle, or not at all.
 func newHTTPClient(opts TLSOptions) (*awshttp.BuildableClient, error) {
 	var roots *x509.CertPool
 	if opts.CABundle != "" {
 		var err error
-		if roots, err = x509.SystemCertPool(); err != nil || roots == nil {
+		if roots, err = systemCertPool(); err != nil || roots == nil {
 			roots = x509.NewCertPool()
 		}
 		if !roots.AppendCertsFromPEM([]byte(opts.CABundle)) {

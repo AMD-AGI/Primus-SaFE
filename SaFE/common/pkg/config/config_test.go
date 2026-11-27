@@ -2164,3 +2164,22 @@ func TestModelPrewarmGettersDefaultsAndValues(t *testing.T) {
 	testifyassert.Equal(t, 0, GetModelPrewarmMaxConcurrent())
 	testifyassert.Equal(t, 300, GetModelPrewarmPendingTimeoutSecond())
 }
+
+// The S3 secret may say how the endpoint's certificate is verified, with two optional items; without them
+// there is no CA bundle and the verification stays on.
+func TestS3TLSItemsOfTheSecret(t *testing.T) {
+	dir := t.TempDir()
+	viper.Set(s3SecretPath, dir)
+	t.Cleanup(func() { viper.Set(s3SecretPath, nil) })
+	testifyassert.Empty(t, GetS3CABundle())
+	testifyassert.False(t, IsS3InsecureSkipVerify())
+
+	bundle := "-----BEGIN CERTIFICATE-----\nabc\n-----END CERTIFICATE-----"
+	testifyassert.NoError(t, os.WriteFile(filepath.Join(dir, "ca_bundle"), []byte(bundle+"\n"), 0o600))
+	testifyassert.Equal(t, bundle, GetS3CABundle())
+
+	for value, want := range map[string]bool{"true": true, "True\n": true, "false": false, "yes": false, "": false} {
+		testifyassert.NoError(t, os.WriteFile(filepath.Join(dir, "insecure_skip_verify"), []byte(value), 0o600))
+		testifyassert.Equal(t, want, IsS3InsecureSkipVerify(), "%q", value)
+	}
+}

@@ -6,6 +6,7 @@
 package model_handlers
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -19,6 +20,8 @@ import (
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"k8s.io/client-go/kubernetes/scheme"
+	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
@@ -410,4 +413,35 @@ func TestHFDatasetImportVerifiesTheEndpointCertificate(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "insecure_skip_verify"), []byte("true"), 0o600))
 	assert.Contains(t, hfDatasetImportScript("org/data", "s3://b/d", "https://s3.example"),
 		"aws --no-verify-ssl s3 cp /tmp/dataset s3://b/d")
+}
+
+// The import job itself carries the CA bundle of the S3 secret and the script that makes the AWS CLI trust it.
+func TestHFDatasetImportJobCarriesTheCABundle(t *testing.T) {
+	dir := t.TempDir()
+	for name, body := range map[string]string{"endpoint": "https://s3.example", "bucket": "bucket",
+		"access_key": "ak", "secret_key": "sk", "ca_bundle": "PEM"} {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600))
+	}
+	viper.Set("s3.enable", true)
+	viper.Set("s3.secret_path", dir)
+	t.Cleanup(func() {
+		viper.Set("s3.enable", nil)
+		viper.Set("s3.secret_path", nil)
+	})
+	h := &Handler{k8sClient: ctrlfake.NewClientBuilder().WithScheme(scheme.Scheme).Build()}
+	dataset := &dbclient.Dataset{DatasetId: "d1", SourceURL: "https://huggingface.co/datasets/org/data",
+		S3Path: "datasets/d1"}
+	job, err := h.createHFDatasetDownloadJob(context.Background(), dataset, "")
+	require.NoError(t, err)
+
+	container := job.Spec.Template.Spec.Containers[0]
+	env := map[string]string{}
+	for _, e := range container.Env {
+		env[e.Name] = e.Value
+	}
+	assert.Equal(t, "PEM", env[commons3.AWSCLICABundleEnv])
+	script := container.Command[len(container.Command)-1]
+	assert.Contains(t, script, commons3.AWSCLITLSSetup)
+	assert.Contains(t, script,
+		"aws s3 cp /tmp/dataset s3://bucket/datasets/d1 --recursive --endpoint-url https://s3.example")
 }
