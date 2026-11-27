@@ -203,14 +203,14 @@ type ConfigDiffResp struct {
 // GetLatestConfigResp returns the latest deployment configuration
 // Used by GET /env-config?type=safe|lens
 type GetLatestConfigResp struct {
-	Type               string            `json:"type"`                             // "safe" or "lens"
-	Branch             string            `json:"branch,omitempty"`                 // Git branch
-	ImageVersions      map[string]string `json:"image_versions,omitempty"`         // Safe: component versions
-	EnvFileConfig      string            `json:"env_file_config,omitempty"`        // Safe: .env file content
-	ControlPlaneConfig string            `json:"control_plane_config,omitempty"`   // Lens: CP values.yaml
-	DataPlaneConfig    string            `json:"data_plane_config,omitempty"`      // Lens: DP values.yaml
-	SnapshotId         int64             `json:"snapshot_id,omitempty"`            // ID of the snapshot
-	CreatedAt          string            `json:"created_at,omitempty"`             // Snapshot creation time
+	Type               string            `json:"type"`                           // "safe" or "lens"
+	Branch             string            `json:"branch,omitempty"`               // Git branch
+	ImageVersions      map[string]string `json:"image_versions,omitempty"`       // Safe: component versions
+	EnvFileConfig      string            `json:"env_file_config,omitempty"`      // Safe: .env file content
+	ControlPlaneConfig string            `json:"control_plane_config,omitempty"` // Lens: CP values.yaml
+	DataPlaneConfig    string            `json:"data_plane_config,omitempty"`    // Lens: DP values.yaml
+	SnapshotId         int64             `json:"snapshot_id,omitempty"`          // ID of the snapshot
+	CreatedAt          string            `json:"created_at,omitempty"`           // Snapshot creation time
 }
 
 // GetDeployableComponentsResp returns the list of deployable component names

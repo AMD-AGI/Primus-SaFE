@@ -65,10 +65,10 @@ type MCPToolHandler func(ctx context.Context, params json.RawMessage) (any, erro
 
 // Server represents an MCP server that handles JSON-RPC requests.
 type Server struct {
-	mu          sync.RWMutex
-	tools       map[string]*MCPTool
-	initialized bool
-	clientInfo  *Implementation
+	mu           sync.RWMutex
+	tools        map[string]*MCPTool
+	initialized  bool
+	clientInfo   *Implementation
 	Instructions string
 }
 

@@ -671,4 +671,3 @@ func normalizeMetricName(metric string) string {
 	metric = strings.ReplaceAll(metric, " ", "")
 	return metric
 }
-

@@ -55,9 +55,9 @@ var DatasetTypes = map[DatasetType]DatasetTypeMetadata{
 			"instruction": "string (required) - The input prompt or question (alias: prompt, input)",
 			"answer":      "string (optional) - Ground truth answer for rule-based reward verification (e.g. math answer)",
 			"prompt":      "string (optional) - Alias for instruction",
-			"response":   "string (required) - Model response",
-			"reward":     "float (required) - Human feedback score",
-			"preference": "string (optional) - Preference ranking",
+			"response":    "string (required) - Model response",
+			"reward":      "float (required) - Human feedback score",
+			"preference":  "string (optional) - Preference ranking",
 		},
 	},
 	DatasetTypeInference: {
@@ -114,4 +114,3 @@ func GetDatasetTypeDescriptions() []DatasetTypeInfo {
 	}
 	return types
 }
-

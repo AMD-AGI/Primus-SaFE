@@ -32,11 +32,11 @@ func opsjobInputItemSchema() map[string]any {
 
 func opsjobResourceSchema() map[string]any {
 	return propObject(map[string]any{
-		"cpu":               prop("string", "CPU cores, e.g. '8'"),
-		"memory":            prop("string", "Memory size, e.g. '32Gi'"),
-		"gpu":               prop("string", "Number of GPUs"),
-		"ephemeralStorage":  prop("string", "Ephemeral storage size"),
-		"sharedMemory":      prop("string", "Shared memory size"),
+		"cpu":              prop("string", "CPU cores, e.g. '8'"),
+		"memory":           prop("string", "Memory size, e.g. '32Gi'"),
+		"gpu":              prop("string", "Number of GPUs"),
+		"ephemeralStorage": prop("string", "Ephemeral storage size"),
+		"sharedMemory":     prop("string", "Shared memory size"),
 	}, "Container resources (preflight only)")
 }
 
@@ -44,10 +44,10 @@ func opsjobCreateSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"name":    prop("string", "Job name, used to generate ops job ID"),
-			"type":    propEnum("string", "Ops job type", []string{"addon", "preflight", "dumplog", "reboot", "exportimage", "prewarm", "download"}),
-			"inputs":  propArray(opsjobInputItemSchema(), "Input selectors specifying targets and parameters"),
-			"timeout_second": prop("integer", "Timeout in seconds, 0 or negative means no timeout"),
+			"name":                       prop("string", "Job name, used to generate ops job ID"),
+			"type":                       propEnum("string", "Ops job type", []string{"addon", "preflight", "dumplog", "reboot", "exportimage", "prewarm", "download"}),
+			"inputs":                     propArray(opsjobInputItemSchema(), "Input selectors specifying targets and parameters"),
+			"timeout_second":             prop("integer", "Timeout in seconds, 0 or negative means no timeout"),
 			"ttl_seconds_after_finished": prop("integer", "Job TTL after completion in seconds"),
 			"excluded_nodes":             propArray(prop("string", ""), "Node IDs to exclude from execution"),
 			"is_tolerate_all":            prop("boolean", "Whether to tolerate all node taints, default true"),
@@ -128,10 +128,10 @@ func opsjobList() *mcpserver.MCPTool {
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"offset":   prop("integer", "Pagination offset, default 0"),
-				"limit":    prop("integer", "Records per page, default 100"),
-				"sort_by":  prop("string", "Sort field, default 'creationTime'"),
-				"order":    propEnum("string", "Sort order, default 'desc'", []string{"desc", "asc"}),
+				"offset":       prop("integer", "Pagination offset, default 0"),
+				"limit":        prop("integer", "Records per page, default 100"),
+				"sort_by":      prop("string", "Sort field, default 'creationTime'"),
+				"order":        propEnum("string", "Sort order, default 'desc'", []string{"desc", "asc"}),
 				"cluster_id":   prop("string", "Filter by cluster ID"),
 				"workspace_id": prop("string", "Filter by workspace ID"),
 				"user_name":    prop("string", "Filter by submitter username (fuzzy match)"),

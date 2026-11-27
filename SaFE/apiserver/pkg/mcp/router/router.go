@@ -9,16 +9,16 @@
 // (defaults to /api/v1/safe-mcp/mcp), aligned with the MCP specification:
 //
 //   - SSE transport (2024-11-05 spec):
-//       GET  {base}/sse       -> server-sent events stream
-//       POST {base}/messages  -> client-to-server messages (session_id query)
+//     GET  {base}/sse       -> server-sent events stream
+//     POST {base}/messages  -> client-to-server messages (session_id query)
 //
 //   - Streamable HTTP transport (2025-03-26 spec):
-//       POST {base}           -> single request/response (or streamed) JSON-RPC
+//     POST {base}           -> single request/response (or streamed) JSON-RPC
 //
 // Auxiliary endpoints:
 //
-//       GET  {base}/health    -> liveness check
-//       GET  {base}/info      -> human-readable server info & tool list
+//	GET  {base}/health    -> liveness check
+//	GET  {base}/info      -> human-readable server info & tool list
 package router
 
 import (
@@ -28,9 +28,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"k8s.io/klog/v2"
 
-	apimetrics "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/metrics"
 	mcptools "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/mcp/tools"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/mcp/unified"
+	apimetrics "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/metrics"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	mcpserver "github.com/AMD-AIG-AIMA/SAFE/common/pkg/mcp/server"
 )
@@ -127,12 +127,12 @@ func MountRoutes(engine *gin.Engine, srv *mcpserver.Server, basePath string) {
 		mcpGroup.GET("/info", func(c *gin.Context) {
 			toolNames := srv.GetToolNames()
 			c.JSON(http.StatusOK, gin.H{
-				"server":                  "SaFE MCP Server",
-				"version":                 mcpserver.MCPVersion,
-				"sse_endpoint":            cleanBase + "/sse",
+				"server":                   "SaFE MCP Server",
+				"version":                  mcpserver.MCPVersion,
+				"sse_endpoint":             cleanBase + "/sse",
 				"streamable_http_endpoint": cleanBase,
-				"total_tools":             len(toolNames),
-				"tools":                   toolNames,
+				"total_tools":              len(toolNames),
+				"tools":                    toolNames,
 			})
 		})
 	}

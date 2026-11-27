@@ -95,13 +95,13 @@ func TestBindGinRequest_PtrError(t *testing.T) {
 func TestBindGinRequest_AllTypesViaQuery(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	type R struct {
-		I   int      `query:"i"`
-		U   uint     `query:"u"`
-		F   float64  `query:"f"`
-		B   bool     `query:"b"`
-		S   string   `query:"s"`
-		Sl  []string `query:"sl"`
-		Pi  *int     `query:"pi"`
+		I  int      `query:"i"`
+		U  uint     `query:"u"`
+		F  float64  `query:"f"`
+		B  bool     `query:"b"`
+		S  string   `query:"s"`
+		Sl []string `query:"sl"`
+		Pi *int     `query:"pi"`
 	}
 	raw := "/?i=-3&u=42&f=1.5&b=true&s=hi&sl=a,b,%20c&pi=7"
 	req := httptest.NewRequest(http.MethodGet, raw, nil)

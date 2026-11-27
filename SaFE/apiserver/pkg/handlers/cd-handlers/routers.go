@@ -17,8 +17,8 @@ func InitCDRouters(e *gin.Engine, h *Handler) {
 	group := e.Group(common.PrimusRouterCustomRootPath+"/cd", middleware.Authorize(), h.authorizeSystemAdmin(), middleware.Preprocess())
 	{
 		// Unified endpoints - use type field in body or query param to distinguish
-		group.POST("/deployments", h.CreateDeploymentRequest)       // body.type = "safe" or "lens"
-		group.GET("/deployments", h.ListDeploymentRequests)         // ?type=safe or ?type=lens
+		group.POST("/deployments", h.CreateDeploymentRequest) // body.type = "safe" or "lens"
+		group.GET("/deployments", h.ListDeploymentRequests)   // ?type=safe or ?type=lens
 		group.GET("/deployments/:id", h.GetDeploymentRequest)
 		group.POST("/deployments/:id/approve", h.ApproveDeploymentRequest)
 		group.POST("/deployments/:id/rollback", h.RollbackDeployment)

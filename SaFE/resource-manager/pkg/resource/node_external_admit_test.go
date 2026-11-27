@@ -391,9 +391,9 @@ func TestAdmitVirtualKubeletAcceptsLegacyWorkspaceLabel(t *testing.T) {
 	vk := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
 		Name: "vk-legacy",
 		Labels: map[string]string{
-			v1.VirtualKubeletTypeLabelKey: v1.VirtualKubeletTypeLabelValue,
+			v1.VirtualKubeletTypeLabelKey:   v1.VirtualKubeletTypeLabelValue,
 			v1.ExternalWorkspaceLabelLegacy: "ws-ext",
-			v1.ExternalProviderLabel:         "spur",
+			v1.ExternalProviderLabel:        "spur",
 			v1.ExternalAllocationIdLabel:    "alloc-1",
 			v1.ExternalGenerationLabel:      "1",
 		},

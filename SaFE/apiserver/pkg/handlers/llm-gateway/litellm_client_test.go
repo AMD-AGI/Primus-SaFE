@@ -29,7 +29,7 @@ func TestCreateUser_Success(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/user/new", r.URL.Path)
-		assert.Equal(t, "Bearer " + testAdminKey, r.Header.Get("Authorization"))
+		assert.Equal(t, "Bearer "+testAdminKey, r.Header.Get("Authorization"))
 		json.NewDecoder(r.Body).Decode(&received)
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"user_id":"test@amd.com"}`))
@@ -384,7 +384,7 @@ func TestGetKeyInfo_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/key/info", r.URL.Path)
 		assert.Equal(t, "hash123", r.URL.Query().Get("key"))
-		assert.Equal(t, "Bearer " + testAdminKey, r.Header.Get("Authorization"))
+		assert.Equal(t, "Bearer "+testAdminKey, r.Header.Get("Authorization"))
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"info":{"spend":12.5,"max_budget":30}}`))
 	}))
@@ -426,7 +426,7 @@ func TestUpdateKeyBudget_SendsSetAndRemovePayloads(t *testing.T) {
 	var requests []requestSnapshot
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/key/update", r.URL.Path)
-		assert.Equal(t, "Bearer " + testAdminKey, r.Header.Get("Authorization"))
+		assert.Equal(t, "Bearer "+testAdminKey, r.Header.Get("Authorization"))
 
 		var body requestSnapshot
 		err := json.NewDecoder(r.Body).Decode(&body)

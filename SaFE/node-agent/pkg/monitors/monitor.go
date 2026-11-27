@@ -65,7 +65,7 @@ type NodeInfo struct {
 	// The rdma count observed by the k8s node
 	ObserveRdmaCount int `json:"observeRdmaCount"`
 	// The pod subnet bound to the node
-	KubePodsSubnet   string `json:"kubePodsSubnet"`
+	KubePodsSubnet string `json:"kubePodsSubnet"`
 }
 
 // NewMonitor creates a new Monitor instance with the given configuration.

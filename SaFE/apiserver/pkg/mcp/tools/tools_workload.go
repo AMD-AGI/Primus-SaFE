@@ -26,12 +26,12 @@ func workloadResourceItemSchema() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"cpu":               prop("string", "CPU cores, e.g. '4'"),
-			"memory":            prop("string", "Memory size, e.g. '256Gi'"),
-			"gpu":               prop("string", "Number of GPUs"),
-			"replica":           prop("integer", "Number of replicas"),
-			"ephemeralStorage":  prop("string", "Ephemeral storage size, e.g. '50Gi'"),
-			"sharedMemory":      prop("string", "Shared memory size, e.g. '64Gi'"),
+			"cpu":              prop("string", "CPU cores, e.g. '4'"),
+			"memory":           prop("string", "Memory size, e.g. '256Gi'"),
+			"gpu":              prop("string", "Number of GPUs"),
+			"replica":          prop("integer", "Number of replicas"),
+			"ephemeralStorage": prop("string", "Ephemeral storage size, e.g. '50Gi'"),
+			"sharedMemory":     prop("string", "Shared memory size, e.g. '64Gi'"),
 		},
 		"required": []string{"cpu", "memory", "replica"},
 	}
@@ -50,17 +50,17 @@ func workloadCreateSchema() map[string]any {
 			"kind": propEnum("string", "Workload type", []string{
 				"PyTorchJob", "Deployment", "StatefulSet", "Authoring", "TorchFT", "RayJob", "AutoscalingRunnerSet", "GithubRunner",
 			}),
-			"images":    propArray(prop("string", ""), "Container image URLs array. Length should match resources array."),
-			"resources": propArray(workloadResourceItemSchema(), "Resources array. For PyTorchJob: [master, worker]. For TorchFT: [lighthouse, worker]. For RayJob: [head, worker_group_1, worker_group_2(optional)], head replica must be 1."),
-			"entry_points": propArray(prop("string", ""), "Startup commands (Base64 encoded) array. Length should match resources array. Not required for Authoring type. For RayJob: these are node initialization scripts (e.g. init-head.sh, init-worker.sh), NOT the training entrypoint (use env.RAY_JOB_ENTRYPOINT for that)."),
-			"description":  prop("string", "Workload description"),
-			"priority":     prop("integer", "Priority level (0-2), default 0"),
-			"timeout":      prop("integer", "Timeout in seconds, default 0 (no timeout)"),
-			"max_retry":    prop("integer", "Maximum retry count, default 0"),
-			"env":          propObject(map[string]any{}, "Environment variables as key-value pairs. For RayJob: RAY_JOB_ENTRYPOINT is required (the main training command submitted to Ray cluster, e.g. 'bash my-train-job.sh')."),
-			"specified_nodes": propArray(prop("string", ""), "List of node IDs to run on"),
-			"excluded_nodes":  propArray(prop("string", ""), "List of node IDs to exclude"),
-			"is_supervised":   prop("boolean", "Enable monitoring, default false"),
+			"images":                     propArray(prop("string", ""), "Container image URLs array. Length should match resources array."),
+			"resources":                  propArray(workloadResourceItemSchema(), "Resources array. For PyTorchJob: [master, worker]. For TorchFT: [lighthouse, worker]. For RayJob: [head, worker_group_1, worker_group_2(optional)], head replica must be 1."),
+			"entry_points":               propArray(prop("string", ""), "Startup commands (Base64 encoded) array. Length should match resources array. Not required for Authoring type. For RayJob: these are node initialization scripts (e.g. init-head.sh, init-worker.sh), NOT the training entrypoint (use env.RAY_JOB_ENTRYPOINT for that)."),
+			"description":                prop("string", "Workload description"),
+			"priority":                   prop("integer", "Priority level (0-2), default 0"),
+			"timeout":                    prop("integer", "Timeout in seconds, default 0 (no timeout)"),
+			"max_retry":                  prop("integer", "Maximum retry count, default 0"),
+			"env":                        propObject(map[string]any{}, "Environment variables as key-value pairs. For RayJob: RAY_JOB_ENTRYPOINT is required (the main training command submitted to Ray cluster, e.g. 'bash my-train-job.sh')."),
+			"specified_nodes":            propArray(prop("string", ""), "List of node IDs to run on"),
+			"excluded_nodes":             propArray(prop("string", ""), "List of node IDs to exclude"),
+			"is_supervised":              prop("boolean", "Enable monitoring, default false"),
 			"ttl_seconds_after_finished": prop("integer", "TTL after completion in seconds, default 60"),
 			"customer_labels":            propObject(map[string]any{}, "Custom labels as key-value pairs"),
 			"secrets":                    propArray(secretsItem, "List of secrets"),
@@ -89,8 +89,8 @@ func buildWorkloadCreateBody(p map[string]any) (map[string]any, error) {
 	}
 	kind := getStr(p, "kind")
 	body := map[string]any{
-		"displayName":   getStr(p, "display_name"),
-		"workspaceId":   getStr(p, "workspace_id"),
+		"displayName": getStr(p, "display_name"),
+		"workspaceId": getStr(p, "workspace_id"),
 		"groupVersionKind": map[string]any{
 			"group":   "",
 			"version": "v1",
@@ -263,15 +263,15 @@ func workloadUpdate() *mcpserver.MCPTool {
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"workload_id":   prop("string", "Workload ID to update"),
-				"priority":      prop("integer", "New priority level (0-2)"),
-				"images":        propArray(prop("string", ""), "New container image URLs array (must provide complete array)"),
-				"entry_points":  propArray(prop("string", ""), "New startup commands (Base64 encoded) array (must provide complete array)"),
-				"description":   prop("string", "New description"),
-				"timeout":       prop("integer", "New timeout in seconds"),
-				"max_retry":     prop("integer", "New maximum retry count"),
-				"env":           propObject(map[string]any{}, "New environment variables (must provide complete object)"),
-				"service":       propObject(map[string]any{}, "New service configuration"),
+				"workload_id":  prop("string", "Workload ID to update"),
+				"priority":     prop("integer", "New priority level (0-2)"),
+				"images":       propArray(prop("string", ""), "New container image URLs array (must provide complete array)"),
+				"entry_points": propArray(prop("string", ""), "New startup commands (Base64 encoded) array (must provide complete array)"),
+				"description":  prop("string", "New description"),
+				"timeout":      prop("integer", "New timeout in seconds"),
+				"max_retry":    prop("integer", "New maximum retry count"),
+				"env":          propObject(map[string]any{}, "New environment variables (must provide complete object)"),
+				"service":      propObject(map[string]any{}, "New service configuration"),
 				"resources": propArray(map[string]any{
 					"type": "object",
 				}, "New resources array (must provide complete array)"),
@@ -434,11 +434,11 @@ func workloadPodLogs() *mcpserver.MCPTool {
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"workload_id":    prop("string", "Workload ID"),
-				"pod_id":         prop("string", "Pod ID"),
-				"tail_lines":     prop("integer", "Number of lines to return from the end, default 1000"),
-				"container":      prop("string", "Container name (optional, for multi-container pods)"),
-				"since_seconds":  prop("integer", "Return logs from last N seconds (optional)"),
+				"workload_id":   prop("string", "Workload ID"),
+				"pod_id":        prop("string", "Pod ID"),
+				"tail_lines":    prop("integer", "Number of lines to return from the end, default 1000"),
+				"container":     prop("string", "Container name (optional, for multi-container pods)"),
+				"since_seconds": prop("integer", "Return logs from last N seconds (optional)"),
 			},
 			"required": []string{"workload_id", "pod_id"},
 		},
@@ -468,13 +468,13 @@ func workloadPodLogs() *mcpserver.MCPTool {
 
 func workloadLogsDownload() *mcpserver.MCPTool {
 	return &mcpserver.MCPTool{
-		Name: "workload_logs_download",
+		Name:        "workload_logs_download",
 		Description: "Download workload logs to a local file.\n\nHOW TO USE:\n1. Run this curl command directly (recommended):\n   curl -L -o <output_file> \"<api_base_url>/api/v1/workloads/<workload_id>/logs/download\" \\\n     -H \"Content-Type: application/json\" -H \"Authorization: Bearer <token>\" -d '{}'\n   \n   The -L flag follows the HTTP 303 redirect to download the log file directly.\n\n2. Or call this tool to get the presigned S3 URL, then download separately:\n   curl -o <output_file> \"<presigned_url_from_this_tool>\"\n\nNOTES:\n- The download may take several minutes (DumpLog job runs internally)\n- Requires OpenSearch and S3 enabled on the cluster\n- api_base_url is the SaFE API server address (e.g., https://example.primus-safe.amd.com)\n",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"workload_id":     prop("string", "Workload ID to download logs for"),
-				"timeout_second":  prop("integer", "Timeout in seconds for waiting DumpLog job completion (default: 900 = 15 minutes). Set to 0 or omit to use server default."),
+				"workload_id":    prop("string", "Workload ID to download logs for"),
+				"timeout_second": prop("integer", "Timeout in seconds for waiting DumpLog job completion (default: 900 = 15 minutes). Set to 0 or omit to use server default."),
 			},
 			"required": []string{"workload_id"},
 		},
