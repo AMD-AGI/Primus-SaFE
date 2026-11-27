@@ -5,6 +5,7 @@ import {
   apiKeysProviderUrl,
   externalLoginUrl,
   externalLogoutUrl,
+  externalSignInHref,
   isExternalAuth,
 } from './authMode'
 
@@ -190,5 +191,50 @@ describe('apiKeyRouting', () => {
     ],
   ])('%s', (_name, envs, want) => {
     expect(apiKeyRouting(envs)).toEqual(want)
+  })
+})
+
+describe('externalSignInHref', () => {
+  const origin = 'https://console.example.com'
+  const envs = {
+    authMode: 'external' as const,
+    loginUrl: '/binding/sign-in/start',
+    connection: 'okta-amd',
+  }
+
+  it('asks the provider to return to /login with the page and names the connection', () => {
+    const u = new URL(externalSignInHref(envs, '/workloads?tab=logs', origin))
+    expect(u.origin + u.pathname).toBe(origin + '/binding/sign-in/start')
+    expect(u.searchParams.get('return')).toBe('/login?redirect=%2Fworkloads%3Ftab%3Dlogs')
+    expect(u.searchParams.get('connection')).toBe('okta-amd')
+  })
+
+  it('omits the connection when the deployment names none', () => {
+    const u = new URL(externalSignInHref({ ...envs, connection: undefined }, '/', origin))
+    expect(u.searchParams.has('connection')).toBe(false)
+  })
+
+  it('treats an absolute login URL on this origin like a path', () => {
+    const u = new URL(
+      externalSignInHref({ ...envs, loginUrl: origin + '/binding/sign-in/start' }, '/', origin),
+    )
+    expect(u.searchParams.get('return')).toBe('/login?redirect=%2F')
+  })
+
+  it('sends nothing to a login URL on another origin', () => {
+    const url = 'https://login.example.net/start'
+    expect(externalSignInHref({ ...envs, loginUrl: url }, '/workloads', origin)).toBe(url)
+  })
+
+  it('keeps the login URL as it is when the origin cannot resolve it', () => {
+    expect(externalSignInHref(envs, '/workloads', 'null')).toBe('/binding/sign-in/start')
+  })
+
+  it.each([
+    ['builtin', { ...envs, authMode: 'builtin' as const }],
+    ['no login URL', { ...envs, loginUrl: '' }],
+    ['no envs', null],
+  ])('is empty for %s', (_name, e) => {
+    expect(externalSignInHref(e, '/', origin)).toBe('')
   })
 })

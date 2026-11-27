@@ -370,6 +370,11 @@ export default function setupAuthGuard(router: Router) {
         if (user.isExternalAuth && user.shouldAutoShowUserQuickStart) {
           return next({ path: '/userquickstart', query: { next: target } })
         }
+        // No page to return to: load / itself, which the console's nginx may send elsewhere.
+        if (user.isExternalAuth && target === '/') {
+          window.location.replace('/')
+          return next(false)
+        }
         return next(target)
       }
 

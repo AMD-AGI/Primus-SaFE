@@ -38,6 +38,7 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	mock_client "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
@@ -386,6 +387,45 @@ func TestExternalModeDoesNotServeLogin(t *testing.T) {
 			assert.Empty(t, w.Header().Values("Set-Cookie"))
 		}
 	}
+}
+
+// The login handler refuses external mode itself, whichever route reaches it.
+func TestLoginHandlerRefusesExternalMode(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	viper.Set("auth.mode", "external")
+	t.Cleanup(func() { viper.Set("auth.mode", nil) })
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/", strings.NewReader(loginBody("default", localName, localPassword)))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	result, err := (&Handler{}).login(c)
+	require.Error(t, err)
+	assert.True(t, commonerrors.IsForbidden(err), err.Error())
+	assert.Nil(t, result)
+	assert.Equal(t, "login-failed:"+localName, c.GetString(common.UserId))
+	assert.Equal(t, localName, c.GetString(common.UserName))
+	assert.Equal(t, "default", c.GetString(common.UserType))
+}
+
+// Builtin mode still signs a local account in, and the console's form sign-in gets its cookies.
+func TestBuiltinModeSignsInLocalAccount(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	viper.Set("auth.mode", "builtin")
+	t.Cleanup(func() { viper.Set("auth.mode", nil) })
+	commonconfig.SetValue("crypto.enable", "false")
+	t.Cleanup(func() { commonconfig.SetValue("crypto.enable", "") })
+	e := gin.New()
+	InitCustomRouters(e, &Handler{Client: sharedGuardCluster(t)})
+	form := url.Values{"type": {"default"}, "name": {localName}, "password": {localPassword}}.Encode()
+
+	w := guardRequest{method: http.MethodPost, path: "/api/v1/login", contentType: ContentTypeForm, body: form}.serve(e)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.NotEmpty(t, w.Header().Values("Set-Cookie"), "the console sign-in sets its cookies")
+
+	w = guardRequest{method: http.MethodPost, path: "/api/v1/login", body: loginBody("default", localName, localPassword)}.serve(e)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.Empty(t, w.Header().Values("Set-Cookie"), "an API sign-in sets none")
+	assert.Contains(t, w.Body.String(), `"token"`)
 }
 
 func TestBuiltinModeServesAccountRoutes(t *testing.T) {

@@ -284,6 +284,71 @@ describe('/login with a session already present', () => {
   })
 })
 
+// External mode: the identity provider signs the browser in and brings it back to /login?redirect=...
+describe('external sign-in returning from the identity provider', () => {
+  const login = (redirect?: unknown) =>
+    run({
+      query: redirect === undefined ? {} : { redirect },
+      path: '/login',
+      fullPath: '/login',
+      name: 'Login',
+    })
+
+  beforeEach(() => {
+    userState = signedIn({ isExternalAuth: true })
+  })
+
+  it('does not exchange or forward a code, and drops it from the URL', async () => {
+    getEnvs.mockResolvedValue({ authMode: 'external' })
+    const next = await run({
+      query: { code: 'CODE', state: 'st', tab: 'logs' },
+      path: '/workloads',
+      fullPath: '/workloads?code=CODE&state=st&tab=logs',
+      name: 'Workloads',
+      hash: '#top',
+    })
+    expect(ssoLoginRaw).not.toHaveBeenCalled()
+    expect(next).toHaveBeenCalledWith({
+      path: '/workloads',
+      query: { tab: 'logs' },
+      hash: '#top',
+      replace: true,
+    })
+  })
+
+  it('returns to the page it was asked for in the router', async () => {
+    const next = await login('/workloads')
+    expect(replace).not.toHaveBeenCalled()
+    expect(next).toHaveBeenCalledWith('/workloads')
+  })
+
+  it('loads / with a full-page navigation when there is no page to return to', async () => {
+    const next = await login()
+    expect(replace).toHaveBeenCalledWith('/')
+    expect(next).toHaveBeenCalledWith(false)
+  })
+
+  it('starts the admin onboarding in the router', async () => {
+    userState = signedIn({ isExternalAuth: true, shouldAutoShowQuickStart: true })
+    const next = await login('/workloads')
+    expect(replace).not.toHaveBeenCalled()
+    expect(next).toHaveBeenCalledWith({ path: '/quickstart', query: { next: '/workloads' } })
+  })
+
+  it('starts the user onboarding in the router', async () => {
+    userState = signedIn({ isExternalAuth: true, shouldAutoShowUserQuickStart: true })
+    const next = await login()
+    expect(replace).not.toHaveBeenCalled()
+    expect(next).toHaveBeenCalledWith({ path: '/userquickstart', query: { next: '/' } })
+  })
+
+  it('leaves the onboarding to the sign-in callback outside external mode', async () => {
+    userState = signedIn({ shouldAutoShowQuickStart: true })
+    const next = await login('/workloads')
+    expect(next).toHaveBeenCalledWith('/workloads')
+  })
+})
+
 // The prefixes come from /envs (consoleReturnPrefixes); the console's defaults apply when it says
 // nothing, cannot be read, or is too slow.
 describe('returning to a prefix the deployment configured', () => {
