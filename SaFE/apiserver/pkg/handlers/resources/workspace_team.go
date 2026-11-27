@@ -106,10 +106,10 @@ func (h *Handler) updateWorkspaceTeams(c *gin.Context) (interface{}, error) {
 		func(current []v1.WorkspaceTeam) ([]v1.WorkspaceTeam, error) {
 			next := current
 			for _, team := range req.Remove {
-				next = setTeamBinding(next, team, "", false)
+				next = setTeamBinding(next, v1.WorkspaceTeam{Name: team}, false)
 			}
 			for _, team := range req.Add {
-				next = setTeamBinding(next, team.Name, team.EffectiveRole(), true)
+				next = setTeamBinding(next, team, true)
 			}
 			return next, nil
 		})
@@ -147,9 +147,12 @@ func (h *Handler) updateTeamWorkspaces(c *gin.Context) (interface{}, error) {
 		return nil, err
 	}
 	ctx := c.Request.Context()
+	bindingOf := func(entry view.TeamWorkspaceBinding) v1.WorkspaceTeam {
+		return v1.WorkspaceTeam{Name: team, Role: entry.Role}
+	}
 	changeOf := func(entry view.TeamWorkspaceBinding) teamsChange {
 		return func(current []v1.WorkspaceTeam) ([]v1.WorkspaceTeam, error) {
-			return setTeamBinding(current, team, bindingRole(entry.Role), true), nil
+			return setTeamBinding(current, bindingOf(entry), true), nil
 		}
 	}
 	for _, entry := range req {
@@ -170,13 +173,13 @@ func (h *Handler) updateTeamWorkspaces(c *gin.Context) (interface{}, error) {
 			previous := &v1.Workspace{Spec: v1.WorkspaceSpec{Teams: before}}
 			role, bound := previous.TeamRole(team)
 			applied = append(applied, teamBindingWrite{
-				workspace: entry.WorkspaceId, role: role, bound: bound, written: bindingRole(entry.Role),
+				workspace: entry.WorkspaceId, role: role, bound: bound, written: bindingOf(entry).EffectiveRole(),
 			})
 		}
 		result.Items = append(result.Items, view.TeamWorkspaceItem{
 			WorkspaceId:   updated.Name,
 			WorkspaceName: v1.GetDisplayName(updated),
-			Role:          bindingRole(entry.Role),
+			Role:          bindingOf(entry).EffectiveRole(),
 		})
 	}
 	result.TotalCount = len(result.Items)
@@ -212,7 +215,7 @@ func (h *Handler) undoTeamWorkspaces(ctx context.Context, requestUser *v1.User, 
 				if !bound || role != undo.written {
 					return current, nil
 				}
-				return setTeamBinding(current, team, undo.role, undo.bound), nil
+				return setTeamBinding(current, v1.WorkspaceTeam{Name: team, Role: undo.role}, undo.bound), nil
 			})
 		switch {
 		case undoErr != nil:
@@ -788,10 +791,11 @@ func managerBindingChanged(current, next []v1.WorkspaceTeam) bool {
 	return false
 }
 
-// setTeamBinding returns the bindings with the team bound with the role when bound is true, and
-// unbound otherwise. An existing binding keeps its position, and is left as stored when its role
-// already is the requested one.
-func setTeamBinding(teams []v1.WorkspaceTeam, team string, role v1.WorkspaceTeamRole, bound bool) []v1.WorkspaceTeam {
+// setTeamBinding returns the bindings with the team of binding bound with its effective role when
+// bound is true, and unbound otherwise. An existing binding keeps its position, and is left as
+// stored when its role already is the requested one.
+func setTeamBinding(teams []v1.WorkspaceTeam, binding v1.WorkspaceTeam, bound bool) []v1.WorkspaceTeam {
+	team, role := binding.Name, binding.EffectiveRole()
 	result := make([]v1.WorkspaceTeam, 0, len(teams)+1)
 	placed := false
 	for _, t := range teams {
@@ -803,23 +807,15 @@ func setTeamBinding(teams []v1.WorkspaceTeam, team string, role v1.WorkspaceTeam
 			continue
 		}
 		placed = true
-		if t.EffectiveRole() != bindingRole(role) {
-			t.Role = bindingRole(role)
+		if t.EffectiveRole() != role {
+			t.Role = role
 		}
 		result = append(result, t)
 	}
 	if bound && !placed {
-		result = append(result, v1.WorkspaceTeam{Name: team, Role: bindingRole(role)})
+		result = append(result, v1.WorkspaceTeam{Name: team, Role: role})
 	}
 	return result
-}
-
-// bindingRole returns the role, member when it is empty.
-func bindingRole(role v1.WorkspaceTeamRole) v1.WorkspaceTeamRole {
-	if role == "" {
-		return v1.WorkspaceTeamMember
-	}
-	return role
 }
 
 // teamNames returns the sorted, distinct names of the teams bound to the workspace.
