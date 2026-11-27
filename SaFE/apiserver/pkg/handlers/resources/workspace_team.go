@@ -16,7 +16,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -839,41 +838,35 @@ func refuseDelegatedTeamsChange(c *gin.Context, setsTeams bool) error {
 	return commonerrors.NewForbidden("this operation is not available with a delegated token")
 }
 
+// badRequest returns the validation error as a 400, nil when there is none.
+func badRequest(err error) error {
+	if err == nil {
+		return nil
+	}
+	return commonerrors.NewBadRequest(err.Error())
+}
+
 // validateTeamName checks that the team id is a DNS-1123 label.
 func validateTeamName(team string) error {
-	if msgs := validation.IsDNS1123Label(team); len(msgs) > 0 {
-		return commonerrors.NewBadRequest(fmt.Sprintf("invalid team id %q: %v", team, msgs))
-	}
-	return nil
+	return badRequest(commonworkspace.ValidateTeamName(team))
 }
 
 // validateTeamRole checks that the role is empty, member or manager.
 func validateTeamRole(role v1.WorkspaceTeamRole) error {
-	switch role {
-	case "", v1.WorkspaceTeamMember, v1.WorkspaceTeamManager:
-		return nil
-	}
-	return commonerrors.NewBadRequest(fmt.Sprintf("invalid role %q, supported: [%s, %s]",
-		role, v1.WorkspaceTeamMember, v1.WorkspaceTeamManager))
+	return badRequest(commonworkspace.ValidateTeamRole(role))
 }
 
 // validateWorkspaceTeamsRequest checks the add and remove lists of a team bindings update: valid
-// names and roles, no team named twice, and at least one change.
+// bindings to add, no team named twice, and at least one change.
 func validateWorkspaceTeamsRequest(req *view.UpdateWorkspaceTeamsRequest) error {
 	if len(req.Add) == 0 && len(req.Remove) == 0 {
 		return commonerrors.NewBadRequest("add or remove is required")
 	}
+	if err := validateWorkspaceTeams(req.Add); err != nil {
+		return err
+	}
 	named := map[string]bool{}
 	for _, team := range req.Add {
-		if err := validateTeamName(team.Name); err != nil {
-			return err
-		}
-		if err := validateTeamRole(team.Role); err != nil {
-			return err
-		}
-		if named[team.Name] {
-			return commonerrors.NewBadRequest(fmt.Sprintf("the team %s is named more than once", team.Name))
-		}
 		named[team.Name] = true
 	}
 	for _, team := range req.Remove {
@@ -910,30 +903,13 @@ func validateTeamWorkspaceBindings(req []view.TeamWorkspaceBinding) error {
 	return nil
 }
 
-// validateWorkspaceTeams checks the bindings of a workspace: valid names and roles, no team twice.
+// validateWorkspaceTeams checks the bindings of a workspace with commonworkspace.ValidateTeams, as
+// the admission webhook does.
 func validateWorkspaceTeams(teams []v1.WorkspaceTeam) error {
-	named := map[string]bool{}
-	for _, team := range teams {
-		if err := validateTeamName(team.Name); err != nil {
-			return err
-		}
-		if err := validateTeamRole(team.Role); err != nil {
-			return err
-		}
-		if named[team.Name] {
-			return commonerrors.NewBadRequest(fmt.Sprintf("the team %s is named more than once", team.Name))
-		}
-		named[team.Name] = true
-	}
-	return nil
+	return badRequest(commonworkspace.ValidateTeams(teams))
 }
 
 // validateAccessPolicy checks that the policy is empty, closed or approval.
 func validateAccessPolicy(policy v1.WorkspaceAccessPolicy) error {
-	switch policy {
-	case "", v1.WorkspaceAccessClosed, v1.WorkspaceAccessApproval:
-		return nil
-	}
-	return commonerrors.NewBadRequest(fmt.Sprintf("invalid accessPolicy %q, supported: [%s, %s]",
-		policy, v1.WorkspaceAccessClosed, v1.WorkspaceAccessApproval))
+	return badRequest(commonworkspace.ValidateAccessPolicy(policy))
 }

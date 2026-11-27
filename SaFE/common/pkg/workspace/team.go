@@ -7,9 +7,13 @@ package workspace
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"sync"
 	"time"
 
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -94,4 +98,51 @@ func TeamWorkspaces(ctx context.Context, reader client.Reader, team string) (map
 		}
 	}
 	return result, nil
+}
+
+// ValidateTeamName checks that a team id is a DNS-1123 label.
+func ValidateTeamName(team string) error {
+	if msgs := validation.IsDNS1123Label(team); len(msgs) > 0 {
+		return fmt.Errorf("invalid team name %q: %s", team, strings.Join(msgs, "; "))
+	}
+	return nil
+}
+
+// ValidateTeamRole checks that the role of a team binding is empty (member), member or manager.
+func ValidateTeamRole(role v1.WorkspaceTeamRole) error {
+	switch role {
+	case "", v1.WorkspaceTeamMember, v1.WorkspaceTeamManager:
+		return nil
+	}
+	return fmt.Errorf("invalid role %q, supported: [%s, %s]", role, v1.WorkspaceTeamMember, v1.WorkspaceTeamManager)
+}
+
+// ValidateAccessPolicy checks that the access policy is empty (closed), closed or approval.
+func ValidateAccessPolicy(policy v1.WorkspaceAccessPolicy) error {
+	switch policy {
+	case "", v1.WorkspaceAccessClosed, v1.WorkspaceAccessApproval:
+		return nil
+	}
+	return fmt.Errorf("invalid accessPolicy %q, supported: [%s, %s]",
+		policy, v1.WorkspaceAccessClosed, v1.WorkspaceAccessApproval)
+}
+
+// ValidateTeams checks the team bindings of a workspace: every name is valid and bound once, and
+// every role is valid. The result aggregates one error per problem, each naming its binding.
+func ValidateTeams(teams []v1.WorkspaceTeam) error {
+	var errs []error
+	seen := make(map[string]bool, len(teams))
+	for i, t := range teams {
+		prefix := fmt.Sprintf("teams[%d]", i)
+		if err := ValidateTeamName(t.Name); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", prefix, err))
+		} else if seen[t.Name] {
+			errs = append(errs, fmt.Errorf("%s: team %q is bound more than once", prefix, t.Name))
+		}
+		seen[t.Name] = true
+		if err := ValidateTeamRole(t.Role); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", prefix, err))
+		}
+	}
+	return utilerrors.NewAggregate(errs)
 }

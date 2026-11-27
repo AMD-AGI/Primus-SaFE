@@ -20,7 +20,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
-	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
 	ctrlruntime "sigs.k8s.io/controller-runtime"
@@ -37,6 +36,7 @@ import (
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	commonworkspace "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workspace"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
@@ -915,30 +915,10 @@ func (v *WorkspaceValidator) validateRequiredParams(workspace *v1.Workspace) err
 // DNS-1123 label bound once, every role is member or manager (unset means member), and the access
 // policy is closed or approval (unset means closed).
 func validateTeams(workspace *v1.Workspace) error {
-	var errs []error
-	seen := make(map[string]bool, len(workspace.Spec.Teams))
-	for i, t := range workspace.Spec.Teams {
-		prefix := fmt.Sprintf("teams[%d]", i)
-		if msgs := validation.IsDNS1123Label(t.Name); len(msgs) > 0 {
-			errs = append(errs, fmt.Errorf("%s: invalid team name %q: %s", prefix, t.Name, strings.Join(msgs, "; ")))
-		} else if seen[t.Name] {
-			errs = append(errs, fmt.Errorf("%s: team %q is bound more than once", prefix, t.Name))
-		}
-		seen[t.Name] = true
-		switch t.Role {
-		case "", v1.WorkspaceTeamMember, v1.WorkspaceTeamManager:
-		default:
-			errs = append(errs, fmt.Errorf("%s: invalid role %q, supported: [%s, %s]",
-				prefix, t.Role, v1.WorkspaceTeamMember, v1.WorkspaceTeamManager))
-		}
-	}
-	switch workspace.Spec.AccessPolicy {
-	case "", v1.WorkspaceAccessClosed, v1.WorkspaceAccessApproval:
-	default:
-		errs = append(errs, fmt.Errorf("invalid accessPolicy %q, supported: [%s, %s]",
-			workspace.Spec.AccessPolicy, v1.WorkspaceAccessClosed, v1.WorkspaceAccessApproval))
-	}
-	return utilerrors.NewAggregate(errs)
+	return utilerrors.NewAggregate([]error{
+		commonworkspace.ValidateTeams(workspace.Spec.Teams),
+		commonworkspace.ValidateAccessPolicy(workspace.Spec.AccessPolicy),
+	})
 }
 
 const maxLowUtilizationRules = 5
