@@ -38,7 +38,7 @@
           <el-option label="system-admin-readonly" value="system-admin-readonly" />
         </el-select>
       </el-form-item>
-      <el-form-item label="Restricted Type" prop="restrictedType" v-if="isEdit">
+      <el-form-item v-if="isEdit && !external" label="Restricted Type" prop="restrictedType">
         <el-switch
           v-model="form.restrictedType"
           :active-value="1"
@@ -99,8 +99,8 @@ const isEdit = computed(() => props.action === 'Edit')
 
 const wsStore = useWorkspaceStore()
 const userStore = useUserStore()
-// An external identity provider decides platform roles and there are no passwords here;
-// the server refuses to change the roles, so the dialog neither offers nor sends them.
+// An external identity provider decides platform roles and the restriction, and there are no
+// passwords here; the server refuses to change them, so the dialog neither offers nor sends them.
 const external = computed(() => userStore.isExternalAuth)
 
 const initialForm = () => ({

@@ -19,7 +19,8 @@ const sameSet = (a: readonly string[] = [], b: readonly string[] = []): boolean 
  * value back would store it, and the record would then diverge from the provider once the group
  * changes. A field the user did not touch is left out and the server keeps what it has.
  *
- * External mode never sends roles (the server refuses a grant) or a password (there are none).
+ * External mode never sends roles or a restriction (the server refuses to change them) or a
+ * password (there are none).
  */
 export function buildUserPatch(
   user: UserSelfData,
@@ -36,7 +37,7 @@ export function buildUserPatch(
     )
   )
     patch.workspaces = form.workspaces
-  if ((form.restrictedType ?? 0) !== (user.restrictedType ?? 0))
+  if (!external && (form.restrictedType ?? 0) !== (user.restrictedType ?? 0))
     patch.restrictedType = form.restrictedType ?? 0
   if (form.password && !external) patch.password = form.password
   return patch
