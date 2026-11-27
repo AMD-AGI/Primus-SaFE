@@ -143,6 +143,10 @@ func (h *Handler) createWorkload(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+	if key := redactedEnvKey(req.Env); key != "" {
+		return nil, commonerrors.NewBadRequest(fmt.Sprintf(
+			"env.%s holds the hidden value %q of the cloned workload; set its value", key, RedactedEnvValue))
+	}
 	requestUser, err := h.getAndSetUsername(c)
 	if err != nil {
 		return nil, err
@@ -438,7 +442,13 @@ func (h *Handler) getWorkload(c *gin.Context) (interface{}, error) {
 	}
 	adminWorkload := generateWorkloadForAuth(name, dbutils.ParseNullString(dbWorkload.UserId), dbWorkload.Workspace, dbWorkload.Cluster)
 	if err = h.authWorkloadAction(c, adminWorkload, v1.GetVerb, v1.WorkloadKind, requestUser, roles); err != nil {
-		return nil, err
+		// A caller who may list the workloads of the workspace reads the spec to clone it. The
+		// response masks credential env values and omits secrets for anyone but the owner and
+		// system administrators; the get grant still guards logs, services and SSH.
+		if !apierrors.IsForbidden(err) ||
+			h.authWorkloadAction(c, adminWorkload, v1.ListVerb, v1.WorkloadKind, requestUser, roles) != nil {
+			return nil, err
+		}
 	}
 	return h.cvtDBWorkloadToGetResponse(ctx, requestUser, roles, dbWorkload), nil
 }
@@ -2023,6 +2033,16 @@ func restoreRedactedEnv(env, stored map[string]string) {
 			env[k] = orig
 		}
 	}
+}
+
+// redactedEnvKey returns a key of env whose value is RedactedEnvValue, or "" when there is none.
+func redactedEnvKey(env map[string]string) string {
+	for k, v := range env {
+		if v == RedactedEnvValue {
+			return k
+		}
+	}
+	return ""
 }
 
 // restoreRedactedResumeBody returns the resume request body with the env values masked for a
