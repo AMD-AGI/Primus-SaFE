@@ -161,7 +161,6 @@ import {
   getWorkspaceMembers,
   patchWorkspaceAccessPolicy,
   updateWorkspaceTeams,
-  type TeamMember,
   type WorkspaceAccessPolicy,
   type WorkspaceMemberTeam,
   type WorkspaceMemberUser,
@@ -172,6 +171,7 @@ import { useUserStore } from '@/stores/user'
 import { useTeams } from '@/composables/useTeams'
 import { teamUrl } from '@/utils/identityConsole'
 import TeamBindDialog from './TeamBindDialog.vue'
+import { loadTeamMembers, refreshTeamMembers, type TeamStateMap } from './teamMembersCache'
 
 const props = defineProps<{
   workspaceId: string
@@ -219,7 +219,12 @@ const teamLink = (id: string) => teamUrl(userStore.envs?.identityConsoleUrl, id)
 const managerNames = (team: WorkspaceMemberTeam) =>
   (team.managers ?? []).map((m) => m.preferredName || m.name || m.email || m.id).join(', ') || '-'
 
-// Loads the effective members of the workspace and drops the cached team member lists.
+// Member lists of expanded teams, loaded on first expansion.
+const teamState = reactive<TeamStateMap>({})
+// IDs of the team rows that are expanded.
+const expandedTeamIds = ref<string[]>([])
+
+// Loads the effective members of the workspace and reloads the member lists of expanded teams.
 const loadMembers = async () => {
   loading.value = true
   try {
@@ -227,37 +232,19 @@ const loadMembers = async () => {
     members.users = res?.users ?? []
     members.teams = res?.teams ?? []
     members.groups = res?.groups ?? []
-    Object.keys(teamState).forEach((k) => delete teamState[k])
+    const boundIds = members.teams.map((t) => t.id)
+    expandedTeamIds.value = expandedTeamIds.value.filter((id) => boundIds.includes(id))
+    void refreshTeamMembers(teamState, boundIds, expandedTeamIds.value, getTeamMembers)
   } finally {
     loading.value = false
   }
 }
 
-// Member lists of expanded teams, loaded on first expansion.
-interface TeamState {
-  loading: boolean
-  loaded: boolean
-  error: string
-  items: TeamMember[]
-}
-const teamState = reactive<Record<string, TeamState>>({})
-
-// Lazily loads the members of a team when its row is expanded. A 403 is shown as a notice.
-const onExpand = async (row: WorkspaceMemberTeam) => {
-  if (teamState[row.id]?.loaded || teamState[row.id]?.loading) return
-  teamState[row.id] = { loading: true, loaded: false, error: '', items: [] }
-  try {
-    const res = await getTeamMembers(row.id)
-    teamState[row.id].items = res?.items ?? []
-    teamState[row.id].loaded = true
-  } catch (err) {
-    teamState[row.id].error =
-      (err as { response?: { status?: number } })?.response?.status === 403
-        ? 'You are not allowed to view the members of this team.'
-        : 'Failed to load the team members.'
-  } finally {
-    teamState[row.id].loading = false
-  }
+// Records the expanded rows and lazily loads the members of a team when its row is expanded.
+const onExpand = (row: WorkspaceMemberTeam, expandedRows: WorkspaceMemberTeam[]) => {
+  expandedTeamIds.value = expandedRows.map((r) => r.id)
+  if (expandedTeamIds.value.includes(row.id))
+    void loadTeamMembers(teamState, row.id, getTeamMembers)
 }
 
 // Asks for confirmation. Resolves false when the user cancels.
