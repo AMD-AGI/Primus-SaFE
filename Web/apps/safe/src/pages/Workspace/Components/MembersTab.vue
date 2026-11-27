@@ -67,6 +67,10 @@
         <template #default="{ row }">
           <div class="px-6 py-2">
             <el-text v-if="teamState[row.id]?.loading" type="info">Loading members...</el-text>
+            <el-text v-else-if="teamState[row.id]?.forbidden" type="info">
+              Member count: {{ row.memberCount ?? '-' }}. Only members of this team can see its
+              members.
+            </el-text>
             <el-text v-else-if="teamState[row.id]?.error" type="warning">
               {{ teamState[row.id].error }}
             </el-text>

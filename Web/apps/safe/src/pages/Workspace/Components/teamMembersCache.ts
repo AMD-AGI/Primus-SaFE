@@ -4,6 +4,8 @@ import type { TeamMember, TeamMembersResp } from '@/services'
 export interface TeamState {
   loading: boolean
   loaded: boolean
+  /** The caller may not read the member list (403). */
+  forbidden: boolean
   error: string
   items: TeamMember[]
 }
@@ -22,7 +24,7 @@ export async function loadTeamMembers(
   fetch: TeamMembersFetcher,
 ): Promise<void> {
   if (state[teamId]?.loaded || state[teamId]?.loading) return
-  state[teamId] = { loading: true, loaded: false, error: '', items: [] }
+  state[teamId] = { loading: true, loaded: false, forbidden: false, error: '', items: [] }
   // Read back, so that a reactive map yields the same proxy on later reads.
   const entry = state[teamId]
   try {
@@ -32,10 +34,12 @@ export async function loadTeamMembers(
     entry.loaded = true
   } catch (err) {
     if (state[teamId] !== entry) return
-    entry.error =
-      (err as { response?: { status?: number } })?.response?.status === 403
-        ? 'You are not allowed to view the members of this team.'
-        : 'Failed to load the team members.'
+    if ((err as { response?: { status?: number } })?.response?.status === 403) {
+      entry.forbidden = true
+      entry.loaded = true
+    } else {
+      entry.error = 'Failed to load the team members.'
+    }
   } finally {
     entry.loading = false
   }

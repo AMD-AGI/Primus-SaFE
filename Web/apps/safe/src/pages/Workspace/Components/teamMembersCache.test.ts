@@ -37,17 +37,26 @@ describe('team members cache', () => {
     await loadTeamMembers(state, 't1', fetch)
     await loadTeamMembers(state, 't1', fetch)
     expect(fetch).toHaveBeenCalledTimes(1)
-    expect(state.t1).toMatchObject({ loading: false, loaded: true, error: '' })
+    expect(state.t1).toMatchObject({ loading: false, loaded: true, forbidden: false, error: '' })
     expect(state.t1!.items.map((m) => m.userId)).toEqual(['u1'])
   })
 
-  it('records a failure as an error', async () => {
+  it('marks a refused team as forbidden without an error', async () => {
+    const state = reactive<TeamStateMap>({})
+    const fetch = vi.fn<TeamMembersFetcher>(async () => {
+      throw { response: { status: 403 } }
+    })
+    await loadTeamMembers(state, 't1', fetch)
+    expect(state.t1).toMatchObject({ loading: false, loaded: true, forbidden: true, error: '' })
+  })
+
+  it('records any other failure as an error', async () => {
     const state = reactive<TeamStateMap>({})
     const fetch = vi.fn<TeamMembersFetcher>(async () => {
       throw { response: { status: 500 } }
     })
     await loadTeamMembers(state, 't1', fetch)
-    expect(state.t1).toMatchObject({ loading: false, loaded: false })
+    expect(state.t1).toMatchObject({ loading: false, loaded: false, forbidden: false })
     expect(state.t1!.error).not.toBe('')
   })
 
