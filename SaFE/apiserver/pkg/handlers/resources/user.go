@@ -936,30 +936,40 @@ func (h *Handler) cvtToUserResponseItem(ctx context.Context, user *v1.User) view
 		Qos:            user.Spec.Qos,
 		LowUtilization: user.Spec.LowUtilization,
 	}
-	result.Workspaces, result.ManagedWorkspaces = h.userWorkspaces(ctx, user)
+	result.Workspaces, result.ManagedWorkspaces = h.userWorkspaces(ctx, user, nil)
 	return result
 }
 
+// workspaceSources returns the sources of the entry of a workspace the user reaches; managed tells
+// whether the entry is in the managed list.
+type workspaceSources func(workspace *v1.Workspace, managed bool) []string
+
 // userWorkspaces returns the workspaces the user can access and the ones the user manages,
-// each as an id and a display name. A system administrator reaches every workspace without
-// being listed in any, so both lists are empty for one; a workspace that no longer exists
-// is left out. The user is taken as given: apply the request's overlay before calling.
-func (h *Handler) userWorkspaces(ctx context.Context, user *v1.User) (workspaces, managed []view.WorkspaceEntry) {
+// each as an id and a display name, with the sources that sources gives when it is not nil.
+// A system administrator reaches every workspace without being listed in any, so both lists
+// are empty for one; a workspace that no longer exists is left out. The user is taken as
+// given: apply the request's overlay before calling.
+func (h *Handler) userWorkspaces(ctx context.Context, user *v1.User,
+	sources workspaceSources) (workspaces, managed []view.WorkspaceEntry) {
 	if user.IsSystemAdmin() {
 		return nil, nil
 	}
-	entries := func(ids []string) []view.WorkspaceEntry {
+	entries := func(ids []string, isManaged bool) []view.WorkspaceEntry {
 		var result []view.WorkspaceEntry
 		for _, id := range ids {
 			workspace := &v1.Workspace{}
 			if err := h.Get(ctx, client.ObjectKey{Name: id}, workspace); err != nil {
 				continue
 			}
-			result = append(result, view.WorkspaceEntry{Id: id, Name: v1.GetDisplayName(workspace)})
+			entry := view.WorkspaceEntry{Id: id, Name: v1.GetDisplayName(workspace)}
+			if sources != nil {
+				entry.Sources = sources(workspace, isManaged)
+			}
+			result = append(result, entry)
 		}
 		return result
 	}
-	return entries(commonuser.GetWorkspace(user)), entries(commonuser.GetManagedWorkspace(user))
+	return entries(commonuser.GetWorkspace(user), false), entries(commonuser.GetManagedWorkspace(user), true)
 }
 
 // logout handles user logout by clearing authentication cookies.

@@ -17,7 +17,6 @@ import (
 	"github.com/gin-gonic/gin"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/klog/v2"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/extauth"
@@ -647,46 +646,33 @@ func (h *Handler) recordedUser(ctx context.Context, user *v1.User) (*v1.User, *e
 // stored user.
 func (h *Handler) userWorkspacesWithSources(ctx context.Context, effective, record *v1.User,
 	overlay *extauth.Overlay) (workspaces, managed []view.WorkspaceEntry) {
-	if effective.IsSystemAdmin() {
-		return nil, nil
-	}
 	joinDefault := commonconfig.IsUserJoinDefaultWorkspaces()
-	entries := func(ids []string, isManaged bool) []view.WorkspaceEntry {
-		var result []view.WorkspaceEntry
-		for _, id := range ids {
-			workspace := &v1.Workspace{}
-			if err := h.Get(ctx, client.ObjectKey{Name: id}, workspace); err != nil {
-				continue
+	return h.userWorkspaces(ctx, effective, func(workspace *v1.Workspace, isManaged bool) []string {
+		id := workspace.Name
+		var sources, granted []string
+		if isManaged {
+			if commonuser.HasWorkspaceManagedRight(record, id) || slices.Contains(workspace.Spec.Managers, record.Name) {
+				sources = append(sources, sourceDirect)
 			}
-			var sources, granted []string
-			if isManaged {
-				if commonuser.HasWorkspaceManagedRight(record, id) || slices.Contains(workspace.Spec.Managers, record.Name) {
-					sources = append(sources, sourceDirect)
-				}
-				if overlay != nil {
-					granted = overlay.ManagedSources[id]
-				}
-			} else {
-				if commonuser.HasWorkspaceRight(record, id) {
-					sources = append(sources, sourceDirect)
-				}
-				if overlay != nil {
-					granted = overlay.Sources[id]
-				}
+			if overlay != nil {
+				granted = overlay.ManagedSources[id]
 			}
-			granted = slices.Clone(granted)
-			sort.Strings(granted)
-			sources = append(sources, granted...)
-			if !isManaged && workspace.Spec.IsDefault && joinDefault {
-				sources = append(sources, sourceDefault)
+		} else {
+			if commonuser.HasWorkspaceRight(record, id) {
+				sources = append(sources, sourceDirect)
 			}
-			result = append(result, view.WorkspaceEntry{
-				Id: id, Name: v1.GetDisplayName(workspace), Sources: sources,
-			})
+			if overlay != nil {
+				granted = overlay.Sources[id]
+			}
 		}
-		return result
-	}
-	return entries(commonuser.GetWorkspace(effective), false), entries(commonuser.GetManagedWorkspace(effective), true)
+		granted = slices.Clone(granted)
+		sort.Strings(granted)
+		sources = append(sources, granted...)
+		if !isManaged && workspace.Spec.IsDefault && joinDefault {
+			sources = append(sources, sourceDefault)
+		}
+		return sources
+	})
 }
 
 // teamsChange computes the next team bindings of a workspace from the current ones.
