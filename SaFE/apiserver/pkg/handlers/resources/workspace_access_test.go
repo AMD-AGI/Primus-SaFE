@@ -25,6 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/extauth"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
@@ -587,4 +588,31 @@ func TestWorkspaceCatalogFollowsTheEffectiveWorkspaces(t *testing.T) {
 	require.Equal(t, view.CatalogStatusMember, status("auditor", "ws-other"))
 	require.Equal(t, view.CatalogStatusNone, status("auditor", "ws-open"))
 	require.Equal(t, view.CatalogStatusMember, status("admin", "ws-default"))
+}
+
+// A manager of the workspace through a team neither sees nor decides its requests: only the direct
+// managers and the system administrators do.
+func TestTeamManagerDoesNotDecideAccessRequests(t *testing.T) {
+	f := newAccessRequestFixture(t, withEmail(genUserFixture("teammgr", []v1.UserRole{v1.DefaultRole}, nil, nil)))
+	id := strconv.FormatInt(f.db.put("ws-open", "alice", dbclient.WorkspaceAccessPending), 10)
+	overlay := &extauth.Overlay{UserId: "teammgr", Roles: []v1.UserRole{v1.DefaultRole},
+		Managed: []string{"ws-open"}, ManagedSources: map[string][]string{"ws-open": {"team:t1"}}}
+	asTeamManager := func(fn gin.HandlerFunc, method, query, body string) *httptest.ResponseRecorder {
+		rsp := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rsp)
+		c.Request = httptest.NewRequest(method, "/?"+query, strings.NewReader(body))
+		c.Request = c.Request.WithContext(extauth.WithOverlay(c.Request.Context(), overlay))
+		c.Set(common.UserId, "teammgr")
+		c.Set(common.Name, id)
+		fn(c)
+		return rsp
+	}
+
+	require.Equal(t, http.StatusForbidden, asTeamManager(f.h.GetWorkspaceAccessRequest, http.MethodGet, "", "").Code)
+	require.Equal(t, http.StatusForbidden, asTeamManager(f.h.ApproveWorkspaceAccessRequest, http.MethodPost, "", `{}`).Code)
+	list := asTeamManager(f.h.ListWorkspaceAccessRequests, http.MethodGet, "view=approver", "")
+	require.Equal(t, http.StatusOK, list.Code, list.Body.String())
+	var got view.ListWorkspaceAccessRequestResponse
+	require.NoError(t, json.Unmarshal(list.Body.Bytes(), &got))
+	require.Zero(t, got.TotalCount)
 }

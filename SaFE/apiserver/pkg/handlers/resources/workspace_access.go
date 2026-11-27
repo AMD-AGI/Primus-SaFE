@@ -27,7 +27,6 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/extauth"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
-	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/identity"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
@@ -259,11 +258,15 @@ func (h *Handler) listWorkspaceAccessRequests(c *gin.Context) (interface{}, erro
 }
 
 // approverPendingRequests returns the pending requests of the workspaces the user may decide, except the
-// user's own.
+// user's own: every workspace for a system administrator, the directly managed ones otherwise.
 func (h *Handler) approverPendingRequests(ctx context.Context, user *v1.User) ([]*dbclient.WorkspaceAccessRequest, error) {
 	filter := dbclient.WorkspaceAccessRequestFilter{Status: dbclient.WorkspaceAccessPending}
 	if !user.IsSystemAdmin() {
-		managed := slices.Clone(commonuser.GetManagedWorkspace(user))
+		record, err := h.getAdminUser(ctx, user.Name)
+		if err != nil {
+			return nil, err
+		}
+		managed := slices.Clone(commonuser.GetManagedWorkspace(record))
 		workspaceList := &v1.WorkspaceList{}
 		if err := h.List(ctx, workspaceList); err != nil {
 			return nil, err
@@ -428,8 +431,12 @@ func (h *Handler) loadVisibleAccessRequest(c *gin.Context, user *v1.User) (
 	if workspace, err = h.findWorkspace(ctx, req.Workspace); err != nil {
 		return nil, nil, false, false, err
 	}
+	record, err := h.getAdminUser(ctx, user.Name)
+	if err != nil {
+		return nil, nil, false, false, err
+	}
 	isRequester = req.UserID == user.Name
-	isApprover = isAccessApprover(user, req.Workspace, workspace)
+	isApprover = isAccessApprover(user, record, req.Workspace, workspace)
 	if !isRequester && !isApprover {
 		return nil, nil, false, false, hidden
 	}
@@ -568,8 +575,8 @@ func (h *Handler) accessRequestItems(ctx context.Context, reqs []*dbclient.Works
 }
 
 // approverEmails returns the e-mail addresses the new request of the workspace is sent to: the direct
-// managers (Spec.Managers and the users whose managed workspaces name it) and, in external mode, the
-// members of the teams bound to it as manager. Without any, it returns those of the system administrators.
+// managers (Spec.Managers and the users whose managed workspaces name it). Without any, it returns those
+// of the system administrators.
 func (h *Handler) approverEmails(ctx context.Context, workspace *v1.Workspace) []string {
 	userList := &v1.UserList{}
 	if err := h.List(ctx, userList); err != nil {
@@ -579,21 +586,6 @@ func (h *Handler) approverEmails(ctx context.Context, workspace *v1.Workspace) [
 	var emails []string
 	for _, m := range directWorkspaceManagers(workspace, userList.Items) {
 		emails = append(emails, m.Email)
-	}
-	if commonconfig.GetAuthMode() == commonconfig.AuthModeExternal {
-		for _, team := range workspace.Spec.Teams {
-			if team.EffectiveRole() != v1.WorkspaceTeamManager {
-				continue
-			}
-			members, err := identity.ListTeamMembers(ctx, team.Name)
-			if err != nil {
-				klog.V(4).InfoS("team members of the identity service are not available", "team", team.Name, "err", err)
-				continue
-			}
-			for _, m := range members {
-				emails = append(emails, m.Email)
-			}
-		}
 	}
 	if emails = nonEmpty(emails...); len(emails) > 0 {
 		return emails
@@ -672,10 +664,12 @@ func hasWorkspaceAccess(user *v1.User, workspace *v1.Workspace) bool {
 		slices.Contains(workspace.Spec.Managers, user.Name)
 }
 
-// isAccessApprover reports whether the user, with the overlay merged in, may decide the requests of the
-// workspace: a system administrator or a manager of it. workspace is nil when it no longer exists.
-func isAccessApprover(user *v1.User, workspaceId string, workspace *v1.Workspace) bool {
-	if user.IsSystemAdmin() || commonuser.HasWorkspaceManagedRight(user, workspaceId) {
+// isAccessApprover reports whether the user may decide the requests of the workspace: a system
+// administrator (user, with the overlay merged in) or a direct manager of it (record, the stored user,
+// or Spec.Managers). Management through a team or a group does not count. workspace is nil when it no
+// longer exists.
+func isAccessApprover(user, record *v1.User, workspaceId string, workspace *v1.Workspace) bool {
+	if user.IsSystemAdmin() || commonuser.HasWorkspaceManagedRight(record, workspaceId) {
 		return true
 	}
 	return workspace != nil && slices.Contains(workspace.Spec.Managers, user.Name)
