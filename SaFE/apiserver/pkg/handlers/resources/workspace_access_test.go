@@ -29,6 +29,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/identity"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	dbmodel "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
@@ -762,4 +763,77 @@ func TestAccessRequestFallbackRecipientsAreTheEffectiveAdmins(t *testing.T) {
 	require.Equal(t, http.StatusCreated, f.create("member", "ws-other").Code)
 	require.Equal(t, []string{"realadmin@example.com", "admin@example.com"}, f.db.recipients("created"),
 		"in builtin mode the stored role counts")
+}
+
+// requestOverlay returns a context carrying the overlay the groups of the user map to, by the mappings of
+// adminMappings.
+func requestOverlay(userId string, groups ...string) context.Context {
+	mappings := []commonconfig.AuthGroupMapping{
+		{Group: "platform-admins", Roles: []string{string(v1.SystemAdminRole)}},
+		{Group: "ws-other-leads", Roles: []string{string(v1.WorkspaceAdminRole)}, Workspaces: []string{"ws-other"}},
+	}
+	return extauth.WithOverlay(context.Background(), extauth.MapGroups(userId, groups, mappings, false))
+}
+
+// approverIds returns the ids of the requests in the approver view of the user, in ctx.
+func approverIds(t *testing.T, f *accessRequestFixture, ctx context.Context, userId string) []int64 {
+	t.Helper()
+	rsp := f.callIn(ctx, f.h.ListWorkspaceAccessRequests, http.MethodGet, userId, "", "view=approver", "")
+	require.Equal(t, http.StatusOK, rsp.Code, rsp.Body.String())
+	var got view.ListWorkspaceAccessRequestResponse
+	require.NoError(t, json.Unmarshal(rsp.Body.Bytes(), &got))
+	ids := []int64{}
+	for _, item := range got.Items {
+		ids = append(ids, item.Id)
+	}
+	return ids
+}
+
+// A system administrator through a group mapping decides the requests of every workspace; a manager of the
+// workspace through a group mapping decides none, as a manager through a team.
+func TestAccessApproverThroughAGroupMapping(t *testing.T) {
+	f := newAccessRequestFixture(t, withEmail(genUserFixture("carol", []v1.UserRole{v1.DefaultRole}, nil, nil)))
+	idNum := f.db.put("ws-other", "bob", dbclient.WorkspaceAccessPending)
+	id := strconv.FormatInt(idNum, 10)
+
+	leads := requestOverlay("carol", "ws-other-leads")
+	require.Equal(t, http.StatusForbidden, f.callIn(leads, f.h.GetWorkspaceAccessRequest, http.MethodGet, "carol", id, "", "").Code)
+	require.Equal(t, http.StatusForbidden,
+		f.callIn(leads, f.h.ApproveWorkspaceAccessRequest, http.MethodPost, "carol", id, "", `{}`).Code)
+	require.Empty(t, approverIds(t, f, leads, "carol"))
+
+	admins := requestOverlay("alice", "platform-admins")
+	require.Equal(t, []int64{idNum}, approverIds(t, f, admins, "alice"))
+	rsp := f.callIn(admins, f.h.ApproveWorkspaceAccessRequest, http.MethodPost, "alice", id, "", `{}`)
+	require.Equal(t, http.StatusOK, rsp.Code, rsp.Body.String())
+	require.Equal(t, "alice", decodeItem(t, rsp).DecidedBy)
+	user := &v1.User{}
+	require.NoError(t, f.h.Get(context.Background(), client.ObjectKey{Name: "bob"}, user))
+	require.True(t, commonuser.HasWorkspaceRight(user, "ws-other"))
+}
+
+// In external mode a user whose record alone stores system-admin is an ordinary user: neither an approver
+// nor a member of every workspace in the catalog.
+func TestStaleStoredSystemAdminIsNotAnApprover(t *testing.T) {
+	f := newAccessRequestFixture(t)
+	id := strconv.FormatInt(f.db.put("ws-other", "bob", dbclient.WorkspaceAccessPending), 10)
+	stale := requestOverlay("admin")
+
+	require.Equal(t, http.StatusForbidden, f.callIn(stale, f.h.GetWorkspaceAccessRequest, http.MethodGet, "admin", id, "", "").Code)
+	require.Equal(t, http.StatusForbidden,
+		f.callIn(stale, f.h.ApproveWorkspaceAccessRequest, http.MethodPost, "admin", id, "", `{}`).Code)
+	require.Equal(t, http.StatusForbidden,
+		f.callIn(stale, f.h.RejectWorkspaceAccessRequest, http.MethodPost, "admin", id, "", `{}`).Code)
+	require.Empty(t, approverIds(t, f, stale, "admin"))
+
+	rsp := f.callIn(stale, f.h.ListWorkspaceCatalog, http.MethodGet, "admin", "", "", "")
+	require.Equal(t, http.StatusOK, rsp.Code, rsp.Body.String())
+	var got view.WorkspaceCatalogResponse
+	require.NoError(t, json.Unmarshal(rsp.Body.Bytes(), &got))
+	for _, item := range got.Items {
+		require.Equal(t, view.CatalogStatusNone, item.MyStatus, item.WorkspaceId)
+	}
+	req, err := f.db.GetWorkspaceAccessRequest(context.Background(), 1)
+	require.NoError(t, err)
+	require.Equal(t, dbclient.WorkspaceAccessPending, req.Status)
 }
