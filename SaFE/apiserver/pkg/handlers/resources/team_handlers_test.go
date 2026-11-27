@@ -106,6 +106,7 @@ func TestListTeamMembersAuthorization(t *testing.T) {
 		genUserFixture("member", []v1.UserRole{v1.DefaultRole}, []string{"ws-a"}, nil),
 		genUserFixture("teammate", []v1.UserRole{v1.DefaultRole}, nil, nil),
 		genUserFixture("outsider", []v1.UserRole{v1.DefaultRole}, []string{"ws-b"}, nil))
+	useRecordedIdentity(t, "builtin", false)
 	ctx := context.Background()
 
 	allowed := map[string]context.Context{

@@ -16,6 +16,8 @@ import (
 	"sync"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/klog/v2"
 )
 
@@ -64,8 +66,16 @@ var (
 	teamsCache = map[string]*teamsEntry{}
 )
 
+// ResetTeamsCache drops every cached team answer and failure.
+func ResetTeamsCache() {
+	teamsMu.Lock()
+	teamsCache = map[string]*teamsEntry{}
+	teamsMu.Unlock()
+}
+
 // ListTeams returns the teams of the identity service by team id. The answer is cached briefly.
-// It is for display only: an error means no display data, never a reason to refuse a request.
+// It is display data, never a reason to grant or refuse access; an error is an API status
+// (see getTeamsBody) that the caller may answer with.
 func ListTeams(ctx context.Context) (map[string]TeamInfo, error) {
 	e, err := cachedTeamsCall(ctx, teamsKey, "teams", func(body []byte, e *teamsEntry) error {
 		teams, perr := parseTeams(body)
@@ -79,7 +89,7 @@ func ListTeams(ctx context.Context) (map[string]TeamInfo, error) {
 }
 
 // ListTeamMembers returns the members of a team of the identity service. The answer is cached
-// briefly. It is for display only, like ListTeams.
+// briefly. It is display data with the errors of ListTeams.
 func ListTeamMembers(ctx context.Context, team string) ([]TeamMember, error) {
 	if team == "" {
 		return nil, fmt.Errorf("the team id is empty")
@@ -118,7 +128,7 @@ func cachedTeamsCall(ctx context.Context, key, path string,
 	}
 	if err != nil {
 		entry.err = err
-		klog.V(4).InfoS("failed to read teams from the identity service", "path", path, "err", err)
+		klog.ErrorS(err, "failed to read teams from the identity service", "path", path)
 	}
 	teamsMu.Lock()
 	if len(teamsCache) > 1024 {
@@ -133,45 +143,59 @@ func cachedTeamsCall(ctx context.Context, key, path string,
 }
 
 // getTeamsBody sends GET /api/v1/<path> to the identity service as the introspection client,
-// which holds the identity.teams.read scope, and returns the body of a 200 answer.
+// which holds the identity.teams.read scope, and returns the body of a 200 answer. A failure is
+// the error mapCall makes of it (503 when the service cannot be asked or fails, 502 when it
+// refuses), and 404 when the service does not know the path.
 func getTeamsBody(ctx context.Context, path string) ([]byte, error) {
+	body, status, err := callTeams(ctx, path)
+	switch {
+	case err != nil:
+		return nil, mapCall("GET "+path, 0, err)
+	case status == http.StatusNotFound:
+		return nil, apierrors.NewNotFound(schema.GroupResource{Resource: "teams"}, path)
+	case status != http.StatusOK:
+		return nil, mapCall("GET "+path, status, nil)
+	}
+	return body, nil
+}
+
+// callTeams sends GET /api/v1/<path> to the identity service as the introspection client and
+// returns the body and status of the answer.
+func callTeams(ctx context.Context, path string) ([]byte, int, error) {
 	base, err := ResolveBase()
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	clientID, secret, err := introspectionSecret()
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	endpoint, err := url.JoinPath(base, "api/v1", path)
 	if err != nil {
-		return nil, &ConfigError{Msg: "cannot build the teams URL"}
+		return nil, 0, &ConfigError{Msg: "cannot build the teams URL"}
 	}
 	cli, err := httpClient()
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	reqCtx, cancel := context.WithTimeout(ctx, teamsCallTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	req.Header.Set("Accept", "application/json")
 	req.SetBasicAuth(clientID, secret)
 	resp, err := cli.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxTeamsBody))
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("identity service answered status %d to %s", resp.StatusCode, path)
-	}
-	return body, nil
+	return body, resp.StatusCode, nil
 }
 
 // rawTeam and rawMember are the answer shapes read leniently: ids and names accept the camel

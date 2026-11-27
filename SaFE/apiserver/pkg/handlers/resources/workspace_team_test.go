@@ -10,6 +10,9 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -22,6 +25,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/extauth"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/identity"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 )
@@ -87,6 +91,46 @@ func TestGetUserWorkspacesJudgesTheEffectiveTarget(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rsp.Body.Bytes(), &got))
 	require.Empty(t, got.Workspaces)
 	require.Empty(t, got.ManagedWorkspaces)
+}
+
+// useIdentityServer switches the test to external mode with an identity service served by handler,
+// signed in to as the introspection client svc-safe, and empties the team cache around the test.
+func useIdentityServer(t *testing.T, handler http.HandlerFunc) {
+	t.Helper()
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+	secret := filepath.Join(t.TempDir(), "client-secret")
+	require.NoError(t, os.WriteFile(secret, []byte("secret"), 0o600))
+	identity.ResetTeamsCache()
+	t.Cleanup(identity.ResetTeamsCache)
+	setTeamsConfig(t, "auth.mode", "external")
+	setTeamsConfig(t, "auth.scim.identity_url", srv.URL)
+	setTeamsConfig(t, "auth.authenticators", []map[string]any{{
+		"type": "introspection", "url": srv.URL + "/oauth/introspect",
+		"client_id": "svc-safe", "client_secret_file": secret,
+	}})
+}
+
+// The member endpoints answer an error, not an empty list, when the identity service refuses the
+// call or fails: 502 for a refusal, 503 for a failure.
+func TestMemberEndpointsReportIdentityFailures(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	wsA := genWorkspaceFixture("ws-a", "A")
+	wsA.Spec.Teams = []v1.WorkspaceTeam{{Name: "t1"}}
+	h := newChartTeamsHandler(t, interceptor.Funcs{}, wsA,
+		genUserFixture("admin", []v1.UserRole{v1.SystemAdminRole}, nil, nil))
+	for status, want := range map[int]int{
+		http.StatusUnauthorized:        http.StatusBadGateway,
+		http.StatusForbidden:           http.StatusBadGateway,
+		http.StatusInternalServerError: http.StatusServiceUnavailable,
+	} {
+		useIdentityServer(t, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(status) })
+		rsp := callTeamsBody(context.Background(), h.ListTeamMembers, "admin", "t1", "", "")
+		require.Equal(t, want, rsp.Code, "%d: %s", status, rsp.Body.String())
+		identity.ResetTeamsCache()
+		rsp = callTeamsBody(context.Background(), h.ListWorkspaceMembers, "admin", "ws-a", "", "")
+		require.Equal(t, want, rsp.Code, "%d: %s", status, rsp.Body.String())
+	}
 }
 
 // failingTeamsHandler returns a handler whose write of ws-b fails. Before failing, it runs change on

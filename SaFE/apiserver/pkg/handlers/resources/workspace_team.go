@@ -337,7 +337,7 @@ func (h *Handler) listTeamMembers(c *gin.Context) (interface{}, error) {
 	if commonconfig.GetAuthMode() == commonconfig.AuthModeExternal {
 		members, listErr := identity.ListTeamMembers(ctx, team)
 		if listErr != nil {
-			klog.V(4).InfoS("team members of the identity service are not available", "team", team, "err", listErr)
+			return nil, listErr
 		}
 		result.Items = cvtTeamMembers(members)
 	}
@@ -414,9 +414,13 @@ func (h *Handler) listWorkspaceMembers(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+	teams, err := h.boundTeamMembers(ctx, workspace)
+	if err != nil {
+		return nil, err
+	}
 	return &view.WorkspaceMembersResponse{
 		Users:  users,
-		Teams:  h.boundTeamMembers(ctx, workspace),
+		Teams:  teams,
 		Groups: groupWorkspaceMembers(workspace.Name),
 	}, nil
 }
@@ -454,10 +458,13 @@ func (h *Handler) directWorkspaceMembers(ctx context.Context, workspace *v1.Work
 }
 
 // boundTeamMembers returns the teams bound to the workspace with the display data the identity
-// service has for them. Without that data only the team ids and roles are returned.
-func (h *Handler) boundTeamMembers(ctx context.Context, workspace *v1.Workspace) []view.WorkspaceMemberTeam {
+// service has for them. A team the service does not know is returned with its id and role only.
+func (h *Handler) boundTeamMembers(ctx context.Context, workspace *v1.Workspace) ([]view.WorkspaceMemberTeam, error) {
 	ids := teamNames(workspace)
-	display := h.teamDisplay(ctx, ids)
+	display, err := h.lookupTeamDisplay(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
 	result := []view.WorkspaceMemberTeam{}
 	for _, id := range ids {
 		role, _ := workspace.TeamRole(id)
@@ -474,7 +481,7 @@ func (h *Handler) boundTeamMembers(ctx context.Context, workspace *v1.Workspace)
 		}
 		result = append(result, item)
 	}
-	return result
+	return result, nil
 }
 
 // groupWorkspaceMembers returns the platform groups whose mapping names the workspace. The mappings
@@ -512,32 +519,40 @@ func groupWorkspaceMembers(workspace string) []view.WorkspaceMemberGroup {
 	return result
 }
 
-// teamDisplay returns the display data the identity service has for the teams. It is used only
-// in external mode and never fails: teams it cannot describe are left out of the result.
+// teamDisplay is lookupTeamDisplay for a caller that shows what it can: when the identity service
+// fails, it logs the failure and returns no display data.
 func (h *Handler) teamDisplay(ctx context.Context, ids []string) map[string]identity.TeamInfo {
+	result, err := h.lookupTeamDisplay(ctx, ids)
+	if err != nil {
+		klog.ErrorS(err, "teams of the identity service are not available")
+		return map[string]identity.TeamInfo{}
+	}
+	return result
+}
+
+// lookupTeamDisplay returns the display data the identity service has for the teams. It is used
+// only in external mode. A team the service does not know is left out of the result; any other
+// failure of the service is returned.
+func (h *Handler) lookupTeamDisplay(ctx context.Context, ids []string) (map[string]identity.TeamInfo, error) {
 	result := map[string]identity.TeamInfo{}
 	if len(ids) == 0 || commonconfig.GetAuthMode() != commonconfig.AuthModeExternal {
-		return result
+		return result, nil
 	}
 	listed, err := identity.ListTeams(ctx)
 	if err != nil {
-		klog.V(4).InfoS("teams of the identity service are not available", "err", err)
+		return nil, err
 	}
 	for _, id := range ids {
 		if info, ok := listed[id]; ok {
 			result[id] = info
-		}
-	}
-	if err != nil {
-		return result
-	}
-	for _, id := range ids {
-		if _, ok := result[id]; ok {
 			continue
 		}
 		members, memberErr := identity.ListTeamMembers(ctx, id)
-		if memberErr != nil {
+		if apierrors.IsNotFound(memberErr) {
 			continue
+		}
+		if memberErr != nil {
+			return nil, memberErr
 		}
 		info := identity.TeamInfo{Id: id, MemberCount: len(members)}
 		for _, m := range members {
@@ -547,7 +562,7 @@ func (h *Handler) teamDisplay(ctx context.Context, ids []string) map[string]iden
 		}
 		result[id] = info
 	}
-	return result
+	return result, nil
 }
 
 // getUserWorkspaces implements GET /users/:name/workspaces.
