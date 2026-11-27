@@ -28,6 +28,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/identity"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
+	commonworkspace "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workspace"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 )
 
@@ -91,7 +92,8 @@ type patchOp struct {
 	Value json.RawMessage `json:"value"`
 }
 
-// Mount registers /scim/v2/Users. The routes use the current SCIM bearer and are outside user authentication.
+// Mount registers /scim/v2/Users and /scim/v2/Teams. The routes use the current SCIM bearer and are outside
+// user authentication.
 func Mount(e *gin.Engine, h *resources.Handler, token *Token) {
 	s := &server{h: h, token: token}
 	g := e.Group("/scim/v2")
@@ -100,6 +102,7 @@ func Mount(e *gin.Engine, h *resources.Handler, token *Token) {
 	g.GET("/Users/:id", s.getUser)
 	g.PATCH("/Users/:id", s.patchUser)
 	g.DELETE("/Users/:id", s.deleteUser)
+	g.DELETE("/Teams/:id", s.deleteTeam)
 }
 
 // authenticate accepts only a bearer token that matches the SCIM secret.
@@ -258,6 +261,44 @@ func (s *server) deleteUser(c *gin.Context) {
 		return
 	}
 	klog.Infof("scim delete user %s", id)
+	c.Status(http.StatusNoContent)
+}
+
+// deleteTeam removes the bindings of a team the identity service deleted from every workspace. It is an
+// extension resource of this server. A team bound to no workspace is 204.
+func (s *server) deleteTeam(c *gin.Context) {
+	team := c.Param("id")
+	if len(validation.IsDNS1123Label(team)) > 0 {
+		writeError(c, http.StatusBadRequest, "the team id is invalid")
+		return
+	}
+	ctx := c.Request.Context()
+	list := &v1.WorkspaceList{}
+	if err := s.h.List(ctx, list, client.MatchingFields{commonworkspace.TeamIndex: team}); err != nil {
+		writeError(c, http.StatusInternalServerError, "failed to list the workspaces of the team")
+		return
+	}
+	for i := range list.Items {
+		name := list.Items[i].Name
+		err := backoff.ConflictRetry(func() error {
+			ws := &v1.Workspace{}
+			if err := s.h.Get(ctx, client.ObjectKey{Name: name}, ws); err != nil {
+				return err
+			}
+			kept := slices.DeleteFunc(slices.Clone(ws.Spec.Teams), func(t v1.WorkspaceTeam) bool { return t.Name == team })
+			if len(kept) == len(ws.Spec.Teams) {
+				return nil
+			}
+			ws.Spec.Teams = kept
+			return s.h.Update(ctx, ws)
+		}, retryCount, retryDelay)
+		if err != nil && !apierrors.IsNotFound(err) {
+			klog.ErrorS(err, "failed to unbind the deleted team", "team", team, "workspace", name)
+			writeError(c, http.StatusInternalServerError, "failed to unbind the team")
+			return
+		}
+		klog.Infof("scim delete team %s: unbound from workspace %s", team, name)
+	}
 	c.Status(http.StatusNoContent)
 }
 
