@@ -88,6 +88,45 @@ type WorkspaceSpec struct {
 	IdleTime map[WorkspaceScope]string `json:"idleTime,omitempty"`
 	// Stop running workloads whose GPU utilization stays low, per scope
 	LowUtilization map[WorkspaceScope]LowUtilizationPolicy `json:"lowUtilization,omitempty"`
+	// Teams whose members access the workspace
+	Teams []WorkspaceTeam `json:"teams,omitempty"`
+	// Whether users may request direct access: closed (default) or approval
+	AccessPolicy WorkspaceAccessPolicy `json:"accessPolicy,omitempty"`
+}
+
+// WorkspaceTeamRole is the role the members of a team hold in a workspace.
+type WorkspaceTeamRole string
+
+const (
+	WorkspaceTeamMember  WorkspaceTeamRole = "member"
+	WorkspaceTeamManager WorkspaceTeamRole = "manager"
+)
+
+// WorkspaceAccessPolicy controls whether users may request direct access to a workspace.
+type WorkspaceAccessPolicy string
+
+const (
+	WorkspaceAccessClosed   WorkspaceAccessPolicy = "closed"
+	WorkspaceAccessApproval WorkspaceAccessPolicy = "approval"
+)
+
+// TeamGroupPrefix prefixes a team id to form its group name in RBAC subjects and SubjectAccessReviews.
+const TeamGroupPrefix = "team:"
+
+// WorkspaceTeam binds a team of the identity service to the workspace.
+type WorkspaceTeam struct {
+	// Team id in the identity service
+	Name string `json:"name"`
+	// Role of the team members in the workspace, member by default
+	Role WorkspaceTeamRole `json:"role,omitempty"`
+}
+
+// EffectiveRole returns the role of the binding, member when it is not set.
+func (t WorkspaceTeam) EffectiveRole() WorkspaceTeamRole {
+	if t.Role == "" {
+		return WorkspaceTeamMember
+	}
+	return t.Role
 }
 
 // LowUtilizationPolicy stops workloads whose GPU utilization stays below a threshold
@@ -287,6 +326,22 @@ func (w *Workspace) HasScope(scope WorkspaceScope) bool {
 		}
 	}
 	return false
+}
+
+// TeamRole returns the role the members of the team hold in the workspace, and whether the team is bound.
+// A team bound more than once holds manager when any of its bindings is manager.
+func (w *Workspace) TeamRole(team string) (WorkspaceTeamRole, bool) {
+	role, bound := WorkspaceTeamRole(""), false
+	for _, t := range w.Spec.Teams {
+		if t.Name != team || team == "" {
+			continue
+		}
+		bound = true
+		if role != WorkspaceTeamManager {
+			role = t.EffectiveRole()
+		}
+	}
+	return role, bound
 }
 
 // AcceptsSandbox reports whether the workspace admits Sandbox workloads: no scopes means every

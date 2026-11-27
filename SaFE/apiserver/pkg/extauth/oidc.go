@@ -57,6 +57,7 @@ type OIDCConfig struct {
 	UsernameClaim string
 	EmailClaim    string
 	GroupsClaim   string
+	TeamsClaim    string
 
 	HTTPClient *http.Client
 	// Now overrides the clock in tests.
@@ -105,6 +106,9 @@ func NewOIDCAuthenticator(cfg OIDCConfig) (*OIDCAuthenticator, error) {
 	}
 	if cfg.GroupsClaim == "" {
 		cfg.GroupsClaim = "groups"
+	}
+	if cfg.TeamsClaim == "" {
+		cfg.TeamsClaim = "teams"
 	}
 	if cfg.HTTPClient == nil {
 		cfg.HTTPClient = &http.Client{Timeout: 5 * time.Second}
@@ -172,6 +176,7 @@ func (a *OIDCAuthenticator) identity(std jwt.Claims, claims map[string]any) (*Id
 		PreferredName: claimString(claims, "preferred_username"),
 		Email:         claimString(claims, a.cfg.EmailClaim),
 		Groups:        claimStrings(claims, a.cfg.GroupsClaim),
+		Teams:         claimStrings(claims, a.cfg.TeamsClaim),
 		Jti:           std.ID,
 		Expiry:        std.Expiry.Time(),
 	}

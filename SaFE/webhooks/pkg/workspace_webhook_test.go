@@ -291,6 +291,15 @@ func TestWorkspaceValidateOnCreation(t *testing.T) {
 	assert.NilError(t, v.validateOnCreation(context.Background(), validWorkspace("ws1")))
 }
 
+// TestWorkspaceValidateOnCreationRefusesCatalog verifies the name catalog is reserved for new workspaces.
+func TestWorkspaceValidateOnCreationRefusesCatalog(t *testing.T) {
+	scheme := newScheme(t)
+	v := &WorkspaceValidator{Client: fake.NewClientBuilder().WithScheme(scheme).Build()}
+	err := v.validateOnCreation(context.Background(), validWorkspace("catalog"))
+	assert.ErrorContains(t, err, "reserved")
+	assert.NilError(t, v.validateOnUpdate(context.Background(), validWorkspace("catalog"), validWorkspace("catalog")))
+}
+
 // TestWorkspaceValidateOnUpdate verifies update-time validation.
 func TestWorkspaceValidateOnUpdate(t *testing.T) {
 	scheme := newScheme(t)

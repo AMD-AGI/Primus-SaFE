@@ -11,7 +11,8 @@ const (
 )
 
 const (
-	TopicWorkload = "workload"
+	TopicWorkload        = "workload"
+	TopicWorkspaceAccess = "workspace-access"
 )
 
 type Message struct {

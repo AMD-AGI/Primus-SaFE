@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -26,6 +28,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/identity"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
+	commonworkspace "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workspace"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/backoff"
 )
 
@@ -56,6 +59,8 @@ type scimUser struct {
 	Active     bool     `json:"active"`
 	// Groups is the recorded set, so the identity's reconciliation can compare it. Empty when deactivated.
 	Groups []string `json:"groups"`
+	// Teams is the recorded set of team ids, so the identity's reconciliation can compare it. Empty when deactivated.
+	Teams []string `json:"teams"`
 }
 
 type listResponse struct {
@@ -87,7 +92,8 @@ type patchOp struct {
 	Value json.RawMessage `json:"value"`
 }
 
-// Mount registers /scim/v2/Users. The routes use the current SCIM bearer and are outside user authentication.
+// Mount registers /scim/v2/Users and /scim/v2/Teams. The routes use the current SCIM bearer and are outside
+// user authentication.
 func Mount(e *gin.Engine, h *resources.Handler, token *Token) {
 	s := &server{h: h, token: token}
 	g := e.Group("/scim/v2")
@@ -96,6 +102,7 @@ func Mount(e *gin.Engine, h *resources.Handler, token *Token) {
 	g.GET("/Users/:id", s.getUser)
 	g.PATCH("/Users/:id", s.patchUser)
 	g.DELETE("/Users/:id", s.deleteUser)
+	g.DELETE("/Teams/:id", s.deleteTeam)
 }
 
 // authenticate accepts only a bearer token that matches the SCIM secret.
@@ -161,9 +168,10 @@ func (s *server) getUser(c *gin.Context) {
 	writeJSON(c, http.StatusOK, toSCIMUser(user))
 }
 
-// patchUser applies replace operations on active and on groups.
+// patchUser applies replace operations on active, on groups and on teams.
 // groups is the identity's platform groups; spec.roles is rewritten from auth.group_mappings and
-// the groups are recorded on the user (identity.GroupsAnnotation).
+// the groups are recorded on the user (identity.GroupsAnnotation). teams is the ids of the user's
+// teams; they are recorded on the user (identity.TeamsAnnotation).
 func (s *server) patchUser(c *gin.Context) {
 	plan, err := parsePatch(c)
 	if err != nil {
@@ -183,6 +191,7 @@ func (s *server) patchUser(c *gin.Context) {
 				changed = true
 			}
 		}
+		deactivated := v1.GetAnnotation(user, identity.DeactivatedAnnotation) != ""
 		if plan.groups != nil {
 			rolesChanged, rerr := applyMappedRoles(user, *plan.groups)
 			if rerr != nil {
@@ -191,12 +200,20 @@ func (s *server) patchUser(c *gin.Context) {
 			if rolesChanged {
 				changed = true
 			}
-			if identity.RecordGroups(user, *plan.groups) {
+			if !deactivated && identity.RecordGroups(user, *plan.groups) {
 				changed = true
 			}
 		}
-		if v1.GetAnnotation(user, identity.DeactivatedAnnotation) != "" && identity.ForgetGroups(user) {
+		if plan.teams != nil && !deactivated && identity.RecordTeams(user, *plan.teams) {
 			changed = true
+		}
+		if deactivated {
+			if identity.ForgetGroups(user) {
+				changed = true
+			}
+			if identity.ForgetTeams(user) {
+				changed = true
+			}
 		}
 		if !changed {
 			updated = user
@@ -216,8 +233,8 @@ func (s *server) patchUser(c *gin.Context) {
 	writeJSON(c, http.StatusOK, toSCIMUser(updated))
 }
 
-// deleteUser freezes the user as a patch of active=false does, forgetting the recorded groups, and
-// keeps the record, so a later active=true restores it. An unknown id is 204.
+// deleteUser freezes the user as a patch of active=false does, forgetting the recorded groups and
+// teams, and keeps the record, so a later active=true restores it. An unknown id is 204.
 func (s *server) deleteUser(c *gin.Context) {
 	id := c.Param("id")
 	err := backoff.ConflictRetry(func() error {
@@ -227,6 +244,9 @@ func (s *server) deleteUser(c *gin.Context) {
 		}
 		frozen := applyActive(user, false)
 		forgot := identity.ForgetGroups(user)
+		if identity.ForgetTeams(user) {
+			forgot = true
+		}
 		if !frozen && !forgot {
 			return nil
 		}
@@ -241,6 +261,44 @@ func (s *server) deleteUser(c *gin.Context) {
 		return
 	}
 	klog.Infof("scim delete user %s", id)
+	c.Status(http.StatusNoContent)
+}
+
+// deleteTeam removes the bindings of a team the identity service deleted from every workspace. It is an
+// extension resource of this server. A team bound to no workspace is 204.
+func (s *server) deleteTeam(c *gin.Context) {
+	team := c.Param("id")
+	if len(validation.IsDNS1123Label(team)) > 0 {
+		writeError(c, http.StatusBadRequest, "the team id is invalid")
+		return
+	}
+	ctx := c.Request.Context()
+	list := &v1.WorkspaceList{}
+	if err := s.h.List(ctx, list, client.MatchingFields{commonworkspace.TeamIndex: team}); err != nil {
+		writeError(c, http.StatusInternalServerError, "failed to list the workspaces of the team")
+		return
+	}
+	for i := range list.Items {
+		name := list.Items[i].Name
+		err := backoff.ConflictRetry(func() error {
+			ws := &v1.Workspace{}
+			if err := s.h.Get(ctx, client.ObjectKey{Name: name}, ws); err != nil {
+				return err
+			}
+			kept := slices.DeleteFunc(slices.Clone(ws.Spec.Teams), func(t v1.WorkspaceTeam) bool { return t.Name == team })
+			if len(kept) == len(ws.Spec.Teams) {
+				return nil
+			}
+			ws.Spec.Teams = kept
+			return s.h.Update(ctx, ws)
+		}, retryCount, retryDelay)
+		if err != nil && !apierrors.IsNotFound(err) {
+			klog.ErrorS(err, "failed to unbind the deleted team", "team", team, "workspace", name)
+			writeError(c, http.StatusInternalServerError, "failed to unbind the team")
+			return
+		}
+		klog.Infof("scim delete team %s: unbound from workspace %s", team, name)
+	}
 	c.Status(http.StatusNoContent)
 }
 
@@ -338,9 +396,11 @@ type parsedPatch struct {
 	active []bool
 	// groups is set when the patch replaces groups, including with an empty list.
 	groups *[]string
+	// teams is set when the patch replaces teams, including with an empty list.
+	teams *[]string
 }
 
-// parsePatch reads a PatchOp or a single replace operation. active and groups are accepted; anything else is refused.
+// parsePatch reads a PatchOp or a single replace operation. active, groups and teams are accepted; anything else is refused.
 func parsePatch(c *gin.Context) (parsedPatch, error) {
 	var body patchBody
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -359,9 +419,13 @@ func parsePatch(c *gin.Context) (parsedPatch, error) {
 			plan.active = append(plan.active, active)
 			continue
 		}
+		if teams, ok := teamsOf(op); ok {
+			plan.teams = &teams
+			continue
+		}
 		groups, ok := groupsOf(op)
 		if !ok {
-			return parsedPatch{}, queryError("only replace of active or groups is supported")
+			return parsedPatch{}, queryError("only replace of active, groups or teams is supported")
 		}
 		plan.groups = &groups
 	}
@@ -371,14 +435,37 @@ func parsePatch(c *gin.Context) (parsedPatch, error) {
 // groupsOf reads a replace of groups, a JSON array of group names.
 // RFC 7643 defines groups as read-only. This server accepts the replace as an extension.
 func groupsOf(op patchOp) ([]string, bool) {
-	if !strings.EqualFold(strings.TrimSpace(op.Op), "replace") || !strings.EqualFold(strings.TrimSpace(op.Path), "groups") {
+	return namesOf(op, "groups")
+}
+
+// teamsOf reads a replace of teams, a JSON array of team ids. It is an extension attribute of this server.
+// Entries that are not DNS-1123 labels, the empty one included, are dropped; the rest are returned sorted
+// and without duplicates.
+func teamsOf(op patchOp) ([]string, bool) {
+	names, ok := namesOf(op, "teams")
+	if !ok {
 		return nil, false
 	}
-	var groups []string
-	if err := json.Unmarshal(op.Value, &groups); err != nil || groups == nil {
+	teams := make([]string, 0, len(names))
+	for _, name := range names {
+		if len(validation.IsDNS1123Label(name)) == 0 {
+			teams = append(teams, name)
+		}
+	}
+	sort.Strings(teams)
+	return slices.Compact(teams), true
+}
+
+// namesOf reads a replace of the attribute path whose value is a JSON array of strings.
+func namesOf(op patchOp, path string) ([]string, bool) {
+	if !strings.EqualFold(strings.TrimSpace(op.Op), "replace") || !strings.EqualFold(strings.TrimSpace(op.Path), path) {
 		return nil, false
 	}
-	return groups, true
+	var names []string
+	if err := json.Unmarshal(op.Value, &names); err != nil || names == nil {
+		return nil, false
+	}
+	return names, true
 }
 
 // applyMappedRoles replaces the platform roles on user with the roles auth.group_mappings gives groups.
@@ -477,9 +564,14 @@ func toSCIMUser(user *v1.User) scimUser {
 	if name == "" {
 		name = user.Name
 	}
+	deactivated := v1.GetAnnotation(user, identity.DeactivatedAnnotation) != ""
 	groups := identity.RecordedGroups(user)
-	if groups == nil || v1.GetAnnotation(user, identity.DeactivatedAnnotation) != "" {
+	if groups == nil || deactivated {
 		groups = []string{}
+	}
+	teams := identity.RecordedTeams(user)
+	if teams == nil || deactivated {
+		teams = []string{}
 	}
 	return scimUser{
 		Schemas:    []string{schemaUser},
@@ -488,6 +580,7 @@ func toSCIMUser(user *v1.User) scimUser {
 		UserName:   name,
 		Active:     !user.IsRestricted(),
 		Groups:     groups,
+		Teams:      teams,
 	}
 }
 

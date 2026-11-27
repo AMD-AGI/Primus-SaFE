@@ -27,6 +27,8 @@ Base Path: `/api/v1`
 - [Workload API](./workload.md) - Manage various workloads (training jobs, inference services, deployments, etc.)
 - [Cluster API](./cluster.md) - Kubernetes cluster creation and management
 - [Workspace API](./workspace.md) - Workspace creation and resource quota management
+- [Workspace Access Request API](./workspace-access-request.md) - Workspace catalog and access requests with approval
+- [Team API](./team.md) - Identity service teams and their workspace bindings
 - [Node API](./node.md) - Node registration, management and monitoring
 - [NodeFlavor API](./node-flavor.md) - Node flavor configuration management
 - [NodeTemplate API](./node-template.md) - Node environment template management

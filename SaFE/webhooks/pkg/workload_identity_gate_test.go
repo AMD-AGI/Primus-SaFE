@@ -195,3 +195,23 @@ func TestCheckWorkspaceAccess(t *testing.T) {
 	})
 	require.ErrorContains(t, v.checkWorkspaceAccess(context.Background(), &identityClaims{}, "lab"), "could not be checked")
 }
+
+// The review carries the asserted groups and a team:<id> group per asserted team. An asserted group that
+// already carries the team prefix, and an empty team id, are left out.
+func TestCheckWorkspaceAccessTeamGroups(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, authorizationv1.AddToScheme(scheme))
+	var groups []string
+	v := &WorkloadValidator{Client: interceptor.NewClient(fake.NewClientBuilder().WithScheme(scheme).Build(), interceptor.Funcs{
+		Create: func(_ context.Context, _ client.WithWatch, obj client.Object, _ ...client.CreateOption) error {
+			review := obj.(*authorizationv1.SubjectAccessReview)
+			groups = review.Spec.Groups
+			review.Status.Allowed = true
+			return nil
+		},
+	})}
+	claims := &identityClaims{Groups: []string{"lab", "team:t9"}, Teams: []string{"t1", ""}}
+	require.NoError(t, v.checkWorkspaceAccess(context.Background(), claims, "lab"))
+	prefix := commonconfig.GetRBACSubjectPrefix()
+	require.Equal(t, []string{prefix + "lab", prefix + "team:t1"}, groups)
+}

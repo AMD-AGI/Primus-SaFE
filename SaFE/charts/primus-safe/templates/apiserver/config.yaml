@@ -128,6 +128,9 @@ data:
       # Path prefixes on this host the console returns to after sign-in; unset is the apiserver's default list.
       return_prefixes: {{ toJson $returnPrefixes }}
       {{- end }}
+    identity:
+      # Address of the identity console, used to link to team pages: <console_url>/teams/<teamId>. Empty: "/identity" in external mode.
+      console_url: {{ default "" (default dict .Values.identity).console_url | quote }}
     tls:
       # Verify TLS certificates for outbound HTTPS calls to model endpoints and
       # third-party services (InferenceX). Default false keeps
@@ -179,6 +182,11 @@ data:
     notification:
       enable: {{ or (and .Values.notification .Values.notification.email .Values.notification.email.smtp_host) (and .Values.notification .Values.notification.email_relay .Values.notification.email_relay.enable) | default false }}
       secret_path: /etc/secrets/notification
+    {{- if .Values.db.enable }}
+    email_relay:
+      # File of the token that authorizes only POST /api/v1/email-relay/submit (header X-Email-Relay-Token).
+      submit_token_file: /etc/secrets/email-relay-submit/token
+    {{- end }}
     sandbox:
       enable: {{ .Values.sandbox.enable }}
     tracing:

@@ -145,3 +145,55 @@ func TestGrantedWorkspaces(t *testing.T) {
 	got[0] = "changed"
 	require.Equal(t, "ws-a", o.Workspaces[0])
 }
+
+// AddTeams grants the bound workspaces and the default role, never a platform role, and leaves a
+// restriction in force. Without a lookup, as in builtin mode, it grants nothing.
+func TestAddTeams(t *testing.T) {
+	lookup := func(team string) map[string]v1.WorkspaceTeamRole {
+		switch team {
+		case "t1":
+			return map[string]v1.WorkspaceTeamRole{"ws-a": v1.WorkspaceTeamMember, "ws-b": v1.WorkspaceTeamManager}
+		case "t2":
+			return map[string]v1.WorkspaceTeamRole{"ws-a": v1.WorkspaceTeamManager}
+		}
+		return nil
+	}
+	stored := overlayUser([]v1.UserRole{"self-read"})
+
+	t.Run("bound workspaces and the default role", func(t *testing.T) {
+		o := MapGroups(stored.Name, nil, nil, false)
+		AddTeams(o, []string{"t1", "t2", "t1", "unbound"}, lookup)
+		require.Equal(t, []string{"ws-a", "ws-b"}, o.Workspaces)
+		require.ElementsMatch(t, []string{"ws-a", "ws-b"}, o.Managed)
+		require.Equal(t, []v1.UserRole{v1.DefaultRole}, o.Roles)
+		require.Equal(t, map[string][]string{"ws-a": {"team:t1", "team:t2"}, "ws-b": {"team:t1"}}, o.Sources)
+		require.Equal(t, map[string][]string{"ws-a": {"team:t2"}, "ws-b": {"team:t1"}}, o.ManagedSources)
+		u := ApplyOverlay(WithOverlay(context.Background(), o), stored)
+		require.False(t, u.IsSystemAdmin())
+		require.False(t, u.IsSystemAdminReadonly())
+		require.Contains(t, u.Spec.Roles, v1.DefaultRole)
+	})
+	t.Run("a team named like a platform group grants no platform role", func(t *testing.T) {
+		o := MapGroups(stored.Name, nil, overlayMappings, false)
+		AddTeams(o, []string{"platform-admins"}, lookup)
+		require.Empty(t, o.Roles)
+		require.Empty(t, o.Workspaces)
+	})
+	t.Run("a restriction stays in force", func(t *testing.T) {
+		o := MapGroups(stored.Name, nil, nil, true)
+		AddTeams(o, []string{"t1"}, lookup)
+		require.True(t, ApplyOverlay(WithOverlay(context.Background(), o), stored).IsRestricted())
+		frozen := stored.DeepCopy()
+		frozen.Spec.RestrictedType = v1.UserFrozen
+		o = MapGroups(stored.Name, nil, nil, false)
+		AddTeams(o, []string{"t1"}, lookup)
+		require.True(t, ApplyOverlay(WithOverlay(context.Background(), o), frozen).IsRestricted())
+	})
+	t.Run("no lookup grants nothing", func(t *testing.T) {
+		o := MapGroups(stored.Name, nil, nil, false)
+		AddTeams(o, []string{"t1"}, nil)
+		require.Empty(t, o.Workspaces)
+		require.Empty(t, o.Roles)
+		AddTeams(nil, []string{"t1"}, lookup)
+	})
+}

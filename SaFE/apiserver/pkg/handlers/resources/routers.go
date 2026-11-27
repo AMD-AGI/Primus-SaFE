@@ -97,6 +97,33 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 			workspaces.PATCH(fmt.Sprintf("/:%s", common.Name), middleware.Audit("workspace"), h.PatchWorkspace)
 			workspaces.GET(fmt.Sprintf("/:%s", common.Name), h.GetWorkspace)
 			workspaces.GET("", h.ListWorkspace)
+			workspaces.PUT(fmt.Sprintf("/:%s/teams", common.Name), middleware.Audit("workspace", "teams"), h.UpdateWorkspaceTeams)
+			workspaces.GET(fmt.Sprintf("/:%s/members", common.Name), h.ListWorkspaceMembers)
+			workspaces.GET("/catalog", h.ListWorkspaceCatalog)
+		}
+
+		// ==================== Workspace Access Requests ====================
+		accessRequests := authGroup.Group("/workspace-access-requests")
+		{
+			accessRequests.POST("", middleware.Audit("workspace-access-request"), h.CreateWorkspaceAccessRequest)
+			accessRequests.GET("", h.ListWorkspaceAccessRequests)
+			accessRequests.GET(fmt.Sprintf("/:%s", common.Name), h.GetWorkspaceAccessRequest)
+			accessRequests.POST(fmt.Sprintf("/:%s/approve", common.Name),
+				middleware.Audit("workspace-access-request", "approve"), h.ApproveWorkspaceAccessRequest)
+			accessRequests.POST(fmt.Sprintf("/:%s/reject", common.Name),
+				middleware.Audit("workspace-access-request", "reject"), h.RejectWorkspaceAccessRequest)
+			accessRequests.POST(fmt.Sprintf("/:%s/cancel", common.Name),
+				middleware.Audit("workspace-access-request", "cancel"), h.CancelWorkspaceAccessRequest)
+		}
+
+		// ==================== Teams ====================
+		// Teams live in the identity service; these routes serve the workspaces bound to them.
+		teams := authGroup.Group("/teams")
+		{
+			teams.PUT(fmt.Sprintf("/:%s/workspaces", common.Name), middleware.Audit("team", "workspaces"), h.UpdateTeamWorkspaces)
+			teams.GET(fmt.Sprintf("/:%s/workspaces", common.Name), h.ListTeamWorkspaces)
+			teams.GET("", h.ListTeams)
+			teams.GET(fmt.Sprintf("/:%s/members", common.Name), h.ListTeamMembers)
 		}
 
 		// ==================== Clusters ====================
@@ -162,6 +189,7 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 			users.GET("", h.ListUser)
 			users.GET(fmt.Sprintf("/:%s", common.Name), h.GetUser)
 			users.GET("/self/workspaces", h.GetSelfWorkspaces)
+			users.GET(fmt.Sprintf("/:%s/workspaces", common.Name), h.GetUserWorkspaces)
 			users.GET(fmt.Sprintf("/:%s/settings", common.Name), h.GetUserSettings)
 			users.PUT(fmt.Sprintf("/:%s/settings", common.Name), middleware.Audit("user-settings"), h.UpdateUserSettings)
 		}

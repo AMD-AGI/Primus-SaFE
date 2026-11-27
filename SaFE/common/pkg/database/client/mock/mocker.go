@@ -5901,3 +5901,204 @@ func (mr *MockPostTrainingRunMetricInterfaceMockRecorder) SavePostTrainingRunMet
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SavePostTrainingRunMetrics", reflect.TypeOf((*MockPostTrainingRunMetricInterface)(nil).SavePostTrainingRunMetrics), ctx, runID, points, runFields, dropAfterStep)
 }
+
+// AutoCloseWorkspaceAccessRequests mocks base method.
+func (m *MockInterface) AutoCloseWorkspaceAccessRequests(ctx context.Context, before time.Time) ([]*client.WorkspaceAccessRequest, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AutoCloseWorkspaceAccessRequests", ctx, before)
+	ret0, _ := ret[0].([]*client.WorkspaceAccessRequest)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AutoCloseWorkspaceAccessRequests indicates an expected call of AutoCloseWorkspaceAccessRequests.
+func (mr *MockInterfaceMockRecorder) AutoCloseWorkspaceAccessRequests(ctx, before interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AutoCloseWorkspaceAccessRequests", reflect.TypeOf((*MockInterface)(nil).AutoCloseWorkspaceAccessRequests), ctx, before)
+}
+
+// CreateWorkspaceAccessRequest mocks base method.
+func (m *MockInterface) CreateWorkspaceAccessRequest(ctx context.Context, req *client.WorkspaceAccessRequest) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateWorkspaceAccessRequest", ctx, req)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateWorkspaceAccessRequest indicates an expected call of CreateWorkspaceAccessRequest.
+func (mr *MockInterfaceMockRecorder) CreateWorkspaceAccessRequest(ctx, req interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateWorkspaceAccessRequest", reflect.TypeOf((*MockInterface)(nil).CreateWorkspaceAccessRequest), ctx, req)
+}
+
+// GetWorkspaceAccessRequest mocks base method.
+func (m *MockInterface) GetWorkspaceAccessRequest(ctx context.Context, id int64) (*client.WorkspaceAccessRequest, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkspaceAccessRequest", ctx, id)
+	ret0, _ := ret[0].(*client.WorkspaceAccessRequest)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkspaceAccessRequest indicates an expected call of GetWorkspaceAccessRequest.
+func (mr *MockInterfaceMockRecorder) GetWorkspaceAccessRequest(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkspaceAccessRequest", reflect.TypeOf((*MockInterface)(nil).GetWorkspaceAccessRequest), ctx, id)
+}
+
+// ListWorkspaceAccessRequests mocks base method.
+func (m *MockInterface) ListWorkspaceAccessRequests(ctx context.Context, filter client.WorkspaceAccessRequestFilter) ([]*client.WorkspaceAccessRequest, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListWorkspaceAccessRequests", ctx, filter)
+	ret0, _ := ret[0].([]*client.WorkspaceAccessRequest)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListWorkspaceAccessRequests indicates an expected call of ListWorkspaceAccessRequests.
+func (mr *MockInterfaceMockRecorder) ListWorkspaceAccessRequests(ctx, filter interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListWorkspaceAccessRequests", reflect.TypeOf((*MockInterface)(nil).ListWorkspaceAccessRequests), ctx, filter)
+}
+
+// RevertWorkspaceAccessApproval mocks base method.
+func (m *MockInterface) RevertWorkspaceAccessApproval(ctx context.Context, id int64) (*client.WorkspaceAccessRequest, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RevertWorkspaceAccessApproval", ctx, id)
+	ret0, _ := ret[0].(*client.WorkspaceAccessRequest)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RevertWorkspaceAccessApproval indicates an expected call of RevertWorkspaceAccessApproval.
+func (mr *MockInterfaceMockRecorder) RevertWorkspaceAccessApproval(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevertWorkspaceAccessApproval", reflect.TypeOf((*MockInterface)(nil).RevertWorkspaceAccessApproval), ctx, id)
+}
+
+// TransitionWorkspaceAccessRequest mocks base method.
+func (m *MockInterface) TransitionWorkspaceAccessRequest(ctx context.Context, id int64, t client.WorkspaceAccessTransition) (*client.WorkspaceAccessRequest, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TransitionWorkspaceAccessRequest", ctx, id, t)
+	ret0, _ := ret[0].(*client.WorkspaceAccessRequest)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// TransitionWorkspaceAccessRequest indicates an expected call of TransitionWorkspaceAccessRequest.
+func (mr *MockInterfaceMockRecorder) TransitionWorkspaceAccessRequest(ctx, id, t interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TransitionWorkspaceAccessRequest", reflect.TypeOf((*MockInterface)(nil).TransitionWorkspaceAccessRequest), ctx, id, t)
+}
+
+// MockWorkspaceAccessRequestInterface is a mock of WorkspaceAccessRequestInterface interface.
+type MockWorkspaceAccessRequestInterface struct {
+	ctrl     *gomock.Controller
+	recorder *MockWorkspaceAccessRequestInterfaceMockRecorder
+}
+
+// MockWorkspaceAccessRequestInterfaceMockRecorder is the mock recorder for MockWorkspaceAccessRequestInterface.
+type MockWorkspaceAccessRequestInterfaceMockRecorder struct {
+	mock *MockWorkspaceAccessRequestInterface
+}
+
+// NewMockWorkspaceAccessRequestInterface creates a new mock instance.
+func NewMockWorkspaceAccessRequestInterface(ctrl *gomock.Controller) *MockWorkspaceAccessRequestInterface {
+	mock := &MockWorkspaceAccessRequestInterface{ctrl: ctrl}
+	mock.recorder = &MockWorkspaceAccessRequestInterfaceMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockWorkspaceAccessRequestInterface) EXPECT() *MockWorkspaceAccessRequestInterfaceMockRecorder {
+	return m.recorder
+}
+
+// AutoCloseWorkspaceAccessRequests mocks base method.
+func (m *MockWorkspaceAccessRequestInterface) AutoCloseWorkspaceAccessRequests(ctx context.Context, before time.Time) ([]*client.WorkspaceAccessRequest, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AutoCloseWorkspaceAccessRequests", ctx, before)
+	ret0, _ := ret[0].([]*client.WorkspaceAccessRequest)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AutoCloseWorkspaceAccessRequests indicates an expected call of AutoCloseWorkspaceAccessRequests.
+func (mr *MockWorkspaceAccessRequestInterfaceMockRecorder) AutoCloseWorkspaceAccessRequests(ctx, before interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AutoCloseWorkspaceAccessRequests", reflect.TypeOf((*MockWorkspaceAccessRequestInterface)(nil).AutoCloseWorkspaceAccessRequests), ctx, before)
+}
+
+// CreateWorkspaceAccessRequest mocks base method.
+func (m *MockWorkspaceAccessRequestInterface) CreateWorkspaceAccessRequest(ctx context.Context, req *client.WorkspaceAccessRequest) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateWorkspaceAccessRequest", ctx, req)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateWorkspaceAccessRequest indicates an expected call of CreateWorkspaceAccessRequest.
+func (mr *MockWorkspaceAccessRequestInterfaceMockRecorder) CreateWorkspaceAccessRequest(ctx, req interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateWorkspaceAccessRequest", reflect.TypeOf((*MockWorkspaceAccessRequestInterface)(nil).CreateWorkspaceAccessRequest), ctx, req)
+}
+
+// GetWorkspaceAccessRequest mocks base method.
+func (m *MockWorkspaceAccessRequestInterface) GetWorkspaceAccessRequest(ctx context.Context, id int64) (*client.WorkspaceAccessRequest, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetWorkspaceAccessRequest", ctx, id)
+	ret0, _ := ret[0].(*client.WorkspaceAccessRequest)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetWorkspaceAccessRequest indicates an expected call of GetWorkspaceAccessRequest.
+func (mr *MockWorkspaceAccessRequestInterfaceMockRecorder) GetWorkspaceAccessRequest(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetWorkspaceAccessRequest", reflect.TypeOf((*MockWorkspaceAccessRequestInterface)(nil).GetWorkspaceAccessRequest), ctx, id)
+}
+
+// ListWorkspaceAccessRequests mocks base method.
+func (m *MockWorkspaceAccessRequestInterface) ListWorkspaceAccessRequests(ctx context.Context, filter client.WorkspaceAccessRequestFilter) ([]*client.WorkspaceAccessRequest, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListWorkspaceAccessRequests", ctx, filter)
+	ret0, _ := ret[0].([]*client.WorkspaceAccessRequest)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListWorkspaceAccessRequests indicates an expected call of ListWorkspaceAccessRequests.
+func (mr *MockWorkspaceAccessRequestInterfaceMockRecorder) ListWorkspaceAccessRequests(ctx, filter interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListWorkspaceAccessRequests", reflect.TypeOf((*MockWorkspaceAccessRequestInterface)(nil).ListWorkspaceAccessRequests), ctx, filter)
+}
+
+// RevertWorkspaceAccessApproval mocks base method.
+func (m *MockWorkspaceAccessRequestInterface) RevertWorkspaceAccessApproval(ctx context.Context, id int64) (*client.WorkspaceAccessRequest, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RevertWorkspaceAccessApproval", ctx, id)
+	ret0, _ := ret[0].(*client.WorkspaceAccessRequest)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RevertWorkspaceAccessApproval indicates an expected call of RevertWorkspaceAccessApproval.
+func (mr *MockWorkspaceAccessRequestInterfaceMockRecorder) RevertWorkspaceAccessApproval(ctx, id interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevertWorkspaceAccessApproval", reflect.TypeOf((*MockWorkspaceAccessRequestInterface)(nil).RevertWorkspaceAccessApproval), ctx, id)
+}
+
+// TransitionWorkspaceAccessRequest mocks base method.
+func (m *MockWorkspaceAccessRequestInterface) TransitionWorkspaceAccessRequest(ctx context.Context, id int64, t client.WorkspaceAccessTransition) (*client.WorkspaceAccessRequest, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TransitionWorkspaceAccessRequest", ctx, id, t)
+	ret0, _ := ret[0].(*client.WorkspaceAccessRequest)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// TransitionWorkspaceAccessRequest indicates an expected call of TransitionWorkspaceAccessRequest.
+func (mr *MockWorkspaceAccessRequestInterfaceMockRecorder) TransitionWorkspaceAccessRequest(ctx, id, t interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TransitionWorkspaceAccessRequest", reflect.TypeOf((*MockWorkspaceAccessRequestInterface)(nil).TransitionWorkspaceAccessRequest), ctx, id, t)
+}

@@ -186,6 +186,15 @@ The script performs the following steps after configuration:
     - `insecure_skip_verify`: `true` turns the verification off. Use it only for an endpoint whose certificate
       cannot be verified at all.
   - `primus-safe-sso`: only when SSO is enabled, keys: `id`, `secret`, `endpoint`, `redirect_uri`
+  - `primus-safe-email-relay-submit`: created by the chart when the database is enabled, once, and kept across
+    upgrades; key `token`. It authorizes only `POST /api/v1/email-relay/submit`, sent in the
+    `X-Email-Relay-Token` header, and is the credential to give a service that submits e-mail through the relay
+    (such as the identity service). The apiserver reads it from the file named by `email_relay.submit_token_file`
+    (`/etc/secrets/email-relay-submit/token`, the mounted Secret) on every request, and does not accept it on any
+    other route. Delete it and run an upgrade to rotate it; the apiserver reads the new token
+    once the kubelet has updated the mount. With `notification.email_relay.identity_namespace` set (for example
+    `primus-identity`), every install and upgrade also writes the current token to a Secret of the same name in
+    that namespace, which must exist; the identity service mounts that copy.
 - `.env` file (in `bootstrap/`) with the following keys for future upgrades:
   - `ethernet_nic`, `rdma_nic`, `cluster_scale`, `storage_class`
   - `lens_enable`, `s3_enable`, `sso_enable`

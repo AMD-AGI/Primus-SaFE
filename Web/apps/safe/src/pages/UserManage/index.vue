@@ -63,7 +63,8 @@
       <el-table-column
         v-if="showRoleAndWorkspaceColumns"
         prop="workspaces"
-        label="Workspaces"
+        label="Directly Granted Workspaces"
+        min-width="160"
         :formatter="wsFormatter"
       />
       <el-table-column v-if="showRoleAndWorkspaceColumns" prop="roles" label="Roles" min-width="100">
@@ -74,8 +75,17 @@
         </template>
       </el-table-column>
 
-      <el-table-column label="Actions" :width="userStore.isManager ? 212 : 120" fixed="right">
+      <el-table-column label="Actions" :width="(userStore.isManager ? 212 : 120) + (canViewEffective ? 44 : 0)" fixed="right">
         <template #default="{ row }">
+          <el-tooltip v-if="canViewEffective" content="View effective workspaces" placement="top">
+            <el-button
+              circle
+              class="btn-primary-plain"
+              :icon="View"
+              size="default"
+              @click="openEffective(row)"
+            />
+          </el-tooltip>
           <template v-if="userStore.isManager">
             <el-tooltip content="QoS" placement="top">
               <el-button
@@ -149,6 +159,7 @@
     :user="state.curUser"
     @success="getUserList()"
   />
+  <EffectiveWorkspacesDialog v-model:visible="effectiveVisible" :user="effectiveUser" />
   <QosDialog v-model:visible="qosVisible" :user="qosUser" @success="getUserList()" />
   <LowUtilExemptionDialog
     v-model:visible="lowUtilExemptionVisible"
@@ -206,7 +217,7 @@
 </template>
 <script lang="ts" setup>
 import { ref, onMounted, reactive, h, computed } from 'vue'
-import { Edit, Delete, Plus, Minus, Search, Setting, Odometer } from '@element-plus/icons-vue'
+import { Edit, Delete, Plus, Minus, Search, Setting, Odometer, View } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox, type TableColumnCtx } from 'element-plus'
 import {
   getUserDataList,
@@ -217,6 +228,7 @@ import {
 } from '@/services'
 import AddDialog from './Components/AddDialog.vue'
 import QosDialog from './Components/QosDialog.vue'
+import EffectiveWorkspacesDialog from './Components/EffectiveWorkspacesDialog.vue'
 import LowUtilExemptionDialog from './Components/LowUtilExemptionDialog.vue'
 import { formatTimeStr } from '@/utils'
 import { useUserStore } from '@/stores/user'
@@ -228,6 +240,8 @@ import { openIdentityConsole } from '@/utils/identityConsole'
 const searchName = ref('')
 const qosVisible = ref(false)
 const qosUser = ref<UserSelfData | null>(null)
+const effectiveVisible = ref(false)
+const effectiveUser = ref<UserSelfData | null>(null)
 const lowUtilExemptionVisible = ref(false)
 const lowUtilExemptionUser = ref<UserSelfData | null>(null)
 const allUserData = ref<UserSelfData[]>([])
@@ -252,6 +266,8 @@ const wsStore = useWorkspaceStore()
 const showRoleAndWorkspaceColumns = computed(
   () => userStore.hasManagerAccess || wsStore.isCurrentWorkspaceAdmin(),
 )
+// The effective workspaces route needs the update right on the user's workspaces: system-admin or workspace manager.
+const canViewEffective = computed(() => userStore.isManager || wsStore.isCurrentWorkspaceAdmin())
 const loading = ref(false)
 
 type Ws = { id: string; name: string }
@@ -279,6 +295,12 @@ const filterUsers = () => {
 // Handle search input change
 const onSearchChange = () => {
   filterUsers()
+}
+
+// Opens the dialog listing every workspace the user reaches, with its source.
+const openEffective = (row: UserSelfData) => {
+  effectiveUser.value = row
+  effectiveVisible.value = true
 }
 
 const openQos = (row: UserSelfData) => {

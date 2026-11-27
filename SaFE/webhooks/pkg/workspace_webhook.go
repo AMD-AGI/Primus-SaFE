@@ -36,6 +36,7 @@ import (
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkload "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workload"
+	commonworkspace "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workspace"
 	jsonutils "github.com/AMD-AIG-AIMA/SAFE/utils/pkg/json"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/maps"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/sets"
@@ -812,10 +813,16 @@ func (v *WorkspaceValidator) Handle(ctx context.Context, req admission.Request) 
 	return admission.Allowed("")
 }
 
+// reservedWorkspaceCatalog is the path segment of GET /workspaces/catalog, which no new workspace may take as name.
+const reservedWorkspaceCatalog = "catalog"
+
 // validateOnCreation validates workspace required params, volumes and related resources on creation.
 func (v *WorkspaceValidator) validateOnCreation(ctx context.Context, workspace *v1.Workspace) error {
 	if v1.IsExternalWorkspace(workspace) && !commonconfig.IsExternalExecutionEnable() {
 		return commonerrors.NewForbidden("external execution is not enabled in this deployment")
+	}
+	if workspace.Name == reservedWorkspaceCatalog {
+		return commonerrors.NewBadRequest("the name of workspace is invalid. It cannot be reserved words")
 	}
 	if err := v.validateCommon(ctx, workspace, nil); err != nil {
 		return err
@@ -866,6 +873,9 @@ func (v *WorkspaceValidator) validateCommon(ctx context.Context, newWorkspace, o
 	if err := validateLowUtilization(newWorkspace); err != nil {
 		return err
 	}
+	if err := validateTeams(newWorkspace); err != nil {
+		return err
+	}
 	if err := validateDNSName(v1.GetDisplayName(newWorkspace), ""); err != nil {
 		return err
 	}
@@ -899,6 +909,16 @@ func (v *WorkspaceValidator) validateRequiredParams(workspace *v1.Workspace) err
 		return err
 	}
 	return nil
+}
+
+// validateTeams checks the team bindings and the access policy of the workspace: every team name is a
+// DNS-1123 label bound once, every role is member or manager (unset means member), and the access
+// policy is closed or approval (unset means closed).
+func validateTeams(workspace *v1.Workspace) error {
+	return utilerrors.NewAggregate([]error{
+		commonworkspace.ValidateTeams(workspace.Spec.Teams),
+		commonworkspace.ValidateAccessPolicy(workspace.Spec.AccessPolicy),
+	})
 }
 
 const maxLowUtilizationRules = 5

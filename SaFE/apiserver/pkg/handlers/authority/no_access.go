@@ -29,7 +29,9 @@ const ErrNoAccess = "The user has no access yet. Ask an administrator to grant i
 const userResource = "user"
 
 // noAccessRoutes are the routes a user who holds no access (see HoldsNoAccess) is served: reading
-// the user's own record, and the lists of workspaces that record names, and signing out. They are
+// the user's own record, and the lists of workspaces that record names, signing out, the catalog of
+// workspaces that accept access requests, and submitting, reading and cancelling the user's own
+// access requests (deciding one stays closed). They are
 // identified by the route the request matched, not by its URL, so a path that merely looks like
 // one of them is not served. Whatever a handler behind them answers is for the user's own data.
 //
@@ -40,6 +42,12 @@ var noAccessRoutes = map[string]bool{
 	http.MethodGet + " /" + common.PrimusRouterCustomRootPath + "/users/:" + common.Name: true,
 	http.MethodGet + " /" + common.PrimusRouterCustomRootPath + "/users/self/workspaces": true,
 	http.MethodPost + " /" + common.PrimusRouterCustomRootPath + "/logout":               true,
+	// A user without access may find a workspace and request access to it.
+	http.MethodGet + " /" + common.PrimusRouterCustomRootPath + "/workspaces/catalog":                                     true,
+	http.MethodPost + " /" + common.PrimusRouterCustomRootPath + "/workspace-access-requests":                             true,
+	http.MethodGet + " /" + common.PrimusRouterCustomRootPath + "/workspace-access-requests":                              true,
+	http.MethodGet + " /" + common.PrimusRouterCustomRootPath + "/workspace-access-requests/:" + common.Name:              true,
+	http.MethodPost + " /" + common.PrimusRouterCustomRootPath + "/workspace-access-requests/:" + common.Name + "/cancel": true,
 }
 
 // IsNoAccessRoute reports whether method and the route the request matched (the pattern, such as

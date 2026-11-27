@@ -63,6 +63,21 @@ func refuseExternalRoleChange(target *v1.User, req *view.PatchUserRequest) error
 	return nil
 }
 
+// refuseExternalRestrictionChange refuses a patch that changes the restricted type of a user. In
+// external mode the identity provider decides whether a user is frozen and SCIM applies it; a patch
+// that echoes the stored value back is not a change, and the value is dropped from it so that the
+// patch never writes the restricted type. Builtin mode leaves the patch as it is.
+func refuseExternalRestrictionChange(target *v1.User, req *view.PatchUserRequest) error {
+	if req.RestrictedType == nil || commonconfig.GetAuthMode() != commonconfig.AuthModeExternal {
+		return nil
+	}
+	if *req.RestrictedType != target.Spec.RestrictedType {
+		return refuseExternal("changing the restricted type")
+	}
+	req.RestrictedType = nil
+	return nil
+}
+
 // dropGrantedWorkspaces removes from a patch's workspace list the workspaces the request's
 // identity grants the target and the record does not store. The row the console shows for the
 // caller's own account lists what their groups grant, so an edit that adds one workspace sends

@@ -29,6 +29,8 @@
     </div>
   </div>
 
+  <el-tabs v-model="activeTab" class="mt-2">
+    <el-tab-pane label="Overview" name="overview">
   <el-card class="mt-4 safe-card" shadow="never">
     <el-descriptions
       v-if="detailData"
@@ -351,6 +353,13 @@
       :page-sizes="[10, 20, 50, 100]"
     />
   </el-card>
+    </el-tab-pane>
+    <el-tab-pane v-if="wsId" label="Members" name="members" lazy>
+      <el-card class="mt-4 safe-card" shadow="never">
+        <MembersTab :workspace-id="wsId" :access-policy="detailData?.accessPolicy" @changed="getDetail" />
+      </el-card>
+    </el-tab-pane>
+  </el-tabs>
   <BindDialog
     v-model:visible="bindVisible"
     :action="bindAction"
@@ -380,11 +389,13 @@ import AvailableStatusTag from '@/components/Base/AvailableStatusTag.vue'
 import BindDialog from '@/pages/Nodes/Components/BindDialog.vue'
 import ManageDialog from '@/pages/Nodes/Components/ManageDialog.vue'
 import { useNodeRetry } from '@/composables/useNodeRetry'
+import MembersTab from './Components/MembersTab.vue'
 
 const route = useRoute()
 const store = useClusterStore()
 const wsId = computed(() => route.query.id as string | undefined)
 
+const activeTab = ref('overview')
 const detailData = ref()
 const detailLoading = ref(false)
 

@@ -183,14 +183,21 @@ Get user list with filtering support.
       ],
       "creationTime": "2025-01-10T08:00:00",
       "restrictedType": 0,
-      "avatarUrl": "https://example.com/avatar.jpg"
+      "avatarUrl": "https://example.com/avatar.jpg",
+      "sources": ["direct", "team:ml-infra"]
     }
   ]
 }
 ```
 **Field Description**:
 
-The response fields are consistent with the "User Login" response above.
+The response fields are consistent with the "User Login" response above, plus:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| sources | []string | Present only when the list is filtered by `workspaceId`: how the user reaches that workspace. `direct` when the user record names it; `team:<id>` for each team recorded on the user (pushed by the identity service through SCIM) that is bound to the workspace. Team sources apply in external mode with SCIM enabled |
+
+With `workspaceId`, the list holds the users that have a `direct` or a `team:<id>` source for the workspace. Users who reach the workspace only through a team, and the `team:<id>` sources, are listed only to callers who may get that workspace. Team members who have no SaFE user record yet are not listed; use [List Workspace Members](./workspace.md#8-list-workspace-members) for the full member view. `workspaces` of each row remains the user's direct grants.
 
 
 ---
@@ -317,7 +324,7 @@ Get the workspaces the current user can access and the ones the current user man
 
 **Authentication Required**: Yes
 
-**Permission Requirements**: None beyond being signed in; the response is always about the caller. There is no per-user form of this route, `GET /api/v1/users/{UserId}/workspaces` does not exist. Read another user's lists from "Get User Details".
+**Permission Requirements**: None beyond being signed in; the response is always about the caller. Another user's lists are served by "Get User Workspaces".
 
 **Response Example**:
 
@@ -326,7 +333,8 @@ Get the workspaces the current user can access and the ones the current user man
   "workspaces": [
     {
       "id": "prod-cluster-ai-team",
-      "name": "ai-team"
+      "name": "ai-team",
+      "sources": ["direct", "team:ml-infra"]
     }
   ],
   "managedWorkspaces": []
@@ -337,10 +345,25 @@ Get the workspaces the current user can access and the ones the current user man
 
 | Field | Description |
 |-------|-------------|
-| workspaces | The workspaces the user can access, each with its ID and display name |
-| managedWorkspaces | The workspaces the user manages, each with its ID and display name |
+| workspaces | The workspaces the user can access, each with its ID, display name and sources |
+| managedWorkspaces | The workspaces the user manages, each with its ID, display name and sources |
+| sources | How the user reaches the workspace, in this order: `direct` (the user record, or for `managedWorkspaces` also the workspace's `managers`), then the sorted `group:<name>` (a group mapping) and `team:<id>` (a team binding) sources, then, in `workspaces` only, `default` (a default workspace while `users.join_default_workspaces` is on) |
 
-Both fields are always arrays. A system administrator reaches every workspace without being listed in any, so both lists are empty for one; check `roles` first. A workspace that no longer exists is left out. When `auth.mode` is `external`, the lists include the workspaces the groups of the request map to (see [External Authentication](external-authentication.md)).
+Both fields are always arrays. A system administrator reaches every workspace without being listed in any, so both lists are empty for one; check `roles` first. A workspace that no longer exists is left out. When `auth.mode` is `external`, the lists include the workspaces the groups and teams of the request map to (see [External Authentication](external-authentication.md)).
+
+---
+
+### 9. Get User Workspaces
+
+Get the effective workspaces of another user, with the sources of each.
+
+**Endpoint**: `GET /api/v1/users/{UserId}/workspaces`
+
+**Authentication Required**: Yes
+
+**Permission Requirements**: system administrator, or a workspace manager for the workspaces the caller manages. Each workspace is returned only when the caller may update the user's access to it; when none is visible, the caller needs that right without a workspace restriction, otherwise 403. Not available to delegated tokens.
+
+**Response**: the shape of "Get Own Workspaces". The groups and teams are those the identity service recorded on the user through SCIM, mapped as for a request (external mode with SCIM enabled); otherwise only the user record and default workspaces count. Both lists are empty for a target who is a system administrator.
 
 ---
 
@@ -380,6 +403,8 @@ Workspace managers can:
 - Manage all users' workloads in the workspace, including deleting workloads
 - Modify workspace configuration
 - Grant another user permission to access the workspace 
+- Add and remove `member` team bindings of the workspace
+- Approve and reject access requests to the workspace, when they manage it directly (see [Workspace Access Request API](./workspace-access-request.md))
 - Can create workloads with the highest priority
 
 ## Token

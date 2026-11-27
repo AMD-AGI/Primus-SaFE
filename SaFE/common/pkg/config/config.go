@@ -562,6 +562,46 @@ func GetConsoleAccessContact() string {
 	return strings.TrimSpace(getString(consoleAccessContact, ""))
 }
 
+// DefaultIdentityConsoleURL is the identity console on the console host, used in external mode when
+// identity.console_url is unset or blank.
+const DefaultIdentityConsoleURL = "/identity"
+
+// GetIdentityConsoleURL returns identity.console_url without a trailing slash: the address of the identity
+// console, from which links to team pages are built. Only a path or an http(s) URL counts. Unset or blank:
+// DefaultIdentityConsoleURL in external mode, empty otherwise.
+func GetIdentityConsoleURL() string {
+	def := ""
+	if GetAuthMode() == AuthModeExternal {
+		def = DefaultIdentityConsoleURL
+	}
+	return strings.TrimRight(consoleURL(stringOr(identityConsoleURL, def)), "/")
+}
+
+// DefaultWorkspaceAccessPendingTTL is how long a workspace access request stays pending before it is closed.
+const DefaultWorkspaceAccessPendingTTL = 336 * time.Hour
+
+// GetWorkspaceAccessPendingTTL returns workspace_access.pending_ttl, a Go duration. A missing value is
+// DefaultWorkspaceAccessPendingTTL; an invalid or non-positive one is DefaultWorkspaceAccessPendingTTL
+// together with an error that names the value.
+func GetWorkspaceAccessPendingTTL() (time.Duration, error) {
+	raw := strings.TrimSpace(getString(workspaceAccessPendingTTL, ""))
+	if raw == "" {
+		return DefaultWorkspaceAccessPendingTTL, nil
+	}
+	ttl, err := time.ParseDuration(raw)
+	if err != nil || ttl <= 0 {
+		return DefaultWorkspaceAccessPendingTTL, fmt.Errorf("%s %q is not a positive Go duration, using %s",
+			workspaceAccessPendingTTL, raw, DefaultWorkspaceAccessPendingTTL)
+	}
+	return ttl, nil
+}
+
+// GetConsoleOrigin returns the external address of the console, https://<sub_domain>.<domain>, or ""
+// when either part is unset.
+func GetConsoleOrigin() string {
+	return clusterOrigin()
+}
+
 // DefaultConsoleReturnPrefixes are the web apps on the console's host that a sign-in returns to
 // when console.return_prefixes is not set.
 var DefaultConsoleReturnPrefixes = []string{"/dispatron", "/autopilot", "/binding", "/blog-drafts", "/identity"}
@@ -615,6 +655,21 @@ func IsNotificationEnable() bool {
 // GetNotificationConfig returns the path to the notification configuration file.
 func GetNotificationConfig() string {
 	return getFromFile(notificationSecretPath, "config")
+}
+
+// GetEmailRelaySubmitToken returns the token that authorizes only the e-mail relay submit route, read
+// from the file at email_relay.submit_token_file on every call so a rotated Secret takes effect without
+// a restart. "" when the file is not configured or not readable.
+func GetEmailRelaySubmitToken() string {
+	path := getString(emailRelaySubmitTokenFile, "")
+	if path == "" {
+		return ""
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }
 
 // GetSystemHost returns the host of the system. e.g. tw325.primus-safe.amd.com
@@ -1166,6 +1221,7 @@ type AuthenticatorConfig struct {
 	UsernameClaim string `json:"username_claim" yaml:"username_claim" mapstructure:"username_claim"`
 	EmailClaim    string `json:"email_claim" yaml:"email_claim" mapstructure:"email_claim"`
 	GroupsClaim   string `json:"groups_claim" yaml:"groups_claim" mapstructure:"groups_claim"`
+	TeamsClaim    string `json:"teams_claim" yaml:"teams_claim" mapstructure:"teams_claim"`
 
 	// introspection: OAuth 2.0 token introspection (RFC 7662) at URL, authenticated with a client id
 	// and a client secret read from a file (a mounted Secret).

@@ -485,7 +485,7 @@ func verifyExternal(c *gin.Context, st *externalAuth, req *VerifyTokenRequest) (
 	if !id.Expiry.IsZero() {
 		info.Exp = id.Expiry.Unix()
 	}
-	overlay := st.overlay(id)
+	overlay := st.overlay(ctx, id)
 	effective := extauth.ApplyOverlay(extauth.WithOverlay(ctx, overlay), user)
 	if effective.IsRestricted() && (req.IncludePlatformKey || req.IncludeVirtualKey) {
 		// A restricted user (the provider's "restricted" claim, or the user record) is refused by every request

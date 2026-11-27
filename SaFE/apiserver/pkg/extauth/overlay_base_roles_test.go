@@ -124,6 +124,22 @@ func TestApplyOverlayWithTheMinimalBaseRole(t *testing.T) {
 	}
 }
 
+// A direct workspace on the record grants no role: the user holds the roles the record stores and the base
+// roles, and the default role only when the record stores it.
+func TestApplyOverlayDerivesNoRoleFromADirectWorkspace(t *testing.T) {
+	setBaseRoles(t, "self-read")
+	ctx := WithOverlay(context.Background(), MapGroups("alice-id", nil, overlayMappings, false))
+
+	member := overlayUser([]v1.UserRole{v1.SelfReadRole}, "ws-x")
+	got := ApplyOverlay(ctx, member)
+	require.Equal(t, []v1.UserRole{v1.SelfReadRole}, got.Spec.Roles)
+	require.Equal(t, []string{"ws-x"}, commonuser.GetWorkspace(got))
+	require.Equal(t, got, ApplyOverlay(ctx, got), "applying it twice gives the same user")
+
+	stored := overlayUser([]v1.UserRole{v1.SelfReadRole, v1.DefaultRole}, "ws-x")
+	require.Equal(t, []v1.UserRole{v1.SelfReadRole, v1.DefaultRole}, ApplyOverlay(ctx, stored).Spec.Roles)
+}
+
 // A user who is not the one the overlay is for, and a request with no overlay, are returned as they are: the
 // base roles are a property of an authenticated request, not of a record.
 func TestApplyOverlayLeavesOtherUsersAlone(t *testing.T) {

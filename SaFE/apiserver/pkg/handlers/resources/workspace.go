@@ -104,6 +104,9 @@ func (h *Handler) createWorkspace(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to parse request", string(body))
 		return nil, err
 	}
+	if err = refuseDelegatedTeamsChange(c, len(req.Teams) > 0 || req.AccessPolicy != ""); err != nil {
+		return nil, err
+	}
 	workspace, err := h.generateWorkspace(c.Request.Context(), requestUser, req)
 	if err != nil {
 		return nil, err
@@ -257,6 +260,9 @@ func (h *Handler) patchWorkspace(c *gin.Context) (interface{}, error) {
 		klog.ErrorS(err, "failed to parse request", "body", string(body))
 		return nil, err
 	}
+	if err = refuseDelegatedTeamsChange(c, req.Teams != nil || req.AccessPolicy != nil); err != nil {
+		return nil, err
+	}
 
 	if err = backoff.ConflictRetry(func() error {
 		var innerError error
@@ -328,7 +334,47 @@ func (h *Handler) applyWorkspacePatch(ctx context.Context,
 	if req.LowUtilization != nil {
 		workspace.Spec.LowUtilization = *req.LowUtilization
 	}
+	return h.applyWorkspaceTeamsPatch(ctx, workspace, requestUser, req)
+}
+
+// applyWorkspaceTeamsPatch validates and applies the teams and accessPolicy fields of a patch. A
+// change to a manager binding, and any change to the access policy, needs a system administrator.
+func (h *Handler) applyWorkspaceTeamsPatch(ctx context.Context,
+	workspace *v1.Workspace, requestUser *v1.User, req *view.PatchWorkspaceRequest) error {
+	if req.Teams != nil {
+		if err := validateWorkspaceTeams(*req.Teams); err != nil {
+			return err
+		}
+	}
+	if req.AccessPolicy != nil {
+		if err := validateAccessPolicy(*req.AccessPolicy); err != nil {
+			return err
+		}
+	}
+	if req.Teams != nil {
+		if err := h.authorizeTeamsChange(ctx, requestUser, workspace.Spec.Teams, *req.Teams); err != nil {
+			return err
+		}
+		workspace.Spec.Teams = *req.Teams
+	}
+	if req.AccessPolicy != nil {
+		if effectiveAccessPolicy(*req.AccessPolicy) != effectiveAccessPolicy(workspace.Spec.AccessPolicy) {
+			if err := h.accessController.AuthorizeSystemAdmin(
+				authority.AccessInput{Context: ctx, User: requestUser}, false); err != nil {
+				return err
+			}
+		}
+		workspace.Spec.AccessPolicy = *req.AccessPolicy
+	}
 	return nil
+}
+
+// effectiveAccessPolicy returns the policy, closed when it is not set.
+func effectiveAccessPolicy(policy v1.WorkspaceAccessPolicy) v1.WorkspaceAccessPolicy {
+	if policy == "" {
+		return v1.WorkspaceAccessClosed
+	}
+	return policy
 }
 
 // updateWorkspaceImageSecrets updates the image secrets associated with a workspace.
@@ -611,11 +657,32 @@ func (h *Handler) generateWorkspace(ctx context.Context,
 	if v1.IsExternalWorkspace(workspace) {
 		workspace.Spec.Replica = 0
 	}
+	if err := h.applyCreateTeams(ctx, workspace, requestUser, req); err != nil {
+		return nil, err
+	}
 	err := h.updateWorkspaceImageSecrets(ctx, workspace, requestUser, req.ImageSecretIds)
 	if err != nil {
 		return nil, err
 	}
 	return workspace, nil
+}
+
+// applyCreateTeams validates the teams and accessPolicy of a create request and sets them on the new
+// workspace. It applies the rules of the patch: a manager binding and an access policy other than
+// closed need a system administrator.
+func (h *Handler) applyCreateTeams(ctx context.Context,
+	workspace *v1.Workspace, requestUser *v1.User, req *view.CreateWorkspaceRequest) error {
+	if len(req.Teams) == 0 && req.AccessPolicy == "" {
+		return nil
+	}
+	patch := &view.PatchWorkspaceRequest{}
+	if len(req.Teams) > 0 {
+		patch.Teams = &req.Teams
+	}
+	if req.AccessPolicy != "" {
+		patch.AccessPolicy = &req.AccessPolicy
+	}
+	return h.applyWorkspaceTeamsPatch(ctx, workspace, requestUser, patch)
 }
 
 // parseListWorkspaceQuery parses and validates the query parameters for workspace listing.
@@ -662,6 +729,8 @@ func (h *Handler) cvtToWorkspaceResponseItem(ctx context.Context, w *v1.Workspac
 		LowUtilization:    w.Spec.LowUtilization,
 		GpuProduct:        v1.GetAnnotation(w, v1.GpuProductAnnotation),
 		External:          v1.IsExternalWorkspace(w),
+		Teams:             w.Spec.Teams,
+		AccessPolicy:      w.Spec.AccessPolicy,
 	}
 	if result.External {
 		h.setExternalNodeCounts(ctx, w, &result)

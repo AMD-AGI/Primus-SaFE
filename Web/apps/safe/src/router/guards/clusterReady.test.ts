@@ -160,7 +160,7 @@ describe('cluster guard: other outcomes are unchanged', () => {
       const next = await run(page(path))
       expect(next).toHaveBeenCalledWith({
         path: '/login',
-        query: { redirect: encodeURIComponent(path) },
+        query: { redirect: path },
       })
       expect(userState.$patch).toHaveBeenCalledWith(
         expect.objectContaining({ session: 'anonymous', userId: '', profile: null }),
@@ -175,7 +175,7 @@ describe('cluster guard: other outcomes are unchanged', () => {
     const next = await run(page('/training/detail', '/training/detail?id=abc'))
     expect(next).toHaveBeenCalledWith({
       path: '/login',
-      query: { redirect: encodeURIComponent('/training/detail?id=abc') },
+      query: { redirect: '/training/detail?id=abc' },
     })
   })
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/notification/model"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/notification/topic/workload"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/notification/topic/workspaceaccess"
 )
 
 type Topic interface {
@@ -23,6 +24,8 @@ func NewTopics() map[string]Topic {
 	topics := make(map[string]Topic)
 	workloadTopic := &workload.Topic{}
 	topics[workloadTopic.Name()] = workloadTopic
+	workspaceAccessTopic := &workspaceaccess.Topic{}
+	topics[workspaceAccessTopic.Name()] = workspaceAccessTopic
 
 	return topics
 }

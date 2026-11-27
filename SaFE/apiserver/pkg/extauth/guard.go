@@ -72,6 +72,24 @@ func Forbidden(method, urlPath string) (capability string, forbidden bool) {
 		if !read || len(rest) < 2 || rest[1] != "self" {
 			return CapabilityUserManagement, true
 		}
+	case "workspaces":
+		// The team bindings decide who holds a workspace role, and the member view lists the
+		// ids and e-mails of the users, as the user list does. The catalog lists the ids and
+		// e-mails of the workspace managers.
+		if len(rest) > 2 && (rest[2] == "teams" && !read || rest[2] == "members") ||
+			len(rest) == 2 && rest[1] == "catalog" && read {
+			return CapabilityUserManagement, true
+		}
+	case "workspace-access-requests":
+		// Requesting, deciding and cancelling access decide who holds a workspace role, and the
+		// requests carry the ids and e-mails of the requesters.
+		return CapabilityUserManagement, true
+	case "teams":
+		// Binding a team to workspaces decides who holds a workspace role, the member list
+		// exposes the ids and e-mails of the users, and the team list the ids of the managers.
+		if len(rest) == 1 || len(rest) > 2 && (rest[2] == "workspaces" && !read || rest[2] == "members") {
+			return CapabilityUserManagement, true
+		}
 	case "publickeys":
 		// An SSH public key is a standing credential for the user.
 		if !read {

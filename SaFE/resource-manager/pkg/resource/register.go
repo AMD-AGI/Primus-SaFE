@@ -98,6 +98,18 @@ func SetupControllers(ctx context.Context, mgr manager.Manager) error {
 	if err := SetupWorkspaceUsageCollector(mgr, rc, connectUsageStore); err != nil {
 		return fmt.Errorf("failed to set up workspace usage collector: %v", err)
 	}
+	var connectAccessStore func() workspaceAccessStore
+	if commonconfig.IsDBEnable() {
+		connectAccessStore = func() workspaceAccessStore {
+			if db := dbclient.NewClient(); db != nil {
+				return db
+			}
+			return nil
+		}
+	}
+	if err := SetupWorkspaceAccessCloser(mgr, connectAccessStore); err != nil {
+		return fmt.Errorf("failed to set up workspace access closer: %v", err)
+	}
 
 	return nil
 }

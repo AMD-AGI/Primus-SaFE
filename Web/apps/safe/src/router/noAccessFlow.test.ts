@@ -182,7 +182,7 @@ describe('other failures of the clusters fetch are unchanged', () => {
     replies['/users/self'] = { status: 401, data: {} }
     await router.push('/workloads')
     expect(router.currentRoute.value.path).toBe('/login')
-    expect(router.currentRoute.value.query.redirect).toBe(encodeURIComponent('/workloads'))
+    expect(router.currentRoute.value.query.redirect).toBe('/workloads')
     expect(user.session).toBe('anonymous')
   })
 })
@@ -215,6 +215,50 @@ describe('/no-access needs a session', () => {
     // Not a child of the layout route that carries the menu and the header.
     expect(resolved.matched).toHaveLength(1)
     expect(resolved.matched[0].path).toBe('/no-access')
+  })
+})
+
+describe('the workspace access pages', () => {
+  it.each(['/workspace-access', '/workspace-access/approvals', '/workspace-access/requests/7'])(
+    'open %s for an account that has no access yet',
+    async (path) => {
+      const { router } = await boot()
+      await router.push(path)
+      expect(router.currentRoute.value.fullPath).toBe(path)
+      expect(asked).toContain('GET /clusters')
+    },
+  )
+
+  it('open for a user with no cluster and no workspace instead of the error page', async () => {
+    replies['/clusters'] = { status: 200, data: { items: [], totalCount: 0 } }
+    const { router } = await boot()
+    await router.push('/workspace-access')
+    expect(router.currentRoute.value.fullPath).toBe('/workspace-access')
+    expect(asked).not.toContain('GET /workspaces')
+  })
+
+  it('send an anonymous visitor to /login with the approval page as the way back', async () => {
+    replies['/users/self'] = { status: 401, data: {} }
+    const { router } = await boot()
+    await router.push('/workspace-access/requests/7')
+    expect(router.currentRoute.value.path).toBe('/login')
+    expect(router.currentRoute.value.query.redirect).toBe('/workspace-access/requests/7')
+  })
+
+  it('keep the approval page as the way back when the session ends meanwhile', async () => {
+    const { router } = await boot()
+    replies['/clusters'] = { status: 401, data: {} }
+    replies['/users/self'] = { status: 401, data: {} }
+    await router.push('/workspace-access/requests/7')
+    expect(router.currentRoute.value.path).toBe('/login')
+    expect(router.currentRoute.value.query.redirect).toBe('/workspace-access/requests/7')
+  })
+
+  it('still send other pages to /no-access', async () => {
+    const { router } = await boot()
+    await router.push('/workspace-access')
+    await router.push('/workloads')
+    expect(router.currentRoute.value.fullPath).toBe('/no-access')
   })
 })
 

@@ -139,6 +139,15 @@
           <MenuItem v-for="item in agentInfraMenuItems" :key="item.index" :item="item" />
         </el-sub-menu>
 
+        <!-- Workspace access requests -->
+        <el-sub-menu index="access" class="nav-section">
+          <template #title>
+            <el-icon class="section-icon"><Tickets /></el-icon>
+            <span class="nav-section-label">Access</span>
+          </template>
+          <MenuItem v-for="item in accessMenuItems" :key="item.index" :item="item" />
+        </el-sub-menu>
+
         <!-- System Menu -->
         <el-sub-menu index="1" class="nav-section" v-if="systemMenuItems.length">
           <template #title>
@@ -218,6 +227,8 @@ import {
   Search,
   Sunny,
   Moon,
+  Tickets,
+  DocumentChecked,
 } from '@element-plus/icons-vue'
 
 import { toggleDark } from '@/composables'
@@ -493,6 +504,18 @@ watchEffect(() => {
   agentInfraMenuItems.value = allAgentInfraItems.filter((item) => item.canAccess !== false)
 })
 
+// Access submenu config: requesting workspace access for all users; deciding requests for system admins
+// and the managers of any workspace, directly or through a team
+const canApproveAccess = computed(
+  () => isManager.value || (userStore.profile?.managedWorkspaces?.length ?? 0) > 0,
+)
+const accessMenuItems = computed<MenuItem[]>(() => [
+  { index: '/workspace-access', name: 'Workspace access', elIcon: Tickets },
+  ...(canApproveAccess.value
+    ? [{ index: '/workspace-access/approvals', name: 'Pending approvals', elIcon: DocumentChecked }]
+    : []),
+])
+
 // System submenu config - dynamic (partially open to regular users)
 const systemMenuItems = shallowRef<MenuItem[]>([])
 
@@ -654,6 +677,7 @@ const searchIndex = computed<FlatNavItem[]>(() => [
   ...flattenNav(workloadMenuItems.value, 'Workloads'),
   ...(hasManagerAccess.value ? flattenNav(modelLabMenuItems.value, 'Model Lab') : []),
   ...flattenNav(agentInfraMenuItems.value, 'Agent Infra'),
+  ...flattenNav(accessMenuItems.value, 'Access'),
   ...flattenNav(systemMenuItems.value, 'System'),
   ...(!hasManagerAccess.value ? flattenNav(memberMenuItems.value, '') : []),
 ])

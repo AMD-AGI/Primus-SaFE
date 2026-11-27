@@ -95,4 +95,68 @@ export interface BaseSubmitWsData {
 export interface SubmitWorkspaceRequest extends BaseSubmitWsData {
   name: string
   clusterId: string
+  // Teams whose members access the workspace. A manager binding needs a system administrator
+  teams?: WorkspaceTeam[]
+  accessPolicy?: WorkspaceAccessPolicy
+}
+
+export type WorkspaceTeamRole = 'member' | 'manager'
+export type WorkspaceAccessPolicy = 'closed' | 'approval'
+
+// A team bound to a workspace
+export interface WorkspaceTeam {
+  name: string
+  role?: WorkspaceTeamRole
+}
+
+// PUT /workspaces/:name/teams. `add` of a bound team changes its role; `remove` holds team ids.
+export interface UpdateWorkspaceTeamsRequest {
+  add?: WorkspaceTeam[]
+  remove?: string[]
+}
+
+export interface UpdateWorkspaceTeamsResp {
+  teams: WorkspaceTeam[]
+}
+
+// A user with direct access to a workspace
+export interface WorkspaceMemberUser {
+  id: string
+  name: string
+  email: string
+  preferredName?: string
+  role: WorkspaceTeamRole
+  source: string
+}
+
+// A team manager as the workspace members view describes it
+export interface WorkspaceMemberManager {
+  id: string
+  name?: string
+  email?: string
+  preferredName?: string
+}
+
+// A team bound to a workspace. Everything but id and role is absent when the identity service is unreachable.
+export interface WorkspaceMemberTeam {
+  id: string
+  displayName?: string
+  role: WorkspaceTeamRole
+  memberCount?: number
+  managers?: WorkspaceMemberManager[]
+  source: string
+}
+
+// A platform group whose mapping reaches a workspace
+export interface WorkspaceMemberGroup {
+  name: string
+  role: WorkspaceTeamRole
+  source: string
+}
+
+// GET /workspaces/:name/members
+export interface WorkspaceMembersResp {
+  users: WorkspaceMemberUser[]
+  teams: WorkspaceMemberTeam[]
+  groups: WorkspaceMemberGroup[]
 }

@@ -273,6 +273,9 @@ users:
   # a user lacks when the user is created or updated, and in external authentication mode the
   # apiserver adds them to every request. The platform roles (system-admin, system-admin-readonly)
   # and workspace-admin are ignored here; an empty list is the default.
+  # A workspace on the user record grants no role by itself. An approved workspace access request
+  # writes the workspace and the `default` role to the requester's user record, in builtin and
+  # external mode alike; a team bound to a workspace grants the `default` role per request.
   # Every role named here must exist as a Role object (primus-safe-cr creates self-read) before
   # the webhook can create a user, so install or upgrade primus-safe-cr first.
   base_roles:
@@ -291,6 +294,13 @@ console:
   # ignored. Unset (the default) is /dispatron, /autopilot, /binding, /blog-drafts and /identity;
   # [] allows none.
   # return_prefixes: ["/dispatron", "/autopilot", "/binding", "/blog-drafts", "/identity"]
+identity:
+  # Address of the identity console, a path ("/identity") or an http(s) URL. SaFE links to team pages as
+  # <console_url>/teams/<teamId> and the web app reads it from /envs. Empty: "/identity" in external mode.
+  console_url: ""
+workspace_access:
+  # How long a workspace access request stays pending before resource-manager closes it, a Go duration.
+  pending_ttl: "336h"
 # Pluggable authentication, in the Kubernetes style. Authorization (roles, workspaces) always stays in SaFE.
 # See docs/apis/external-authentication.md.
 auth:
@@ -311,6 +321,7 @@ auth:
   #     username_claim: preferred_username
   #     email_claim: email
   #     groups_claim: groups
+  #     teams_claim: teams
   #   - type: introspection   # OAuth 2.0 token introspection (RFC 7662), for opaque tokens such as API keys
   #     issuer: https://idp.example.com   # its discovery document names the endpoint when url is empty
   #     url: ""                           # the introspection endpoint
@@ -454,6 +465,10 @@ notification:
   email_relay:
     # Enable email relay mode
     enable: true
+    # Namespace that also receives a copy of the <release>-email-relay-submit Secret (key token), for a
+    # client such as the identity service. Every install and upgrade writes the current token there.
+    # The namespace must exist. Empty: no copy.
+    identity_namespace: ""
 grafana:
   # Enable Grafana for monitoring metrics display
   enable: false

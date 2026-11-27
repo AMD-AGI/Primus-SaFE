@@ -150,6 +150,14 @@ const (
 	// returns to with a full-page navigation after sign-in (/login?redirect=<path>).
 	consoleReturnPrefixes = consolePrefix + "return_prefixes"
 
+	// identity: the identity service the teams come from
+	identityPrefix     = "identity."
+	identityConsoleURL = identityPrefix + "console_url"
+
+	// workspace_access: the requests for direct access to a workspace
+	workspaceAccessPrefix     = "workspace_access."
+	workspaceAccessPendingTTL = workspaceAccessPrefix + "pending_ttl"
+
 	// tls (outbound HTTPS verification for third-party / model endpoints)
 	tlsPrefix         = "tls."
 	tlsVerifyOutbound = tlsPrefix + "verify_outbound"
@@ -158,6 +166,9 @@ const (
 	notificationPrefix     = "notification."
 	notificationEnable     = notificationPrefix + "enable"
 	notificationSecretPath = notificationPrefix + "secret_path"
+
+	// email relay
+	emailRelaySubmitTokenFile = "email_relay.submit_token_file"
 
 	// sso
 	ssoPrefix     = "sso."

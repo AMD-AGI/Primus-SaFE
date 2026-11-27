@@ -53,7 +53,7 @@ describe('buildUserPatch', () => {
     expect(buildUserPatch(u, { ...untouched(u), workspaces: ['ws-a'] }, true)).toEqual({
       workspaces: ['ws-a'],
     })
-    expect(buildUserPatch(u, { ...untouched(u), restrictedType: 1 }, true)).toEqual({
+    expect(buildUserPatch(u, { ...untouched(u), restrictedType: 1 }, false)).toEqual({
       restrictedType: 1,
     })
     expect(buildUserPatch(u, { ...untouched(u), workspaces: [] }, false)).toEqual({
@@ -88,12 +88,12 @@ describe('buildUserPatch', () => {
     expect(buildUserPatch(u, untouched(u), false)).toEqual({})
   })
 
-  it('never sends roles or a password in external mode', () => {
+  it('never sends roles, a password or a restriction in external mode', () => {
     const u = user()
     expect(
       buildUserPatch(
         u,
-        { ...untouched(u), roles: ['default', 'system-admin'], password: 'pw' },
+        { ...untouched(u), roles: ['default', 'system-admin'], password: 'pw', restrictedType: 1 },
         true,
       ),
     ).toEqual({})
@@ -106,5 +106,9 @@ describe('the user dialog', () => {
   it('builds its edit body with buildUserPatch, not from the whole form', () => {
     expect(source).toContain('buildUserPatch(props.user, form, external.value)')
     expect(source).not.toContain('...baseEditForm')
+  })
+
+  it('offers the restriction switch only in builtin mode', () => {
+    expect(source).toContain('v-if="isEdit && !external" label="Restricted Type"')
   })
 })

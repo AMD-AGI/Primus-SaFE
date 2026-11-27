@@ -103,14 +103,14 @@ func TestGetSelfWorkspaces(t *testing.T) {
 			name:        "access and management are listed apart, with display names",
 			user:        genUserFixture("u1", []v1.UserRole{v1.DefaultRole}, []string{"ws-a", "ws-b"}, []string{"ws-b"}),
 			wantCode:    http.StatusOK,
-			wantWs:      []view.WorkspaceEntry{{Id: "ws-a", Name: "Team A"}, {Id: "ws-b", Name: "Team B"}},
-			wantManaged: []view.WorkspaceEntry{{Id: "ws-b", Name: "Team B"}},
+			wantWs:      []view.WorkspaceEntry{{Id: "ws-a", Name: "Team A", Sources: []string{"direct"}}, {Id: "ws-b", Name: "Team B", Sources: []string{"direct"}}},
+			wantManaged: []view.WorkspaceEntry{{Id: "ws-b", Name: "Team B", Sources: []string{"direct"}}},
 		},
 		{
 			name:        "a workspace that no longer exists is left out",
 			user:        genUserFixture("u1", []v1.UserRole{v1.DefaultRole}, []string{"ws-a", "ws-gone"}, []string{"ws-gone"}),
 			wantCode:    http.StatusOK,
-			wantWs:      []view.WorkspaceEntry{{Id: "ws-a", Name: "Team A"}},
+			wantWs:      []view.WorkspaceEntry{{Id: "ws-a", Name: "Team A", Sources: []string{"direct"}}},
 			wantManaged: []view.WorkspaceEntry{},
 		},
 		{
@@ -131,19 +131,20 @@ func TestGetSelfWorkspaces(t *testing.T) {
 			name:        "a read-only administrator keeps the workspaces it was granted",
 			user:        genUserFixture("u1", []v1.UserRole{v1.SystemAdminReadonlyRole}, []string{"ws-a"}, nil),
 			wantCode:    http.StatusOK,
-			wantWs:      []view.WorkspaceEntry{{Id: "ws-a", Name: "Team A"}},
+			wantWs:      []view.WorkspaceEntry{{Id: "ws-a", Name: "Team A", Sources: []string{"direct"}}},
 			wantManaged: []view.WorkspaceEntry{},
 		},
 		{
 			// External mode: the record holds nothing, the groups of the request map to a
 			// managed workspace. The lists must show it, or a workspace administrator that
 			// external authentication named would see no management entry.
-			name:        "the request's group mapping is part of the lists",
-			user:        genUserFixture("u1", []v1.UserRole{v1.DefaultRole}, []string{"ws-a"}, nil),
-			overlay:     &extauth.Overlay{UserId: "u1", Workspaces: []string{"ws-c"}, Managed: []string{"ws-c"}},
+			name: "the request's group mapping is part of the lists",
+			user: genUserFixture("u1", []v1.UserRole{v1.DefaultRole}, []string{"ws-a"}, nil),
+			overlay: &extauth.Overlay{UserId: "u1", Workspaces: []string{"ws-c"}, Managed: []string{"ws-c"},
+				Sources: map[string][]string{"ws-c": {"group:g"}}, ManagedSources: map[string][]string{"ws-c": {"group:g"}}},
 			wantCode:    http.StatusOK,
-			wantWs:      []view.WorkspaceEntry{{Id: "ws-a", Name: "Team A"}, {Id: "ws-c", Name: "Team C"}},
-			wantManaged: []view.WorkspaceEntry{{Id: "ws-c", Name: "Team C"}},
+			wantWs:      []view.WorkspaceEntry{{Id: "ws-a", Name: "Team A", Sources: []string{"direct"}}, {Id: "ws-c", Name: "Team C", Sources: []string{"group:g"}}},
+			wantManaged: []view.WorkspaceEntry{{Id: "ws-c", Name: "Team C", Sources: []string{"group:g"}}},
 		},
 		{
 			name:        "an overlay of another user adds nothing",
@@ -221,6 +222,12 @@ func TestSelfWorkspacesMatchTheUserRecord(t *testing.T) {
 	rsp := getSelfWorkspaces(h, "u1", nil)
 	var got view.UserWorkspacesResponse
 	require.NoError(t, json.Unmarshal(rsp.Body.Bytes(), &got))
+	for i := range got.Workspaces {
+		got.Workspaces[i].Sources = nil
+	}
+	for i := range got.ManagedWorkspaces {
+		got.ManagedWorkspaces[i].Sources = nil
+	}
 	require.Equal(t, item.Workspaces, got.Workspaces)
 	require.Equal(t, item.ManagedWorkspaces, got.ManagedWorkspaces)
 }
@@ -237,8 +244,8 @@ func TestUserRecordKeepsNullListsWithoutWorkspaces(t *testing.T) {
 }
 
 // The new route sits next to /users/:name and /users/:name/settings in the route table.
-// The three must keep resolving to their own handlers, and the route serves the caller
-// only: another user's id is not a path of it.
+// The routes must keep resolving to their own handlers: self/workspaces serves the caller,
+// and :name/workspaces serves the named user.
 func TestSelfWorkspacesRoute(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	real := gin.New()
@@ -269,7 +276,7 @@ func TestSelfWorkspacesRoute(t *testing.T) {
 		{root + "/self/settings", http.StatusOK, root + "/:name/settings"},
 		{root + "/u1/settings", http.StatusOK, root + "/:name/settings"},
 		{root + "/self/workspaces", http.StatusOK, root + "/self/workspaces"},
-		{root + "/u1/workspaces", http.StatusNotFound, ""},
+		{root + "/u1/workspaces", http.StatusOK, root + "/:name/workspaces"},
 	} {
 		rsp := httptest.NewRecorder()
 		probe.ServeHTTP(rsp, httptest.NewRequest(http.MethodGet, tt.path, nil))

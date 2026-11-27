@@ -7,6 +7,7 @@ package emailrelayhandlers
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -21,10 +22,14 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	apimetrics "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/metrics"
 	apiutils "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/utils"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbClient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	dbModel "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/notification/channel"
 )
+
+// EmailRelayTokenHeader carries the dedicated token that authorizes only POST /api/v1/email-relay/submit.
+const EmailRelayTokenHeader = "X-Email-Relay-Token"
 
 // emailOutboxStore is the subset of the database client used by the email relay
 // handler. Declaring it as an interface lets unit tests inject a mock store.
@@ -263,6 +268,27 @@ func (h *Handler) sendSSEEvent(c *gin.Context, flusher interface{ Flush() }, ite
 	c.SSEvent("email", string(data))
 	if flusher != nil {
 		flusher.Flush()
+	}
+}
+
+// AuthorizeSubmit returns the middleware of the submit route. A request with the EmailRelayTokenHeader
+// header is accepted only when it matches the configured submit token (constant-time comparison) and is
+// refused with 401 otherwise; any other request is authorized by AuthorizeRelay.
+func (h *Handler) AuthorizeSubmit() gin.HandlerFunc {
+	authorizeRelay := h.AuthorizeRelay()
+	return func(c *gin.Context) {
+		token := c.GetHeader(EmailRelayTokenHeader)
+		if token == "" {
+			authorizeRelay(c)
+			return
+		}
+		want := commonconfig.GetEmailRelaySubmitToken()
+		if want == "" || subtle.ConstantTimeCompare([]byte(want), []byte(token)) != 1 {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid " + EmailRelayTokenHeader})
+			c.Abort()
+			return
+		}
+		c.Next()
 	}
 }
 

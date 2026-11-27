@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -143,6 +145,28 @@ func TestVerifyToken_MissingInternalToken(t *testing.T) {
 	defer cleanup()
 
 	w := callVerifyToken(t, VerifyTokenRequest{Cookie: "Token=xxx"}, "")
+	assert.Equal(t, http.StatusForbidden, w.Code)
+}
+
+// TestVerifyToken_RefusesEmailRelayToken verifies the e-mail relay submit token does not authorize verify.
+func TestVerifyToken_RefusesEmailRelayToken(t *testing.T) {
+	cleanup := setupInternalAuth(t)
+	defer cleanup()
+	path := filepath.Join(t.TempDir(), "token")
+	assert.NoError(t, os.WriteFile(path, []byte("relay-secret"), 0o600))
+	commonconfig.SetValue("email_relay.submit_token_file", path)
+	defer commonconfig.UnsetValue("email_relay.submit_token_file")
+
+	body, err := json.Marshal(VerifyTokenRequest{Cookie: "Token=xxx"})
+	assert.NoError(t, err)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/verify", bytes.NewReader(body))
+	c.Request.Header.Set("X-Email-Relay-Token", "relay-secret")
+	VerifyToken(c)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+
+	w = callVerifyToken(t, VerifyTokenRequest{Cookie: "Token=xxx"}, "relay-secret")
 	assert.Equal(t, http.StatusForbidden, w.Code)
 }
 

@@ -1,6 +1,22 @@
 <template>
   <div class="home-layout">
     <div class="home-main">
+      <el-alert
+        v-if="noWorkspace"
+        type="info"
+        :closable="false"
+        show-icon
+        class="mb-4"
+        title="You have no workspace yet"
+      >
+        <div>Request access to a workspace, or join a team that has one.</div>
+        <div class="flex flex-wrap gap-2 mt-2">
+          <el-button type="primary" size="small" @click="router.push('/workspace-access')">
+            Request workspace access
+          </el-button>
+          <el-button v-if="teamsLink" size="small" @click="openTeams">View teams</el-button>
+        </div>
+      </el-alert>
       <div class="header-row">
     <h3 class="chart-title">Usage breakdown</h3>
     <div class="header-links">
@@ -160,6 +176,7 @@ import { useUserStore } from '@/stores/user'
 import { useRouter } from 'vue-router'
 import type { ScopesKeys } from '@/services/base/type'
 import { byte2Gi } from '@/utils/index'
+import { openIdentityConsole, teamsUrl } from '@/utils/identityConsole'
 import WorkspaceUsageSection from './WorkspaceUsageSection.vue'
 
 // Check if in production environment
@@ -187,6 +204,14 @@ const goToWlDetail = (row: any) => {
   const base = KindPathMap[getRowKind(row) as WorkloadKind]
   if (base) router.push({ path: `${base}/detail`, query: { id: row.workloadId } })
 }
+// A user who is not a system administrator and has no workspace is pointed to the access request page.
+const noWorkspace = computed(
+  () => store.isFetched && !store.items.length && !userStore.hasManagerAccess,
+)
+// The team list of the identity console, empty when no console address is set.
+const teamsLink = computed(() => teamsUrl(userStore.envs?.identityConsoleUrl))
+// Opens the team list of the identity console, signing in there first when needed.
+const openTeams = () => openIdentityConsole(userStore.envs, teamsLink.value)
 // The unified /workload-manage page is workspace-admin only (route guard
 // redirects regular users to /403), so only expose "View all" to those users.
 const canManageWorkloads = computed(

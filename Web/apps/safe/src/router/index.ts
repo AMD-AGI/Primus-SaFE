@@ -467,6 +467,25 @@ const router = createRouter({
           name: 'LLMGateway',
           component: () => import('@/pages/LLMGateway/index.vue'),
         },
+        // allowNoAccess: open to signed-in users without any workspace or cluster; see clusterReady.ts.
+        {
+          path: '/workspace-access',
+          name: 'WorkspaceAccess',
+          component: () => import('@/pages/WorkspaceAccess/index.vue'),
+          meta: { allowNoAccess: true },
+        },
+        {
+          path: '/workspace-access/approvals',
+          name: 'WorkspaceAccessApprovals',
+          component: () => import('@/pages/WorkspaceAccess/Approvals.vue'),
+          meta: { allowNoAccess: true },
+        },
+        {
+          path: '/workspace-access/requests/:id',
+          name: 'WorkspaceAccessRequest',
+          component: () => import('@/pages/WorkspaceAccess/RequestDetail.vue'),
+          meta: { allowNoAccess: true },
+        },
         {
           path: '/claw',
           name: 'PrimusClaw',

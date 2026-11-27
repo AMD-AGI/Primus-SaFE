@@ -42,6 +42,10 @@ spec:
             type: object
           spec:
             properties:
+              accessPolicy:
+                description: 'Whether users may request direct access: closed (default)
+                  or approval'
+                type: string
               cluster:
                 description: The cluster that the workspace belongs to
                 type: string
@@ -205,6 +209,23 @@ spec:
                   - Ray
                   - Sandbox
                   type: string
+                type: array
+              teams:
+                description: Teams whose members access the workspace
+                items:
+                  description: WorkspaceTeam binds a team of the identity service
+                    to the workspace.
+                  properties:
+                    name:
+                      description: Team id in the identity service
+                      type: string
+                    role:
+                      description: Role of the team members in the workspace, member
+                        by default
+                      type: string
+                  required:
+                  - name
+                  type: object
                 type: array
               volumes:
                 description: Volumes used in this workspace
