@@ -18,6 +18,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
@@ -223,4 +224,143 @@ func TestUpdateTeamWorkspacesReportsBindingsThatStayed(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError, rsp.Code, rsp.Body.String())
 	require.Contains(t, rsp.Body.String(), "ws-a (manager)")
 	require.Equal(t, []v1.WorkspaceTeam{{Name: "t1", Role: v1.WorkspaceTeamManager}}, boundTeams(t, h, "ws-a"))
+}
+
+// PUT /workspaces/:name/teams lets a workspace manager change member bindings only; a manager
+// binding, added or removed, needs a system administrator.
+func TestUpdateWorkspaceTeams(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := newChartTeamsHandler(t, interceptor.Funcs{}, genWorkspaceFixture("ws-a", "A"), genWorkspaceFixture("ws-b", "B"),
+		genUserFixture("admin", []v1.UserRole{v1.SystemAdminRole}, nil, nil),
+		genUserFixture("mgr", []v1.UserRole{v1.DefaultRole}, []string{"ws-a"}, []string{"ws-a"}))
+	useRecordedIdentity(t, "builtin", false)
+	ctx := context.Background()
+	put := func(user, workspace, body string) *httptest.ResponseRecorder {
+		return callTeamsBody(ctx, h.UpdateWorkspaceTeams, user, workspace, body, "")
+	}
+
+	rsp := put("mgr", "ws-a", `{"add":[{"name":"t1"}]}`)
+	require.Equal(t, http.StatusOK, rsp.Code, rsp.Body.String())
+	var got view.WorkspaceTeamsResponse
+	require.NoError(t, json.Unmarshal(rsp.Body.Bytes(), &got))
+	require.Equal(t, []v1.WorkspaceTeam{{Name: "t1", Role: v1.WorkspaceTeamMember}}, got.Teams)
+
+	require.Equal(t, http.StatusForbidden, put("mgr", "ws-a", `{"add":[{"name":"t2","role":"manager"}]}`).Code)
+	require.Equal(t, http.StatusForbidden, put("mgr", "ws-b", `{"add":[{"name":"t1"}]}`).Code)
+	require.Equal(t, http.StatusOK, put("admin", "ws-a", `{"add":[{"name":"t2","role":"manager"}]}`).Code)
+	require.Equal(t, http.StatusForbidden, put("mgr", "ws-a", `{"remove":["t2"]}`).Code)
+	require.Equal(t, http.StatusForbidden, put("mgr", "ws-a", `{"add":[{"name":"t2"}]}`).Code, "demoting a manager binding")
+	require.Equal(t, http.StatusOK, put("mgr", "ws-a", `{"remove":["t1"]}`).Code)
+	require.Equal(t, []v1.WorkspaceTeam{{Name: "t2", Role: v1.WorkspaceTeamManager}}, boundTeams(t, h, "ws-a"))
+
+	for _, body := range []string{
+		`{}`,
+		`{"add":[{"name":"t1"}],"remove":["t1"]}`,
+		`{"add":[{"name":"Bad_Team"}]}`,
+		`{"add":[{"name":"t1","role":"owner"}]}`,
+		`{"remove":[""]}`,
+	} {
+		require.Equal(t, http.StatusBadRequest, put("admin", "ws-a", body).Code, body)
+	}
+}
+
+// PATCH /workspaces/:name with teams, as a workspace manager: a member binding is allowed, a
+// manager binding and an access policy are refused.
+func TestPatchWorkspaceTeamsAsManager(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	wsA := genWorkspaceFixture("ws-a", "A")
+	wsA.TypeMeta = metav1.TypeMeta{Kind: v1.WorkspaceKind, APIVersion: v1.SchemeGroupVersion.String()}
+	h := newChartTeamsHandler(t, interceptor.Funcs{}, wsA,
+		genUserFixture("mgr", []v1.UserRole{v1.DefaultRole}, []string{"ws-a"}, []string{"ws-a"}))
+	useRecordedIdentity(t, "builtin", false)
+	ctx := context.Background()
+
+	rsp := callTeamsBody(ctx, h.PatchWorkspace, "mgr", "ws-a", `{"teams":[{"name":"t1"}]}`, "")
+	require.Equal(t, http.StatusOK, rsp.Code, rsp.Body.String())
+	require.Equal(t, []v1.WorkspaceTeam{{Name: "t1"}}, boundTeams(t, h, "ws-a"))
+	for _, body := range []string{
+		`{"teams":[{"name":"t1"},{"name":"t2","role":"manager"}]}`,
+		`{"accessPolicy":"approval"}`,
+	} {
+		rsp = callTeamsBody(ctx, h.PatchWorkspace, "mgr", "ws-a", body, "")
+		require.Equal(t, http.StatusForbidden, rsp.Code, body+": "+rsp.Body.String())
+		require.Contains(t, rsp.Body.String(), authority.SystemAdminRequired, body)
+	}
+	require.Equal(t, []v1.WorkspaceTeam{{Name: "t1"}}, boundTeams(t, h, "ws-a"))
+}
+
+// GET /users/:name/workspaces shows a workspace manager the workspaces of the target that the
+// manager manages, refuses a user who manages none of them, and shows an administrator all.
+func TestGetUserWorkspacesByCaller(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := newChartTeamsHandler(t, interceptor.Funcs{}, genWorkspaceFixture("ws-a", "A"), genWorkspaceFixture("ws-b", "B"),
+		genUserFixture("admin", []v1.UserRole{v1.SystemAdminRole}, nil, nil),
+		genUserFixture("mgr", []v1.UserRole{v1.DefaultRole}, []string{"ws-a"}, []string{"ws-a"}),
+		genUserFixture("outsider", []v1.UserRole{v1.DefaultRole}, nil, nil),
+		genUserFixture("u1", []v1.UserRole{v1.DefaultRole}, []string{"ws-a", "ws-b"}, nil))
+	useRecordedIdentity(t, "builtin", false)
+	ctx := context.Background()
+	ids := func(caller string) []string {
+		rsp := callTeamsBody(ctx, h.GetUserWorkspaces, caller, "u1", "", "")
+		require.Equal(t, http.StatusOK, rsp.Code, caller+": "+rsp.Body.String())
+		var got view.UserWorkspacesResponse
+		require.NoError(t, json.Unmarshal(rsp.Body.Bytes(), &got))
+		result := []string{}
+		for _, e := range got.Workspaces {
+			require.Equal(t, []string{"direct"}, e.Sources, e.Id)
+			result = append(result, e.Id)
+		}
+		require.Empty(t, got.ManagedWorkspaces)
+		return result
+	}
+
+	require.Equal(t, []string{"ws-a", "ws-b"}, ids("admin"))
+	require.Equal(t, []string{"ws-a"}, ids("mgr"))
+	rsp := callTeamsBody(ctx, h.GetUserWorkspaces, "outsider", "u1", "", "")
+	require.Equal(t, http.StatusForbidden, rsp.Code, rsp.Body.String())
+}
+
+// GET /workspaces/:name/members returns the direct users, the bound teams with the member count
+// and managers the identity service gives, also to a member who is in none of the teams, and the
+// platform groups. A team the service does not know is returned with its id and role only.
+func TestListWorkspaceMembersView(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	wsA := genWorkspaceFixture("ws-a", "A")
+	wsA.Spec.Teams = []v1.WorkspaceTeam{{Name: "t1"}, {Name: "t2", Role: v1.WorkspaceTeamManager}, {Name: "t3"}}
+	h := newChartTeamsHandler(t, interceptor.Funcs{}, wsA,
+		genUserFixture("mgr", []v1.UserRole{v1.DefaultRole}, []string{"ws-a"}, []string{"ws-a"}),
+		genUserFixture("u1", []v1.UserRole{v1.DefaultRole}, []string{"ws-a"}, nil),
+		genUserFixture("outsider", []v1.UserRole{v1.DefaultRole}, nil, nil))
+	useIdentityServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/teams":
+			_, _ = w.Write([]byte(`{"items":[{"teamId":"t1","displayName":"Team 1","memberCount":4,"managers":["m1"]}]}`))
+		case "/api/v1/teams/t2/members":
+			_, _ = w.Write([]byte(`{"items":[{"userId":"m2","name":"M2","email":"m2@example.com","role":"manager"},{"userId":"u2","role":"member"}]}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+	setTeamsConfig(t, "auth.group_mappings", []map[string]any{{"group": "g1", "workspaces": []string{"ws-a"}}})
+
+	rsp := callTeamsBody(context.Background(), h.ListWorkspaceMembers, "u1", "ws-a", "", "")
+	require.Equal(t, http.StatusOK, rsp.Code, rsp.Body.String())
+	var got view.WorkspaceMembersResponse
+	require.NoError(t, json.Unmarshal(rsp.Body.Bytes(), &got))
+	require.Equal(t, []view.WorkspaceMemberUser{
+		{Id: "mgr", Name: "mgr", Role: v1.WorkspaceTeamManager, Source: "direct"},
+		{Id: "u1", Name: "u1", Role: v1.WorkspaceTeamMember, Source: "direct"},
+	}, got.Users)
+	four, two := 4, 2
+	require.Equal(t, []view.WorkspaceMemberTeam{
+		{Id: "t1", DisplayName: "Team 1", Role: v1.WorkspaceTeamMember, MemberCount: &four, Source: "team:t1",
+			Managers: []view.WorkspaceMemberManager{{Id: "m1"}}},
+		{Id: "t2", Role: v1.WorkspaceTeamManager, MemberCount: &two, Source: "team:t2",
+			Managers: []view.WorkspaceMemberManager{{Id: "m2", Name: "M2", Email: "m2@example.com"}}},
+		{Id: "t3", Role: v1.WorkspaceTeamMember, Source: "team:t3"},
+	}, got.Teams)
+	require.Equal(t, []view.WorkspaceMemberGroup{{Name: "g1", Role: v1.WorkspaceTeamMember, Source: "group:g1"}}, got.Groups)
+
+	rsp = callTeamsBody(context.Background(), h.ListWorkspaceMembers, "outsider", "ws-a", "", "")
+	require.Equal(t, http.StatusForbidden, rsp.Code, rsp.Body.String())
 }
