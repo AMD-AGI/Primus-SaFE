@@ -182,6 +182,11 @@ data:
     notification:
       enable: {{ or (and .Values.notification .Values.notification.email .Values.notification.email.smtp_host) (and .Values.notification .Values.notification.email_relay .Values.notification.email_relay.enable) | default false }}
       secret_path: /etc/secrets/notification
+    {{- if .Values.db.enable }}
+    email_relay:
+      # File of the token that authorizes only POST /api/v1/email-relay/submit (header X-Email-Relay-Token).
+      submit_token_file: /etc/secrets/email-relay-submit/token
+    {{- end }}
     sandbox:
       enable: {{ .Values.sandbox.enable }}
     tracing:

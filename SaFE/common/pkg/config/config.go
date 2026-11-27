@@ -651,6 +651,21 @@ func GetNotificationConfig() string {
 	return getFromFile(notificationSecretPath, "config")
 }
 
+// GetEmailRelaySubmitToken returns the token that authorizes only the e-mail relay submit route, read
+// from the file at email_relay.submit_token_file on every call so a rotated Secret takes effect without
+// a restart. "" when the file is not configured or not readable.
+func GetEmailRelaySubmitToken() string {
+	path := getString(emailRelaySubmitTokenFile, "")
+	if path == "" {
+		return ""
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
 // GetSystemHost returns the host of the system. e.g. tw325.primus-safe.amd.com
 func GetSystemHost() string {
 	subDomainConfig := GetSubDomain()

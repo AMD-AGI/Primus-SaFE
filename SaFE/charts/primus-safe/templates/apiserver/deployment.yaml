@@ -74,6 +74,9 @@ spec:
             - name: db-secret
               mountPath: {{ default "/etc/secrets/db" (default .Values.db).secret_path }}
               readOnly: true
+            - name: email-relay-submit
+              mountPath: /etc/secrets/email-relay-submit
+              readOnly: true
             {{- end }}
             {{- if and .Values.opensearch.enable (or (empty .Values.opensearch.username) (empty .Values.opensearch.password)) }}
             - name: opensearch-secret
@@ -160,6 +163,11 @@ spec:
         - name: db-secret
           secret:
             secretName: {{ .Release.Name }}-pguser-{{ .Release.Name }}
+        - name: email-relay-submit
+          secret:
+            secretName: {{ .Release.Name }}-email-relay-submit
+            # Optional so the apiserver starts without it; the submit token is then refused.
+            optional: true
         {{- end }}
         {{- if and .Values.opensearch.enable (or (empty .Values.opensearch.username) (empty .Values.opensearch.password)) }}
         - name: opensearch-secret

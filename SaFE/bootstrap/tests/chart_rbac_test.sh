@@ -87,8 +87,8 @@ for set in default crossns nocopy; do
 done
 
 NAMED='[.[] | select(.kind == "Role" and .metadata.name == "secret-manager" and .metadata.namespace == "primus-safe") | .rules[] | .resourceNames // [] | .[]]'
-q default "$NAMED | (index(\"primus-safe-crypto\") and index(\"primus-safe-ssh-proxy\") and index(\"primus-safe-opensearch-config\"))" \
-  && pass "default: hook Role names the crypto, ssh and opensearch secrets" || fail "default: hook Role misses a secret: $(jq -c "$NAMED" "$W/default.json")"
+q default "$NAMED | (index(\"primus-safe-crypto\") and index(\"primus-safe-ssh-proxy\") and index(\"primus-safe-email-relay-submit\") and index(\"primus-safe-opensearch-config\"))" \
+  && pass "default: hook Role names the crypto, ssh, email relay and opensearch secrets" || fail "default: hook Role misses a secret: $(jq -c "$NAMED" "$W/default.json")"
 q nocopy "$NAMED | index(\"primus-safe-opensearch-config\") | not" \
   && pass "nocopy: no opensearch secret when copy-opensearch-secret is not rendered" || fail "nocopy: hook Role still names the opensearch secret"
 q nocopy '[.[] | select(.kind == "Job" and .metadata.name == "copy-opensearch-secret")] | length == 0' \

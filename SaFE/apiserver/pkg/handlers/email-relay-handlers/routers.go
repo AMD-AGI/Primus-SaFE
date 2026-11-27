@@ -17,12 +17,15 @@ import (
 //   - SaFE API key (Authorization: Bearer <api-key>)
 //   - SaFE user session token (Cookie)
 //   - X-Internal-Token (service-to-service)
+//
+// The submit endpoint also accepts X-Email-Relay-Token, the dedicated submit token.
 func InitEmailRelayRouters(e *gin.Engine, h *Handler) {
-	group := e.Group(common.PrimusRouterCustomRootPath+"/email-relay", h.AuthorizeRelay())
+	root := common.PrimusRouterCustomRootPath + "/email-relay"
+	e.POST(root+"/submit", h.AuthorizeSubmit(), middleware.Audit("email-relay", "submit"), h.Submit)
+	group := e.Group(root, h.AuthorizeRelay())
 	{
 		group.GET("/stream", h.Stream)
 		group.POST("/:id/ack", h.Ack)
 		group.POST("/:id/fail", h.Fail)
-		group.POST("/submit", middleware.Audit("email-relay", "submit"), h.Submit)
 	}
 }

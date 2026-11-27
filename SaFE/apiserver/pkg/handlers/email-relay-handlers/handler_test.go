@@ -10,6 +10,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +21,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbModel "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
 )
 
@@ -119,6 +123,76 @@ func TestAuthorizeRelay(t *testing.T) {
 	engine.ServeHTTP(w, req)
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("status = %d, want 401", w.Code)
+	}
+}
+
+// setRelaySubmitToken writes token to a file configured as email_relay.submit_token_file.
+func setRelaySubmitToken(t *testing.T, token string) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(path, []byte(token+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	commonconfig.SetValue("email_relay.submit_token_file", path)
+	t.Cleanup(func() { commonconfig.UnsetValue("email_relay.submit_token_file") })
+}
+
+// serveRelay sends a request carrying the relay token header through the relay routes.
+func serveRelay(h *Handler, method, path, body, relayToken string) *httptest.ResponseRecorder {
+	engine := gin.New()
+	InitEmailRelayRouters(engine, h)
+	req := httptest.NewRequest(method, "/"+common.PrimusRouterCustomRootPath+"/email-relay"+path, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	if relayToken != "" {
+		req.Header.Set(EmailRelayTokenHeader, relayToken)
+	}
+	w := httptest.NewRecorder()
+	engine.ServeHTTP(w, req)
+	return w
+}
+
+// TestRelayTokenAcceptedOnSubmit verifies the submit token authorizes the submit route.
+func TestRelayTokenAcceptedOnSubmit(t *testing.T) {
+	setRelaySubmitToken(t, "relay-secret")
+	store := &fakeOutboxStore{}
+	w := serveRelay(&Handler{dbClient: store}, http.MethodPost, "/submit",
+		`{"source":"identity","recipients":["a@b.com"],"subject":"s","content":"c"}`, "relay-secret")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body=%s", w.Code, w.Body.String())
+	}
+	if store.createdOutbox == nil {
+		t.Error("expected outbox to be created")
+	}
+}
+
+// TestRelayTokenWrongIsUnauthorized verifies a wrong or unconfigured submit token is refused with 401.
+func TestRelayTokenWrongIsUnauthorized(t *testing.T) {
+	body := `{"recipients":["a@b.com"],"subject":"s","content":"c"}`
+	if w := serveRelay(&Handler{dbClient: &fakeOutboxStore{}}, http.MethodPost, "/submit", body, "relay-secret"); w.Code != http.StatusUnauthorized {
+		t.Errorf("unconfigured: status = %d, want 401", w.Code)
+	}
+	setRelaySubmitToken(t, "relay-secret")
+	store := &fakeOutboxStore{}
+	if w := serveRelay(&Handler{dbClient: store}, http.MethodPost, "/submit", body, "relay-secreT"); w.Code != http.StatusUnauthorized {
+		t.Errorf("wrong token: status = %d, want 401", w.Code)
+	}
+	if store.createdOutbox != nil {
+		t.Error("outbox must not be written with a wrong token")
+	}
+}
+
+// TestRelayTokenRefusedOutsideSubmit verifies the submit token does not authorize the other relay routes.
+func TestRelayTokenRefusedOutsideSubmit(t *testing.T) {
+	setRelaySubmitToken(t, "relay-secret")
+	h := &Handler{dbClient: &fakeOutboxStore{}}
+	if w := serveRelay(h, http.MethodGet, "/stream", "", "relay-secret"); w.Code != http.StatusUnauthorized {
+		t.Errorf("stream: status = %d, want 401", w.Code)
+	}
+	if w := serveRelay(h, http.MethodPost, "/5/ack", "", "relay-secret"); w.Code != http.StatusUnauthorized {
+		t.Errorf("ack: status = %d, want 401", w.Code)
+	}
+	if w := serveRelay(h, http.MethodPost, "/5/fail", "", "relay-secret"); w.Code != http.StatusUnauthorized {
+		t.Errorf("fail: status = %d, want 401", w.Code)
 	}
 }
 

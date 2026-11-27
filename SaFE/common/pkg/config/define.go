@@ -167,6 +167,9 @@ const (
 	notificationEnable     = notificationPrefix + "enable"
 	notificationSecretPath = notificationPrefix + "secret_path"
 
+	// email relay
+	emailRelaySubmitTokenFile = "email_relay.submit_token_file"
+
 	// sso
 	ssoPrefix     = "sso."
 	ssoEnable     = ssoPrefix + "enable"
