@@ -2185,11 +2185,18 @@ func TestS3TLSItemsOfTheSecret(t *testing.T) {
 	}
 }
 
+// The identity console address is the configured path or http(s) URL; unset, it is /identity in external mode
+// and empty in builtin mode.
 func TestGetIdentityConsoleURL(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
 
+	viper.Set("auth.mode", AuthModeBuiltin)
 	testifyrequire.Equal(t, "", GetIdentityConsoleURL())
+	viper.Set("auth.mode", AuthModeExternal)
+	testifyrequire.Equal(t, "/identity", GetIdentityConsoleURL())
+	viper.Set("identity.console_url", "  ")
+	testifyrequire.Equal(t, "/identity", GetIdentityConsoleURL())
 	viper.Set("identity.console_url", " https://host.example/identity/ ")
 	testifyrequire.Equal(t, "https://host.example/identity", GetIdentityConsoleURL())
 	viper.Set("identity.console_url", "/identity")

@@ -562,10 +562,19 @@ func GetConsoleAccessContact() string {
 	return strings.TrimSpace(getString(consoleAccessContact, ""))
 }
 
+// DefaultIdentityConsoleURL is the identity console on the console host, used in external mode when
+// identity.console_url is unset or blank.
+const DefaultIdentityConsoleURL = "/identity"
+
 // GetIdentityConsoleURL returns identity.console_url without a trailing slash: the address of the identity
-// console, from which links to team pages are built. Only a path or an http(s) URL counts; empty by default.
+// console, from which links to team pages are built. Only a path or an http(s) URL counts. Unset or blank:
+// DefaultIdentityConsoleURL in external mode, empty otherwise.
 func GetIdentityConsoleURL() string {
-	return strings.TrimRight(consoleURL(getString(identityConsoleURL, "")), "/")
+	def := ""
+	if GetAuthMode() == AuthModeExternal {
+		def = DefaultIdentityConsoleURL
+	}
+	return strings.TrimRight(consoleURL(stringOr(identityConsoleURL, def)), "/")
 }
 
 // DefaultWorkspaceAccessPendingTTL is how long a workspace access request stays pending before it is closed.

@@ -293,7 +293,7 @@ console:
   # return_prefixes: ["/dispatron", "/autopilot", "/binding", "/blog-drafts", "/identity"]
 identity:
   # Address of the identity console, a path ("/identity") or an http(s) URL. SaFE links to team pages as
-  # <console_url>/teams/<teamId> and the web app reads it from /envs. Empty (the default) shows no link.
+  # <console_url>/teams/<teamId> and the web app reads it from /envs. Empty: "/identity" in external mode.
   console_url: ""
 workspace_access:
   # How long a workspace access request stays pending before resource-manager closes it, a Go duration.

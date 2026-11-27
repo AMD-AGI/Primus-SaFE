@@ -129,7 +129,7 @@ data:
       return_prefixes: {{ toJson $returnPrefixes }}
       {{- end }}
     identity:
-      # Address of the identity console, used to link to team pages: <console_url>/teams/<teamId>. Empty by default.
+      # Address of the identity console, used to link to team pages: <console_url>/teams/<teamId>. Empty: "/identity" in external mode.
       console_url: {{ default "" (default dict .Values.identity).console_url | quote }}
     tls:
       # Verify TLS certificates for outbound HTTPS calls to model endpoints and
