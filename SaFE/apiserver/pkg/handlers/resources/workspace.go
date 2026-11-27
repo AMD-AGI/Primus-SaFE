@@ -337,10 +337,20 @@ func (h *Handler) applyWorkspacePatch(ctx context.Context,
 	return h.applyWorkspaceTeamsPatch(ctx, workspace, requestUser, req)
 }
 
-// applyWorkspaceTeamsPatch applies the teams and accessPolicy fields of a patch. A change to a
-// manager binding, and any change to the access policy, needs a system administrator.
+// applyWorkspaceTeamsPatch validates and applies the teams and accessPolicy fields of a patch. A
+// change to a manager binding, and any change to the access policy, needs a system administrator.
 func (h *Handler) applyWorkspaceTeamsPatch(ctx context.Context,
 	workspace *v1.Workspace, requestUser *v1.User, req *view.PatchWorkspaceRequest) error {
+	if req.Teams != nil {
+		if err := validateWorkspaceTeams(*req.Teams); err != nil {
+			return err
+		}
+	}
+	if req.AccessPolicy != nil {
+		if err := validateAccessPolicy(*req.AccessPolicy); err != nil {
+			return err
+		}
+	}
 	if req.Teams != nil {
 		if err := h.authorizeTeamsChange(ctx, requestUser, workspace.Spec.Teams, *req.Teams); err != nil {
 			return err
@@ -664,12 +674,6 @@ func (h *Handler) applyCreateTeams(ctx context.Context,
 	workspace *v1.Workspace, requestUser *v1.User, req *view.CreateWorkspaceRequest) error {
 	if len(req.Teams) == 0 && req.AccessPolicy == "" {
 		return nil
-	}
-	if err := validateWorkspaceTeams(req.Teams); err != nil {
-		return err
-	}
-	if err := validateAccessPolicy(req.AccessPolicy); err != nil {
-		return err
 	}
 	patch := &view.PatchWorkspaceRequest{}
 	if len(req.Teams) > 0 {

@@ -133,6 +133,23 @@ func TestMemberEndpointsReportIdentityFailures(t *testing.T) {
 	}
 }
 
+// PATCH /workspaces/:name answers 400 to invalid team bindings and access policies, and writes nothing.
+func TestPatchWorkspaceValidatesTeams(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := newChartTeamsHandler(t, interceptor.Funcs{}, genWorkspaceFixture("ws-a", "A"),
+		genUserFixture("admin", []v1.UserRole{v1.SystemAdminRole}, nil, nil))
+	for _, body := range []string{
+		`{"teams":[{"name":"Bad_Team"}]}`,
+		`{"teams":[{"name":"t1","role":"owner"}]}`,
+		`{"teams":[{"name":"t1"},{"name":"t1","role":"manager"}]}`,
+		`{"accessPolicy":"open"}`,
+	} {
+		rsp := callTeamsBody(context.Background(), h.PatchWorkspace, "admin", "ws-a", body, "")
+		require.Equal(t, http.StatusBadRequest, rsp.Code, body+": "+rsp.Body.String())
+	}
+	require.Empty(t, boundTeams(t, h, "ws-a"))
+}
+
 // failingTeamsHandler returns a handler whose write of ws-b fails. Before failing, it runs change on
 // the stored ws-a, as another administrator would between the writes of the batch.
 func failingTeamsHandler(t *testing.T, change func(*v1.Workspace), wsA *v1.Workspace) *Handler {
