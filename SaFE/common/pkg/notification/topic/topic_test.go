@@ -17,4 +17,5 @@ func TestNewTopics(t *testing.T) {
 	topics := NewTopics()
 	assert.Contains(t, topics, model.TopicWorkload)
 	assert.Equal(t, model.TopicWorkload, topics[model.TopicWorkload].Name())
+	assert.Equal(t, model.TopicWorkspaceAccess, topics[model.TopicWorkspaceAccess].Name())
 }

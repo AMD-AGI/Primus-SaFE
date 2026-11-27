@@ -281,8 +281,12 @@ func TestEveryAuthenticatedRouteRefusesAUserWhoHoldsNoAccess(t *testing.T) {
 			"%s %s was not refused by the gate for a user who holds no access: %d %s", r.Method, r.Path, code, body)
 	}
 	sort.Strings(served)
-	require.Equal(t, []string{"GET /api/v1/users/:name", "GET /api/v1/users/self/workspaces", "POST /api/v1/logout"}, served,
-		"the routes served to a user who holds no access are not the three own-record routes")
+	require.Equal(t, []string{
+		"GET /api/v1/users/:name", "GET /api/v1/users/self/workspaces",
+		"GET /api/v1/workspace-access-requests", "GET /api/v1/workspace-access-requests/:name",
+		"GET /api/v1/workspaces/catalog", "POST /api/v1/logout", "POST /api/v1/workspace-access-requests",
+		"POST /api/v1/workspace-access-requests/:name/cancel",
+	}, served, "the routes served to a user who holds no access are not the own-record and access request routes")
 
 	// 4. The gate costs everyone else nothing: no route is refused by it for a user who holds access.
 	for _, who := range []string{"plain-user", "admin-user"} {

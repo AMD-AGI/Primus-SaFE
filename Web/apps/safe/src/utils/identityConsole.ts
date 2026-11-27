@@ -83,3 +83,15 @@ export function teamUrl(base: string | null | undefined, id: string): string {
   const list = teamsUrl(base)
   return list && id ? `${list}/${encodeURIComponent(id)}` : ''
 }
+
+/** Link to the caller's team join requests in the identity console, or '' when the console address is not set. */
+export function teamRequestsUrl(base: string | null | undefined): string {
+  const root = consoleBase(base)
+  return root ? `${root}/requests` : ''
+}
+
+/** Link to the team join requests the caller may decide in the identity console, or '' when the console address is not set. */
+export function teamApprovalsUrl(base: string | null | undefined): string {
+  const root = consoleBase(base)
+  return root ? `${root}/approvals` : ''
+}

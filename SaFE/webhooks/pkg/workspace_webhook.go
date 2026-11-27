@@ -813,10 +813,16 @@ func (v *WorkspaceValidator) Handle(ctx context.Context, req admission.Request) 
 	return admission.Allowed("")
 }
 
+// reservedWorkspaceCatalog is the path segment of GET /workspaces/catalog, which no new workspace may take as name.
+const reservedWorkspaceCatalog = "catalog"
+
 // validateOnCreation validates workspace required params, volumes and related resources on creation.
 func (v *WorkspaceValidator) validateOnCreation(ctx context.Context, workspace *v1.Workspace) error {
 	if v1.IsExternalWorkspace(workspace) && !commonconfig.IsExternalExecutionEnable() {
 		return commonerrors.NewForbidden("external execution is not enabled in this deployment")
+	}
+	if workspace.Name == reservedWorkspaceCatalog {
+		return commonerrors.NewBadRequest("the name of workspace is invalid. It cannot be reserved words")
 	}
 	if err := v.validateCommon(ctx, workspace, nil); err != nil {
 		return err

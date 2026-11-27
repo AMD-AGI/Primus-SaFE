@@ -295,6 +295,9 @@ identity:
   # Address of the identity console, a path ("/identity") or an http(s) URL. SaFE links to team pages as
   # <console_url>/teams/<teamId> and the web app reads it from /envs. Empty (the default) shows no link.
   console_url: ""
+workspace_access:
+  # How long a workspace access request stays pending before resource-manager closes it, a Go duration.
+  pending_ttl: "336h"
 # Pluggable authentication, in the Kubernetes style. Authorization (roles, workspaces) always stays in SaFE.
 # See docs/apis/external-authentication.md.
 auth:

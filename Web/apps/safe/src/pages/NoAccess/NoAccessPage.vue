@@ -4,7 +4,7 @@
       <h1 class="title">No access yet</h1>
       <p class="lead">
         Your account is signed in, but it has not been given access to anything on this platform.
-        Ask the contact below to grant it, then check again.
+        Ask the contact below to grant it, or request access to a workspace, then check again.
       </p>
 
       <dl class="account">
@@ -30,6 +30,7 @@
 
       <div class="actions">
         <el-button type="primary" :loading="checking" @click="checkAgain">Check again</el-button>
+        <el-button @click="router.push('/workspace-access')">Request workspace access</el-button>
         <el-button v-if="teamsLink" @click="openTeams">View teams</el-button>
         <el-button :loading="signingOut" @click="signOut">Sign out</el-button>
       </div>
@@ -42,6 +43,7 @@ import { onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useNoAccess } from './useNoAccess'
 
+const router = useRouter()
 const {
   name,
   email,
@@ -57,7 +59,7 @@ const {
   copyId,
   checkAgain,
   signOut,
-} = useNoAccess(useRouter())
+} = useNoAccess(router)
 
 onMounted(loadContact)
 </script>
@@ -133,6 +135,7 @@ onMounted(loadContact)
 
 .actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 12px;
 }
 </style>

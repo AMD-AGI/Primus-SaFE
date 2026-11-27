@@ -99,6 +99,21 @@ func InitCustomRouters(e *gin.Engine, h *Handler) {
 			workspaces.GET("", h.ListWorkspace)
 			workspaces.PUT(fmt.Sprintf("/:%s/teams", common.Name), middleware.Audit("workspace", "teams"), h.UpdateWorkspaceTeams)
 			workspaces.GET(fmt.Sprintf("/:%s/members", common.Name), h.ListWorkspaceMembers)
+			workspaces.GET("/catalog", h.ListWorkspaceCatalog)
+		}
+
+		// ==================== Workspace Access Requests ====================
+		accessRequests := authGroup.Group("/workspace-access-requests")
+		{
+			accessRequests.POST("", middleware.Audit("workspace-access-request"), h.CreateWorkspaceAccessRequest)
+			accessRequests.GET("", h.ListWorkspaceAccessRequests)
+			accessRequests.GET(fmt.Sprintf("/:%s", common.Name), h.GetWorkspaceAccessRequest)
+			accessRequests.POST(fmt.Sprintf("/:%s/approve", common.Name),
+				middleware.Audit("workspace-access-request", "approve"), h.ApproveWorkspaceAccessRequest)
+			accessRequests.POST(fmt.Sprintf("/:%s/reject", common.Name),
+				middleware.Audit("workspace-access-request", "reject"), h.RejectWorkspaceAccessRequest)
+			accessRequests.POST(fmt.Sprintf("/:%s/cancel", common.Name),
+				middleware.Audit("workspace-access-request", "cancel"), h.CancelWorkspaceAccessRequest)
 		}
 
 		// ==================== Teams ====================

@@ -568,6 +568,25 @@ func GetIdentityConsoleURL() string {
 	return strings.TrimRight(consoleURL(getString(identityConsoleURL, "")), "/")
 }
 
+// DefaultWorkspaceAccessPendingTTL is how long a workspace access request stays pending before it is closed.
+const DefaultWorkspaceAccessPendingTTL = 336 * time.Hour
+
+// GetWorkspaceAccessPendingTTL returns workspace_access.pending_ttl, a Go duration. A missing, invalid or
+// non-positive value is DefaultWorkspaceAccessPendingTTL.
+func GetWorkspaceAccessPendingTTL() time.Duration {
+	ttl, err := time.ParseDuration(strings.TrimSpace(getString(workspaceAccessPendingTTL, "")))
+	if err != nil || ttl <= 0 {
+		return DefaultWorkspaceAccessPendingTTL
+	}
+	return ttl
+}
+
+// GetConsoleOrigin returns the external address of the console, https://<sub_domain>.<domain>, or ""
+// when either part is unset.
+func GetConsoleOrigin() string {
+	return clusterOrigin()
+}
+
 // DefaultConsoleReturnPrefixes are the web apps on the console's host that a sign-in returns to
 // when console.return_prefixes is not set.
 var DefaultConsoleReturnPrefixes = []string{"/dispatron", "/autopilot", "/binding", "/blog-drafts", "/identity"}

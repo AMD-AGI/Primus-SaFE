@@ -23,6 +23,9 @@ export default function setupClusterGuard(router: Router) {
     const clusterStore = useClusterStore()
     const wsStore = useWorkspaceStore()
     const userStore = useUserStore()
+    // The workspace access pages need neither a cluster nor a workspace: a signed-in user who has
+    // no access yet opens them to ask for it.
+    const accessPage = to.meta?.allowNoAccess === true
 
     try {
       if (!userStore.isLogin) {
@@ -40,9 +43,15 @@ export default function setupClusterGuard(router: Router) {
           // code). That is not a fault: say so, from whatever page was asked for. Any other
           // failure, including a different 403 (a role check that failed for a user who does
           // hold other access), is handled as before.
-          if (isNoAccess(e)) return next('/no-access')
+          if (isNoAccess(e)) return accessPage ? next() : next('/no-access')
           throw e
         }
+      }
+
+      if (accessPage) {
+        // Loaded for the workspace selector of the layout; a user without a cluster has none.
+        if (clusterStore.currentClusterId) await wsStore.fetchWorkspace()
+        return next()
       }
 
       // Admins are allowed to proceed even when no cluster is available
@@ -96,8 +105,8 @@ export default function setupClusterGuard(router: Router) {
         })
         clusterStore.$reset()
         wsStore.$reset()
-        const redirect = encodeURIComponent(to.fullPath || '/')
-        return next({ path: '/login', query: { redirect } })
+        // The router encodes the query value itself.
+        return next({ path: '/login', query: { redirect: to.fullPath || '/' } })
       }
 
       if (to.path !== '/error') {

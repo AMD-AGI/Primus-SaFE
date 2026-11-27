@@ -319,12 +319,72 @@ func TestAuthenticateRequestFollowsTheBaseRolesInExternalMode(t *testing.T) {
 	}
 }
 
-// The exported route set is exactly the three routes the design names.
+// In external mode with the minimal base role, a user whose record holds a direct workspace (an approved
+// access request) holds access, and holds no access again once removed from the workspace. The default
+// role is derived per request and never stored.
+func TestAuthenticateRequestFollowsTheDirectWorkspacesOfTheRecord(t *testing.T) {
+	viper.Set("users.base_roles", []string{"self-read"})
+	t.Cleanup(func() { viper.Set("users.base_roles", nil) })
+	e := newExtEnv(t, nil, false)
+	for _, r := range authtest.ChartRoles(t) {
+		require.NoError(t, e.cli.Create(t.Context(), r.(*v1.Role)))
+	}
+	e.revUsers["tok"] = map[string]any{"sub": "approved", "username": "approved", "aud": extAudience}
+
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	api := engine.Group("/api/v1", func(c *gin.Context) {
+		if err := AuthenticateRequest(c); err != nil {
+			abortAs(c, err)
+			return
+		}
+		c.Next()
+	})
+	api.GET("/clusters", func(c *gin.Context) { c.String(http.StatusOK, "reached") })
+	api.GET("/users/:name", func(c *gin.Context) { c.String(http.StatusOK, "reached") })
+	call := func(path string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("Authorization", "Bearer tok")
+		w := httptest.NewRecorder()
+		engine.ServeHTTP(w, req)
+		return w
+	}
+	setWorkspaces := func(workspaces ...string) {
+		u := &v1.User{}
+		require.NoError(t, e.cli.Get(t.Context(), client.ObjectKey{Name: "approved"}, u))
+		commonuser.AssignWorkspace(u, workspaces...)
+		require.NoError(t, e.cli.Update(t.Context(), u))
+	}
+
+	require.Equal(t, http.StatusOK, call("/api/v1/users/self").Code)
+	require.Equal(t, http.StatusForbidden, call("/api/v1/clusters").Code)
+
+	setWorkspaces("ws-a")
+	w := call("/api/v1/clusters")
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	setWorkspaces()
+	w = call("/api/v1/clusters")
+	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
+	require.Contains(t, w.Body.String(), commonerrors.NoAccess)
+
+	u := &v1.User{}
+	require.NoError(t, e.cli.Get(t.Context(), client.ObjectKey{Name: "approved"}, u))
+	require.False(t, v1.IsContainRole(u.Spec.Roles, v1.DefaultRole))
+}
+
+// The exported route set is exactly the routes the design names: the own record routes and the
+// workspace access request routes a requester uses.
 func TestNoAccessRoutesAreExactlyTheOwnRecordRoutes(t *testing.T) {
 	require.True(t, IsNoAccessRoute(http.MethodGet, "/api/v1/users/:name"))
 	require.True(t, IsNoAccessRoute(http.MethodGet, "/api/v1/users/self/workspaces"))
 	require.True(t, IsNoAccessRoute(http.MethodPost, "/api/v1/logout"))
-	require.Len(t, noAccessRoutes, 3)
+	require.True(t, IsNoAccessRoute(http.MethodGet, "/api/v1/workspaces/catalog"))
+	require.True(t, IsNoAccessRoute(http.MethodPost, "/api/v1/workspace-access-requests"))
+	require.True(t, IsNoAccessRoute(http.MethodGet, "/api/v1/workspace-access-requests"))
+	require.True(t, IsNoAccessRoute(http.MethodGet, "/api/v1/workspace-access-requests/:name"))
+	require.True(t, IsNoAccessRoute(http.MethodPost, "/api/v1/workspace-access-requests/:name/cancel"))
+	require.Len(t, noAccessRoutes, 8)
 	for _, not := range [][2]string{
 		{http.MethodPut, "/api/v1/users/:name"},
 		{http.MethodDelete, "/api/v1/users/:name"},
@@ -332,6 +392,11 @@ func TestNoAccessRoutesAreExactlyTheOwnRecordRoutes(t *testing.T) {
 		{http.MethodGet, "/api/v1/users/:name/settings"},
 		{http.MethodGet, ""},
 		{http.MethodGet, "/api/v1/users/self"},
+		{http.MethodGet, "/api/v1/workspaces/:name"},
+		{http.MethodGet, "/api/v1/workspaces"},
+		{http.MethodPost, "/api/v1/workspace-access-requests/:name/approve"},
+		{http.MethodPost, "/api/v1/workspace-access-requests/:name/reject"},
+		{http.MethodGet, "/api/v1/workspace-access-requests/1"},
 	} {
 		require.False(t, IsNoAccessRoute(not[0], not[1]), "%s %s", not[0], not[1])
 	}

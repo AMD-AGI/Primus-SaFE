@@ -154,6 +154,10 @@ const (
 	identityPrefix     = "identity."
 	identityConsoleURL = identityPrefix + "console_url"
 
+	// workspace_access: the requests for direct access to a workspace
+	workspaceAccessPrefix     = "workspace_access."
+	workspaceAccessPendingTTL = workspaceAccessPrefix + "pending_ttl"
+
 	// tls (outbound HTTPS verification for third-party / model endpoints)
 	tlsPrefix         = "tls."
 	tlsVerifyOutbound = tlsPrefix + "verify_outbound"

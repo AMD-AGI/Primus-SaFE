@@ -65,14 +65,16 @@ func TestDelegatedTokenExclusionsCoverTheRouteTable(t *testing.T) {
 			require.True(t, forbidden, "%s %s must be refused for delegated tokens", r.Method, r.Path)
 			seen[res]++
 		case res == "workspaces" && len(rest) == 2 && (rest[1] == "members" || rest[1] == "teams"),
-			res == "teams" && len(rest) == 2 && rest[1] == "workspaces" && r.Method != http.MethodGet:
+			res == "workspaces" && len(rest) == 1 && rest[0] == "catalog",
+			res == "teams" && len(rest) == 2 && rest[1] == "workspaces" && r.Method != http.MethodGet,
+			res == "workspace-access-requests":
 			require.True(t, forbidden, "%s %s must be refused for delegated tokens", r.Method, r.Path)
 			seen[res]++
 		}
 	}
 	_, forbidden := extauth.Forbidden(http.MethodGet, "/api/v1/users/self")
 	require.False(t, forbidden, "a delegated token reads the user it acts for")
-	for _, res := range []string{"secrets", "users", "publickeys", "auth", "workspaces", "teams"} {
+	for _, res := range []string{"secrets", "users", "publickeys", "auth", "workspaces", "teams", "workspace-access-requests"} {
 		require.Positive(t, seen[res], "no route found for %s: the test would pass vacuously", res)
 	}
 }

@@ -1117,3 +1117,22 @@ data:
     create unique index if not exists T_POST_TRAINING_CONVERT_CACHE_KEY_INDEX on post_training_convert_cache (workspace, cache_key);
     create index if not exists T_POST_TRAINING_CONVERT_CACHE_MODEL_INDEX on post_training_convert_cache (model_id);
     alter table post_training_convert_cache owner to "primus-safe";
+
+    create table if not exists workspace_access_request
+    (
+        id               serial primary key,
+        workspace        varchar(64)  not null,
+        user_id          varchar(64)  not null,
+        user_name        varchar(256),
+        reason           text,
+        status           varchar(16)  not null,
+        decided_by       varchar(64),
+        decision_comment text,
+        decided_at       timestamptz,
+        created_at       timestamptz  not null,
+        updated_at       timestamptz
+    );
+    create index if not exists idx_war_workspace_status on workspace_access_request (workspace, status);
+    create index if not exists idx_war_user_id on workspace_access_request (user_id);
+    create index if not exists idx_war_status_created_at on workspace_access_request (status, created_at);
+    alter table workspace_access_request owner to "primus-safe";

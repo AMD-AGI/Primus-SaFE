@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 	"unicode"
 
 	"github.com/spf13/viper"
@@ -2195,4 +2196,29 @@ func TestGetIdentityConsoleURL(t *testing.T) {
 	testifyrequire.Equal(t, "/identity", GetIdentityConsoleURL())
 	viper.Set("identity.console_url", "javascript:alert(1)")
 	testifyrequire.Equal(t, "", GetIdentityConsoleURL())
+}
+
+// The pending TTL of access requests is the configured positive duration, and the default otherwise.
+func TestGetWorkspaceAccessPendingTTL(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	testifyrequire.Equal(t, DefaultWorkspaceAccessPendingTTL, GetWorkspaceAccessPendingTTL())
+	viper.Set("workspace_access.pending_ttl", "48h")
+	testifyrequire.Equal(t, 48*time.Hour, GetWorkspaceAccessPendingTTL())
+	viper.Set("workspace_access.pending_ttl", "two weeks")
+	testifyrequire.Equal(t, DefaultWorkspaceAccessPendingTTL, GetWorkspaceAccessPendingTTL())
+	viper.Set("workspace_access.pending_ttl", "-1h")
+	testifyrequire.Equal(t, DefaultWorkspaceAccessPendingTTL, GetWorkspaceAccessPendingTTL())
+}
+
+// The console origin is https://<sub_domain>.<domain>, and empty while either is unset.
+func TestGetConsoleOrigin(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	testifyrequire.Equal(t, "", GetConsoleOrigin())
+	viper.Set("global.domain", "example.com")
+	viper.Set("global.sub_domain", "safe")
+	testifyrequire.Equal(t, "https://safe.example.com", GetConsoleOrigin())
 }

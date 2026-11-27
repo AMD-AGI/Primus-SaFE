@@ -43,6 +43,7 @@ type Interface interface {
 	PostTrainingRunInterface
 	PostTrainingRunMetricInterface
 	PostTrainingConvertCacheInterface
+	WorkspaceAccessRequestInterface
 }
 
 type WorkloadInterface interface {
@@ -338,4 +339,14 @@ type PostTrainingRunMetricInterface interface {
 		limit int) ([]*PostTrainingRunMetric, error)
 	ListPostTrainingRunMetricNames(ctx context.Context, runID string) ([]string, error)
 	DeletePostTrainingRunMetrics(ctx context.Context, runID string) error
+}
+
+// WorkspaceAccessRequestInterface defines database operations for the workspace access requests.
+type WorkspaceAccessRequestInterface interface {
+	CreateWorkspaceAccessRequest(ctx context.Context, req *WorkspaceAccessRequest) error
+	GetWorkspaceAccessRequest(ctx context.Context, id int64) (*WorkspaceAccessRequest, error)
+	ListWorkspaceAccessRequests(ctx context.Context, filter WorkspaceAccessRequestFilter) ([]*WorkspaceAccessRequest, error)
+	TransitionWorkspaceAccessRequest(ctx context.Context, id int64, t WorkspaceAccessTransition) (*WorkspaceAccessRequest, error)
+	RevertWorkspaceAccessApproval(ctx context.Context, id int64) (*WorkspaceAccessRequest, error)
+	AutoCloseWorkspaceAccessRequests(ctx context.Context, before time.Time) ([]*WorkspaceAccessRequest, error)
 }
