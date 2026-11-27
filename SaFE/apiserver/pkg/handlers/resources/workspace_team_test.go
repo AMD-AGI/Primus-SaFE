@@ -7,6 +7,7 @@ package resources
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"testing"
@@ -19,6 +20,10 @@ import (
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/extauth"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 )
 
 // GET /teams refuses a restricted user, whether the record or the request's identity restricts it.
@@ -39,6 +44,49 @@ func TestListTeamsRefusesRestrictedUsers(t *testing.T) {
 
 	rsp = callTeamsBody(ctx, h.ListTeams, "u1", "", "", "")
 	require.Equal(t, http.StatusOK, rsp.Code, rsp.Body.String())
+}
+
+// useExternalAuth switches the test to external mode with SCIM on and the group mappings, with the
+// client of h for the team lookups, and restores the previous mode afterwards.
+func useExternalAuth(t *testing.T, h *Handler, mappings []map[string]any) {
+	t.Helper()
+	t.Cleanup(func() { require.NoError(t, authority.InitExternalAuth(nil)) })
+	setTeamsConfig(t, "crypto.enable", false)
+	setTeamsConfig(t, "auth.mode", "external")
+	setTeamsConfig(t, "auth.scim.enabled", true)
+	setTeamsConfig(t, "auth.authenticators", []map[string]any{{"type": "builtin"}})
+	setTeamsConfig(t, "auth.group_mappings", mappings)
+	require.NoError(t, authority.InitExternalAuth(h.Client))
+}
+
+// GET /users/:name/workspaces judges the target by its recorded identity: a system-admin role that
+// only the record stores does not count, and one granted by a recorded group does.
+func TestGetUserWorkspacesJudgesTheEffectiveTarget(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	wsA := genWorkspaceFixture("ws-a", "A")
+	wsA.Spec.Teams = []v1.WorkspaceTeam{{Name: "t1"}}
+	stale := recordedTeamsUser("stale", []string{"t1"}, nil)
+	stale.Spec.Roles = []v1.UserRole{v1.SystemAdminRole}
+	byGroup := recordedTeamsUser("bygroup", nil, []string{"platform-admins"})
+	byGroup.Spec.Resources = map[string][]string{common.UserWorkspaces: {"ws-a"}}
+	h := newChartTeamsHandler(t, interceptor.Funcs{}, wsA, stale, byGroup,
+		genUserFixture("admin", []v1.UserRole{v1.SystemAdminRole}, nil, nil))
+	useExternalAuth(t, h, []map[string]any{{"group": "platform-admins", "roles": []string{"system-admin"}}})
+	ctx := extauth.WithOverlay(context.Background(), extauth.MapGroups("admin", []string{"platform-admins"},
+		[]commonconfig.AuthGroupMapping{{Group: "platform-admins", Roles: []string{"system-admin"}}}, false))
+
+	rsp := callTeamsBody(ctx, h.GetUserWorkspaces, "admin", "stale", "", "")
+	require.Equal(t, http.StatusOK, rsp.Code, rsp.Body.String())
+	var got view.UserWorkspacesResponse
+	require.NoError(t, json.Unmarshal(rsp.Body.Bytes(), &got))
+	require.Equal(t, []view.WorkspaceEntry{{Id: "ws-a", Name: "A", Sources: []string{"team:t1"}}}, got.Workspaces)
+
+	rsp = callTeamsBody(ctx, h.GetUserWorkspaces, "admin", "bygroup", "", "")
+	require.Equal(t, http.StatusOK, rsp.Code, rsp.Body.String())
+	got = view.UserWorkspacesResponse{}
+	require.NoError(t, json.Unmarshal(rsp.Body.Bytes(), &got))
+	require.Empty(t, got.Workspaces)
+	require.Empty(t, got.ManagedWorkspaces)
 }
 
 // failingTeamsHandler returns a handler whose write of ws-b fails. Before failing, it runs change on

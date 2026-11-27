@@ -564,10 +564,7 @@ func (h *Handler) getUserWorkspaces(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	overlay := h.recordedOverlay(ctx, target)
-	effective := target.DeepCopy()
-	commonuser.AddWorkspace(effective, overlay.Workspaces...)
-	commonuser.AddManagedWorkspace(effective, overlay.Managed...)
+	effective, overlay := h.recordedUser(ctx, target)
 	workspaces, managed := h.userWorkspacesWithSources(ctx, effective, target, overlay)
 
 	roles := h.accessController.GetRoles(ctx, requestUser)
@@ -621,6 +618,17 @@ func (h *Handler) recordedOverlay(ctx context.Context, user *v1.User) *extauth.O
 		return bound
 	})
 	return overlay
+}
+
+// recordedUser returns the user as its recorded identity makes it, with recordedOverlay applied as
+// the request overlay is applied, and that overlay. In builtin mode it returns the record and no
+// overlay.
+func (h *Handler) recordedUser(ctx context.Context, user *v1.User) (*v1.User, *extauth.Overlay) {
+	if commonconfig.GetAuthMode() != commonconfig.AuthModeExternal {
+		return user, nil
+	}
+	overlay := h.recordedOverlay(ctx, user)
+	return extauth.ApplyOverlay(extauth.WithOverlay(ctx, overlay), user), overlay
 }
 
 // userWorkspacesWithSources is userWorkspaces with the sources of each workspace: direct for the
