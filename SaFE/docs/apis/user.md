@@ -197,7 +197,7 @@ The response fields are consistent with the "User Login" response above, plus:
 |-------|------|-------------|
 | sources | []string | Present only when the list is filtered by `workspaceId`: how the user reaches that workspace. `direct` when the user record names it; `team:<id>` for each team recorded on the user (pushed by the identity service through SCIM) that is bound to the workspace. Team sources apply in external mode with SCIM enabled |
 
-With `workspaceId`, the list holds the users that have a `direct` or a `team:<id>` source for the workspace. Team members who have no SaFE user record yet are not listed; use [List Workspace Members](./workspace.md#8-list-workspace-members) for the full member view. `workspaces` of each row remains the user's direct grants.
+With `workspaceId`, the list holds the users that have a `direct` or a `team:<id>` source for the workspace. Users who reach the workspace only through a team, and the `team:<id>` sources, are listed only to callers who may get that workspace. Team members who have no SaFE user record yet are not listed; use [List Workspace Members](./workspace.md#8-list-workspace-members) for the full member view. `workspaces` of each row remains the user's direct grants.
 
 
 ---

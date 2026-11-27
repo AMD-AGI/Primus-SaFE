@@ -90,7 +90,7 @@ List the members of one team.
 | preferredName | string | Preferred username |
 | role | string | Role of the user in the team, as the identity service reports it (`member` or `manager`) |
 
-When the identity service answers 401, 403 or a 5xx status, or cannot be reached, the endpoint returns an error instead of an empty list. In builtin mode the list is empty.
+A user is a member when the team grants them a workspace on the request. When the identity service refuses the call (401 or 403) or sends an unreadable answer, the response is 502; when it fails with a 5xx status or cannot be reached, 503; when it does not know the team, 404. In builtin mode the list is empty.
 
 ---
 
@@ -120,7 +120,7 @@ At least one entry is required, and a workspace may be named only once (400 othe
 
 **Permission Requirements**: for each entry, the rules of "Update Workspace Teams" in the [Workspace API](./workspace.md#7-update-workspace-teams): update right on the workspace, and a system administrator for any change to a `manager` binding. Not available to delegated tokens.
 
-Every entry is checked before anything is written, so a refused entry leaves all workspaces unchanged. When writing an entry fails, the bindings this request already wrote are undone and the error is returned.
+Every entry is checked before anything is written, so a refused entry leaves all workspaces unchanged. When writing an entry fails, the bindings this request wrote are restored where no other request changed them since, and the error is returned. When something cannot be restored, the error message ends with "the team <id> stayed bound to: <workspace> (<role>), ...".
 
 **Response Example**:
 

@@ -480,7 +480,7 @@ Get the effective members of a workspace: users with direct access, bound teams 
 | Field | Type | Description |
 |-------|------|-------------|
 | users | []object | Users whose record names the workspace, or who manage it through their record or `managers`. `role` is `manager` or `member`; `source` is always `direct`. `preferredName` is present when recorded |
-| teams | []object | Teams bound to the workspace. `role` is the binding role; `source` is `team:<id>`. `displayName`, `memberCount` and `managers` come from the identity service and are omitted when it cannot describe the team. Members of a team are listed by [List Team Members](./team.md#2-list-team-members) |
+| teams | []object | Teams bound to the workspace. `role` is the binding role; `source` is `team:<id>`. `displayName`, `memberCount` and `managers` come from the identity service and are omitted for a team the service does not know. Identity service failures are answered as for [List Team Members](./team.md#2-list-team-members) (502 or 503). Members of a team are listed by [List Team Members](./team.md#2-list-team-members) |
 | groups | []object | Platform groups whose `auth.group_mappings` entry names the workspace (external mode only). `role` is `manager` when the mapping holds `workspace-admin`, `member` otherwise; `source` is `group:<name>` |
 
 All three fields are always arrays. Team members who never signed in to SaFE are counted in `memberCount` but have no user row.
