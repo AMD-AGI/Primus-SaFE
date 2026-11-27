@@ -398,3 +398,16 @@ func TestSanitizeBodyRedactsURLPasswords(t *testing.T) {
 		}
 	}
 }
+
+// TestIsCredentialNameShortSegments: the short credential words count as a whole name segment,
+// so DB_PASS and GH_PAT are credentials and PATH, BYPASS and COMPASS are not.
+func TestIsCredentialNameShortSegments(t *testing.T) {
+	for _, name := range []string{"DB_PASS", "MYSQL_PWD", "GH_PAT", "AUTHORIZATION", "HTTP_AUTHORIZATION",
+		"AUTH", "BASIC_AUTH", "auth-header", "ANTHROPIC_API_KEY", "DB_PASSWORD"} {
+		assert.True(t, IsCredentialName(name), name)
+	}
+	for _, name := range []string{"PATH", "PYTHONPATH", "BYPASS_CACHE", "COMPASS_MODE", "PATTERN", "AUTHOR",
+		"REPLICA_COUNT", "IMAGES"} {
+		assert.False(t, IsCredentialName(name), name)
+	}
+}

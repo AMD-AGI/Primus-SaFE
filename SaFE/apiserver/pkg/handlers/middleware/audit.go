@@ -355,7 +355,8 @@ var jsonStringMember = regexp.MustCompile(`"((?:[^"\\]|\\.)*)"\s*:\s*"((?:[^"\\]
 
 // sensitiveKeyName matches a key that names a credential, in any case and as part of a longer
 // name (workload env such as ANTHROPIC_API_KEY or AUTH_TOKEN).
-var sensitiveKeyName = regexp.MustCompile(`(?i)key|token|secret|passw(?:or)?d|credential`)
+var sensitiveKeyName = regexp.MustCompile(
+	`(?i)key|token|secret|passw(?:or)?d|credential|authorization|(?:^|[_.\-])(?:pass|pwd|pat|auth)(?:[_.\-]|$)`)
 
 // urlWithPassword matches a URL that carries a password (scheme://user:password@host),
 // the user name possibly empty (redis://:password@host).
@@ -369,8 +370,10 @@ func HasURLPassword(value string) bool {
 }
 
 // IsCredentialName reports whether a key or environment variable name names a
-// credential: it contains key, token, secret, password, passwd or credential, in
-// any case and as part of a longer name (ANTHROPIC_API_KEY, AUTH_TOKEN). The
+// credential: it contains key, token, secret, password, passwd, credential or
+// authorization, in any case and as part of a longer name (ANTHROPIC_API_KEY,
+// AUTH_TOKEN), or has pass, pwd, pat or auth as a segment between _, - or .
+// (DB_PASS, MYSQL_PWD, GH_PAT, BASIC_AUTH). The
 // audit log and the workload env shown to callers who are not its owner use the
 // same judgement.
 func IsCredentialName(name string) bool {
