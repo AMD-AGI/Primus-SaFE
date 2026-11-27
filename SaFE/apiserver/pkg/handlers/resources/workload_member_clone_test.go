@@ -14,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang/mock/gomock"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"gotest.tools/assert"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	ctrlruntimefake "sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -23,6 +24,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority/authtest"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
+	apimetrics "github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/metrics"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
@@ -109,9 +111,36 @@ func Test_authWorkloadAction_MemberStillCannotGet(t *testing.T) {
 	assert.ErrorContains(t, err, "not allowed to get")
 }
 
-// Test_redactedEnvKey: a create request that still carries the mask for an env value is named.
+// Test_redactedEnvKey: a create request that still carries the mask for an env value is named,
+// including under an empty key.
 func Test_redactedEnvKey(t *testing.T) {
-	assert.Equal(t, redactedEnvKey(map[string]string{"MODE": "train"}), "")
-	assert.Equal(t, redactedEnvKey(map[string]string{"MODE": "train", "API_KEY": RedactedEnvValue}), "API_KEY")
-	assert.Equal(t, redactedEnvKey(nil), "")
+	_, found := redactedEnvKey(map[string]string{"MODE": "train"})
+	assert.Assert(t, !found)
+	key, found := redactedEnvKey(map[string]string{"MODE": "train", "API_KEY": RedactedEnvValue})
+	assert.Assert(t, found)
+	assert.Equal(t, key, "API_KEY")
+	_, found = redactedEnvKey(map[string]string{"": RedactedEnvValue, "API_KEY": RedactedEnvValue})
+	assert.Assert(t, found)
+	_, found = redactedEnvKey(map[string]string{"": RedactedEnvValue})
+	assert.Assert(t, found)
+	_, found = redactedEnvKey(nil)
+	assert.Assert(t, !found)
+}
+
+// Test_getWorkload_MemberReadIsNotCountedAsDenied: a member's read through the list grant does not
+// count an authorization refusal; a refused read counts one.
+func Test_getWorkload_MemberReadIsNotCountedAsDenied(t *testing.T) {
+	h, member, outsider := memberCloneHandler(t)
+	denied := func() float64 {
+		return testutil.ToFloat64(apimetrics.AuthzDeniedTotal.WithLabelValues("workload", string(v1.GetVerb)))
+	}
+
+	before := denied()
+	_, err := getAs(h, member)
+	assert.NilError(t, err)
+	assert.Equal(t, denied(), before)
+
+	_, err = getAs(h, outsider)
+	assert.ErrorContains(t, err, "not allowed to get")
+	assert.Equal(t, denied(), before+1)
 }
