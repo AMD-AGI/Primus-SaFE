@@ -149,6 +149,7 @@ func TestForbiddenDelegatedCapabilities(t *testing.T) {
 		{http.MethodGet, "/api/v1/workspaces/ws1/members", CapabilityUserManagement},
 		{http.MethodPut, "/api/v1/teams/t1/workspaces", CapabilityUserManagement},
 		{http.MethodGet, "/api/v1/teams/t1/members", CapabilityUserManagement},
+		{http.MethodGet, "/api/v1/teams", CapabilityUserManagement},
 		{http.MethodPut, "/api/v1/workspaces/ws1/teams/", CapabilityUserManagement},
 		{http.MethodGet, "/api/v1/workspaces/catalog", CapabilityUserManagement},
 		{http.MethodPost, "/api/v1/workspace-access-requests", CapabilityUserManagement},
@@ -177,7 +178,6 @@ func TestForbiddenDelegatedCapabilities(t *testing.T) {
 		{http.MethodGet, "/healthz"},
 		{http.MethodGet, "/api/v1/workspaces/ws1"},
 		{http.MethodPatch, "/api/v1/workspaces/ws1"},
-		{http.MethodGet, "/api/v1/teams"},
 		{http.MethodGet, "/api/v1/teams/t1/workspaces"},
 		{http.MethodPatch, "/api/v1/workspaces/catalog"},
 	} {

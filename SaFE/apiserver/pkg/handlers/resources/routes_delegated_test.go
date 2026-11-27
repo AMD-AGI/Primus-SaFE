@@ -67,6 +67,7 @@ func TestDelegatedTokenExclusionsCoverTheRouteTable(t *testing.T) {
 		case res == "workspaces" && len(rest) == 2 && (rest[1] == "members" || rest[1] == "teams"),
 			res == "workspaces" && len(rest) == 1 && rest[0] == "catalog",
 			res == "teams" && len(rest) == 2 && rest[1] == "workspaces" && r.Method != http.MethodGet,
+			res == "teams" && (len(rest) == 0 || len(rest) == 2 && rest[1] == "members"),
 			res == "workspace-access-requests":
 			require.True(t, forbidden, "%s %s must be refused for delegated tokens", r.Method, r.Path)
 			seen[res]++

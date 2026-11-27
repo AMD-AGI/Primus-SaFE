@@ -85,9 +85,9 @@ func Forbidden(method, urlPath string) (capability string, forbidden bool) {
 		// requests carry the ids and e-mails of the requesters.
 		return CapabilityUserManagement, true
 	case "teams":
-		// Binding a team to workspaces decides who holds a workspace role, and the member
-		// list exposes the ids and e-mails of the users.
-		if len(rest) > 2 && (rest[2] == "workspaces" && !read || rest[2] == "members") {
+		// Binding a team to workspaces decides who holds a workspace role, the member list
+		// exposes the ids and e-mails of the users, and the team list the ids of the managers.
+		if len(rest) == 1 || len(rest) > 2 && (rest[2] == "workspaces" && !read || rest[2] == "members") {
 			return CapabilityUserManagement, true
 		}
 	case "publickeys":
