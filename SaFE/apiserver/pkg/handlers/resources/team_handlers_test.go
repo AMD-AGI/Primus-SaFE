@@ -25,6 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/extauth"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/authority/authtest"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
@@ -77,27 +78,57 @@ func TestListTeamsIsEmptyWithoutIdentity(t *testing.T) {
 	require.Contains(t, rsp.Body.String(), `"items":[]`)
 }
 
+// teamOverlayCtx returns a context carrying the overlay of a user whose identity lists the teams,
+// each bound to the workspaces of bound with the member role.
+func teamOverlayCtx(userId string, teams []string, bound ...string) context.Context {
+	o := extauth.MapGroups(userId, nil, nil, false)
+	extauth.AddTeams(o, teams, func(string) map[string]v1.WorkspaceTeamRole {
+		result := map[string]v1.WorkspaceTeamRole{}
+		for _, ws := range bound {
+			result[ws] = v1.WorkspaceTeamMember
+		}
+		return result
+	})
+	return extauth.WithOverlay(context.Background(), o)
+}
+
+// The members of a team are listed to its members and to system administrators only: a manager or
+// member of a workspace the team is bound to, who is not in the team, is refused.
 func TestListTeamMembersAuthorization(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	bound := genWorkspaceFixture("ws-a", "A")
 	bound.Spec.Teams = []v1.WorkspaceTeam{{Name: "t1"}}
 	other := genWorkspaceFixture("ws-b", "B")
-	h := newTeamsHandler(bound, other,
+	h := newChartTeamsHandler(t, interceptor.Funcs{}, bound, other,
 		genUserFixture("admin", []v1.UserRole{v1.SystemAdminRole}, nil, nil),
+		genUserFixture("reader", []v1.UserRole{v1.SystemAdminReadonlyRole}, nil, nil),
+		genUserFixture("mgr", []v1.UserRole{v1.DefaultRole}, []string{"ws-a"}, []string{"ws-a"}),
 		genUserFixture("member", []v1.UserRole{v1.DefaultRole}, []string{"ws-a"}, nil),
+		genUserFixture("teammate", []v1.UserRole{v1.DefaultRole}, nil, nil),
 		genUserFixture("outsider", []v1.UserRole{v1.DefaultRole}, []string{"ws-b"}, nil))
+	ctx := context.Background()
 
-	for _, user := range []string{"admin", "member"} {
-		rsp := callTeamsHandler(h.ListTeamMembers, user, "t1")
+	allowed := map[string]context.Context{
+		"admin": ctx, "reader": ctx, "teammate": teamOverlayCtx("teammate", []string{"t1"}, "ws-a"),
+	}
+	for user, userCtx := range allowed {
+		rsp := callTeamsBody(userCtx, h.ListTeamMembers, user, "t1", "", "")
 		require.Equal(t, http.StatusOK, rsp.Code, user+": "+rsp.Body.String())
 		var got view.TeamMembersResponse
 		require.NoError(t, json.Unmarshal(rsp.Body.Bytes(), &got))
 		require.Equal(t, "t1", got.TeamId)
 		require.Contains(t, rsp.Body.String(), `"items":[]`)
 	}
-	require.Equal(t, http.StatusForbidden, callTeamsHandler(h.ListTeamMembers, "outsider", "t1").Code)
-	require.Equal(t, http.StatusForbidden, callTeamsHandler(h.ListTeamMembers, "outsider", "unbound").Code)
-	require.Equal(t, http.StatusBadRequest, callTeamsHandler(h.ListTeamMembers, "admin", "Bad_Team").Code)
+	refused := map[string]context.Context{
+		"mgr": ctx, "member": ctx, "outsider": ctx,
+		"teammate": teamOverlayCtx("teammate", []string{"t2"}, "ws-b"),
+	}
+	for user, userCtx := range refused {
+		rsp := callTeamsBody(userCtx, h.ListTeamMembers, user, "t1", "", "")
+		require.Equal(t, http.StatusForbidden, rsp.Code, user+": "+rsp.Body.String())
+	}
+	rsp := callTeamsBody(ctx, h.ListTeamMembers, "admin", "Bad_Team", "", "")
+	require.Equal(t, http.StatusBadRequest, rsp.Code)
 }
 
 func TestListTeamWorkspacesShowsOnlyListableWorkspaces(t *testing.T) {

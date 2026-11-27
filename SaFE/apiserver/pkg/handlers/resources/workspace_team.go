@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -65,7 +66,7 @@ func (h *Handler) ListTeams(c *gin.Context) {
 }
 
 // ListTeamMembers lists the members of a team of the identity service. It answers system
-// administrators and users who may get a workspace the team is bound to.
+// administrators and the members of the team.
 func (h *Handler) ListTeamMembers(c *gin.Context) {
 	handle(c, h.listTeamMembers)
 }
@@ -296,29 +297,37 @@ func (h *Handler) listTeamMembers(c *gin.Context) (interface{}, error) {
 	return result, nil
 }
 
-// authorizeTeamMembers allows a system administrator, or a user who holds the get right on at least
-// one workspace the team is bound to. The user is the request user with the overlay merged in.
+// authorizeTeamMembers allows a system administrator, read-only included, or a member of the team:
+// a user whose request overlay holds a workspace through the team.
 func (h *Handler) authorizeTeamMembers(ctx context.Context, requestUser *v1.User, team string) error {
-	if h.accessController.AuthorizeSystemAdmin(authority.AccessInput{Context: ctx, User: requestUser}, true) == nil {
+	err := h.accessController.AuthorizeSystemAdmin(authority.AccessInput{Context: ctx, User: requestUser}, true)
+	if err == nil {
 		return nil
 	}
-	workspaces, err := commonworkspace.ListByTeam(ctx, h.Client, team)
-	if err != nil {
+	if requestUser == nil || requestUser.IsRestricted() {
 		return err
 	}
-	for i := range workspaces {
-		if h.accessController.Authorize(authority.AccessInput{
-			Context:      ctx,
-			ResourceKind: v1.WorkspaceKind,
-			Resource:     &workspaces[i],
-			Verb:         v1.GetVerb,
-			Workspaces:   []string{workspaces[i].Name},
-			User:         requestUser,
-		}) == nil {
-			return nil
-		}
+	if slices.Contains(requestTeams(ctx, requestUser), team) {
+		return nil
 	}
 	return commonerrors.NewForbidden("no permission to list the members of the team " + team)
+}
+
+// requestTeams returns the teams that grant the user a workspace in the overlay of the request.
+func requestTeams(ctx context.Context, user *v1.User) []string {
+	o := extauth.RequestOverlay(ctx, user)
+	if o == nil {
+		return nil
+	}
+	var teams []string
+	for _, sources := range o.Sources {
+		for _, source := range sources {
+			if team, ok := strings.CutPrefix(source, extauth.TeamSourcePrefix); ok && !slices.Contains(teams, team) {
+				teams = append(teams, team)
+			}
+		}
+	}
+	return teams
 }
 
 // cvtTeamMembers converts the members of the identity service to the response items, never nil.
