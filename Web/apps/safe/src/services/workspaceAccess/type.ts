@@ -42,6 +42,8 @@ export type WorkspaceAccessRequestView = 'mine' | 'approver'
 export interface CreateWorkspaceAccessRequest {
   workspace: string
   reason: string
+  // User id of the manager the request is e-mailed to; required when several managers have an e-mail
+  notifyManager?: string
 }
 
 // A manager of a workspace in the catalog

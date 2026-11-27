@@ -22,7 +22,7 @@ A requester may not decide the user's own request, even as a manager of the work
 
 ## Notifications
 
-With notifications enabled, a new request is mailed to the direct managers of the workspace; when it has none, to the effective system administrators (in external mode, as their identity groups map them). A decision is mailed to the requester. Each mail carries the approval URL.
+With notifications enabled, a new request is mailed to the direct manager with an e-mail address: the only one, or the one chosen in `notifyManager` when there are several. When the workspace has no such manager, it is mailed to the effective system administrators (in external mode, as their identity groups map them). A decision is mailed to the requester. Each mail carries the approval URL.
 
 ## Request Status
 
@@ -100,8 +100,10 @@ Items are sorted by workspace ID.
 |-------|------|----------|-------------|
 | workspace | string | Yes | Workspace ID |
 | reason | string | No | Reason for the request, at most 2000 characters |
+| notifyManager | string | Conditional | User ID of the direct manager the request is mailed to. Required when the workspace has more than one direct manager with an e-mail address; it must be one of them. Every direct manager can still approve |
 
 **Errors**:
+- 400 when `notifyManager` is missing while the workspace has several direct managers with an e-mail address, or names a user who is not one of them.
 - 403 when the workspace does not exist or its `accessPolicy` is not `approval` (one message for both).
 - 409 when the caller already holds the workspace, or already has a pending request for it.
 

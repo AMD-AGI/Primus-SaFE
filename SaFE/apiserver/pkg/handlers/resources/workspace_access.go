@@ -187,6 +187,7 @@ func (h *Handler) createWorkspaceAccessRequest(c *gin.Context) (interface{}, err
 	}
 	req.Workspace = strings.TrimSpace(req.Workspace)
 	req.Reason = strings.TrimSpace(req.Reason)
+	req.NotifyManager = strings.TrimSpace(req.NotifyManager)
 	if req.Workspace == "" {
 		return nil, commonerrors.NewBadRequest("the workspace is empty")
 	}
@@ -207,6 +208,10 @@ func (h *Handler) createWorkspaceAccessRequest(c *gin.Context) (interface{}, err
 	if h.dbClient == nil {
 		return nil, commonerrors.NewInternalError("database is not enabled")
 	}
+	recipients, err := h.approverEmails(ctx, workspace, req.NotifyManager)
+	if err != nil {
+		return nil, err
+	}
 	record := &dbclient.WorkspaceAccessRequest{
 		Workspace: workspace.Name,
 		UserID:    requestUser.Name,
@@ -225,7 +230,7 @@ func (h *Handler) createWorkspaceAccessRequest(c *gin.Context) (interface{}, err
 	}
 	klog.Infof("create workspace access request, id: %d, workspace: %s, user: %s", record.ID, record.Workspace, record.UserID)
 	item := h.accessRequestItems(ctx, []*dbclient.WorkspaceAccessRequest{record})[0]
-	h.notifyAccessRequest(ctx, workspaceaccess.EventCreated, &item, h.approverEmails(ctx, workspace))
+	h.notifyAccessRequest(ctx, workspaceaccess.EventCreated, &item, recipients)
 	c.Status(http.StatusCreated)
 	return &item, nil
 }
@@ -584,22 +589,38 @@ func (h *Handler) accessRequestItems(ctx context.Context, reqs []*dbclient.Works
 	return items
 }
 
-// approverEmails returns the e-mail addresses the new request of the workspace is sent to: the direct
-// managers (Spec.Managers and the users whose managed workspaces name it). Without any, it returns those
-// of the system administrators (isEffectiveSystemAdmin), and logs when there are none either.
-func (h *Handler) approverEmails(ctx context.Context, workspace *v1.Workspace) []string {
+// approverEmails returns the e-mail addresses the new request of the workspace is sent to. Among the
+// direct managers (Spec.Managers and the users whose managed workspaces name it) that have an e-mail
+// address, it is the one notifyManager names, which is required when there are several and refused
+// when it names none of them. Without any such manager, it returns the addresses of the system
+// administrators (isEffectiveSystemAdmin), and logs when there are none either.
+func (h *Handler) approverEmails(ctx context.Context, workspace *v1.Workspace, notifyManager string) ([]string, error) {
 	userList := &v1.UserList{}
 	if err := h.List(ctx, userList); err != nil {
-		klog.ErrorS(err, "failed to list the users to notify of a workspace access request")
-		return nil
+		return nil, err
+	}
+	var mailable []view.WorkspaceCatalogManager
+	for _, m := range directWorkspaceManagers(workspace, userList.Items) {
+		if strings.TrimSpace(m.Email) != "" {
+			mailable = append(mailable, m)
+		}
+	}
+	switch {
+	case notifyManager != "":
+		for _, m := range mailable {
+			if m.Id == notifyManager {
+				return nonEmpty(m.Email), nil
+			}
+		}
+		return nil, commonerrors.NewBadRequest(fmt.Sprintf(
+			"%s is not a manager of the workspace %s with an e-mail address", notifyManager, workspace.Name))
+	case len(mailable) > 1:
+		return nil, commonerrors.NewBadRequest(fmt.Sprintf(
+			"the workspace %s has several managers: choose the one to notify (notifyManager)", workspace.Name))
+	case len(mailable) == 1:
+		return nonEmpty(mailable[0].Email), nil
 	}
 	var emails []string
-	for _, m := range directWorkspaceManagers(workspace, userList.Items) {
-		emails = append(emails, m.Email)
-	}
-	if emails = nonEmpty(emails...); len(emails) > 0 {
-		return emails
-	}
 	for i := range userList.Items {
 		user := &userList.Items[i]
 		if h.isEffectiveSystemAdmin(ctx, user) {
@@ -610,7 +631,7 @@ func (h *Handler) approverEmails(ctx context.Context, workspace *v1.Workspace) [
 		klog.Warningf("no recipient for the access requests of workspace %s: it has no direct manager "+
 			"and no system administrator has an e-mail address", workspace.Name)
 	}
-	return emails
+	return emails, nil
 }
 
 // isEffectiveSystemAdmin reports whether the stored user is a system administrator as the apiserver

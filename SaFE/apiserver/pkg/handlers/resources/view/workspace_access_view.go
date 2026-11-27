@@ -26,6 +26,9 @@ const (
 type CreateWorkspaceAccessRequest struct {
 	Workspace string `json:"workspace"`
 	Reason    string `json:"reason"`
+	// NotifyManager is the user id of the direct manager the request is e-mailed to. It is required
+	// when the workspace has more than one direct manager with an e-mail address.
+	NotifyManager string `json:"notifyManager,omitempty"`
 }
 
 // DecideWorkspaceAccessRequest is the body of the approve and reject requests.

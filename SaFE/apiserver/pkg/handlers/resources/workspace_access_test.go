@@ -836,3 +836,32 @@ func TestStaleStoredSystemAdminIsNotAnApprover(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, dbclient.WorkspaceAccessPending, req.Status)
 }
+
+// A workspace with several direct managers that have an e-mail address needs the requester to name the one
+// to notify; only that manager is mailed, and every direct manager still decides the request.
+func TestAccessRequestNotifiesTheChosenManager(t *testing.T) {
+	f := newAccessRequestFixture(t,
+		withEmail(genUserFixture("mgr2", []v1.UserRole{v1.DefaultRole}, nil, []string{"ws-open"})),
+		genUserFixture("mgr3", []v1.UserRole{v1.DefaultRole}, nil, []string{"ws-open"}))
+	create := func(userId, body string) *httptest.ResponseRecorder {
+		return f.call(f.h.CreateWorkspaceAccessRequest, http.MethodPost, userId, "", "", body)
+	}
+
+	rsp := create("alice", `{"workspace":"ws-open"}`)
+	require.Equal(t, http.StatusBadRequest, rsp.Code, rsp.Body.String())
+	for _, who := range []string{"mgr3", "member", "nobody"} {
+		rsp = create("alice", `{"workspace":"ws-open","notifyManager":"`+who+`"}`)
+		require.Equal(t, http.StatusBadRequest, rsp.Code, "%s: %s", who, rsp.Body.String())
+	}
+	reqs, err := f.db.ListWorkspaceAccessRequests(context.Background(), dbclient.WorkspaceAccessRequestFilter{UserID: "alice"})
+	require.NoError(t, err)
+	require.Empty(t, reqs, "a refused request is not stored")
+
+	rsp = create("alice", `{"workspace":"ws-open","notifyManager":" mgr2 "}`)
+	require.Equal(t, http.StatusCreated, rsp.Code, rsp.Body.String())
+	require.Equal(t, []string{"mgr2@example.com"}, f.db.recipients("created"))
+
+	id := strconv.FormatInt(decodeItem(t, rsp).Id, 10)
+	rsp = f.call(f.h.ApproveWorkspaceAccessRequest, http.MethodPost, "mgr", id, "", `{}`)
+	require.Equal(t, http.StatusOK, rsp.Code, "a manager that was not notified decides too: %s", rsp.Body.String())
+}
