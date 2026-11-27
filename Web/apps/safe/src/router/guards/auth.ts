@@ -11,6 +11,7 @@ import {
   RETURN_REFUSED_MESSAGE,
   returnPrefixes,
 } from '@/utils/returnPath'
+import { isExternalAuth } from '@/utils/authMode'
 import { resolveAllowedBridge } from '@/utils/ssoBridge'
 import { pkceRequired, takeCallbackVerifier } from '@/utils/ssoSignIn'
 
@@ -117,6 +118,13 @@ export default function setupAuthGuard(router: Router) {
     // A) If any route carries ?code, handle SSO login first
     const code = to.query.code as string | undefined
     if (code) {
+      const envs = await loadEnvs()
+      // External mode signs in at the identity provider, which brings the browser back by itself: a
+      // code here is neither exchanged nor forwarded.
+      if (isExternalAuth(envs ?? user.envs)) {
+        const { code: _code, state: _state, ...query } = to.query
+        return next({ path: to.path, query, hash: to.hash, replace: true })
+      }
       const state = to.query.state as string | undefined
 
       // Check if this is an SSO request from another app.
@@ -160,7 +168,6 @@ export default function setupAuthGuard(router: Router) {
 
       // With PKCE the code is used only with the verifier this tab kept for this state; whether
       // the sign-in uses PKCE (ssoPkce) is false if /envs cannot be read.
-      const envs = await loadEnvs()
       const pkce = takeCallbackVerifier(state, pkceRequired(envs))
       if (!pkce.ok) {
         history.replaceState(null, '', to.path)
@@ -354,7 +361,22 @@ export default function setupAuthGuard(router: Router) {
         window.location.origin,
         returnPrefixes(envs),
       )
-      if (!away) return next(getSafeRedirect(to.query.redirect))
+      if (!away) {
+        const target = getSafeRedirect(to.query.redirect)
+        // External mode comes back here from the identity provider's sign-in: onboard as after a sign-in.
+        if (user.isExternalAuth && user.shouldAutoShowQuickStart) {
+          return next({ path: '/quickstart', query: { next: target } })
+        }
+        if (user.isExternalAuth && user.shouldAutoShowUserQuickStart) {
+          return next({ path: '/userquickstart', query: { next: target } })
+        }
+        // No page to return to: load / itself, which the console's nginx may send elsewhere.
+        if (user.isExternalAuth && target === '/') {
+          window.location.replace('/')
+          return next(false)
+        }
+        return next(target)
+      }
 
       // Leaving the console on a session only localStorage vouches for would send a browser
       // whose cookie expired back to the app, which sends it here again: a loop with no sign-in.

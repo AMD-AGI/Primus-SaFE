@@ -37,15 +37,15 @@ func (h *Handler) getEnvs(c *gin.Context) (interface{}, error) {
 		SSHPort:               commonconfig.GetSSHServerPort(),
 		AuthMode:              commonconfig.GetAuthMode(),
 		SSOEnable:             commonconfig.IsSSOEnable(),
-		SSOBridgeAllowlist:    commonconfig.GetSSOBridgeAllowlist(),
+		SSOBridgeAllowlist:    []string{},
 		CDRequireApproval:     commonconfig.IsCDRequireApproval(),
 		AccessContact:         commonconfig.GetConsoleAccessContact(),
 		ConsoleReturnPrefixes: commonconfig.GetConsoleReturnPrefixes(),
 		KubeSprayK8sVersions:  v1.KubeSprayK8sVersions(),
 	}
 	if commonconfig.GetAuthMode() == commonconfig.AuthModeExternal {
-		// The console starts an authorize request at identity. connection names one identity source.
-		// sso.enable selects it: auth.connection (default okta-amd) or local. sso.login, when set, is that authorize URL.
+		// The console signs in at auth.login_url. connection names one identity source: sso.enable selects
+		// auth.connection (default okta-amd) or local.
 		resp.APIKeysURL = commonconfig.GetAuthAPIKeysURL()
 		resp.LoginURL = commonconfig.GetAuthLoginURL()
 		resp.LogoutURL = commonconfig.GetAuthLogoutURL()
@@ -56,14 +56,9 @@ func (h *Handler) getEnvs(c *gin.Context) (interface{}, error) {
 		}
 		resp.AccountsURL = commonconfig.GetAuthAccountsURL()
 		resp.KeysURL = commonconfig.GetAuthKeysConsoleURL()
-		if commonconfig.IsSSOLoginEnable() {
-			if inst := authority.SSOInstance(); inst != nil {
-				resp.SSOLoginUrl = inst.LoginAuthURL()
-				resp.SSOPkce = inst.LoginEnabled()
-			}
-		}
-	} else if resp.SSOEnable {
-		if inst := authority.SSOInstance(); inst != nil {
+	} else {
+		resp.SSOBridgeAllowlist = commonconfig.GetSSOBridgeAllowlist()
+		if inst := authority.SSOInstance(); resp.SSOEnable && inst != nil {
 			resp.SSOAuthUrl = inst.AuthURL()
 			resp.SSOLoginUrl = inst.LoginAuthURL()
 			resp.SSOPkce = inst.LoginEnabled()

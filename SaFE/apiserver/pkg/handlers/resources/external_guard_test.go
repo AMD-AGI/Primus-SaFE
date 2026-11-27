@@ -38,6 +38,7 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	mock_client "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
+	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
 	commonuser "github.com/AMD-AIG-AIMA/SAFE/common/pkg/user"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
@@ -239,40 +240,6 @@ func TestExternalModeRefusesCredentialAndRoleWrites(t *testing.T) {
 		after func(t *testing.T, w *httptest.ResponseRecorder)
 	}{
 		{
-			name: "login with an SSO authorization code",
-			req:  guardRequest{method: http.MethodPost, path: "/api/v1/login", body: `{"type":"sso","code":"c","name":"x"}`},
-		},
-		{
-			name: "login as a local account with the right password (JSON)",
-			req:  guardRequest{method: http.MethodPost, path: "/api/v1/login", body: loginBody("default", localName, localPassword)},
-			after: func(t *testing.T, w *httptest.ResponseRecorder) {
-				assert.NotContains(t, w.Body.String(), `"token"`, "no session may be issued")
-			},
-		},
-		{
-			name: "login as a local account with the right password (console form)",
-			req: guardRequest{method: http.MethodPost, path: "/api/v1/login", contentType: ContentTypeForm,
-				body: url.Values{"type": {"default"}, "name": {localName}, "password": {localPassword}}.Encode()},
-			after: func(t *testing.T, w *httptest.ResponseRecorder) {
-				assert.Empty(t, w.Header().Values("Set-Cookie"), "no cookie may be set")
-			},
-		},
-		{
-			name: "login as an identity-provider user with an empty password (JSON)",
-			req:  guardRequest{method: http.MethodPost, path: "/api/v1/login", body: loginBody("default", idpUserName, "")},
-			after: func(t *testing.T, w *httptest.ResponseRecorder) {
-				assert.NotContains(t, w.Body.String(), `"token"`, "no session may be issued")
-			},
-		},
-		{
-			name: "login as an identity-provider user with an empty password (console form)",
-			req: guardRequest{method: http.MethodPost, path: "/api/v1/login", contentType: ContentTypeForm,
-				body: url.Values{"type": {"default"}, "name": {idpUserName}, "password": {""}}.Encode()},
-			after: func(t *testing.T, w *httptest.ResponseRecorder) {
-				assert.Empty(t, w.Header().Values("Set-Cookie"), "no cookie may be set")
-			},
-		},
-		{
 			name: "set the password of a local account",
 			req: guardRequest{method: http.MethodPatch, path: "/api/v1/users/t-password-local",
 				body: `{"password":"changed-by-a-script"}`, bearer: "idp-admin"},
@@ -398,38 +365,67 @@ func TestExternalModeKeepsApiKeyRevocation(t *testing.T) {
 	assert.Contains(t, w.Body.String(), refusal)
 }
 
-// The refusal does not depend on the shape of the chain: without the built-in authenticator
-// in it, sign-in is refused all the same.
-// sso.enable does not let an external-mode caller exchange a code from the sso Secret provider.
-func TestExternalModeRefusesSecretProviderCode(t *testing.T) {
+// External mode does not serve the sign-in route, whatever the chain, the body or sso.login: no
+// token is issued and no cookie is set.
+func TestExternalModeDoesNotServeLogin(t *testing.T) {
 	commonconfig.SetValue("sso.enable", "true")
 	t.Cleanup(func() { commonconfig.SetValue("sso.enable", "") })
-	e := guardEngine(t, false)
-	w := guardRequest{method: http.MethodPost, path: "/api/v1/login", body: `{"type":"sso","code":"c","name":"x"}`}.serve(e)
-	require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
-	assert.Contains(t, w.Body.String(), refusal)
+	pkce := `{"type":"sso","code":"c","codeVerifier":"` + strings.Repeat("v", 43) + `"}`
+	form := url.Values{"type": {"default"}, "name": {localName}, "password": {localPassword}}.Encode()
+	for _, builtin := range []bool{true, false} {
+		e := guardEngine(t, builtin)
+		for _, req := range []guardRequest{
+			{method: http.MethodPost, path: "/api/v1/login", body: `{"type":"sso","code":"c","name":"x"}`},
+			{method: http.MethodPost, path: "/api/v1/login", body: pkce},
+			{method: http.MethodPost, path: "/api/v1/login", body: loginBody("default", localName, localPassword)},
+			{method: http.MethodPost, path: "/api/v1/login", body: loginBody("default", idpUserName, "")},
+			{method: http.MethodPost, path: "/api/v1/login", contentType: ContentTypeForm, body: form},
+		} {
+			w := req.serve(e)
+			require.Equal(t, http.StatusNotFound, w.Code, w.Body.String())
+			assert.NotContains(t, w.Body.String(), `"token"`)
+			assert.Empty(t, w.Header().Values("Set-Cookie"))
+		}
+	}
 }
 
-// A PKCE code is exchanged by this apiserver. The external-mode guard does not refuse it.
-// A provider that is not configured does not set a cookie.
-func TestExternalModeExchangesLoginProviderCode(t *testing.T) {
-	commonconfig.SetValue("sso.login.enable", "true")
-	commonconfig.SetValue("sso.login.client_id", guardAudience)
-	require.True(t, commonconfig.IsSSOLoginEnable())
-	// An oidc entry for the API's own audience, not the console's (which the start-up check refuses). The
-	// issuer is never contacted: the exchange fails at the provider, which is what this test leaves to it.
-	oidc := map[string]any{"type": "oidc", "issuer": "https://idp.invalid", "audience": "primus-safe", "jwks_url": "https://idp.invalid/jwks"}
-	e := guardEngineWithMappings(t, false, nil, []map[string]any{{"group": "platform-admins", "roles": []string{"system-admin"}}}, oidc)
-	// Registered after the engine, so it runs before the engine's cleanup re-checks the chain with sso.login off.
-	t.Cleanup(func() {
-		commonconfig.SetValue("sso.login.enable", "")
-		commonconfig.SetValue("sso.login.client_id", "")
-	})
-	body := `{"type":"sso","code":"c","codeVerifier":"` + strings.Repeat("v", 43) + `"}`
-	w := guardRequest{method: http.MethodPost, path: "/api/v1/login", body: body}.serve(e)
-	require.NotEqual(t, http.StatusForbidden, w.Code, w.Body.String())
-	assert.NotContains(t, w.Body.String(), refusal)
-	assert.Empty(t, w.Header().Values("Set-Cookie"))
+// The login handler refuses external mode itself, whichever route reaches it.
+func TestLoginHandlerRefusesExternalMode(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	viper.Set("auth.mode", "external")
+	t.Cleanup(func() { viper.Set("auth.mode", nil) })
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/", strings.NewReader(loginBody("default", localName, localPassword)))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	result, err := (&Handler{}).login(c)
+	require.Error(t, err)
+	assert.True(t, commonerrors.IsForbidden(err), err.Error())
+	assert.Nil(t, result)
+	assert.Equal(t, "login-failed:"+localName, c.GetString(common.UserId))
+	assert.Equal(t, localName, c.GetString(common.UserName))
+	assert.Equal(t, "default", c.GetString(common.UserType))
+}
+
+// Builtin mode still signs a local account in, and the console's form sign-in gets its cookies.
+func TestBuiltinModeSignsInLocalAccount(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	viper.Set("auth.mode", "builtin")
+	t.Cleanup(func() { viper.Set("auth.mode", nil) })
+	commonconfig.SetValue("crypto.enable", "false")
+	t.Cleanup(func() { commonconfig.SetValue("crypto.enable", "") })
+	e := gin.New()
+	InitCustomRouters(e, &Handler{Client: sharedGuardCluster(t)})
+	form := url.Values{"type": {"default"}, "name": {localName}, "password": {localPassword}}.Encode()
+
+	w := guardRequest{method: http.MethodPost, path: "/api/v1/login", contentType: ContentTypeForm, body: form}.serve(e)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.NotEmpty(t, w.Header().Values("Set-Cookie"), "the console sign-in sets its cookies")
+
+	w = guardRequest{method: http.MethodPost, path: "/api/v1/login", body: loginBody("default", localName, localPassword)}.serve(e)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.Empty(t, w.Header().Values("Set-Cookie"), "an API sign-in sets none")
+	assert.Contains(t, w.Body.String(), `"token"`)
 }
 
 func TestBuiltinModeServesAccountRoutes(t *testing.T) {
@@ -447,29 +443,22 @@ func TestBuiltinModeServesAccountRoutes(t *testing.T) {
 	}
 	t.Cleanup(func() { viper.Set("auth.mode", nil) })
 
+	require.NotEqual(t, http.StatusNotFound, serve("builtin", http.MethodPost, "/api/v1/login", `{}`))
 	require.NotEqual(t, http.StatusNotFound, serve("builtin", http.MethodPost, "/api/v1/users", `{}`))
 	require.NotEqual(t, http.StatusNotFound, serve("builtin", http.MethodDelete, "/api/v1/users/u1", ""))
 	require.NotEqual(t, http.StatusNotFound, serve("builtin", http.MethodPatch, "/api/v1/users/u1", `{}`))
 
+	require.Equal(t, http.StatusNotFound, serve("external", http.MethodPost, "/api/v1/login", `{}`))
 	require.Equal(t, http.StatusNotFound, serve("external", http.MethodPost, "/api/v1/users", `{}`))
 	require.Equal(t, http.StatusNotFound, serve("external", http.MethodDelete, "/api/v1/users/u1", ""))
 	require.NotEqual(t, http.StatusNotFound, serve("external", http.MethodPatch, "/api/v1/users/u1", `{}`))
 }
 
-func TestExternalModeRefusesLoginWhateverTheChain(t *testing.T) {
-	e := guardEngine(t, false)
-	for _, body := range []string{loginBody("default", localName, localPassword), loginBody("sso", "x", "")} {
-		w := guardRequest{method: http.MethodPost, path: "/api/v1/login", body: body}.serve(e)
-		require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
-		assert.Contains(t, w.Body.String(), refusal)
-		assert.NotContains(t, w.Body.String(), `"token"`)
-	}
-}
-
-// Authentication is always external, including when auth.mode is unset. Registration is not
-// served here. Local sign-in, password changes and platform-role grants are refused.
+// With auth.mode external, registration and local sign-in are not served here. Password changes and
+// platform-role grants are refused.
 func TestBuiltinModeKeepsAccountEndpoints(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	viper.Set("auth.mode", "external")
 	cli := sharedGuardCluster(t)
 	commonconfig.SetValue("crypto.enable", "false")
 	t.Cleanup(func() { commonconfig.SetValue("crypto.enable", "") })
@@ -487,8 +476,7 @@ func TestBuiltinModeKeepsAccountEndpoints(t *testing.T) {
 
 	t.Run("a local account cannot sign in here", func(t *testing.T) {
 		w := guardRequest{method: http.MethodPost, path: "/api/v1/login", body: loginBody("default", localName, localPassword)}.serve(e)
-		require.Equal(t, http.StatusForbidden, w.Code, w.Body.String())
-		assert.Contains(t, w.Body.String(), refusal)
+		require.Equal(t, http.StatusNotFound, w.Code, w.Body.String())
 		assert.NotContains(t, w.Body.String(), `"token"`)
 	})
 

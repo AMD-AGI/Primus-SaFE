@@ -55,6 +55,7 @@ type GetEnvResponse struct {
 	// console then signs in only with PKCE.
 	SSOPkce bool `json:"ssoPkce,omitempty"`
 	// Origins (optionally with a path prefix) other than the web console itself that may receive an SSO code.
+	// Empty when AuthMode is external.
 	SSOBridgeAllowlist []string `json:"ssoBridgeAllowlist"`
 	// Whether CD deployment requires approval from another user
 	CDRequireApproval bool `json:"cdRequireApproval"`

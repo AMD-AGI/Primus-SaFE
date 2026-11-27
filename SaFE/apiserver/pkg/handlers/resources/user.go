@@ -785,20 +785,14 @@ func (h *Handler) login(c *gin.Context) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	// External mode refuses a password sign-in. An authorization code is exchanged here and the
-	// identity-issued token is kept.
-	ssoOn := commonconfig.IsSSOEnable() || commonconfig.IsSSOLoginEnable()
-	externalCode := commonconfig.GetAuthMode() == commonconfig.AuthModeExternal &&
-		query.Type == v1.SSOUserType && query.Code != "" && query.CodeVerifier != "" &&
-		commonconfig.IsSSOLoginEnable()
-	if !externalCode {
-		if err = refuseExternal("sign-in through this endpoint"); err != nil {
-			c.Set(common.UserId, "login-failed:"+query.Name)
-			c.Set(common.UserName, query.Name)
-			c.Set(common.UserType, string(query.Type))
-			return nil, err
-		}
+	// External mode signs in at the identity provider only.
+	if err = refuseExternal("sign-in through this endpoint"); err != nil {
+		c.Set(common.UserId, "login-failed:"+query.Name)
+		c.Set(common.UserName, query.Name)
+		c.Set(common.UserType, string(query.Type))
+		return nil, err
 	}
+	ssoOn := commonconfig.IsSSOEnable() || commonconfig.IsSSOLoginEnable()
 	var tokenInstance authority.TokenInterface
 	if query.Type == v1.SSOUserType {
 		if !ssoOn {
@@ -819,9 +813,6 @@ func (h *Handler) login(c *gin.Context) (interface{}, error) {
 		Password:     query.Password,
 		ClientIP:     c.ClientIP(),
 	}
-	// External mode: the identity provider's session in this browser is the sign-in (sso_token.go).
-	tokenInput.SessionCookie, _ = c.Cookie(authority.CookieToken)
-	tokenInput.SessionUserType, _ = c.Cookie(common.UserType)
 	user, resp, err := tokenInstance.Login(c.Request.Context(), tokenInput)
 
 	if err != nil {
@@ -845,11 +836,7 @@ func (h *Handler) login(c *gin.Context) (interface{}, error) {
 		Token:            resp.Token,
 		UserResponseItem: h.cvtToUserResponseItem(c.Request.Context(), user),
 	}
-	if commonconfig.GetAuthMode() == commonconfig.AuthModeExternal {
-		// The browser keeps the identity provider's session cookie, which this response must not
-		// replace, and no other credential is handed out.
-		result.Token = ""
-	} else if query.IsFromConsole {
+	if query.IsFromConsole {
 		setCookie(c, result, query.Type)
 	}
 	klog.Infof("user login successfully, userName: %s, userId: %s", result.Name, result.Id)

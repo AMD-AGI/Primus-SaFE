@@ -19,12 +19,8 @@ type TokenInput struct {
 	Code     string
 	// CodeVerifier is the PKCE code verifier of a code asked for at the sso.login provider.
 	CodeVerifier string
-	// SessionCookie and SessionUserType are the request's own Token and userType cookies, and ClientIP
-	// is the caller's address. In external mode the identity provider has already put its own session
-	// in the browser when it hands out the code; the sign-in is accepted only for that session.
-	SessionCookie   string
-	SessionUserType string
-	ClientIP        string
+	// ClientIP is the caller's address.
+	ClientIP string
 }
 
 // TokenResponse represents the response structure for token operations

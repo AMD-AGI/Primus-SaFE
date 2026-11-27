@@ -32,6 +32,30 @@ export const externalLoginUrl = (
 }
 
 /**
+ * The external sign-in URL for a browser that asked for `redirect`, or '' when there is none. When the
+ * sign-in is on this origin, the identity provider is asked to come back to the console's /login with that
+ * redirect, which then goes on as after any sign-in, and to use the deployment's connection.
+ */
+export const externalSignInHref = (
+  envs: Pick<EnvsResp, 'authMode' | 'loginUrl' | 'connection'> | null | undefined,
+  redirect: string,
+  origin: string,
+): string => {
+  const url = externalLoginUrl(envs)
+  if (!url) return ''
+  let u: URL
+  try {
+    u = new URL(url, origin)
+  } catch {
+    return url
+  }
+  if (u.origin !== origin) return url
+  u.searchParams.set('return', `/login?redirect=${encodeURIComponent(redirect)}`)
+  if (envs?.connection) u.searchParams.set('connection', envs.connection)
+  return u.toString()
+}
+
+/**
  * Where the identity provider serves API keys, as a path on this console's origin, or '' when
  * there is none: the mode is not external, or the deployment routes nothing there (the server
  * reports `apiKeysUrl` only then). Only a path counts, so a value that points elsewhere is
