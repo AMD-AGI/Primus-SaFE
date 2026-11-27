@@ -236,10 +236,18 @@ func (h *Handler) listTeamWorkspaces(c *gin.Context) (interface{}, error) {
 	return result, nil
 }
 
-// listTeams implements GET /teams for any signed-in user.
+// listTeams implements GET /teams for any signed-in user who is not restricted.
 func (h *Handler) listTeams(c *gin.Context) (interface{}, error) {
-	if _, err := h.getAndSetUsername(c); err != nil {
+	requestUser, err := h.getAndSetUsername(c)
+	if err != nil {
 		return nil, err
+	}
+	if requestUser == nil {
+		return nil, commonerrors.NewUnauthorized("the request user is unknown")
+	}
+	if requestUser.IsRestricted() {
+		return nil, commonerrors.NewForbidden(
+			fmt.Sprintf("The user is restricted. type: %d", requestUser.Spec.RestrictedType))
 	}
 	result := &view.ListTeamResponse{Items: []view.TeamItem{}}
 	if commonconfig.GetAuthMode() == commonconfig.AuthModeExternal {
