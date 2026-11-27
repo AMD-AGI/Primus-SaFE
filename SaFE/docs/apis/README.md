@@ -13,6 +13,8 @@ Welcome to the Primus-SaFE API documentation. This documentation provides comple
 - [workload.md](./workload.md) - Workload API
 - [cluster.md](./cluster.md) - Cluster API
 - [workspace.md](./workspace.md) - Workspace API
+- [workspace-access-request.md](./workspace-access-request.md) - Workspace Access Request API
+- [team.md](./team.md) - Team API (identity service teams and their workspace bindings)
 
 #### Node Management
 - [node.md](./node.md) - Node API

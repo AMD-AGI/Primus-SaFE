@@ -71,6 +71,8 @@ Create a new workspace in a cluster.
 | imageSecretIds | []string | No | List of image pull secret IDs                                                                                                            |
 | maxRuntime | object   | No | The maximum workload runtime of each scope, Unit: hours                                                                                    |
 | labels     | object   | No  | User-defined labels (key-value pairs). Keys cannot start with "primus-safe"   |
+| teams | []object | No | Teams of the identity service whose members access the workspace, see [Team Bindings](#team-bindings) |
+| accessPolicy | string | No | Whether users may request direct access: `closed` (default) or `approval`, see [Workspace Access Request API](./workspace-access-request.md) |
 
 **Volume Configuration**:
 
@@ -183,6 +185,8 @@ Only fields not already covered by "Create Workspace" are listed below. Other fi
 | creationTime  | string | The workspace creation time                                         |
 | maxRuntime  | Object | The maximum workload runtime of each scope, Unit: hours             |
 | gpuProduct  | string | GPU product for this workspace (e.g. "MI300X", "MI325X"). The default is empty.             |
+| teams       | []object | Team bindings of the workspace, see [Team Bindings](#team-bindings). Omitted when there are none |
+| accessPolicy | string | `closed` or `approval`. Omitted when not set, which means `closed` |
 ---
 
 ### 3. Get Workspace Details
@@ -314,7 +318,9 @@ Update workspace configuration.
   "managers": ["user-001", "user-003"],
   "isDefault": false,
   "imageSecretIds": ["image-secret-001", "image-secret-002"],
-  "maxRuntime": {"Authoring": 168, "Infer": 720}
+  "maxRuntime": {"Authoring": 168, "Infer": 720},
+  "teams": [{"name": "ml-infra", "role": "member"}],
+  "accessPolicy": "approval"
 }
 ```
 
@@ -322,9 +328,12 @@ Update workspace configuration.
 
 All fields are optional, only provided fields will be updated
 
-All parameters have the same meaning as the corresponding parameters in "Create Workspace".
+All parameters have the same meaning as the corresponding parameters in "Create Workspace". `teams` replaces the whole list of team bindings.
 
 **Notes**:
+- `teams` and `accessPolicy` are validated: a team id that is not a DNS-1123 label, a team named twice, a role other than `member` or `manager`, or an access policy other than `closed` or `approval` is rejected with 400.
+- A workspace manager may add and remove `member` team bindings. Adding, removing or changing a `manager` binding, and changing `accessPolicy`, need a system administrator (403 otherwise); sending the current value of `accessPolicy` is accepted. The same rules apply to `teams` and `accessPolicy` in "Create Workspace".
+- A request made with a delegated token that sets `teams` or `accessPolicy` is refused with 403.
 - When an image secret is bound to a workspace (by specifying it in the workspace’s image secrets during update), the secret will also be copied into the workspace’s Kubernetes namespace to ensure image pulls can succeed. Future updates to the bound secret are synchronized accordingly.
 - When you grant a user as a workspace manager, the user will also be granted access to the workspace automatically (manager implies access).
 
@@ -394,6 +403,109 @@ Add or remove nodes from a workspace.
 **Response**: 200 OK with no response body
 
 ---
+
+### 7. Update Workspace Teams
+
+Add and remove team bindings of a workspace incrementally.
+
+**Endpoint**: `PUT /api/v1/workspaces/{WorkspaceId}/teams`
+
+**Authentication Required**: Yes
+
+**Request Parameters**:
+
+```json
+{
+  "add": [{"name": "ml-infra", "role": "member"}, {"name": "ml-leads", "role": "manager"}],
+  "remove": ["old-team"]
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| add | []object | No | Bindings to add, each `{name, role}`. A team that is already bound gets the given role. `role` is `member` (default) or `manager` |
+| remove | []string | No | Ids of the teams to unbind |
+
+At least one of `add` and `remove` is required, and a team may be named only once in the request (400 otherwise).
+
+**Permission Requirements**: update right on the workspace (system administrator or workspace manager). Any added, removed or changed `manager` binding needs a system administrator. Not available to delegated tokens.
+
+**Response Example**:
+
+```json
+{
+  "teams": [{"name": "ml-infra", "role": "member"}, {"name": "ml-leads", "role": "manager"}]
+}
+```
+
+`teams` is the full list of bindings after the update, always an array.
+
+---
+
+### 8. List Workspace Members
+
+Get the effective members of a workspace: users with direct access, bound teams and platform groups, each tagged with its source.
+
+**Endpoint**: `GET /api/v1/workspaces/{WorkspaceId}/members`
+
+**Authentication Required**: Yes
+
+**Permission Requirements**: get right on the workspace. Not available to delegated tokens.
+
+**Response Example**:
+
+```json
+{
+  "users": [
+    {"id": "user-001", "name": "zhangsan", "email": "zhangsan@example.com", "role": "manager", "source": "direct"}
+  ],
+  "teams": [
+    {
+      "id": "ml-infra",
+      "displayName": "ML Infra",
+      "role": "member",
+      "memberCount": 12,
+      "managers": [{"id": "user-002", "name": "lisi", "email": "lisi@example.com"}],
+      "source": "team:ml-infra"
+    }
+  ],
+  "groups": [
+    {"name": "team-a-leads", "role": "manager", "source": "group:team-a-leads"}
+  ]
+}
+```
+
+**Field Description**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| users | []object | Users whose record names the workspace, or who manage it through their record or `managers`. `role` is `manager` or `member`; `source` is always `direct`. `preferredName` is present when recorded |
+| teams | []object | Teams bound to the workspace. `role` is the binding role; `source` is `team:<id>`. `displayName`, `memberCount` and `managers` come from the identity service and are omitted when it cannot describe the team. Members of a team are listed by [List Team Members](./team.md#2-list-team-members) |
+| groups | []object | Platform groups whose `auth.group_mappings` entry names the workspace (external mode only). `role` is `manager` when the mapping holds `workspace-admin`, `member` otherwise; `source` is `group:<name>` |
+
+All three fields are always arrays. Team members who never signed in to SaFE are counted in `memberCount` but have no user row.
+
+---
+
+### 9. Workspace Catalog and Access Requests
+
+`GET /api/v1/workspaces/catalog` lists the workspaces whose `accessPolicy` is `approval`. It and the access request routes are described in [Workspace Access Request API](./workspace-access-request.md).
+
+---
+
+## Team Bindings
+
+`teams` binds teams of the identity service to the workspace. Each entry is:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| name | string | Team id in the identity service, a DNS-1123 label |
+| role | string | `member` (default when empty) or `manager` |
+
+- In external mode the members of a bound team access the workspace on every request; a `manager` binding makes every member of the team a manager of the workspace. The access is computed per request from the identity's teams and is never written to the user record, so leaving the team revokes it. See [External Authentication](./external-authentication.md#teams).
+- In builtin mode bindings can be stored but grant nothing.
+- A workspace manager may add and remove `member` bindings; a `manager` binding needs a system administrator. The bindings are changed by "Update Workspace Teams", by `teams` in "Create Workspace" and "Update Workspace", and from the team side by [Bind Team to Workspaces](./team.md#3-bind-team-to-workspaces).
+- When the identity service deletes a team, its bindings are removed from every workspace.
 
 ## Workspace Status
 
