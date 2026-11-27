@@ -383,7 +383,7 @@ func TestRecordedOverlayNeedsExternalModeAndSCIM(t *testing.T) {
 	wsA.Spec.Teams = []v1.WorkspaceTeam{{Name: "t1"}}
 	user := recordedTeamsUser("u1", []string{"t1"}, []string{"g1"})
 	h := newChartTeamsHandler(t, interceptor.Funcs{}, wsA, genWorkspaceFixture("ws-g", "G"), user)
-	setTeamsConfig(t, "auth.group_mappings", []map[string]any{{"group": "g1", "workspaces": []string{"ws-g"}}})
+	useExternalAuth(t, h, []map[string]any{{"group": "g1", "workspaces": []string{"ws-g"}}})
 	for _, tc := range []struct {
 		mode string
 		scim bool

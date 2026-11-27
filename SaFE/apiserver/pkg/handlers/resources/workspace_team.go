@@ -618,27 +618,16 @@ func recordedIdentityInUse() bool {
 	return commonconfig.GetAuthMode() == commonconfig.AuthModeExternal && commonconfig.IsSCIMEnabled()
 }
 
-// recordedOverlay builds the overlay of a user from what the identity service pushed to the user
-// record: the platform groups, mapped as the request overlay maps them, and the teams. It is empty
-// unless recordedIdentityInUse.
+// recordedOverlay returns the overlay authority.WithRecordedGroups builds for a user from what the
+// identity service pushed to the user record: the platform groups, mapped as the request overlay
+// maps them, and the workspaces of the teams. It is empty unless recordedIdentityInUse.
 func (h *Handler) recordedOverlay(ctx context.Context, user *v1.User) *extauth.Overlay {
-	if !recordedIdentityInUse() {
-		return extauth.MapGroups(user.Name, nil, nil, false)
-	}
-	mappings, err := commonconfig.GetAuthGroupMappings()
-	if err != nil {
-		klog.ErrorS(err, "failed to read the auth group mappings")
-	}
-	overlay := extauth.MapGroups(user.Name, identity.RecordedGroups(user), mappings, false)
-	extauth.AddTeams(overlay, identity.RecordedTeams(user), func(team string) map[string]v1.WorkspaceTeamRole {
-		bound, err := commonworkspace.TeamWorkspaces(ctx, h.Client, team)
-		if err != nil {
-			commonworkspace.LogTeamLookupError(err, team)
-			return nil
+	if recordedIdentityInUse() {
+		if overlay := extauth.RequestOverlay(authority.WithRecordedGroups(ctx, user), user); overlay != nil {
+			return overlay
 		}
-		return bound
-	})
-	return overlay
+	}
+	return extauth.MapGroups(user.Name, nil, nil, false)
 }
 
 // recordedUser returns the user as its recorded identity makes it, with recordedOverlay applied as
