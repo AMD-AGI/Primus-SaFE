@@ -586,7 +586,7 @@ func (h *Handler) accessRequestItems(ctx context.Context, reqs []*dbclient.Works
 
 // approverEmails returns the e-mail addresses the new request of the workspace is sent to: the direct
 // managers (Spec.Managers and the users whose managed workspaces name it). Without any, it returns those
-// of the system administrators.
+// of the system administrators (isEffectiveSystemAdmin), and logs when there are none either.
 func (h *Handler) approverEmails(ctx context.Context, workspace *v1.Workspace) []string {
 	userList := &v1.UserList{}
 	if err := h.List(ctx, userList); err != nil {
@@ -602,11 +602,25 @@ func (h *Handler) approverEmails(ctx context.Context, workspace *v1.Workspace) [
 	}
 	for i := range userList.Items {
 		user := &userList.Items[i]
-		if user.IsSystemAdmin() || v1.IsContainRole(h.recordedOverlay(ctx, user).Roles, v1.SystemAdminRole) {
+		if h.isEffectiveSystemAdmin(ctx, user) {
 			emails = append(emails, v1.GetUserEmail(user))
 		}
 	}
-	return nonEmpty(emails...)
+	if emails = nonEmpty(emails...); len(emails) == 0 {
+		klog.Warningf("no recipient for the access requests of workspace %s: it has no direct manager "+
+			"and no system administrator has an e-mail address", workspace.Name)
+	}
+	return emails
+}
+
+// isEffectiveSystemAdmin reports whether the stored user is a system administrator as the apiserver
+// judges one: by the stored roles in builtin mode, and in external mode by the groups and teams SCIM
+// recorded on the user (recordedOverlay), the stored platform roles not counting.
+func (h *Handler) isEffectiveSystemAdmin(ctx context.Context, user *v1.User) bool {
+	if commonconfig.GetAuthMode() != commonconfig.AuthModeExternal {
+		return user.IsSystemAdmin()
+	}
+	return extauth.ApplyOverlay(extauth.WithOverlay(ctx, h.recordedOverlay(ctx, user)), user).IsSystemAdmin()
 }
 
 // notifyAccessRequest submits the notification of the event to the recipients. Failures are only logged.

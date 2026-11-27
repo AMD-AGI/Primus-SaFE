@@ -27,6 +27,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/extauth"
 	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/handlers/resources/view"
+	"github.com/AMD-AIG-AIMA/SAFE/apiserver/pkg/identity"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	dbmodel "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
@@ -733,4 +734,32 @@ func TestApprovalGrantsTheDefaultRoleWithTheMinimalBaseRole(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []v1.UserRole{v1.SelfReadRole, v1.DefaultRole}, external.Spec.Roles)
 	require.True(t, commonuser.HasWorkspaceRight(external, "ws-open"))
+}
+
+// adminMappings are group mappings in which platform-admins grants system-admin and ws-other-leads manages ws-other.
+var adminMappings = []map[string]any{
+	{"group": "platform-admins", "roles": []string{"system-admin"}},
+	{"group": "ws-other-leads", "roles": []string{"workspace-admin"}, "workspaces": []string{"ws-other"}},
+}
+
+// In external mode a request for a workspace without managers is sent to the system administrators the
+// recorded groups make, not to a user whose record alone stores the role; with SCIM off nobody is one.
+func TestAccessRequestFallbackRecipientsAreTheEffectiveAdmins(t *testing.T) {
+	recorded := withEmail(genUserFixture("realadmin", []v1.UserRole{v1.DefaultRole}, nil, nil))
+	identity.RecordGroups(recorded, []string{"platform-admins"})
+	f := newAccessRequestFixture(t, recorded)
+	viper.Set("auth.group_mappings", adminMappings)
+	useRecordedIdentity(t, "external", true)
+
+	require.Equal(t, http.StatusCreated, f.create("alice", "ws-other").Code)
+	require.Equal(t, []string{"realadmin@example.com"}, f.db.recipients("created"))
+
+	useRecordedIdentity(t, "external", false)
+	require.Equal(t, http.StatusCreated, f.create("bob", "ws-other").Code)
+	require.Equal(t, []string{"realadmin@example.com"}, f.db.recipients("created"), "nobody else is mailed")
+
+	useRecordedIdentity(t, "builtin", true)
+	require.Equal(t, http.StatusCreated, f.create("member", "ws-other").Code)
+	require.Equal(t, []string{"realadmin@example.com", "admin@example.com"}, f.db.recipients("created"),
+		"in builtin mode the stored role counts")
 }
