@@ -29,6 +29,7 @@ import (
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
 	"github.com/AMD-AIG-AIMA/SAFE/apis/pkg/client/clientset/versioned/scheme"
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
+	commons3 "github.com/AMD-AIG-AIMA/SAFE/common/pkg/s3"
 )
 
 // newMockModelReconciler creates a mock ModelReconciler for testing
@@ -1136,6 +1137,64 @@ func TestConstructCleanupJobFull(t *testing.T) {
 	job, err := r.constructCleanupJob(model)
 	testifyassert.NoError(t, err)
 	testifyassert.NotNil(t, job)
+}
+
+// The jobs that copy to and from the platform's S3 with the AWS CLI verify the endpoint's certificate: as usual by
+// default, also against the CA bundle of the S3 secret when it has one, and not at all only when the secret says so.
+func TestS3JobsVerifyTheEndpointCertificate(t *testing.T) {
+	patchS3Config(t)
+	secretDir := commonconfigS3SecretPath(t)
+	model := genMockModel("m1", v1.AccessModeLocal, "ws1")
+	model.Spec.Source.URL = "hf://org/repo"
+	r := newMockModelReconciler(fake.NewClientBuilder().WithScheme(scheme.Scheme).Build())
+	jobs := func() (download, cleanup corev1.Container) {
+		d, err := r.constructDownloadJob(model)
+		testifyassert.NoError(t, err)
+		c, err := r.constructCleanupJob(model)
+		testifyassert.NoError(t, err)
+		return d.Spec.Template.Spec.Containers[0], c.Spec.Template.Spec.Containers[0]
+	}
+	script := func(c corev1.Container) string { return c.Command[len(c.Command)-1] }
+	caBundle := func(c corev1.Container) (string, bool) {
+		for _, e := range c.Env {
+			if e.Name == commons3.AWSCLICABundleEnv {
+				return e.Value, true
+			}
+		}
+		return "", false
+	}
+
+	download, cleanup := jobs()
+	for _, c := range []corev1.Container{download, cleanup} {
+		testifyassert.Contains(t, script(c), commons3.AWSCLITLSSetup)
+		testifyassert.NotContains(t, script(c), "--no-verify-ssl")
+		_, ok := caBundle(c)
+		testifyassert.False(t, ok, "no CA bundle without one in the secret")
+	}
+	testifyassert.Contains(t, script(download), "aws s3 sync /tmp/model ")
+	testifyassert.Contains(t, script(cleanup), `aws s3 rm "$S3_PATH" --recursive`)
+
+	testifyassert.NoError(t, os.WriteFile(filepath.Join(secretDir, "ca_bundle"), []byte("PEM\n"), 0o600))
+	download, cleanup = jobs()
+	for _, c := range []corev1.Container{download, cleanup} {
+		bundle, ok := caBundle(c)
+		testifyassert.True(t, ok)
+		testifyassert.Equal(t, "PEM", bundle)
+		testifyassert.NotContains(t, script(c), "--no-verify-ssl", "a CA bundle keeps the verification on")
+	}
+
+	testifyassert.NoError(t, os.WriteFile(filepath.Join(secretDir, "insecure_skip_verify"), []byte("true"), 0o600))
+	download, cleanup = jobs()
+	testifyassert.Contains(t, script(download), "aws --no-verify-ssl s3 sync /tmp/model ")
+	testifyassert.Contains(t, script(cleanup), `aws --no-verify-ssl s3 rm "$S3_PATH" --recursive`)
+}
+
+// commonconfigS3SecretPath returns the directory patchS3Config made the S3 secret path.
+func commonconfigS3SecretPath(t *testing.T) string {
+	t.Helper()
+	dir := viper.GetString("s3.secret_path")
+	testifyassert.NotEmpty(t, dir)
+	return dir
 }
 
 func TestConstructLocalDownloadOpsJob(t *testing.T) {

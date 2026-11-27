@@ -6,6 +6,8 @@
 package model_handlers
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -14,11 +16,14 @@ import (
 	testifyassert "github.com/stretchr/testify/assert"
 
 	"github.com/lib/pq"
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	mock_client "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
+	commons3 "github.com/AMD-AIG-AIMA/SAFE/common/pkg/s3"
 )
 
 func TestIsValidDatasetType(t *testing.T) {
@@ -377,4 +382,32 @@ func TestDeleteDatasetHandlerBadID(t *testing.T) {
 	h := &Handler{}
 	_, err := h.deleteDataset(modelGinCtx(t, nil, ""))
 	testifyassert.Error(t, err)
+}
+
+// The job that imports a HuggingFace dataset copies it to the platform's S3 with the AWS CLI, which verifies the
+// endpoint's certificate: as usual by default, also against the CA bundle of the S3 secret when it has one, and not
+// at all only when the secret says so.
+func TestHFDatasetImportVerifiesTheEndpointCertificate(t *testing.T) {
+	dir := t.TempDir()
+	viper.Set("s3.secret_path", dir)
+	t.Cleanup(func() { viper.Set("s3.secret_path", nil) })
+
+	script := hfDatasetImportScript("org/data", "s3://bucket/datasets/d1", "https://s3.example")
+	assert.Contains(t, script, commons3.AWSCLITLSSetup)
+	assert.Contains(t, script, "huggingface-cli download org/data --repo-type dataset")
+	assert.Contains(t, script,
+		`aws s3 cp /tmp/dataset s3://bucket/datasets/d1 --recursive --endpoint-url https://s3.example`)
+	assert.Empty(t, hfDatasetImportTLSEnv())
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ca_bundle"), []byte("PEM\n"), 0o600))
+	envs := hfDatasetImportTLSEnv()
+	require.Len(t, envs, 1)
+	assert.Equal(t, commons3.AWSCLICABundleEnv, envs[0].Name)
+	assert.Equal(t, "PEM", envs[0].Value)
+	assert.NotContains(t, hfDatasetImportScript("org/data", "s3://b/d", "https://s3.example"), "--no-verify-ssl",
+		"a CA bundle keeps the verification on")
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "insecure_skip_verify"), []byte("true"), 0o600))
+	assert.Contains(t, hfDatasetImportScript("org/data", "s3://b/d", "https://s3.example"),
+		"aws --no-verify-ssl s3 cp /tmp/dataset s3://b/d")
 }

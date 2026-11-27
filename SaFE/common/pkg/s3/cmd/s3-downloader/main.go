@@ -57,8 +57,13 @@ func run() error {
 
 	fmt.Println("Credentials loaded successfully")
 
+	tlsOpts := tlsOptionsFromSecret(secretPath)
+	if tlsOpts.InsecureSkipVerify {
+		fmt.Println("WARNING: the secret turns the verification of the endpoint's certificate off")
+	}
+
 	// Create S3 config
-	config, loc, err := s3.NewConfigFromCredentials(accessKey, secretKey, inputURL)
+	config, loc, err := s3.NewConfigFromCredentials(accessKey, secretKey, inputURL, tlsOpts)
 	if err != nil {
 		return fmt.Errorf("[ERROR] failed to create S3 config: %w", err)
 	}
@@ -138,6 +143,25 @@ func getDirSize(path string) (int64, int, error) {
 }
 
 // readSecretFile reads a secret file from the SECRET_PATH directory
+// tlsOptionsFromSecret reads how the endpoint's certificate is verified from the optional items of the secret: with
+// the authorities of ca_bundle in addition to the image's, or not at all with insecure_skip_verify. A secret
+// without either, such as one made from a user's own keys, has the certificate verified as usual.
+func tlsOptionsFromSecret(secretPath string) s3.TLSOptions {
+	return s3.TLSOptions{
+		CABundle:           readOptionalSecretFile(secretPath, "ca_bundle"),
+		InsecureSkipVerify: strings.EqualFold(readOptionalSecretFile(secretPath, "insecure_skip_verify"), "true"),
+	}
+}
+
+// readOptionalSecretFile returns the trimmed content of an item the secret may leave out, empty when it does.
+func readOptionalSecretFile(secretPath, filename string) string {
+	data, err := os.ReadFile(filepath.Join(secretPath, filename))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
 func readSecretFile(secretPath, filename string) (string, error) {
 	filePath := filepath.Join(secretPath, filename)
 	data, err := os.ReadFile(filePath)

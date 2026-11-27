@@ -25,7 +25,8 @@ RUN GOOS=linux GOARCH=amd64  go build -o dist/apiserver ./apiserver/cmd/main.go
 FROM  ${REGISTRY}/library/ubuntu:22.04
 ARG APP_HOME=/opt/primus-safe/apiserver
 RUN apt-get update
-RUN apt-get install -y sed
+# ca-certificates: without the system's certificate authorities no HTTPS endpoint, such as S3, can be verified.
+RUN apt-get install -y sed ca-certificates
 COPY --from=builder /workspace/primus-safe/dist ${APP_HOME}
 COPY ./SaFE/apiserver/installer/run.sh  ${APP_HOME}
 

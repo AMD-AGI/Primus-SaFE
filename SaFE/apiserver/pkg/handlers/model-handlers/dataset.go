@@ -31,6 +31,7 @@ import (
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	commonerrors "github.com/AMD-AIG-AIMA/SAFE/common/pkg/errors"
+	commons3 "github.com/AMD-AIG-AIMA/SAFE/common/pkg/s3"
 	commonutils "github.com/AMD-AIG-AIMA/SAFE/common/pkg/utils"
 	commonworkspace "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workspace"
 )
@@ -776,6 +777,32 @@ func (h *Handler) importDatasetFromHF(c *gin.Context) (interface{}, error) {
 	return convertToDatasetResponse(dataset), nil
 }
 
+// hfDatasetImportScript is the script of the job that downloads a HuggingFace dataset and copies it to the
+// platform's S3. The copy verifies the endpoint's certificate, also against the CA bundle of the S3 secret, unless
+// the secret turns the verification off.
+func hfDatasetImportScript(repoID, s3Path, s3Endpoint string) string {
+	return fmt.Sprintf(`
+		set -e
+		%s
+		echo "Downloading dataset from HuggingFace: %s"
+		mkdir -p /tmp/dataset
+		huggingface-cli download %s --repo-type dataset --local-dir /tmp/dataset || exit 1
+		echo "Uploading dataset to S3: %s"
+		%s s3 cp /tmp/dataset %s --recursive --endpoint-url %s --exclude ".cache/*" || exit 1
+		echo "Dataset download completed successfully"
+	`, commons3.AWSCLITLSSetup, repoID, repoID, s3Path, commons3.AWSCLICommand(), s3Path, s3Endpoint)
+}
+
+// hfDatasetImportTLSEnv returns the variables with which the import job's AWS CLI verifies the certificate of the
+// platform's S3 endpoint: the CA bundle of the S3 secret, when it has one.
+func hfDatasetImportTLSEnv() []corev1.EnvVar {
+	var envs []corev1.EnvVar
+	for name, value := range commons3.AWSCLIEnv() {
+		envs = append(envs, corev1.EnvVar{Name: name, Value: value})
+	}
+	return envs
+}
+
 // createHFDatasetDownloadJob creates a K8s Job to download dataset from HuggingFace to S3.
 func (h *Handler) createHFDatasetDownloadJob(ctx context.Context, dataset *dbclient.Dataset, hfToken string) (*batchv1.Job, error) {
 	// Get S3 configuration
@@ -807,16 +834,9 @@ func (h *Handler) createHFDatasetDownloadJob(ctx context.Context, dataset *dbcli
 		corev1.EnvVar{Name: "AWS_DEFAULT_REGION", Value: "us-east-1"},
 		corev1.EnvVar{Name: "S3_ENDPOINT", Value: s3Endpoint},
 	)
+	envs = append(envs, hfDatasetImportTLSEnv()...)
 
-	cmd := []string{"/bin/sh", "-c", fmt.Sprintf(`
-		set -e
-		echo "Downloading dataset from HuggingFace: %s"
-		mkdir -p /tmp/dataset
-		huggingface-cli download %s --repo-type dataset --local-dir /tmp/dataset || exit 1
-		echo "Uploading dataset to S3: %s"
-		aws s3 cp /tmp/dataset %s --recursive --endpoint-url %s --exclude ".cache/*" || exit 1
-		echo "Dataset download completed successfully"
-	`, repoID, repoID, s3Path, s3Path, s3Endpoint)}
+	cmd := []string{"/bin/sh", "-c", hfDatasetImportScript(repoID, s3Path, s3Endpoint)}
 
 	image := commonconfig.GetModelDownloaderImage()
 	jobName := commonutils.GenerateName(fmt.Sprintf("hf-dataset-%s", dataset.DatasetId))

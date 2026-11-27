@@ -484,6 +484,20 @@ func GetS3Endpoint() string {
 	return getFromFile(s3SecretPath, "endpoint")
 }
 
+// GetS3CABundle returns the PEM certificates of the authorities that sign the S3 endpoint's certificate, from the
+// optional ca_bundle item of the S3 secret. They are trusted in addition to the system's authorities, for an
+// endpoint behind a private authority.
+func GetS3CABundle() string {
+	return getFromFile(s3SecretPath, "ca_bundle")
+}
+
+// IsS3InsecureSkipVerify reports whether the S3 secret turns the verification of the endpoint's certificate off,
+// with its optional insecure_skip_verify item set to true. It is meant for an endpoint whose certificate cannot be
+// verified at all; one signed by a private authority is verified with ca_bundle.
+func IsS3InsecureSkipVerify() bool {
+	return strings.EqualFold(getFromFile(s3SecretPath, "insecure_skip_verify"), "true")
+}
+
 // GetS3ExpireDay returns the number of days after which S3 objects expire.
 func GetS3ExpireDay() int32 {
 	resp := getInt(s3ExpireDay, 0)

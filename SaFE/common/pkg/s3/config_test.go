@@ -37,25 +37,25 @@ func TestParseS3PathStyleURL(t *testing.T) {
 }
 
 func TestNewConfigFromCredentials(t *testing.T) {
-	_, err := newConfigFromCredentials("", "sk", "http://e", "b")
+	_, err := newConfigFromCredentials("", "sk", "http://e", "b", TLSOptions{})
 	assert.Error(t, err)
-	_, err = newConfigFromCredentials("ak", "", "http://e", "b")
+	_, err = newConfigFromCredentials("ak", "", "http://e", "b", TLSOptions{})
 	assert.Error(t, err)
-	_, err = newConfigFromCredentials("ak", "sk", "", "b")
+	_, err = newConfigFromCredentials("ak", "sk", "", "b", TLSOptions{})
 	assert.Error(t, err)
-	_, err = newConfigFromCredentials("ak", "sk", "http://e", "")
+	_, err = newConfigFromCredentials("ak", "sk", "http://e", "", TLSOptions{})
 	assert.Error(t, err)
 
-	cfg, err := newConfigFromCredentials("ak", "sk", "http://e", "b")
+	cfg, err := newConfigFromCredentials("ak", "sk", "http://e", "b", TLSOptions{})
 	assert.NoError(t, err)
 	assert.Equal(t, "b", *cfg.Bucket)
 }
 
 func TestNewConfigFromCredentialsURL(t *testing.T) {
-	_, _, err := NewConfigFromCredentials("ak", "sk", "bad-url")
+	_, _, err := NewConfigFromCredentials("ak", "sk", "bad-url", TLSOptions{})
 	assert.Error(t, err)
 
-	cfg, loc, err := NewConfigFromCredentials("ak", "sk", "https://s3.local/bucket/key")
+	cfg, loc, err := NewConfigFromCredentials("ak", "sk", "https://s3.local/bucket/key", TLSOptions{})
 	assert.NoError(t, err)
 	assert.Equal(t, "bucket", loc.Bucket)
 	assert.Equal(t, "bucket", *cfg.Bucket)
