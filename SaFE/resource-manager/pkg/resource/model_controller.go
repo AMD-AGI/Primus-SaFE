@@ -37,6 +37,7 @@ import (
 	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/common"
 	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
+	commons3 "github.com/AMD-AIG-AIMA/SAFE/common/pkg/s3"
 	commonworkspace "github.com/AMD-AIG-AIMA/SAFE/common/pkg/workspace"
 	"github.com/AMD-AIG-AIMA/SAFE/utils/pkg/stringutil"
 )
@@ -1200,6 +1201,16 @@ func hashedJobName(prefix, key string) string {
 	return base + "-" + hex.EncodeToString(sum[:])[:hashLen]
 }
 
+// awsCLIEnvVars returns the variables with which a job's AWS CLI verifies the certificate of the platform's S3
+// endpoint: the CA bundle of the S3 secret, when it has one.
+func awsCLIEnvVars() []corev1.EnvVar {
+	var envs []corev1.EnvVar
+	for name, value := range commons3.AWSCLIEnv() {
+		envs = append(envs, corev1.EnvVar{Name: name, Value: value})
+	}
+	return envs
+}
+
 // constructCleanupJob creates a Job that deletes the S3 copy of a model.
 func (r *ModelReconciler) constructCleanupJob(model *v1.Model) (*batchv1.Job, error) {
 	// Get system S3 configuration
@@ -1258,15 +1269,16 @@ func (r *ModelReconciler) constructCleanupJob(model *v1.Model) (*batchv1.Job, er
 							// A failed removal fails the job, so the model keeps its finalizer.
 							Command: []string{
 								"/bin/sh", "-c",
-								`set -e; echo "Cleaning S3 path: $S3_PATH"; aws s3 rm "$S3_PATH" --recursive --endpoint-url "$S3_ENDPOINT"`,
+								`set -e; ` + commons3.AWSCLITLSSetup + `; echo "Cleaning S3 path: $S3_PATH"; ` +
+									commons3.AWSCLICommand() + ` s3 rm "$S3_PATH" --recursive --endpoint-url "$S3_ENDPOINT"`,
 							},
-							Env: []corev1.EnvVar{
+							Env: append([]corev1.EnvVar{
 								{Name: "S3_PATH", Value: fullS3Path},
 								{Name: "S3_ENDPOINT", Value: s3Endpoint},
 								{Name: "AWS_ACCESS_KEY_ID", Value: s3AccessKey},
 								{Name: "AWS_SECRET_ACCESS_KEY", Value: s3SecretKey},
 								{Name: "AWS_DEFAULT_REGION", Value: "us-east-1"},
-							},
+							}, awsCLIEnvVars()...),
 						},
 					},
 				},
@@ -2722,6 +2734,7 @@ func (r *ModelReconciler) constructDownloadJob(model *v1.Model) (*batchv1.Job, e
 		corev1.EnvVar{Name: "S3_ENDPOINT", Value: s3Endpoint},
 		corev1.EnvVar{Name: "S3_BUCKET", Value: s3Bucket},
 	)
+	envs = append(envs, awsCLIEnvVars()...)
 
 	repoId := extractHFRepoId(model.Spec.Source.URL)
 	s3Path := fmt.Sprintf("s3://%s/%s", s3Bucket, model.GetS3Path())
@@ -2729,13 +2742,14 @@ func (r *ModelReconciler) constructDownloadJob(model *v1.Model) (*batchv1.Job, e
 		"/bin/sh", "-c",
 		fmt.Sprintf(`
 			set -e
+			%s
 			echo "Downloading model from HuggingFace: %s"
 			mkdir -p /tmp/model
 			huggingface-cli download %s --local-dir /tmp/model || exit 1
 			echo "Uploading model to S3: %s"
-			aws s3 sync /tmp/model %s --endpoint-url %s || exit 1
+			%s s3 sync /tmp/model %s --endpoint-url %s || exit 1
 			echo "Model download completed successfully"
-		`, repoId, repoId, s3Path, s3Path, s3Endpoint),
+		`, commons3.AWSCLITLSSetup, repoId, repoId, s3Path, commons3.AWSCLICommand(), s3Path, s3Endpoint),
 	}
 
 	backoffLimit := int32(3)

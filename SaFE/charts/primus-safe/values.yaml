@@ -426,7 +426,9 @@ workspace:
 s3:
   # Enable S3 service access, mainly used for log downloading
   enable: false
-  # Secret containing S3 access key and secret key, bucket and endpoint
+  # Secret containing S3 access key and secret key, bucket and endpoint. The certificate of an HTTPS endpoint
+  # is verified against the system's authorities; the optional key ca_bundle (PEM) adds private authorities,
+  # and the optional key insecure_skip_verify: "true" turns the verification off.
   secret: "primus-safe-s3"
   # Path to mount S3 secret
   secret_path: "/etc/secrets/s3"

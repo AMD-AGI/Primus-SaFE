@@ -178,7 +178,13 @@ The script performs the following steps after configuration:
 
 - Kubernetes Secrets (namespace `primus-safe`):
   - `primus-safe-image`: image pull secret (type `kubernetes.io/dockerconfigjson`)
-  - `primus-safe-s3`: only when S3 is enabled
+  - `primus-safe-s3`: only when S3 is enabled, keys: `endpoint`, `bucket`, `access_key`, `secret_key`. Two
+    optional keys say how an HTTPS endpoint's certificate is verified; add them to the secret when needed:
+    - `ca_bundle`: PEM certificates of the authorities that sign the endpoint's certificate, trusted in addition
+      to the system's. Use it for an endpoint behind a private authority, such as a MinIO behind an ingress
+      with a company CA.
+    - `insecure_skip_verify`: `true` turns the verification off. Use it only for an endpoint whose certificate
+      cannot be verified at all.
   - `primus-safe-sso`: only when SSO is enabled, keys: `id`, `secret`, `endpoint`, `redirect_uri`
 - `.env` file (in `bootstrap/`) with the following keys for future upgrades:
   - `ethernet_nic`, `rdma_nic`, `cluster_scale`, `storage_class`

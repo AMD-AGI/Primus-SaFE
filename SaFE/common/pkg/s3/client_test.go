@@ -18,7 +18,7 @@ import (
 
 func newTestClient(t *testing.T, endpoint string) *Client {
 	t.Helper()
-	cfg, err := newConfigFromCredentials("ak", "sk", endpoint, "bucket")
+	cfg, err := newConfigFromCredentials("ak", "sk", endpoint, "bucket", TLSOptions{})
 	assert.NoError(t, err)
 	s3c := awss3.NewFromConfig(cfg.Config, func(o *awss3.Options) { o.UsePathStyle = true })
 	return &Client{Config: cfg, opt: Option{}, s3Client: s3c}
