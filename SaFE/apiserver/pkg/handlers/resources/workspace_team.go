@@ -266,7 +266,7 @@ func (h *Handler) listTeamWorkspaces(c *gin.Context) (interface{}, error) {
 		if !ok {
 			continue
 		}
-		if h.accessController.Authorize(authority.AccessInput{
+		allowed, err := h.accessController.Allowed(authority.AccessInput{
 			Context:      ctx,
 			Resource:     &workspaces[i],
 			ResourceKind: v1.WorkspaceKind,
@@ -274,7 +274,11 @@ func (h *Handler) listTeamWorkspaces(c *gin.Context) (interface{}, error) {
 			Workspaces:   []string{workspaces[i].Name},
 			User:         requestUser,
 			Roles:        roles,
-		}) != nil {
+		})
+		if err != nil {
+			return nil, err
+		}
+		if !allowed {
 			continue
 		}
 		result.Items = append(result.Items, view.TeamWorkspaceItem{
