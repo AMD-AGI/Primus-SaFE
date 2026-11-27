@@ -396,7 +396,8 @@ func (h *Handler) cancelWorkspaceAccessRequest(c *gin.Context) (interface{}, err
 	return &item, nil
 }
 
-// accessRequestUser returns the request user with the overlay merged in; an unknown user is unauthorized.
+// accessRequestUser returns the request user with the overlay merged in; an unknown user is unauthorized
+// and a restricted one, by the record or by the overlay, is forbidden.
 func (h *Handler) accessRequestUser(c *gin.Context) (*v1.User, error) {
 	user, err := h.getAndSetUsername(c)
 	if err != nil {
@@ -404,6 +405,9 @@ func (h *Handler) accessRequestUser(c *gin.Context) (*v1.User, error) {
 	}
 	if user == nil {
 		return nil, commonerrors.NewUnauthorized("the request user is unknown")
+	}
+	if user.IsRestricted() {
+		return nil, commonerrors.NewForbidden(fmt.Sprintf("The user is restricted. type: %d", user.Spec.RestrictedType))
 	}
 	return user, nil
 }

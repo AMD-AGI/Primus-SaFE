@@ -252,6 +252,18 @@ func (f *accessRequestFixture) call(fn gin.HandlerFunc, method, userId, name, qu
 	return rsp
 }
 
+// callIn runs the handler as call does, on a request whose context is ctx.
+func (f *accessRequestFixture) callIn(ctx context.Context, fn gin.HandlerFunc, method, userId, name, query,
+	body string) *httptest.ResponseRecorder {
+	rsp := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rsp)
+	c.Request = httptest.NewRequest(method, "/?"+query, strings.NewReader(body)).WithContext(ctx)
+	c.Set(common.UserId, userId)
+	c.Set(common.Name, name)
+	fn(c)
+	return rsp
+}
+
 // create submits a request for the workspace as the user.
 func (f *accessRequestFixture) create(userId, workspace string) *httptest.ResponseRecorder {
 	return f.call(f.h.CreateWorkspaceAccessRequest, http.MethodPost, userId, "", "",
@@ -615,4 +627,83 @@ func TestTeamManagerDoesNotDecideAccessRequests(t *testing.T) {
 	var got view.ListWorkspaceAccessRequestResponse
 	require.NoError(t, json.Unmarshal(list.Body.Bytes(), &got))
 	require.Zero(t, got.TotalCount)
+}
+
+// frozenUser returns a user fixture whose record is frozen.
+func frozenUser(id string, workspaces, managed []string) *v1.User {
+	user := withEmail(genUserFixture(id, []v1.UserRole{v1.DefaultRole}, workspaces, managed))
+	user.Spec.RestrictedType = v1.UserFrozen
+	return user
+}
+
+// accessRoutes returns the seven access-request routes and the catalog, each run in ctx as the user on
+// the request id.
+func accessRoutes(f *accessRequestFixture, ctx context.Context, userId, id string) map[string]*httptest.ResponseRecorder {
+	return map[string]*httptest.ResponseRecorder{
+		"catalog": f.callIn(ctx, f.h.ListWorkspaceCatalog, http.MethodGet, userId, "", "", ""),
+		"create": f.callIn(ctx, f.h.CreateWorkspaceAccessRequest, http.MethodPost, userId, "", "",
+			`{"workspace":"ws-other"}`),
+		"list":    f.callIn(ctx, f.h.ListWorkspaceAccessRequests, http.MethodGet, userId, "", "view=approver", ""),
+		"get":     f.callIn(ctx, f.h.GetWorkspaceAccessRequest, http.MethodGet, userId, id, "", ""),
+		"approve": f.callIn(ctx, f.h.ApproveWorkspaceAccessRequest, http.MethodPost, userId, id, "", `{}`),
+		"reject":  f.callIn(ctx, f.h.RejectWorkspaceAccessRequest, http.MethodPost, userId, id, "", `{}`),
+		"cancel":  f.callIn(ctx, f.h.CancelWorkspaceAccessRequest, http.MethodPost, userId, id, "", ""),
+	}
+}
+
+// A user whose record is frozen is refused on every access-request route and the catalog: a frozen manager
+// does not approve, and a frozen requester neither creates a request nor reads the catalog.
+func TestFrozenUserIsRefusedOnAccessRequests(t *testing.T) {
+	f := newAccessRequestFixture(t, frozenUser("fmgr", nil, []string{"ws-open"}), frozenUser("frozen", nil, nil))
+	id := strconv.FormatInt(f.db.put("ws-open", "bob", dbclient.WorkspaceAccessPending), 10)
+
+	for route, rsp := range accessRoutes(f, context.Background(), "fmgr", id) {
+		require.Equal(t, http.StatusForbidden, rsp.Code, "%s: %s", route, rsp.Body.String())
+		require.Contains(t, rsp.Body.String(), "restricted", route)
+	}
+	ownId := strconv.FormatInt(f.db.put("ws-open", "frozen", dbclient.WorkspaceAccessPending), 10)
+	for route, rsp := range accessRoutes(f, context.Background(), "frozen", ownId) {
+		require.Equal(t, http.StatusForbidden, rsp.Code, "%s: %s", route, rsp.Body.String())
+	}
+
+	req, err := f.db.GetWorkspaceAccessRequest(context.Background(), 1)
+	require.NoError(t, err)
+	require.Equal(t, dbclient.WorkspaceAccessPending, req.Status)
+	user := &v1.User{}
+	require.NoError(t, f.h.Get(context.Background(), client.ObjectKey{Name: "bob"}, user))
+	require.False(t, commonuser.HasWorkspaceRight(user, "ws-open"))
+	reqs, err := f.db.ListWorkspaceAccessRequests(context.Background(), dbclient.WorkspaceAccessRequestFilter{UserID: "frozen"})
+	require.NoError(t, err)
+	require.Len(t, reqs, 1, "a frozen requester creates no request")
+	require.Empty(t, f.db.notifications)
+}
+
+// A user the request's identity restricts is refused as a frozen record is: a manager restricted by the
+// overlay does not approve, and a requester restricted by it neither creates a request nor reads the catalog.
+func TestOverlayRestrictedUserIsRefusedOnAccessRequests(t *testing.T) {
+	f := newAccessRequestFixture(t)
+	id := strconv.FormatInt(f.db.put("ws-open", "bob", dbclient.WorkspaceAccessPending), 10)
+	restricted := func(userId string) context.Context {
+		return extauth.WithOverlay(context.Background(), &extauth.Overlay{UserId: userId, Restricted: true})
+	}
+
+	for route, rsp := range accessRoutes(f, restricted("mgr"), "mgr", id) {
+		require.Equal(t, http.StatusForbidden, rsp.Code, "%s: %s", route, rsp.Body.String())
+	}
+	for route, rsp := range accessRoutes(f, restricted("alice"), "alice", id) {
+		require.Equal(t, http.StatusForbidden, rsp.Code, "%s: %s", route, rsp.Body.String())
+	}
+
+	req, err := f.db.GetWorkspaceAccessRequest(context.Background(), 1)
+	require.NoError(t, err)
+	require.Equal(t, dbclient.WorkspaceAccessPending, req.Status)
+	user := &v1.User{}
+	require.NoError(t, f.h.Get(context.Background(), client.ObjectKey{Name: "bob"}, user))
+	require.False(t, commonuser.HasWorkspaceRight(user, "ws-open"))
+	reqs, err := f.db.ListWorkspaceAccessRequests(context.Background(), dbclient.WorkspaceAccessRequestFilter{UserID: "alice"})
+	require.NoError(t, err)
+	require.Empty(t, reqs)
+
+	rsp := f.callIn(context.Background(), f.h.ApproveWorkspaceAccessRequest, http.MethodPost, "mgr", id, "", `{}`)
+	require.Equal(t, http.StatusOK, rsp.Code, "without the restriction the manager approves: %s", rsp.Body.String())
 }
