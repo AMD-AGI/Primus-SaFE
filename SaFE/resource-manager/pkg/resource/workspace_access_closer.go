@@ -23,7 +23,8 @@ import (
 const (
 	// workspaceAccessCloseInterval is how often the pending workspace access requests are checked.
 	workspaceAccessCloseInterval = 24 * time.Hour
-	// workspaceAccessRetryInterval is how soon a run is tried again when the database was not reachable.
+	// workspaceAccessRetryInterval is how soon a run is tried again when the database was not reachable
+	// or the query failed.
 	workspaceAccessRetryInterval = time.Minute
 )
 
@@ -67,7 +68,7 @@ func SetupWorkspaceAccessCloser(mgr manager.Manager, connect func() workspaceAcc
 func (c *WorkspaceAccessCloser) NeedLeaderElection() bool { return true }
 
 // Start closes the expired requests at once and then at every interval until ctx ends. A run without
-// the database is tried again after workspaceAccessRetryInterval.
+// the database, or whose query failed, is tried again after workspaceAccessRetryInterval.
 func (c *WorkspaceAccessCloser) Start(ctx context.Context) error {
 	for {
 		wait := c.interval
@@ -86,7 +87,8 @@ func (c *WorkspaceAccessCloser) Start(ctx context.Context) error {
 
 // closeExpired closes the requests created more than the pending TTL ago and notifies each requester.
 // The close is one conditional update, so a request is closed and notified once even when two runs overlap.
-// It returns false when the database is not reachable.
+// An invalid pending TTL is logged and the default is used. It returns false when the database is not
+// reachable or the query failed.
 func (c *WorkspaceAccessCloser) closeExpired(ctx context.Context) bool {
 	if c.store == nil {
 		if c.store = c.connect(); c.store == nil {
@@ -94,11 +96,16 @@ func (c *WorkspaceAccessCloser) closeExpired(ctx context.Context) bool {
 			return false
 		}
 	}
-	cutoff := c.now().UTC().Add(-commonconfig.GetWorkspaceAccessPendingTTL())
+	ttl, err := commonconfig.GetWorkspaceAccessPendingTTL()
+	if err != nil {
+		klog.ErrorS(err, "[workspace-access-closer] invalid pending TTL")
+	}
+	cutoff := c.now().UTC().Add(-ttl)
 	closed, err := c.store.AutoCloseWorkspaceAccessRequests(ctx, cutoff)
 	if err != nil {
-		klog.ErrorS(err, "[workspace-access-closer] failed to close the expired workspace access requests")
-		return true
+		klog.ErrorS(err, "[workspace-access-closer] failed to close the expired workspace access requests, retrying in "+
+			workspaceAccessRetryInterval.String())
+		return false
 	}
 	if len(closed) > 0 {
 		klog.Infof("[workspace-access-closer] closed %d workspace access requests created before %s",

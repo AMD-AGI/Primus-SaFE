@@ -7,6 +7,7 @@ package resource
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1 "github.com/AMD-AIG-AIMA/SAFE/apis/pkg/apis/amd/v1"
+	commonconfig "github.com/AMD-AIG-AIMA/SAFE/common/pkg/config"
 	dbclient "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client"
 	dbmodel "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
 )
@@ -26,12 +28,18 @@ type fakeAccessStore struct {
 	pending       []*dbclient.WorkspaceAccessRequest
 	cutoffs       []time.Time
 	notifications []*dbmodel.Notification
+	// failures is the number of close calls that fail before one succeeds.
+	failures int
 }
 
 // AutoCloseWorkspaceAccessRequests returns the pending requests created before the cutoff and drops them.
 func (s *fakeAccessStore) AutoCloseWorkspaceAccessRequests(_ context.Context,
 	before time.Time) ([]*dbclient.WorkspaceAccessRequest, error) {
 	s.cutoffs = append(s.cutoffs, before)
+	if s.failures > 0 {
+		s.failures--
+		return nil, errors.New("query failed")
+	}
 	var closed, kept []*dbclient.WorkspaceAccessRequest
 	for _, req := range s.pending {
 		if req.CreatedAt.Before(before) {
@@ -97,4 +105,38 @@ func TestWorkspaceAccessCloserWithoutDatabase(t *testing.T) {
 	}
 	require.False(t, c.closeExpired(context.Background()))
 	require.True(t, c.NeedLeaderElection())
+}
+
+// A run whose query fails reports that it must be tried again, and the next run closes the requests.
+func TestWorkspaceAccessCloserRetriesAFailedQuery(t *testing.T) {
+	t.Cleanup(viper.Reset)
+	now := time.Date(2026, 11, 27, 0, 0, 0, 0, time.UTC)
+	store := &fakeAccessStore{failures: 1, pending: []*dbclient.WorkspaceAccessRequest{
+		{ID: 1, Workspace: "ws", UserID: "alice", Status: dbclient.WorkspaceAccessPending, CreatedAt: now.Add(-720 * time.Hour)},
+	}}
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1.AddToScheme(scheme))
+	c := &WorkspaceAccessCloser{
+		Client:  ctrlfake.NewClientBuilder().WithScheme(scheme).Build(),
+		connect: func() workspaceAccessStore { return store },
+		now:     func() time.Time { return now },
+	}
+	require.False(t, c.closeExpired(context.Background()))
+	require.Len(t, store.pending, 1)
+	require.True(t, c.closeExpired(context.Background()))
+	require.Empty(t, store.pending)
+}
+
+// An invalid pending TTL closes the requests by the default TTL.
+func TestWorkspaceAccessCloserWithAnInvalidTTL(t *testing.T) {
+	viper.Set("workspace_access.pending_ttl", "two weeks")
+	t.Cleanup(viper.Reset)
+	now := time.Date(2026, 11, 27, 0, 0, 0, 0, time.UTC)
+	store := &fakeAccessStore{}
+	c := &WorkspaceAccessCloser{
+		connect: func() workspaceAccessStore { return store },
+		now:     func() time.Time { return now },
+	}
+	require.True(t, c.closeExpired(context.Background()))
+	require.Equal(t, []time.Time{now.Add(-commonconfig.DefaultWorkspaceAccessPendingTTL)}, store.cutoffs)
 }

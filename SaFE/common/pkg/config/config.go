@@ -580,14 +580,20 @@ func GetIdentityConsoleURL() string {
 // DefaultWorkspaceAccessPendingTTL is how long a workspace access request stays pending before it is closed.
 const DefaultWorkspaceAccessPendingTTL = 336 * time.Hour
 
-// GetWorkspaceAccessPendingTTL returns workspace_access.pending_ttl, a Go duration. A missing, invalid or
-// non-positive value is DefaultWorkspaceAccessPendingTTL.
-func GetWorkspaceAccessPendingTTL() time.Duration {
-	ttl, err := time.ParseDuration(strings.TrimSpace(getString(workspaceAccessPendingTTL, "")))
-	if err != nil || ttl <= 0 {
-		return DefaultWorkspaceAccessPendingTTL
+// GetWorkspaceAccessPendingTTL returns workspace_access.pending_ttl, a Go duration. A missing value is
+// DefaultWorkspaceAccessPendingTTL; an invalid or non-positive one is DefaultWorkspaceAccessPendingTTL
+// together with an error that names the value.
+func GetWorkspaceAccessPendingTTL() (time.Duration, error) {
+	raw := strings.TrimSpace(getString(workspaceAccessPendingTTL, ""))
+	if raw == "" {
+		return DefaultWorkspaceAccessPendingTTL, nil
 	}
-	return ttl
+	ttl, err := time.ParseDuration(raw)
+	if err != nil || ttl <= 0 {
+		return DefaultWorkspaceAccessPendingTTL, fmt.Errorf("%s %q is not a positive Go duration, using %s",
+			workspaceAccessPendingTTL, raw, DefaultWorkspaceAccessPendingTTL)
+	}
+	return ttl, nil
 }
 
 // GetConsoleOrigin returns the external address of the console, https://<sub_domain>.<domain>, or ""

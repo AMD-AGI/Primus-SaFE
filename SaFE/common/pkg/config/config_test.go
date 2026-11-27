@@ -2205,18 +2205,26 @@ func TestGetIdentityConsoleURL(t *testing.T) {
 	testifyrequire.Equal(t, "", GetIdentityConsoleURL())
 }
 
-// The pending TTL of access requests is the configured positive duration, and the default otherwise.
+// The pending TTL of access requests is the configured positive duration, and the default otherwise; an
+// invalid or non-positive value is reported.
 func TestGetWorkspaceAccessPendingTTL(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
 
-	testifyrequire.Equal(t, DefaultWorkspaceAccessPendingTTL, GetWorkspaceAccessPendingTTL())
+	ttl, err := GetWorkspaceAccessPendingTTL()
+	testifyrequire.NoError(t, err)
+	testifyrequire.Equal(t, DefaultWorkspaceAccessPendingTTL, ttl)
 	viper.Set("workspace_access.pending_ttl", "48h")
-	testifyrequire.Equal(t, 48*time.Hour, GetWorkspaceAccessPendingTTL())
-	viper.Set("workspace_access.pending_ttl", "two weeks")
-	testifyrequire.Equal(t, DefaultWorkspaceAccessPendingTTL, GetWorkspaceAccessPendingTTL())
-	viper.Set("workspace_access.pending_ttl", "-1h")
-	testifyrequire.Equal(t, DefaultWorkspaceAccessPendingTTL, GetWorkspaceAccessPendingTTL())
+	ttl, err = GetWorkspaceAccessPendingTTL()
+	testifyrequire.NoError(t, err)
+	testifyrequire.Equal(t, 48*time.Hour, ttl)
+	for _, bad := range []string{"two weeks", "-1h", "0s"} {
+		viper.Set("workspace_access.pending_ttl", bad)
+		ttl, err = GetWorkspaceAccessPendingTTL()
+		testifyrequire.Error(t, err, bad)
+		testifyrequire.Contains(t, err.Error(), bad)
+		testifyrequire.Equal(t, DefaultWorkspaceAccessPendingTTL, ttl, bad)
+	}
 }
 
 // The console origin is https://<sub_domain>.<domain>, and empty while either is unset.
