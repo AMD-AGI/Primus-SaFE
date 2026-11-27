@@ -1,6 +1,6 @@
 <template>
   <div>
-    <el-text class="block textx-18 font-500" tag="b">Request workspace access</el-text>
+    <el-text class="block textx-18 font-500" tag="b">Workspace access</el-text>
     <el-text type="info" class="block mt-1">
       Joining a team gives access to every workspace bound to it. Request a workspace directly only
       when no team fits.

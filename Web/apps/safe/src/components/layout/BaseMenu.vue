@@ -510,7 +510,7 @@ const canApproveAccess = computed(
   () => isManager.value || (userStore.profile?.managedWorkspaces?.length ?? 0) > 0,
 )
 const accessMenuItems = computed<MenuItem[]>(() => [
-  { index: '/workspace-access', name: 'Request workspace access', elIcon: Tickets },
+  { index: '/workspace-access', name: 'Workspace access', elIcon: Tickets },
   ...(canApproveAccess.value
     ? [{ index: '/workspace-access/approvals', name: 'Pending approvals', elIcon: DocumentChecked }]
     : []),
