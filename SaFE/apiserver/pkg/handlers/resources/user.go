@@ -302,7 +302,7 @@ func (h *Handler) listUser(c *gin.Context) (interface{}, error) {
 	adminView := h.isSystemAdminRequest(c.Request.Context(), requestUser)
 	var boundTeams []string
 	if query.WorkspaceId != "" {
-		boundTeams = h.boundTeamNames(c.Request.Context(), query.WorkspaceId)
+		boundTeams = h.boundTeamNames(c.Request.Context(), requestUser, query.WorkspaceId)
 	}
 	for _, item := range userList.Items {
 		var sources []string
@@ -326,14 +326,26 @@ func (h *Handler) listUser(c *gin.Context) (interface{}, error) {
 	return result, nil
 }
 
-// boundTeamNames returns the names of the teams bound to the workspace, none when it is not found
-// or when the recorded teams of users grant no access (recordedIdentityInUse).
-func (h *Handler) boundTeamNames(ctx context.Context, workspaceId string) []string {
+// boundTeamNames returns the names of the teams bound to the workspace, none when it is not found,
+// when the recorded teams of users grant no access (recordedIdentityInUse), or when the request user
+// may not get the workspace.
+func (h *Handler) boundTeamNames(ctx context.Context, requestUser *v1.User, workspaceId string) []string {
 	if !recordedIdentityInUse() {
 		return nil
 	}
 	workspace := &v1.Workspace{}
 	if err := h.Get(ctx, client.ObjectKey{Name: workspaceId}, workspace); err != nil {
+		return nil
+	}
+	allowed, err := h.accessController.Allowed(authority.AccessInput{
+		Context:      ctx,
+		ResourceKind: v1.WorkspaceKind,
+		Resource:     workspace,
+		Verb:         v1.GetVerb,
+		Workspaces:   []string{workspace.Name},
+		User:         requestUser,
+	})
+	if err != nil || !allowed {
 		return nil
 	}
 	return teamNames(workspace)

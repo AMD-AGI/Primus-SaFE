@@ -401,10 +401,16 @@ func TestRecordedOverlayNeedsExternalModeAndSCIM(t *testing.T) {
 // listUserSources lists the users of the workspace as the administrator and returns the sources by user id.
 func listUserSources(t *testing.T, h *Handler, workspace string) map[string][]string {
 	t.Helper()
+	return listUserSourcesAs(t, h, "admin", workspace)
+}
+
+// listUserSourcesAs lists the users of the workspace as the caller and returns the sources by user id.
+func listUserSourcesAs(t *testing.T, h *Handler, caller, workspace string) map[string][]string {
+	t.Helper()
 	rsp := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rsp)
 	c.Request = httptest.NewRequest(http.MethodGet, "/?workspaceId="+workspace, nil)
-	c.Set(common.UserId, "admin")
+	c.Set(common.UserId, caller)
 	h.ListUser(c)
 	require.Equal(t, http.StatusOK, rsp.Code, rsp.Body.String())
 	var got view.ListUserResponse
@@ -433,6 +439,26 @@ func TestListUserTeamSourcesNeedExternalModeAndSCIM(t *testing.T) {
 	useRecordedIdentity(t, "external", true)
 	require.Equal(t, map[string][]string{"both": {"direct", "team:t1"}, "teamonly": {"team:t1"}},
 		listUserSources(t, h, "ws-a"))
+}
+
+// The team members of a workspace and their team sources are listed only to a caller who may get the
+// workspace; a manager of another workspace sees the direct users alone.
+func TestListUserTeamSourcesNeedTheWorkspace(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	wsA := genWorkspaceFixture("ws-a", "A")
+	wsA.Spec.Teams = []v1.WorkspaceTeam{{Name: "t1"}}
+	both := recordedTeamsUser("both", []string{"t1"}, nil)
+	both.Spec.Resources = map[string][]string{common.UserWorkspaces: {"ws-a"}}
+	h := newChartTeamsHandler(t, interceptor.Funcs{}, wsA, genWorkspaceFixture("ws-b", "B"), both,
+		recordedTeamsUser("teamonly", []string{"t1"}, nil),
+		genUserFixture("member", []v1.UserRole{v1.DefaultRole}, []string{"ws-a"}, nil),
+		genUserFixture("mgrb", []v1.UserRole{v1.DefaultRole}, []string{"ws-b"}, []string{"ws-b"}))
+	useRecordedIdentity(t, "external", true)
+
+	require.Equal(t, map[string][]string{"both": {"direct"}, "member": {"direct"}},
+		listUserSourcesAs(t, h, "mgrb", "ws-a"))
+	require.Equal(t, map[string][]string{"both": {"direct", "team:t1"}, "teamonly": {"team:t1"}, "member": {"direct"}},
+		listUserSourcesAs(t, h, "member", "ws-a"))
 }
 
 // The platform groups of the member view come from the group mappings, which apply in external mode only.
