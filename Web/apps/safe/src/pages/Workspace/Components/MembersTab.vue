@@ -146,7 +146,6 @@
   <TeamBindDialog
     v-model:visible="bindVisible"
     :workspace-id="workspaceId"
-    :is-admin="isAdmin"
     :bound="boundRoles"
     @success="loadMembers"
   />

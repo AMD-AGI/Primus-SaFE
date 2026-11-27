@@ -37,12 +37,6 @@
           </el-text>
         </template>
       </el-form-item>
-      <el-form-item label="Role">
-        <el-radio-group v-model="role">
-          <el-radio-button value="member">Member</el-radio-button>
-          <el-radio-button v-if="isAdmin" value="manager">Manager</el-radio-button>
-        </el-radio-group>
-      </el-form-item>
     </el-form>
     <template #footer>
       <el-button @click="emit('update:visible', false)">Cancel</el-button>
@@ -67,8 +61,6 @@ import { useTeams } from '@/composables/useTeams'
 const props = defineProps<{
   visible: boolean
   workspaceId: string
-  // True for a system administrator, who may bind with the manager role
-  isAdmin: boolean
   // Roles of the teams already bound to the workspace, by team id
   bound: Record<string, WorkspaceTeamRole>
 }>()
@@ -79,7 +71,6 @@ const emit = defineEmits<{
 
 const { teams, loading, loadTeams } = useTeams()
 const teamId = ref('')
-const role = ref<WorkspaceTeamRole>('member')
 const saving = ref(false)
 
 // A team id is a DNS-1123 label.
@@ -87,22 +78,21 @@ const idValid = computed(
   () => /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(teamId.value) && teamId.value.length <= 63,
 )
 
-// A workspace manager may not change a team that is bound with the manager role.
-const isLocked = (id: string) => !props.isAdmin && props.bound[id] === 'manager'
+// A team bound with the manager role is not rebound here, so it keeps its role.
+const isLocked = (id: string) => props.bound[id] === 'manager'
 
 // Resets the form and loads the team list.
 const onOpen = async () => {
   teamId.value = ''
-  role.value = 'member'
   await loadTeams()
 }
 
-// Binds the team, or changes its role when it is already bound.
+// Binds the team with the member role.
 const onSubmit = async () => {
   saving.value = true
   try {
     await updateWorkspaceTeams(props.workspaceId, {
-      add: [{ name: teamId.value, role: role.value }],
+      add: [{ name: teamId.value, role: 'member' }],
     })
     ElMessage.success('Team bound successfully.')
     emit('update:visible', false)
