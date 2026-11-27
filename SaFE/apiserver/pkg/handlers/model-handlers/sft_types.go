@@ -80,12 +80,12 @@ type GetSftConfigQuery struct {
 
 // SftConfigResponse contains frontend-facing defaults and options for the SFT form.
 type SftConfigResponse struct {
-	Supported     bool                    `json:"supported"`
-	Reason        string                  `json:"reason,omitempty"`
-	Model         SftConfigModelInfo      `json:"model"`
-	DatasetFilter SftConfigDatasetFilter  `json:"datasetFilter"`
-	Defaults      *SftConfigDefaults      `json:"defaults,omitempty"`
-	Options       SftConfigOptions        `json:"options"`
+	Supported     bool                   `json:"supported"`
+	Reason        string                 `json:"reason,omitempty"`
+	Model         SftConfigModelInfo     `json:"model"`
+	DatasetFilter SftConfigDatasetFilter `json:"datasetFilter"`
+	Defaults      *SftConfigDefaults     `json:"defaults,omitempty"`
+	Options       SftConfigOptions       `json:"options"`
 }
 
 type SftConfigModelInfo struct {

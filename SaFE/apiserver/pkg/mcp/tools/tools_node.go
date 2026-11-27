@@ -307,10 +307,10 @@ func nodeDrain() *mcpserver.MCPTool {
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"node_id":             prop("string", "Node ID/name"),
-				"force":               prop("boolean", "Whether to force drain, default false"),
-				"ignore_daemonsets":   prop("boolean", "Whether to ignore DaemonSets, default true"),
-				"timeout":             prop("integer", "Timeout in seconds"),
+				"node_id":           prop("string", "Node ID/name"),
+				"force":             prop("boolean", "Whether to force drain, default false"),
+				"ignore_daemonsets": prop("boolean", "Whether to ignore DaemonSets, default true"),
+				"timeout":           prop("integer", "Timeout in seconds"),
 			},
 			"required": []string{"node_id"},
 		},

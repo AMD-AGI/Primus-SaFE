@@ -286,34 +286,34 @@ type ModelLocalPathDB struct {
 
 // Model represents the model entity in database
 type Model struct {
-	ID           string      `gorm:"column:id;primaryKey" json:"id" db:"id"`
-	DisplayName  string      `gorm:"column:display_name" json:"displayName" db:"display_name"`
-	Description  string      `gorm:"column:description" json:"description" db:"description"`
-	Icon         string      `gorm:"column:icon" json:"icon" db:"icon"`
-	Label        string      `gorm:"column:label" json:"label" db:"label"`
-	Tags         string      `gorm:"column:tags" json:"tags" db:"tags"`
-	MaxTokens    int         `gorm:"column:max_tokens" json:"maxTokens" db:"max_tokens"`
-	Version      string      `gorm:"column:version" json:"version" db:"version"`
-	SourceURL    string      `gorm:"column:source_url" json:"sourceURL" db:"source_url"`
-	AccessMode   string      `gorm:"column:access_mode" json:"accessMode" db:"access_mode"`
-	SourceToken  string      `gorm:"column:source_token" json:"sourceToken" db:"source_token"`
-	Phase        string      `gorm:"column:phase" json:"phase" db:"phase"`
-	Message      string      `gorm:"column:message" json:"message" db:"message"`
-	ModelName    string      `gorm:"column:model_name" json:"modelName" db:"model_name"`       // Model identifier for API calls
-	Workspace    string      `gorm:"column:workspace" json:"workspace" db:"workspace"`         // Empty means public (all workspaces)
-	S3Path       string      `gorm:"column:s3_path" json:"s3Path" db:"s3_path"`                // S3 storage path
-	LocalPaths   string      `gorm:"column:local_paths" json:"localPaths" db:"local_paths"`    // JSON array of ModelLocalPathDB
-	Origin       string      `gorm:"column:origin;default:external" json:"origin" db:"origin"` // "external" or "fine_tuned"
-	SftJobId     string      `gorm:"column:sft_job_id" json:"sftJobId" db:"sft_job_id"`        // SFT workload ID (origin=fine_tuned)
+	ID            string      `gorm:"column:id;primaryKey" json:"id" db:"id"`
+	DisplayName   string      `gorm:"column:display_name" json:"displayName" db:"display_name"`
+	Description   string      `gorm:"column:description" json:"description" db:"description"`
+	Icon          string      `gorm:"column:icon" json:"icon" db:"icon"`
+	Label         string      `gorm:"column:label" json:"label" db:"label"`
+	Tags          string      `gorm:"column:tags" json:"tags" db:"tags"`
+	MaxTokens     int         `gorm:"column:max_tokens" json:"maxTokens" db:"max_tokens"`
+	Version       string      `gorm:"column:version" json:"version" db:"version"`
+	SourceURL     string      `gorm:"column:source_url" json:"sourceURL" db:"source_url"`
+	AccessMode    string      `gorm:"column:access_mode" json:"accessMode" db:"access_mode"`
+	SourceToken   string      `gorm:"column:source_token" json:"sourceToken" db:"source_token"`
+	Phase         string      `gorm:"column:phase" json:"phase" db:"phase"`
+	Message       string      `gorm:"column:message" json:"message" db:"message"`
+	ModelName     string      `gorm:"column:model_name" json:"modelName" db:"model_name"`             // Model identifier for API calls
+	Workspace     string      `gorm:"column:workspace" json:"workspace" db:"workspace"`               // Empty means public (all workspaces)
+	S3Path        string      `gorm:"column:s3_path" json:"s3Path" db:"s3_path"`                      // S3 storage path
+	LocalPaths    string      `gorm:"column:local_paths" json:"localPaths" db:"local_paths"`          // JSON array of ModelLocalPathDB
+	Origin        string      `gorm:"column:origin;default:external" json:"origin" db:"origin"`       // "external" or "fine_tuned"
+	SftJobId      string      `gorm:"column:sft_job_id" json:"sftJobId" db:"sft_job_id"`              // SFT workload ID (origin=fine_tuned)
 	BaseModel     string      `gorm:"column:base_model" json:"baseModel" db:"base_model"`             // Base model HF name (origin=fine_tuned)
 	TargetVolume  string      `gorm:"column:target_volume" json:"targetVolume" db:"target_volume"`    // Optional volume (mountPath) selection for download
 	TargetSubpath string      `gorm:"column:target_subpath" json:"targetSubpath" db:"target_subpath"` // Optional sub-directory under volume
-	UserId       string      `gorm:"column:user_id" json:"userId" db:"user_id"`
-	UserName     string      `gorm:"column:user_name" json:"userName" db:"user_name"`
-	CreatedAt    pq.NullTime `gorm:"column:created_at;autoCreateTime" json:"createdAt" db:"created_at"`
-	UpdatedAt    pq.NullTime `gorm:"column:updated_at;autoUpdateTime" json:"updatedAt" db:"updated_at"`
-	DeletionTime pq.NullTime `gorm:"column:deletion_time" json:"deletionTime" db:"deletion_time"`
-	IsDeleted    bool        `gorm:"column:is_deleted" json:"isDeleted" db:"is_deleted"`
+	UserId        string      `gorm:"column:user_id" json:"userId" db:"user_id"`
+	UserName      string      `gorm:"column:user_name" json:"userName" db:"user_name"`
+	CreatedAt     pq.NullTime `gorm:"column:created_at;autoCreateTime" json:"createdAt" db:"created_at"`
+	UpdatedAt     pq.NullTime `gorm:"column:updated_at;autoUpdateTime" json:"updatedAt" db:"updated_at"`
+	DeletionTime  pq.NullTime `gorm:"column:deletion_time" json:"deletionTime" db:"deletion_time"`
+	IsDeleted     bool        `gorm:"column:is_deleted" json:"isDeleted" db:"is_deleted"`
 
 	// PostTrainingRunID is the Post Training run that produced the model; empty for other models. UpsertModel
 	// writes '' for those while rows from before the column stay NULL; GORM reads both as "" and no query

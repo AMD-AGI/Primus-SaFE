@@ -28,15 +28,15 @@ const (
 )
 
 type EmailOutbox struct {
-	ID           int32          `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
-	Source       string         `gorm:"column:source;default:safe" json:"source"`
-	Recipients   StringArray    `gorm:"column:recipients;type:text[]" json:"recipients"`
-	Subject      string         `gorm:"column:subject" json:"subject"`
-	HTMLContent  string         `gorm:"column:html_content" json:"html_content"`
-	Status       string         `gorm:"column:status;default:pending" json:"status"`
-	CreatedAt    time.Time      `gorm:"column:created_at;autoCreateTime" json:"created_at"`
-	SentAt       *time.Time     `gorm:"column:sent_at" json:"sent_at,omitempty"`
-	ErrorMessage *string        `gorm:"column:error_message" json:"error_message,omitempty"`
+	ID           int32       `gorm:"column:id;primaryKey;autoIncrement:true" json:"id"`
+	Source       string      `gorm:"column:source;default:safe" json:"source"`
+	Recipients   StringArray `gorm:"column:recipients;type:text[]" json:"recipients"`
+	Subject      string      `gorm:"column:subject" json:"subject"`
+	HTMLContent  string      `gorm:"column:html_content" json:"html_content"`
+	Status       string      `gorm:"column:status;default:pending" json:"status"`
+	CreatedAt    time.Time   `gorm:"column:created_at;autoCreateTime" json:"created_at"`
+	SentAt       *time.Time  `gorm:"column:sent_at" json:"sent_at,omitempty"`
+	ErrorMessage *string     `gorm:"column:error_message" json:"error_message,omitempty"`
 }
 
 func (*EmailOutbox) TableName() string {

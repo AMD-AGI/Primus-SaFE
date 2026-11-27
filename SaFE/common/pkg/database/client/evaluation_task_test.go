@@ -59,4 +59,3 @@ func TestEvaluationTaskStatus(t *testing.T) {
 	assert.Equal(t, string(EvaluationTaskStatusFailed), "Failed")
 	assert.Equal(t, string(EvaluationTaskStatusCancelled), "Cancelled")
 }
-

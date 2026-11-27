@@ -16,8 +16,8 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
 	mock_client "github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/mock"
+	"github.com/AMD-AIG-AIMA/SAFE/common/pkg/database/client/model"
 )
 
 func progressCtx(t *testing.T, name, body string) (*gin.Context, *httptest.ResponseRecorder) {

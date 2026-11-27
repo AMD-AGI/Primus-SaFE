@@ -15,7 +15,9 @@ import (
 )
 
 type emptyReq struct{}
-type emptyResp struct{ OK bool `json:"ok"` }
+type emptyResp struct {
+	OK bool `json:"ok"`
+}
 
 func makeEndpoint(name, method, path string, mcpOnly, httpOnly bool) *EndpointDef[emptyReq, emptyResp] {
 	return &EndpointDef[emptyReq, emptyResp]{
@@ -187,7 +189,7 @@ func TestRegistry_InitGinRoutes_Methods(t *testing.T) {
 		{"PATCH", "/tm/patch", "PATCH"},
 		{"HEAD", "/tm/head", "HEAD"},
 		{"OPTIONS", "/tm/options", "OPTIONS"},
-		{"Any", "/tm/any", "GET"},      // Any registers all methods; probe with GET
+		{"Any", "/tm/any", "GET"}, // Any registers all methods; probe with GET
 		{"ANY", "/tm/any_upper", "GET"},
 		{"any", "/tm/any_lower", "GET"},
 		{"UNKNOWN", "/tm/unknown", ""}, // no route expected

@@ -63,11 +63,11 @@ type ModelTargetReq struct {
 // S3SourceReq optional credentials to read the source object storage (S3-compatible).
 // Keys in the created Secret: access_key_id, secret_access_key, region, endpoint.
 type S3SourceReq struct {
-	URI                 string `json:"uri"` // required for s3_sync, e.g. s3://my-bucket/prefix
-	AccessKeyID         string `json:"accessKeyId,omitempty"`
-	SecretAccessKey     string `json:"secretAccessKey,omitempty"`
-	Region              string `json:"region,omitempty"`
-	Endpoint            string `json:"endpoint,omitempty"` // optional custom endpoint for source (MinIO, OSS, etc.)
+	URI             string `json:"uri"` // required for s3_sync, e.g. s3://my-bucket/prefix
+	AccessKeyID     string `json:"accessKeyId,omitempty"`
+	SecretAccessKey string `json:"secretAccessKey,omitempty"`
+	Region          string `json:"region,omitempty"`
+	Endpoint        string `json:"endpoint,omitempty"` // optional custom endpoint for source (MinIO, OSS, etc.)
 }
 
 // ModelSourceReq represents the model source configuration.
@@ -211,4 +211,3 @@ type AssociatedWorkload struct {
 	IngressURL  string `json:"ingressUrl,omitempty"`
 	CreatedAt   string `json:"createdAt"`
 }
-

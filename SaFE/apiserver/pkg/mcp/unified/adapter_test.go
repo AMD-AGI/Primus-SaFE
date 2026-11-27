@@ -41,7 +41,9 @@ func TestToMCPTool_Success(t *testing.T) {
 }
 
 func TestToMCPTool_BindError(t *testing.T) {
-	type Req struct{ X int `json:"x"` }
+	type Req struct {
+		X int `json:"x"`
+	}
 	type Resp struct{}
 
 	var calls atomic.Int32
@@ -178,7 +180,9 @@ func TestGetMCPTool_RawMCPHandlerPriority(t *testing.T) {
 
 func TestGetMCPTool_HandlerOnly(t *testing.T) {
 	type Req struct{}
-	type Resp struct{ OK bool `json:"ok"` }
+	type Resp struct {
+		OK bool `json:"ok"`
+	}
 	def := &EndpointDef[Req, Resp]{
 		Name: "only-handler",
 		Handler: func(ctx context.Context, req *Req) (*Resp, error) {
@@ -290,7 +294,9 @@ func TestGetGinHandler_RawHTTPHandlerPriority(t *testing.T) {
 func TestGetGinHandler_HandlerOnly(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	type Req struct{}
-	type Resp struct{ OK bool `json:"ok"` }
+	type Resp struct {
+		OK bool `json:"ok"`
+	}
 	def := &EndpointDef[Req, Resp]{
 		Handler: func(ctx context.Context, req *Req) (*Resp, error) {
 			return &Resp{OK: true}, nil

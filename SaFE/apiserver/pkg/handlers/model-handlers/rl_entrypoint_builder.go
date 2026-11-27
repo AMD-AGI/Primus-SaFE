@@ -58,12 +58,12 @@ const (
 	DefaultRlImageFallback         = "primussafe/verl:0.8.0.dev-fsdp-sglang-rocm700-mi35x"
 	DefaultRlMegatronImageTag      = "proxy/primussafe/verl:0.8.0.dev-megatron-sglang-rocm700-mi35x"
 	DefaultRlMegatronImageFallback = "primussafe/verl:0.8.0.dev-megatron-sglang-rocm700-mi35x"
-	DefaultRlCpu           = "128"
-	DefaultRlMemory        = "2048Gi"
-	DefaultRlSharedMemory  = "1Ti"
-	DefaultRlEphemeral     = "500Gi"
-	DefaultRlGpuCount      = 8
-	DefaultRlNodeCount     = 2
+	DefaultRlCpu                   = "128"
+	DefaultRlMemory                = "2048Gi"
+	DefaultRlSharedMemory          = "1Ti"
+	DefaultRlEphemeral             = "500Gi"
+	DefaultRlGpuCount              = 8
+	DefaultRlNodeCount             = 2
 )
 
 // GetDefaultRlImage returns the default verl FSDP2 training image from the cluster's harbor.

@@ -95,12 +95,12 @@ type GetRlConfigQuery struct {
 
 // RlConfigResponse contains frontend-facing defaults and options for the RL form.
 type RlConfigResponse struct {
-	Supported     bool                   `json:"supported"`
-	Reason        string                 `json:"reason,omitempty"`
-	Model         RlConfigModelInfo      `json:"model"`
-	DatasetFilter RlConfigDatasetFilter  `json:"datasetFilter"`
-	Defaults      *RlConfigDefaults      `json:"defaults,omitempty"`
-	Options       RlConfigOptions        `json:"options"`
+	Supported     bool                  `json:"supported"`
+	Reason        string                `json:"reason,omitempty"`
+	Model         RlConfigModelInfo     `json:"model"`
+	DatasetFilter RlConfigDatasetFilter `json:"datasetFilter"`
+	Defaults      *RlConfigDefaults     `json:"defaults,omitempty"`
+	Options       RlConfigOptions       `json:"options"`
 }
 
 type RlConfigModelInfo struct {
